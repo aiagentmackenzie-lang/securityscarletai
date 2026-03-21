@@ -1,0 +1,26 @@
+title: Suspicious DNS Query
+description: Detects DNS queries to DGA-like domains or known bad TLDs
+id: scarlet-006
+status: experimental
+author: SecurityScarletAI
+date: 2026/03/21
+logsource:
+    category: network
+    product: osquery
+detection:
+    selection:
+        event_category: "network"
+        event_type: "connection"
+        destination_port: 53
+    filter:
+        destination_ip:
+            - "8.8.8.8"
+            - "8.8.4.4"
+            - "1.1.1.1"
+            - "1.0.0.1"
+    condition: selection and not filter
+timeframe: 1h
+level: low
+tags:
+    - attack.command_and_control
+    - attack.t1071

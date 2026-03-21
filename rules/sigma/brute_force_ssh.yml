@@ -1,0 +1,19 @@
+title: SSH Brute Force Detected
+id: scarlet-001
+status: experimental
+description: Detects multiple failed SSH login attempts from the same source
+author: SecurityScarletAI
+date: 2026/03/21
+logsource:
+    category: authentication
+    product: osquery
+detection:
+    selection:
+        event_type: "start"
+        event_action|contains: "logged_in_users"
+    condition: selection | count(source_ip) by host_name > 5
+timeframe: 5m
+level: high
+tags:
+    - attack.credential_access
+    - attack.t1110

@@ -1,0 +1,21 @@
+title: Suspicious Process from /tmp
+description: Detects processes running from /tmp or /var/tmp (common malware staging)
+id: scarlet-002
+status: experimental
+author: SecurityScarletAI
+date: 2026/03/21
+logsource:
+    category: process
+    product: osquery
+detection:
+    selection:
+        event_category: "process"
+        process_path|startswith:
+            - "/tmp/"
+            - "/var/tmp/"
+    condition: selection
+timeframe: 1h
+level: medium
+tags:
+    - attack.defense_evasion
+    - attack.t1036

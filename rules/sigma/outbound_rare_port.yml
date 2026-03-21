@@ -1,0 +1,29 @@
+title: Outbound Connection to Rare Port
+description: Detects outbound connections to uncommon ports (possible C2)
+id: scarlet-005
+status: experimental
+author: SecurityScarletAI
+date: 2026/03/21
+logsource:
+    category: network
+    product: osquery
+detection:
+    selection:
+        event_category: "network"
+        event_type: "connection"
+        destination_port|endswith:
+            - "23"  # Telnet
+            - "445" # SMB
+            - "3389" # RDP
+            - "4444" # Metasploit default
+            - "5900" # VNC
+            - "6666" # IRC
+            - "6667" # IRC
+            - "8080" # Alt HTTP
+            - "31337" # Back Orifice
+    condition: selection
+timeframe: 1h
+level: medium
+tags:
+    - attack.command_and_control
+    - attack.t1071
