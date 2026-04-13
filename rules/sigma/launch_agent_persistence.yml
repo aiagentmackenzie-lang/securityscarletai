@@ -1,24 +1,17 @@
 title: New Launch Agent Persistence
-description: Detects creation of new LaunchAgents/LaunchDaemons (macOS persistence)
-id: scarlet-004
+id: scarlet-002
 status: experimental
+description: Detects creation of LaunchAgent plist files for persistence
 author: SecurityScarletAI
 date: 2026/03/21
 logsource:
     category: file
-    product: osquery
 detection:
     selection:
-        event_category: "file"
-        event_type: "change"
-        file_path|startswith:
-            - "/Library/LaunchAgents/"
-            - "/Library/LaunchDaemons/"
-            - "/Users/"
-        file_path|endswith: ".plist"
+        event_type: start
+        file_path|contains: LaunchAgents
     condition: selection
-timeframe: 1h
 level: high
 tags:
     - attack.persistence
-    - attack.t1543
+    - attack.t1547

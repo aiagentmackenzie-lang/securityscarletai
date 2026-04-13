@@ -44,6 +44,9 @@ class NormalizedEvent(BaseModel):
     # Raw + enrichment
     raw_data: dict[str, Any]
     enrichment: dict[str, Any] = Field(default_factory=dict)
+    
+    # Severity for alerting
+    severity: Optional[str] = None  # info, low, medium, high, critical
 
     class Config:
         populate_by_name = True

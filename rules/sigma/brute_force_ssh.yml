@@ -6,13 +6,11 @@ author: SecurityScarletAI
 date: 2026/03/21
 logsource:
     category: authentication
-    product: osquery
 detection:
     selection:
-        event_type: "start"
-        event_action|contains: "logged_in_users"
-    condition: selection | count(source_ip) by host_name > 5
-timeframe: 5m
+        event_type: start
+        event_action|contains: failed
+    condition: selection
 level: high
 tags:
     - attack.credential_access

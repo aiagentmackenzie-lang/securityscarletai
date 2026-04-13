@@ -102,7 +102,7 @@ class SigmaParser:
         # Add logsource filter if specified
         filters = []
         if rule.logsource_category:
-            filters.append("event_category = $" + self._add_param(rule.logsource_category))
+            filters.append(f"event_category = ${self._add_param(rule.logsource_category)}")
         
         if filters:
             where_clause = f"({' AND '.join(filters)}) AND ({where_clause})"

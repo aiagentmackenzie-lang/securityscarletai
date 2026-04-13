@@ -21,15 +21,22 @@ router = APIRouter(tags=["ingestion"])
 class IngestEvent(BaseModel):
     """Schema for HTTP-ingested events. Stricter than internal events."""
     timestamp: datetime = Field(alias="@timestamp")
-    host_name: str = Field(max_length=253)  # max DNS hostname length
+    host_name: str = Field(max_length=253)
     source: str = Field(max_length=100)
     event_category: str = Field(max_length=50)
     event_type: str = Field(max_length=50)
+    event_action: str | None = Field(None, max_length=100)
     raw_data: dict = Field(default_factory=dict)
     # Optional fields
     user_name: str | None = Field(None, max_length=256)
     process_name: str | None = Field(None, max_length=256)
-    source_ip: str | None = Field(None, max_length=45)  # max IPv6 length
+    process_pid: int | None = Field(None)
+    source_ip: str | None = Field(None, max_length=45)
+    destination_ip: str | None = Field(None, max_length=45)
+    destination_port: int | None = Field(None)
+    file_path: str | None = Field(None, max_length=1024)
+    file_hash: str | None = Field(None, max_length=128)
+    severity: str | None = Field(None, max_length=20)
 
     @field_validator("host_name")
     @classmethod

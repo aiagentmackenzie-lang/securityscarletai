@@ -68,7 +68,7 @@ async def create_alert(
             description,
             mitre_tactics or [],
             mitre_techniques or [],
-            json.dumps(evidence) if evidence else "[]",
+            json.dumps(evidence, default=str) if evidence else "[]",
             risk_score,
         )
         

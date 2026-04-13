@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field
 from typing import Optional, List
 
-from src.api.auth import verify_jwt
+from src.api.auth import verify_bearer_token
 from src.config.logging import get_logger
 from src.db.connection import get_pool
 from src.detection.sigma import parse_sigma_rule
@@ -42,7 +42,7 @@ class RuleResponse(BaseModel):
 @router.post("", response_model=RuleResponse, status_code=status.HTTP_201_CREATED)
 async def create_rule(
     rule: RuleCreate,
-    user: dict = Depends(verify_jwt),
+    user: str = Depends(verify_bearer_token),
 ):
     """Create a new detection rule."""
     # Validate Sigma YAML
@@ -84,7 +84,7 @@ async def create_rule(
 @router.get("", response_model=List[RuleResponse])
 async def list_rules(
     enabled_only: bool = False,
-    user: dict = Depends(verify_jwt),
+    user: str = Depends(verify_bearer_token),
 ):
     """List all detection rules."""
     pool = await get_pool()
@@ -100,7 +100,7 @@ async def list_rules(
 @router.get("/{rule_id}", response_model=RuleResponse)
 async def get_rule(
     rule_id: int,
-    user: dict = Depends(verify_jwt),
+    user: str = Depends(verify_bearer_token),
 ):
     """Get a specific rule by ID."""
     rule = await get_rule_by_id(rule_id)
@@ -113,7 +113,7 @@ async def get_rule(
 async def update_rule(
     rule_id: int,
     updates: RuleCreate,
-    user: dict = Depends(verify_jwt),
+    user: str = Depends(verify_bearer_token),
 ):
     """Update a detection rule."""
     pool = await get_pool()
@@ -159,7 +159,7 @@ async def update_rule(
 @router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_rule(
     rule_id: int,
-    user: dict = Depends(verify_jwt),
+    user: str = Depends(verify_bearer_token),
 ):
     """Delete a detection rule."""
     pool = await get_pool()

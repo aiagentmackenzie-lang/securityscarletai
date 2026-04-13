@@ -98,7 +98,7 @@ class LogWriter:
                         e.file_path,
                         e.file_hash,
                         json.dumps(e.raw_data),
-                        json.dumps(e.model_dump(exclude={"raw_data", "enrichment"})),
+                        json.dumps(e.model_dump(exclude={"raw_data", "enrichment", "severity"}, mode="json")),
                         json.dumps(e.enrichment),
                         datetime.now(tz=timezone.utc),
                     )

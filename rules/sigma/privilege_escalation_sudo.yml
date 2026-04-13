@@ -1,25 +1,18 @@
 title: Privilege Escalation via Sudo
-description: Detects suspicious sudo commands in shell history
-id: scarlet-003
+id: scarlet-004
 status: experimental
+description: Detects privilege escalation attempts using sudo
 author: SecurityScarletAI
 date: 2026/03/21
 logsource:
-    category: process
-    product: osquery
+    category: authentication
 detection:
     selection:
-        event_category: "process"
-        event_type: "info"
-        source: "osquery:shell_history"
-        raw_data|contains: "sudo"
-    filter:
-        raw_data|contains:
-            - "sudo -l"  # List commands (benign)
-            - "sudo whoami"  # Common test
-    condition: selection and not filter
-timeframe: 1h
+        event_type: start
+        event_action|contains: privilege
+        process_name: sudo
+    condition: selection
 level: medium
 tags:
     - attack.privilege_escalation
-    - attack.t1078
+    - attack.t1548

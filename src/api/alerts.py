@@ -1,3 +1,4 @@
+from datetime import datetime
 """
 Alerts API endpoints.
 
@@ -7,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field
 from typing import Optional, List
 
-from src.api.auth import verify_jwt
+from src.api.auth import verify_bearer_token
 from src.config.logging import get_logger
 from src.db.connection import get_pool
 from src.detection.alerts import update_alert_status, get_alert_stats
@@ -24,7 +25,7 @@ class AlertUpdate(BaseModel):
 
 class AlertResponse(BaseModel):
     id: int
-    time: str
+    time: datetime
     rule_name: str
     severity: str
     status: str
@@ -33,7 +34,7 @@ class AlertResponse(BaseModel):
     assigned_to: Optional[str]
 
 
-@router.get("", response_model=List[AlertResponse])
+@router.get("")
 async def list_alerts(
     status: Optional[str] = None,
     severity: Optional[str] = None,
@@ -41,7 +42,7 @@ async def list_alerts(
     assigned_to: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
-    user: dict = Depends(verify_jwt),
+    user: str = Depends(verify_bearer_token),
 ):
     """List alerts with optional filtering."""
     pool = await get_pool()
@@ -82,7 +83,7 @@ async def list_alerts(
 @router.get("/stats")
 async def alert_statistics(
     time_range: str = "24 hours",
-    user: dict = Depends(verify_jwt),
+    user: str = Depends(verify_bearer_token),
 ):
     """Get alert statistics for dashboard."""
     return await get_alert_stats(time_range)
@@ -91,7 +92,7 @@ async def alert_statistics(
 @router.get("/{alert_id}", response_model=AlertResponse)
 async def get_alert(
     alert_id: int,
-    user: dict = Depends(verify_jwt),
+    user: str = Depends(verify_bearer_token),
 ):
     """Get a specific alert by ID."""
     pool = await get_pool()
@@ -102,17 +103,18 @@ async def get_alert(
         return dict(row)
 
 
-@router.put("/{alert_id}", response_model=AlertResponse)
+@router.put("/{alert_id}")
+@router.patch("/{alert_id}")
 async def update_alert(
     alert_id: int,
     update: AlertUpdate,
-    user: dict = Depends(verify_jwt),
+    user: str = Depends(verify_bearer_token),
 ):
     """Update alert status and assignment."""
     await update_alert_status(
         alert_id=alert_id,
         status=update.status,
-        assigned_to=update.assigned_to or user.get("sub"),
+        assigned_to=update.assigned_to,
         resolution_note=update.resolution_note,
     )
     
@@ -127,7 +129,7 @@ async def update_alert(
 async def link_to_case(
     alert_id: int,
     case_id: int,
-    user: dict = Depends(verify_jwt),
+    user: str = Depends(verify_bearer_token),
 ):
     """Link an alert to a case."""
     pool = await get_pool()
