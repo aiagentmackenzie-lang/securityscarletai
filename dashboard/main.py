@@ -207,7 +207,11 @@ elif page == "Alerts":
                     col1, col2 = st.columns([2, 1])
                     with col1:
                         st.write(f"**Description:** {a.get('description', '')}")
+                        st.write(f"**AI Summary:** {a.get('ai_summary', '⏳ Pending...')}")
                         st.write(f"**Time:** {a.get('time', '')}")
+                        risk = a.get('risk_score')
+                        if risk:
+                            st.progress(min(risk / 100, 1.0), text=f"Risk Score: {risk}/100")
                         st.write(f"**Status:** {a.get('status', 'new')}")
                         if a.get("mitre_tactics"):
                             st.write(f"**MITRE Tactics:** {', '.join(a['mitre_tactics'])}")

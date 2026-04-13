@@ -54,7 +54,7 @@ async def run_rule(rule_id: int) -> None:
                 
                 # Create alerts for each match
                 for row in rows:
-                    await create_alert(
+                    alert_id = await create_alert(
                         rule_id=rule_id,
                         rule_name=rule["name"],
                         severity=rule["severity"],
@@ -65,6 +65,19 @@ async def run_rule(rule_id: int) -> None:
                         evidence=dict(row),
                         risk_score=None,
                     )
+                    
+                    # AI analysis on new alerts
+                    if alert_id:
+                        from src.detection.ai_analyzer import analyze_alert, enrich_alert
+                        analysis = await analyze_alert(
+                            alert_id=alert_id,
+                            rule_name=rule["name"],
+                            severity=rule["severity"],
+                            host_name=row.get("host_name", "unknown"),
+                            evidence=dict(row),
+                        )
+                        if analysis:
+                            await enrich_alert(alert_id, analysis)
                 
                 # Update rule stats
                 await conn.execute(
