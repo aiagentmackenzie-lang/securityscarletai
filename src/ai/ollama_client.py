@@ -5,11 +5,11 @@ If Ollama is down or slow, AI features return a fallback message
 instead of crashing. The SIEM must work without AI — AI is an enhancement,
 not a dependency.
 """
-import httpx
-from typing import Optional
 
-from src.config.settings import settings
+import httpx
+
 from src.config.logging import get_logger
+from src.config.settings import settings
 
 log = get_logger("ai.ollama")
 

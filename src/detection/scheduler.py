@@ -4,14 +4,14 @@ Detection rule scheduler using APScheduler.
 Replaces Celery+Redis for single-machine deployments.
 Schedules Sigma rules to run at configured intervals.
 """
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from datetime import timedelta
 
 from src.config.logging import get_logger
 from src.db.connection import get_pool
-from src.detection.sigma import SigmaParser, sigma_to_sql
 from src.detection.alerts import create_alert
+from src.detection.sigma import sigma_to_sql
 
 log = get_logger("detection.scheduler")
 
@@ -29,7 +29,7 @@ async def run_rule(rule_id: int) -> None:
     4. Create alerts if matches found
     """
     log.info("running_rule", rule_id=rule_id)
-    
+
     pool = await get_pool()
     async with pool.acquire() as conn:
         # Load rule
@@ -37,21 +37,21 @@ async def run_rule(rule_id: int) -> None:
             "SELECT * FROM rules WHERE id = $1 AND enabled = TRUE",
             rule_id
         )
-        
+
         if not rule:
             log.warning("rule_not_found_or_disabled", rule_id=rule_id)
             return
-        
+
         try:
             # Parse Sigma and generate SQL
             sql, params = sigma_to_sql(rule["sigma_yaml"])
-            
+
             # Execute detection query
             rows = await conn.fetch(sql, *params)
-            
+
             if rows:
                 log.info("rule_matched", rule_id=rule_id, matches=len(rows))
-                
+
                 # Create alerts for each match
                 for row in rows:
                     alert_id = await create_alert(
@@ -65,7 +65,7 @@ async def run_rule(rule_id: int) -> None:
                         evidence=dict(row),
                         risk_score=None,
                     )
-                    
+
                     # AI analysis on new alerts
                     if alert_id:
                         from src.detection.ai_analyzer import analyze_alert, enrich_alert
@@ -78,27 +78,27 @@ async def run_rule(rule_id: int) -> None:
                         )
                         if analysis:
                             await enrich_alert(alert_id, analysis)
-                
+
                 # Update rule stats
                 await conn.execute(
                     "UPDATE rules SET last_match = NOW(), match_count = match_count + $1 WHERE id = $2",
                     len(rows),
                     rule_id,
                 )
-                
+
                 # Update rule stats
                 await conn.execute(
                     "UPDATE rules SET last_match = NOW(), match_count = match_count + $1 WHERE id = $2",
                     len(rows),
                     rule_id
                 )
-            
+
             # Update last_run timestamp
             await conn.execute(
                 "UPDATE rules SET last_run = NOW() WHERE id = $1",
                 rule_id
             )
-            
+
         except Exception as e:
             log.error("rule_execution_failed", rule_id=rule_id, error=str(e))
 
@@ -110,10 +110,10 @@ async def schedule_rules() -> None:
         rules = await conn.fetch(
             "SELECT id, run_interval FROM rules WHERE enabled = TRUE"
         )
-    
+
     for rule in rules:
         interval_seconds = rule["run_interval"].total_seconds()
-        
+
         scheduler.add_job(
             run_rule,
             trigger=IntervalTrigger(seconds=interval_seconds),
@@ -122,7 +122,7 @@ async def schedule_rules() -> None:
             replace_existing=True,
         )
         log.info("scheduled_rule", rule_id=rule["id"], interval=interval_seconds)
-    
+
     scheduler.start()
     log.info("scheduler_started", rules_scheduled=len(rules))
 

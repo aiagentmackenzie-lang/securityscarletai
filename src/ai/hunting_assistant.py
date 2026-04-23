@@ -8,7 +8,7 @@ Suggests threat hunting queries and investigations based on:
 - User behavior deviations
 """
 import json
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 from src.ai.ollama_client import query_llm
 from src.config.logging import get_logger
@@ -59,7 +59,7 @@ Top Hosts by Activity: {', '.join(top_hosts[:5])}
 Top Users: {', '.join(top_users[:5])}
 Recent IOCs: {', '.join(recent_iocs[:10]) if recent_iocs else 'None detected'}
 """
-    
+
     prompt = f"""Based on this security environment, suggest 5 threat hunting queries:
 
 {context}
@@ -76,25 +76,25 @@ For each query, provide:
 - What to search for (in plain English)
 - Why this query matters
 - Suggested SQL or search syntax"""
-    
+
     log.info("generating_hunting_suggestions")
-    
+
     response = await query_llm(
         prompt=prompt,
         system_prompt=HUNTING_SYSTEM_PROMPT,
         temperature=0.3,
         max_tokens=800,
     )
-    
+
     # Parse suggestions (simple structure)
     suggestions = []
     current = {}
-    
+
     for line in response.split('\n'):
         line = line.strip()
         if not line:
             continue
-            
+
         if line[0].isdigit() and '.' in line[:3]:
             if current:
                 suggestions.append(current)
@@ -105,10 +105,10 @@ For each query, provide:
         elif 'sql' in line.lower() or 'select' in line.lower():
             if current:
                 current["sql"] = line
-    
+
     if current:
         suggestions.append(current)
-    
+
     return suggestions if suggestions else [{"name": "Custom Hunting", "description": response}]
 
 
@@ -134,7 +134,7 @@ Results Found: {result_count}
 Sample Results:
 {json.dumps(sample_results[:3], indent=2, default=str)[:500]}
 """
-    
+
     prompt = f"""Analyze these threat hunting results:
 
 {context}
@@ -144,16 +144,16 @@ Provide:
 2. Key observations
 3. Recommended next steps
 4. Whether to create a detection rule from this query"""
-    
+
     log.info("analyzing_hunting_results", query=query_name, count=result_count)
-    
+
     analysis = await query_llm(
         prompt=prompt,
         system_prompt="You are a threat hunter analyzing query results.",
         temperature=0.2,
         max_tokens=400,
     )
-    
+
     return analysis
 
 
@@ -239,7 +239,7 @@ async def suggest_custom_rule_from_hunt(
     """
     if not results:
         return None
-    
+
     context = f"""Successful Hunting Query:
 SQL: {hunt_query[:200]}
 
@@ -247,7 +247,7 @@ Results Sample:
 {json.dumps(results[:2], indent=2, default=str)[:300]}
 
 Suggest a Sigma detection rule YAML that would catch this activity automatically."""
-    
+
     prompt = f"""Convert this hunting query into a Sigma detection rule:
 
 {context}
@@ -259,18 +259,18 @@ Generate a Sigma rule YAML with:
 - detection logic
 - severity
 - tags (MITRE ATT&CK)"""
-    
+
     log.info("generating_rule_from_hunt")
-    
+
     sigma_yaml = await query_llm(
         prompt=prompt,
         system_prompt="You are a detection engineer creating Sigma rules.",
         temperature=0.2,
         max_tokens=500,
     )
-    
+
     # Extract YAML from response
     if 'title:' in sigma_yaml:
         return {"sigma_yaml": sigma_yaml}
-    
+
     return None

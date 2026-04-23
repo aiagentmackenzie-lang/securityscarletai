@@ -3,15 +3,17 @@ Structured logging setup using structlog.
 Every log line is JSON with: timestamp, level, component, message, and context.
 This lets you grep/jq your own SIEM's logs when something breaks.
 """
-import structlog
 import logging
 import sys
+
+import structlog
+
 from src.config.settings import settings
 
 
 def setup_logging() -> None:
     """Call once at startup (main.py, shipper.py, etc.)."""
-    
+
     # Choose renderer based on environment
     if settings.log_format == "json":
         renderer = structlog.processors.JSONRenderer()

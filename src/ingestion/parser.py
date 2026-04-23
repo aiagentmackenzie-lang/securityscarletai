@@ -19,8 +19,8 @@ import socket
 from datetime import datetime, timezone
 from typing import Optional
 
-from src.ingestion.schemas import NormalizedEvent, OSQUERY_ECS_MAP
 from src.config.logging import get_logger
+from src.ingestion.schemas import OSQUERY_ECS_MAP, NormalizedEvent
 
 log = get_logger("ingestion.parser")
 
@@ -39,13 +39,13 @@ def parse_osquery_line(raw_line: str) -> Optional[NormalizedEvent]:
 
     table_name = data.get("name", "")
     ecs_mapping = OSQUERY_ECS_MAP.get(table_name)
-    
+
     if not ecs_mapping:
         log.debug("unmapped_table", table=table_name)
         return None
 
     columns = data.get("columns", {})
-    
+
     # Parse timestamp — osquery provides both calendarTime and unixTime
     try:
         ts = datetime.fromtimestamp(int(data.get("unixTime", 0)), tz=timezone.utc)

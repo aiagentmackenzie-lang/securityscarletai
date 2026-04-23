@@ -7,10 +7,9 @@ Stores a checkpoint (byte offset) so restarts don't re-ingest old data.
 import asyncio
 from pathlib import Path
 
-from src.config.settings import settings
 from src.config.logging import get_logger
-from src.ingestion.parser import parse_osquery_line
 from src.db.writer import LogWriter
+from src.ingestion.parser import parse_osquery_line
 
 log = get_logger("ingestion.shipper")
 

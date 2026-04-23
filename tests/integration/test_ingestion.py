@@ -6,13 +6,12 @@ Run with: poetry run pytest tests/integration/test_ingestion.py -v
 """
 import asyncio
 import json
+
 import pytest
-from datetime import datetime, timezone
 
-from src.ingestion.parser import parse_osquery_line
+from src.db.connection import close_pool, get_pool
 from src.db.writer import LogWriter
-from src.db.connection import get_pool, close_pool
-
+from src.ingestion.parser import parse_osquery_line
 
 SYNTHETIC_EVENT = json.dumps({
     "name": "processes",

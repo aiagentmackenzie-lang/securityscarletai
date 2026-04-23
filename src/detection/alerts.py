@@ -5,8 +5,7 @@ Creates alerts from detection rule matches.
 Handles alert deduplication, severity assignment, and notification triggers.
 """
 import json
-from datetime import datetime
-from typing import Optional, Any
+from typing import Optional
 
 from src.config.logging import get_logger
 from src.db.connection import get_pool
@@ -46,11 +45,11 @@ async def create_alert(
             rule_id,
             host_name,
         )
-        
+
         if existing:
             log.info("duplicate_alert_suppressed", rule_id=rule_id, host_name=host_name)
             return existing["id"]
-        
+
         # Insert new alert
         alert_id = await conn.fetchval(
             """
@@ -71,11 +70,11 @@ async def create_alert(
             json.dumps(evidence, default=str) if evidence else "[]",
             risk_score,
         )
-        
+
         log.info("alert_created", alert_id=alert_id, rule_id=rule_id, host_name=host_name)
-        
+
         # TODO: Trigger notifications (Slack, email) here
-        
+
         return alert_id
 
 
@@ -101,7 +100,7 @@ async def update_alert_status(
             assigned_to,
             alert_id,
         )
-        
+
         log.info("alert_status_updated", alert_id=alert_id, status=status)
 
 
@@ -119,9 +118,9 @@ async def get_alert_stats(time_range: str = "24 hours") -> dict:
                 COUNT(*) FILTER (WHERE severity = 'high') as high_count,
                 COUNT(*) as total_count
             FROM alerts
-            WHERE time > NOW() - INTERVAL $1
+            WHERE time > NOW() - ('' || $1)::interval
             """,
             time_range,
         )
-        
+
         return dict(stats)

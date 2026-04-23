@@ -1,17 +1,19 @@
 from datetime import datetime
+
 """
 Alerts API endpoints.
 
 List, filter, and update alert status.
 """
-from fastapi import APIRouter, HTTPException, Depends, status
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional, List
 
 from src.api.auth import verify_bearer_token
 from src.config.logging import get_logger
 from src.db.connection import get_pool
-from src.detection.alerts import update_alert_status, get_alert_stats
+from src.detection.alerts import get_alert_stats, update_alert_status
 
 router = APIRouter(tags=["alerts"], prefix="/alerts")
 log = get_logger("api.alerts")
@@ -50,7 +52,7 @@ async def list_alerts(
         # Build query dynamically
         conditions = ["1=1"]
         params = []
-        
+
         if status:
             params.append(status)
             conditions.append(f"status = ${len(params)}")
@@ -63,10 +65,10 @@ async def list_alerts(
         if assigned_to:
             params.append(assigned_to)
             conditions.append(f"assigned_to = ${len(params)}")
-        
+
         where_clause = " AND ".join(conditions)
         params.extend([limit, offset])
-        
+
         rows = await conn.fetch(
             f"""
             SELECT * FROM alerts
@@ -76,7 +78,7 @@ async def list_alerts(
             """,
             *params
         )
-        
+
         return [dict(r) for r in rows]
 
 
@@ -117,7 +119,7 @@ async def update_alert(
         assigned_to=update.assigned_to,
         resolution_note=update.resolution_note,
     )
-    
+
     # Return updated alert
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -139,8 +141,8 @@ async def link_to_case(
             case_id,
             alert_id,
         )
-        
+
         log.info("alert_linked_to_case", alert_id=alert_id, case_id=case_id)
-        
+
         row = await conn.fetchrow("SELECT * FROM alerts WHERE id = $1", alert_id)
         return dict(row)

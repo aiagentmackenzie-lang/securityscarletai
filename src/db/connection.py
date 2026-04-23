@@ -3,8 +3,9 @@ Async PostgreSQL connection pool using asyncpg.
 Singleton pool — initialize once at startup, share everywhere.
 """
 import asyncpg
-from src.config.settings import settings
+
 from src.config.logging import get_logger
+from src.config.settings import settings
 
 log = get_logger("db.connection")
 

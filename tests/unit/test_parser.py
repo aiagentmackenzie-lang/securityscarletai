@@ -1,6 +1,6 @@
 import json
-from src.ingestion.parser import parse_osquery_line
 
+from src.ingestion.parser import parse_osquery_line
 
 SAMPLE_PROCESS_LOG = json.dumps({
     "name": "processes",

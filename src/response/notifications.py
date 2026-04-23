@@ -1,11 +1,12 @@
 """
 Notification handlers for Slack and Email alerts.
 """
-import httpx
 from typing import Optional
 
-from src.config.settings import settings
+import httpx
+
 from src.config.logging import get_logger
+from src.config.settings import settings
 
 log = get_logger("response.notifications")
 
@@ -24,16 +25,16 @@ async def send_slack_notification(message: str, channel: Optional[str] = None) -
     if not settings.slack_webhook_url:
         log.warning("slack_not_configured")
         return False
-    
+
     payload = {
         "text": message,
         "username": "SecurityScarletAI",
         "icon_emoji": ":shield:",
     }
-    
+
     if channel:
         payload["channel"] = channel
-    
+
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
@@ -63,7 +64,7 @@ async def send_alert_notification(alert: dict) -> bool:
         "low": "🔵",
         "info": "⚪",
     }.get(alert.get("severity", "").lower(), "⚪")
-    
+
     message = f"""{severity_emoji} *Security Alert: {alert.get('severity', 'UNKNOWN').upper()}*
 
 *Rule:* {alert.get('rule_name', 'Unknown')}
@@ -72,7 +73,7 @@ async def send_alert_notification(alert: dict) -> bool:
 *Description:* {alert.get('description', 'No description')}
 
 View in Dashboard: http://localhost:8501"""
-    
+
     return await send_slack_notification(message)
 
 
@@ -99,21 +100,22 @@ async def send_email_notification(
     ]):
         log.warning("smtp_not_configured")
         return False
-    
+
     recipient = to_email or settings.alert_email_to
     if not recipient:
         log.warning("email_no_recipient")
         return False
-    
+
     try:
-        import aiosmtplib
         from email.mime.text import MIMEText
-        
+
+        import aiosmtplib
+
         msg = MIMEText(body)
         msg["Subject"] = f"[SecurityScarletAI] {subject}"
         msg["From"] = settings.smtp_user
         msg["To"] = recipient
-        
+
         await aiosmtplib.send(
             msg,
             hostname=settings.smtp_host,
@@ -122,10 +124,10 @@ async def send_email_notification(
             password=settings.smtp_password,
             start_tls=True,
         )
-        
+
         log.info("email_notification_sent", to=recipient)
         return True
-        
+
     except Exception as e:
         log.error("email_notification_failed", error=str(e))
         return False
@@ -144,5 +146,5 @@ async def send_daily_summary(
 • New Rules Added: {new_rules}
 
 Review in Dashboard: http://localhost:8501"""
-    
+
     return await send_slack_notification(message)

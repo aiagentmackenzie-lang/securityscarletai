@@ -7,10 +7,11 @@ Security:
 - Field length limits prevent memory exhaustion attacks
 - No raw SQL — everything goes through the writer
 """
+from datetime import datetime
 from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
-from datetime import datetime
 
 from src.api.auth import verify_bearer_token
 from src.ingestion.schemas import NormalizedEvent

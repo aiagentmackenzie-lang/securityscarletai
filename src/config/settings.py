@@ -3,10 +3,10 @@ Centralized configuration for SecurityScarletAI.
 All settings are validated at startup. Missing required values cause immediate failure
 with a clear error message — not a silent None that blows up later.
 """
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator
 from typing import Optional
-import os
+
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):

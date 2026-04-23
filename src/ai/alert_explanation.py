@@ -5,7 +5,7 @@ Generates human-readable explanations of security alerts using LLM.
 Helps analysts understand why an alert fired and what to investigate.
 """
 import json
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 from src.ai.ollama_client import query_llm
 from src.config.logging import get_logger
@@ -59,25 +59,25 @@ async def explain_alert(
 - MITRE ATT&CK: {', '.join(mitre_techniques) if mitre_techniques else 'N/A'}
 - Related Events: {related_logs_count}
 """
-    
+
     if evidence:
         context += f"\nEvidence:\n{json.dumps(evidence, indent=2, default=str)[:500]}"
-    
+
     prompt = f"""Analyze this security alert and provide an explanation:
 
 {context}
 
 Generate a clear explanation covering what happened, why it matters, and what to investigate."""
-    
+
     log.info("generating_alert_explanation", rule=rule_name, host=host_name)
-    
+
     explanation = await query_llm(
         prompt=prompt,
         system_prompt=SYSTEM_PROMPT,
         temperature=0.2,
         max_tokens=512,
     )
-    
+
     return explanation
 
 
@@ -89,18 +89,18 @@ async def summarize_multiple_alerts(alerts: list[dict]) -> str:
     """
     if not alerts:
         return "No alerts to summarize."
-    
+
     # Build summary of alerts
     alert_summaries = []
     for alert in alerts[:5]:  # Limit to first 5
         summary = f"- [{alert.get('severity', 'unknown').upper()}] {alert.get('rule_name', 'Unknown')} on {alert.get('host_name', 'unknown')} at {alert.get('time', 'unknown')[:19]}"
         alert_summaries.append(summary)
-    
+
     context = "Related Alerts:\n" + "\n".join(alert_summaries)
-    
+
     if len(alerts) > 5:
         context += f"\n... and {len(alerts) - 5} more alerts"
-    
+
     prompt = f"""Analyze these related security alerts and identify patterns:
 
 {context}
@@ -110,16 +110,16 @@ Provide:
 2. Affected scope (which hosts/users?)
 3. Recommended response priority
 4. Suggested containment actions"""
-    
+
     log.info("summarizing_alert_cluster", count=len(alerts))
-    
+
     summary = await query_llm(
         prompt=prompt,
         system_prompt=SYSTEM_PROMPT,
         temperature=0.2,
         max_tokens=600,
     )
-    
+
     return summary
 
 
@@ -138,7 +138,7 @@ Affected Host: {host_name}
 """
     if user_name:
         context += f"User: {user_name}\n"
-    
+
     prompt = f"""Suggest 5-7 specific investigation steps for this security alert:
 
 {context}
@@ -149,19 +149,19 @@ Include:
 - What artifacts to examine
 - What questions to answer
 - What tools might help"""
-    
+
     log.info("suggesting_investigation", type=alert_type, host=host_name)
-    
+
     response = await query_llm(
         prompt=prompt,
         system_prompt="You are a SOC analyst. Provide practical, actionable investigation steps.",
         temperature=0.3,
         max_tokens=400,
     )
-    
+
     # Parse into list (simple split on newlines)
     steps = [s.strip() for s in response.split('\n') if s.strip() and s[0].isdigit()]
-    
+
     return steps if steps else [response]
 
 
@@ -179,7 +179,7 @@ TEMPLATE_EXPLANATIONS = {
 4. Consider rotating credentials if compromise is confirmed
 5. Block the source IP if external
 """,
-    
+
     "suspicious_tmp_process": """
 **What happened**: A process was executed from /tmp or /var/tmp, which is unusual for legitimate applications.
 
@@ -192,7 +192,7 @@ TEMPLATE_EXPLANATIONS = {
 4. Look for persistence mechanisms (cron, launch agents)
 5. Scan for additional dropped files
 """,
-    
+
     "launch_agent_persistence": """
 **What happened**: A new LaunchAgent or LaunchDaemon was created, configured to run automatically at login.
 

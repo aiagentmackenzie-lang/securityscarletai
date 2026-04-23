@@ -1,6 +1,4 @@
-import pytest
-from src.detection.sigma import SigmaParser, parse_sigma_rule, sigma_to_sql
-
+from src.detection.sigma import parse_sigma_rule, sigma_to_sql
 
 SAMPLE_BRUTE_FORCE = """
 title: SSH Brute Force Detected

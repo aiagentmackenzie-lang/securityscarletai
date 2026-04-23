@@ -5,7 +5,7 @@ description = ""
 authors = [
     {name = "Raphael Main",email = "raphael@main.com"}
 ]
-requires-python = "^3.11"
+requires-python = ">=3.11"
 package-mode = false
 dependencies = [
     "fastapi (==0.115.*)",

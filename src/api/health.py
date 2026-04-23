@@ -2,8 +2,9 @@
 Health check endpoints — self-observability for the SIEM.
 """
 from fastapi import APIRouter
-from src.db.connection import get_pool
+
 from src.config.logging import get_logger
+from src.db.connection import get_pool
 
 router = APIRouter(tags=["health"])
 log = get_logger("api.health")
@@ -27,6 +28,7 @@ async def health_check():
     # Ollama (non-blocking check)
     try:
         import httpx
+
         from src.config.settings import settings
         async with httpx.AsyncClient(timeout=3) as client:
             resp = await client.get(f"{settings.ollama_base_url}/api/tags")

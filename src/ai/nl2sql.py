@@ -7,7 +7,7 @@ Uses Ollama LLM with validation to prevent SQL injection.
 import re
 from typing import Optional
 
-from src.ai.ollama_client import query_llm, FALLBACK_MESSAGE
+from src.ai.ollama_client import FALLBACK_MESSAGE, query_llm
 from src.config.logging import get_logger
 
 log = get_logger("ai.nl2sql")
@@ -81,18 +81,18 @@ def validate_sql(sql: str) -> bool:
     - No system table access
     """
     sql_upper = sql.upper().strip()
-    
+
     # Must start with SELECT
     if not sql_upper.startswith("SELECT"):
         log.warning("nl2sql_validation_failed", reason="not_select", sql_preview=sql[:100])
         return False
-    
+
     # Check for forbidden patterns
     for pattern in FORBIDDEN_PATTERNS:
         if pattern in sql_upper:
             log.warning("nl2sql_validation_failed", reason="forbidden_pattern", pattern=pattern)
             return False
-    
+
     return True
 
 
@@ -106,11 +106,11 @@ def extract_parameters(sql: str) -> tuple[str, list]:
     # Find all string literals that look like they should be parameters
     # Replace with $N placeholders
     param_values = []
-    
+
     def replace_literal(match):
         param_values.append(match.group(1))
         return f"${len(param_values)}"
-    
+
     # Extract quoted strings as parameters
     # Note: This is simplified — real implementation would use proper parsing
     return sql, param_values
@@ -132,21 +132,21 @@ async def nl_to_sql(natural_language: str, timeout: int = 30) -> dict:
         - original: str (original NL query)
     """
     log.info("nl2sql_request", query=natural_language)
-    
+
     # Query LLM
     prompt = f"""Convert this question to PostgreSQL SQL:
 
 Question: {natural_language}
 
 Return only the SQL query."""
-    
+
     raw_sql = await query_llm(
         prompt=prompt,
         system_prompt=SYSTEM_PROMPT,
         temperature=0.0,  # Deterministic
         max_tokens=512,
     )
-    
+
     # Check for fallback
     if raw_sql == FALLBACK_MESSAGE:
         return {
@@ -155,13 +155,13 @@ Return only the SQL query."""
             "params": [],
             "original": natural_language,
         }
-    
+
     # Clean up the SQL (remove markdown, etc.)
     sql = raw_sql.strip()
     sql = re.sub(r"^```sql\s*", "", sql)
     sql = re.sub(r"```$", "", sql)
     sql = sql.strip()
-    
+
     # Validate
     if not validate_sql(sql):
         return {
@@ -171,12 +171,12 @@ Return only the SQL query."""
             "original": natural_language,
             "raw_generated": sql,
         }
-    
+
     # Extract parameters
     sql_with_params, params = extract_parameters(sql)
-    
+
     log.info("nl2sql_success", original=natural_language, sql_preview=sql[:100])
-    
+
     return {
         "success": True,
         "sql": sql_with_params,
@@ -197,9 +197,9 @@ QUERY_TEMPLATES = {
 def template_match(nl_query: str) -> Optional[str]:
     """Match natural language to template query (fallback)."""
     nl_lower = nl_query.lower()
-    
+
     for key, template in QUERY_TEMPLATES.items():
         if key in nl_lower:
             return template
-    
+
     return None

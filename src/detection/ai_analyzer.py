@@ -8,11 +8,11 @@ Analyzes alert evidence and generates:
 - False positive likelihood assessment
 """
 import json
-import httpx
 from typing import Optional
 
+import httpx
+
 from src.config.logging import get_logger
-from src.config.settings import settings
 from src.db.connection import get_pool
 
 log = get_logger("detection.ai")

@@ -3,15 +3,16 @@ Detection rules API endpoints.
 
 CRUD operations for Sigma detection rules.
 """
-from fastapi import APIRouter, HTTPException, Depends, status
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from typing import Optional, List
 
 from src.api.auth import verify_bearer_token
 from src.config.logging import get_logger
 from src.db.connection import get_pool
-from src.detection.sigma import parse_sigma_rule
 from src.detection.scheduler import reload_rules
+from src.detection.sigma import parse_sigma_rule
 
 router = APIRouter(tags=["detection"], prefix="/rules")
 log = get_logger("api.rules")
@@ -50,7 +51,7 @@ async def create_rule(
         parsed = parse_sigma_rule(rule.sigma_yaml)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid Sigma rule: {str(e)}")
-    
+
     pool = await get_pool()
     async with pool.acquire() as conn:
         rule_id = await conn.fetchval(
@@ -72,12 +73,12 @@ async def create_rule(
             parsed.mitre_tactics,
             parsed.mitre_techniques,
         )
-        
+
         log.info("rule_created", rule_id=rule_id, name=rule.name, user=user.get("sub"))
-        
+
         # Reload scheduler to pick up new rule
         await reload_rules()
-        
+
         return await get_rule_by_id(rule_id)
 
 
@@ -93,7 +94,7 @@ async def list_rules(
             rows = await conn.fetch("SELECT * FROM rules WHERE enabled = TRUE ORDER BY id")
         else:
             rows = await conn.fetch("SELECT * FROM rules ORDER BY id")
-        
+
         return [dict(r) for r in rows]
 
 
@@ -122,7 +123,7 @@ async def update_rule(
         existing = await conn.fetchrow("SELECT id FROM rules WHERE id = $1", rule_id)
         if not existing:
             raise HTTPException(status_code=404, detail="Rule not found")
-        
+
         await conn.execute(
             """
             UPDATE rules SET
@@ -147,12 +148,12 @@ async def update_rule(
             updates.threshold,
             rule_id,
         )
-        
+
         log.info("rule_updated", rule_id=rule_id, user=user.get("sub"))
-        
+
         # Reload scheduler
         await reload_rules()
-        
+
         return await get_rule_by_id(rule_id)
 
 
@@ -167,9 +168,9 @@ async def delete_rule(
         result = await conn.execute("DELETE FROM rules WHERE id = $1", rule_id)
         if result == "DELETE 0":
             raise HTTPException(status_code=404, detail="Rule not found")
-        
+
         log.info("rule_deleted", rule_id=rule_id, user=user.get("sub"))
-        
+
         # Reload scheduler
         await reload_rules()
 

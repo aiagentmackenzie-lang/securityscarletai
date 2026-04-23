@@ -4,14 +4,11 @@ WebSocket endpoint for real-time log streaming.
 Authentication: Token passed as query parameter since WebSocket
 doesn't support Authorization headers in the browser.
 """
-import asyncio
-import json
 from typing import Optional
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, status
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 from starlette.websockets import WebSocketState
 
-from fastapi.security import HTTPAuthorizationCredentials
 from src.api.auth import verify_bearer_token
 from src.config.logging import get_logger
 from src.ingestion.schemas import NormalizedEvent
@@ -67,7 +64,7 @@ async def websocket_logs(
                     "category_filter": category_filter,
                     "severity_filter": severity_filter,
                 })
-            
+
     except WebSocketDisconnect:
         log.info("websocket_disconnected", client=str(websocket.client))
     finally:

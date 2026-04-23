@@ -6,9 +6,9 @@ Combines multiple signals into unified risk scores for:
 - Users
 - Alerts
 """
-from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
+from typing import Any, Dict, List
 
 from src.config.logging import get_logger
 from src.db.connection import get_pool
@@ -28,7 +28,7 @@ class RiskFactors:
 
 class RiskScorer:
     """Calculate risk scores for entities."""
-    
+
     # Severity weights
     SEVERITY_WEIGHTS = {
         "critical": 1.0,
@@ -37,7 +37,7 @@ class RiskScorer:
         "low": 0.2,
         "info": 0.0,
     }
-    
+
     # Risk factor weights (sum to 1.0)
     FACTOR_WEIGHTS = {
         "alert_severity": 0.3,
@@ -46,7 +46,7 @@ class RiskScorer:
         "threat_intel": 0.15,
         "exposure": 0.1,
     }
-    
+
     @staticmethod
     def calculate_alert_risk(
         severity: str,
@@ -62,15 +62,15 @@ class RiskScorer:
         """
         # Base score from severity
         base = RiskScorer.SEVERITY_WEIGHTS.get(severity.lower(), 0.0) * 50
-        
+
         # Adjustments
         asset_adj = asset_criticality * 20  # Up to +20
         ti_adj = 15 if threat_intel_match else 0  # +15 if TI match
         anomaly_adj = user_anomaly_score * 15  # Up to +15
-        
+
         total = base + asset_adj + ti_adj + anomaly_adj
         return min(total, 100)  # Cap at 100
-    
+
     @staticmethod
     async def calculate_asset_risk(
         hostname: str,
@@ -99,7 +99,7 @@ class RiskScorer:
                 hostname,
                 hours,
             )
-            
+
             # Open high/critical alerts (ongoing risk)
             open_alerts = await conn.fetchval(
                 """
@@ -111,7 +111,7 @@ class RiskScorer:
                 """,
                 hostname,
             )
-            
+
             # Threat intel hits
             ti_hits = await conn.fetchval(
                 """
@@ -124,25 +124,25 @@ class RiskScorer:
                 hostname,
                 hours,
             )
-        
+
         # Calculate factors
         factors = RiskFactors()
-        
+
         # Alert severity score
         critical = alert_stats["critical"] if alert_stats else 0
         high = alert_stats["high"] if alert_stats else 0
         medium = alert_stats["medium"] if alert_stats else 0
         total = alert_stats["total"] if alert_stats else 0
-        
+
         factors.alert_severity = min(
             (critical * 1.0 + high * 0.5 + medium * 0.2) / 10,  # Normalize
             1.0
         )
         factors.alert_count = min(total / 50, 1.0)  # Normalize
-        
+
         # Threat intel
         factors.threat_intel_hits = min(ti_hits / 5, 1.0) if ti_hits else 0.0
-        
+
         # Calculate weighted risk
         risk_score = (
             factors.alert_severity * RiskScorer.FACTOR_WEIGHTS["alert_severity"] +
@@ -151,7 +151,7 @@ class RiskScorer:
             factors.threat_intel_hits * RiskScorer.FACTOR_WEIGHTS["threat_intel"] +
             factors.exposure_score * RiskScorer.FACTOR_WEIGHTS["exposure"]
         ) * 100
-        
+
         return {
             "hostname": hostname,
             "risk_score": round(risk_score, 2),
@@ -164,7 +164,7 @@ class RiskScorer:
             "open_high_critical_alerts": open_alerts or 0,
             "calculation_time": datetime.now().isoformat(),
         }
-    
+
     @staticmethod
     async def calculate_user_risk(
         username: str,
@@ -192,7 +192,7 @@ class RiskScorer:
                 username,
                 hours,
             )
-            
+
             # Privileged activity
             sudo_count = await conn.fetchval(
                 """
@@ -205,16 +205,16 @@ class RiskScorer:
                 username,
                 hours,
             )
-        
+
         # Calculate risk
         critical = user_alerts["critical"] if user_alerts else 0
         high = user_alerts["high"] if user_alerts else 0
-        
+
         severity_score = min((critical * 1.0 + high * 0.5) / 5, 1.0)
         priv_score = min(sudo_count / 20, 1.0) if sudo_count else 0.0
-        
+
         risk_score = (severity_score * 0.6 + priv_score * 0.4) * 100
-        
+
         return {
             "username": username,
             "risk_score": round(risk_score, 2),
@@ -225,7 +225,7 @@ class RiskScorer:
             },
             "open_alerts": user_alerts["open_count"] if user_alerts else 0,
         }
-    
+
     @staticmethod
     def _get_level(score: float) -> str:
         """Convert numeric score to risk level."""
@@ -239,7 +239,7 @@ class RiskScorer:
             return "low"
         else:
             return "minimal"
-    
+
     @staticmethod
     async def get_top_risk_assets(limit: int = 10) -> List[Dict]:
         """Get highest risk assets."""
@@ -255,18 +255,18 @@ class RiskScorer:
                 """
             )
             hosts = [r["host_name"] for r in rows]
-        
+
         # Score each host
         scored = []
         for host in hosts:
             score = await RiskScorer.calculate_asset_risk(host)
             scored.append(score)
-        
+
         # Sort by risk score
         scored.sort(key=lambda x: x["risk_score"], reverse=True)
-        
+
         return scored[:limit]
-    
+
     @staticmethod
     async def get_top_risk_users(limit: int = 10) -> List[Dict]:
         """Get highest risk users."""
@@ -282,12 +282,12 @@ class RiskScorer:
                 """
             )
             users = [r["user_name"] for r in rows]
-        
+
         scored = []
         for user in users:
             score = await RiskScorer.calculate_user_risk(user)
             scored.append(score)
-        
+
         scored.sort(key=lambda x: x["risk_score"], reverse=True)
         return scored[:limit]
 
@@ -302,11 +302,11 @@ async def update_asset_risk_scores() -> None:
     async with pool.acquire() as conn:
         # Get all assets
         rows = await conn.fetch("SELECT hostname FROM assets")
-        
+
         for row in rows:
             hostname = row["hostname"]
             risk = await RiskScorer.calculate_asset_risk(hostname)
-            
+
             # Update asset record
             await conn.execute(
                 """
@@ -317,5 +317,5 @@ async def update_asset_risk_scores() -> None:
                 risk["risk_score"],
                 hostname,
             )
-    
+
     log.info("asset_risk_scores_updated", count=len(rows))

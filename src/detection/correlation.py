@@ -51,7 +51,7 @@ async def detect_brute_force_then_success(
       AND failed_count >= {failed_threshold}
     ORDER BY time DESC
     """
-    
+
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(sql)
@@ -69,7 +69,7 @@ async def detect_multiple_processes_same_user(
     Pattern: Malware spawning many processes.
     """
     placeholders = ", ".join(f"${i+1}" for i in range(len(process_names)))
-    
+
     sql = f"""
     WITH process_spawns AS (
         SELECT 
@@ -96,7 +96,7 @@ async def detect_multiple_processes_same_user(
     WHERE spawn_count >= ${len(process_names) + 1}
     GROUP BY host_name, user_name
     """
-    
+
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(sql, *process_names, threshold)
@@ -131,7 +131,7 @@ async def detect_data_exfiltration_pattern(
     HAVING SUM(COALESCE((enrichment->>'bytes_sent')::bigint, 0)) > {threshold_bytes}
     ORDER BY total_bytes DESC
     """
-    
+
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(sql)
@@ -141,19 +141,19 @@ async def detect_data_exfiltration_pattern(
 async def run_all_correlations() -> dict[str, list[dict]]:
     """Run all correlation rules and return results."""
     results = {}
-    
+
     try:
         results["brute_force_success"] = await detect_brute_force_then_success()
     except Exception as e:
         log.error("correlation_failed", rule="brute_force_success", error=str(e))
         results["brute_force_success"] = []
-    
+
     try:
         suspicious_procs = ["bash", "python", "perl", "ruby"]
         results["process_spam"] = await detect_multiple_processes_same_user(suspicious_procs)
     except Exception as e:
         log.error("correlation_failed", rule="process_spam", error=str(e))
         results["process_spam"] = []
-    
+
     log.info("correlations_complete", rules_run=len(results))
     return results
