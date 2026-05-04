@@ -200,6 +200,14 @@ def check_auth():
     if not st.session_state.authenticated:
         render_login_page()
         return False
+
+    # L-11 fix: Call require_auth() to re-verify token periodically
+    from dashboard.auth import require_auth
+    if not require_auth():
+        st.session_state.authenticated = False
+        st.rerun()
+        return False
+
     return True
 
 
@@ -407,7 +415,7 @@ def render_overview():
 
 def render_audit():
     """Audit log page — admin only."""
-    from dashboard.alerts_view import render_alert_list  # noqa: F401 — not used, just ensuring import
+    # L-12 fix: removed unused import of render_alert_list
 
     api = get_api_client()
 

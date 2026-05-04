@@ -176,9 +176,11 @@ class ApiClient:
 
     @staticmethod
     def logout():
-        """Clear session state."""
-        for key in ("access_token", "username", "role"):
-            st.session_state.pop(key, None)
+        """Clear session state — L-09 fix: clear all auth-related keys."""
+        for key in list(st.session_state.keys()):
+            if key in ("access_token", "username", "role", "authenticated",
+                       "user_verified", "last_role_verify", "api_client"):
+                st.session_state.pop(key, None)
 
     # ───────────────────────────────────────────────────────────
     # Health

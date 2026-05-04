@@ -25,9 +25,9 @@
 | 🔴 Critical | 18 | 0 | 18 | 0 |
 | 🟠 High | 24 | 0 | 24 | 0 |
 | 🟡 Medium | 22 | 0 | 22 | 0 |
-| 🟢 Low | 12 | 12 | 0 | 0 |
+| 🟢 Low | 12 | 0 | 12 | 0 |
 | 🔵 Test Quality | 10 | 10 | 0 | 0 |
-| **Total** | **86** | **22** | **64** | **0** |
+| **Total** | **86** | **10** | **76** | **0** |
 
 ---
 
@@ -120,18 +120,18 @@
 
 | ID | Status | File(s) | Description | Fix Notes |
 |----|--------|---------|-------------|-----------|
-| L-01 | 🔴 | `src/ai/alert_triage.py`, `src/ai/ueba.py` | Duplicate `_shannon_entropy` function. | Extract to `src/ai/utils.py`. |
-| L-02 | 🔴 | `src/response/soar.py` | SOAR ISOLATE_HOST, DISABLE_USER, KILL_PROCESS not implemented. | Add stub implementations or remove action types. |
-| L-03 | 🔴 | `src/response/notifications.py` | `email.mime.text` import inside function body. | Move to module level. |
-| L-04 | 🔴 | `dashboard/cases_view.py:60` | Status filter string mapping bug. "In Progress".lower() → "in progress" (needs underscore). | Add `.replace(" ", "_")`. |
-| L-05 | 🔴 | `dashboard/logs_view.py:25` | Time range filter does nothing. Assigned but never passed to API call. | Wire `time_range` into `api.get_logs()`. |
-| L-06 | 🔴 | `dashboard/alerts_view.py:58-90` | No confirmation for destructive bulk actions. "Acknowledge All New" fires immediately. | Add confirmation dialog. |
-| L-07 | 🔴 | `dashboard/ai_chat_view.py:80` | Chat history grows unbounded. Long sessions consume memory. | Cap history at last N messages (e.g., 50). |
-| L-08 | 🔴 | `dashboard/rules_view.py:69-76` | Rule template `str.format()` breaks on user input with braces. | Use `str.format_map()` with dict or escape braces. |
-| L-09 | 🔴 | `dashboard/api_client.py:120-122` | `logout()` doesn't clear all session state. Stale state on re-login. | Clear all auth-related session state keys. |
-| L-10 | 🔴 | `scripts/analyze_alerts.py:26` | Bare `except:` clause. Catches KeyboardInterrupt, SystemExit. | Use `except (json.JSONDecodeError, ValueError):`. |
-| L-11 | 🔴 | `dashboard/auth.py:127-140` | Dead code: `require_auth()` never called. Token never re-validated. | Call `require_auth()` on sensitive actions or remove dead code. |
-| L-12 | 🔴 | `dashboard/main.py:381` | Dead code: unused import `render_alert_list`. | Remove import. |
+| L-01 | 🟢 | `src/ai/alert_triage.py`, `src/ai/ueba.py` | Duplicate `_shannon_entropy` function. | **Fixed:** Extracted to `src/ai/utils.py`. Both files now import from shared utility. |
+| L-02 | 🟢 | `src/response/soar.py` | SOAR ISOLATE_HOST, DISABLE_USER, KILL_PROCESS not implemented. | **Fixed:** Added stub implementations that log warnings and return integration-needed messages. `_execute_action` now dispatches all action types. |
+| L-03 | 🟢 | `src/response/notifications.py` | `email.mime.text` import inside function body. | **Fixed:** Moved `from email.mime.text import MIMEText` to module level. |
+| L-04 | 🟢 | `dashboard/cases_view.py:60` | Status filter string mapping bug. "In Progress".lower() → "in progress" (needs underscore). | **Fixed:** Added `.replace(" ", "_")` to status filter mapping. "In Progress" now maps to "in_progress". |
+| L-05 | 🟢 | `dashboard/logs_view.py:25` | Time range filter does nothing. Assigned but never passed to API call. | **Fixed:** Wired `time_range` into `api.get_logs(time_minutes=time_minutes)` with a mapping from display string to minutes. |
+| L-06 | 🟢 | `dashboard/alerts_view.py:58-90` | No confirmation for destructive bulk actions. "Acknowledge All New" fires immediately. | **Fixed:** Added confirmation dialog — button sets `confirm_bulk_ack` in session state, then shows Confirm/Cancel buttons before executing. |
+| L-07 | 🟢 | `dashboard/ai_chat_view.py:80` | Chat history grows unbounded. Long sessions consume memory. | **Fixed:** Added `MAX_CHAT_HISTORY = 50` cap. History trimmed to last 50 messages before rendering. |
+| L-08 | 🟢 | `dashboard/rules_view.py:69-76` | Rule template `str.format()` breaks on user input with braces. | **Fixed:** Changed to `str.format_map()` with `defaultdict(str, ...)` — missing keys return empty string instead of raising KeyError. |
+| L-09 | 🟢 | `dashboard/api_client.py:120-122` | `logout()` doesn't clear all session state. Stale state on re-login. | **Fixed:** `logout()` now clears all auth-related keys: access_token, username, role, authenticated, user_verified, last_role_verify, api_client. |
+| L-10 | 🟢 | `scripts/analyze_alerts.py:26` | Bare `except:` clause. Catches KeyboardInterrupt, SystemExit. | **Fixed:** Changed to `except (json.JSONDecodeError, ValueError):`. |
+| L-11 | 🟢 | `dashboard/auth.py:127-140` | Dead code: `require_auth()` never called. Token never re-validated. | **Fixed:** Wired `require_auth()` into `check_auth()` in `dashboard/main.py`. Token re-verified on every page load (with 5-min cooldown from H-24). |
+| L-12 | 🟢 | `dashboard/main.py:381` | Dead code: unused import `render_alert_list`. | **Fixed:** Removed unused import from `render_audit()` function. (The actual usage in the alerts page rendering remains.) |
 
 ---
 
@@ -175,6 +175,7 @@
 | 2026-05-04 | Mackenzie 🔍 | **Batch 1: Fixed all 18 Critical bugs** (C-01→C-18). Seed admin race, alert dedup TOCTOU, escalation off-by-one, broken notification import, invalid STIX, SQL window function, YAML duplicate keys, count() regex, pySigma attribute error, trivially broad rules, dead detection branch, DB pool race, WS token exposure, path traversal, Cartesian JOIN, dead risk weights, hardcoded credentials, IOC type mapping. |
 | 2026-05-04 | Mackenzie 🔍 | **Batch 2: Fixed all 24 High bugs** (H-01→H-24). Missing RFC1918 range, SQL precedence, GROUP BY time, GeoIP handle leak, unvalidated columns, scheduler double-update, chunked body bypass, WS broadcast race, SOAR shell injection, SOAR hardcoded unknowns, global suppression, hunt timeout, hunt history save, dead letter bounds, log rotation inode, health info leak, PGPASSWORD exposure, backup syntax error, backup exit code, Docker healthcheck, Alembic migration chain, CI secrets, JSON serialization, stale RBAC. |
 | 2026-05-04 | Mackenzie 🔍 | **Batch 3: Fixed all 22 Medium bugs** (M-01→M-22). Anomaly score clamp, session duration doc, UEBA sample doc, cross-validation, auto-train cooldown, EXPLAIN timeout, NL2SQL context sanitize, CTE LIMIT fix, chat prompt fix, SHA-256 pre-hash, dedup sentinel (C-02), severity suppression gate, N+1 query fix, MITRE cache path, dest enrichment (H-04), seed script variable, remove unused Redis, restart policy, PG version align (H-22), atomic checkpoint, single-conn login, audit raise on failure. |
+| 2026-05-04 | Mackenzie 🔍 | **Batch 4: Fixed all 12 Low bugs** (L-01→L-12). Shannon entropy dedup, SOAR action stubs, MIMEText import, status filter underscore, time range wiring, bulk action confirmation, chat history cap, format_map defaultdict, logout session cleanup, bare except fix, require_auth wired, dead import removed. |
 
 ---
 

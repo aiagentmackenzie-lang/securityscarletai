@@ -67,7 +67,7 @@ def _render_case_list(api):
     # Build API query params
     params: dict = {}
     if status_filter != "All":
-        params["status_filter"] = status_filter.lower()
+        params["status_filter"] = status_filter.lower().replace(" ", "_")  # L-04 fix
     if severity_filter != "All":
         params["severity"] = severity_filter.lower()
 

@@ -218,14 +218,17 @@ def render_rules_view():
             )
 
             # Sigma YAML editor
-            default_yaml = RULE_TEMPLATES[template].format(
-                name=name or "Rule Name",
-                description=description or "",
-                severity=severity,
-                process_name="python",
-                port=4444,
-                path="/tmp",  # noqa: S108
-            )
+            # L-08 fix: Use format_map with a defaultdict to avoid KeyError on user braces
+            from collections import defaultdict
+            template_vars = defaultdict(str, {
+                "name": name or "Rule Name",
+                "description": description or "",
+                "severity": severity,
+                "process_name": "python",
+                "port": "4444",
+                "path": "/tmp",
+            })
+            default_yaml = RULE_TEMPLATES[template].format_map(template_vars)
             sigma_yaml = st.text_area("Sigma Rule (YAML)", value=default_yaml, height=300)
 
             # Preview

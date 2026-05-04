@@ -36,21 +36,7 @@ HASH_PATH = MODEL_DIR / "ueba_model.sha256"
 META_PATH = MODEL_DIR / "ueba_meta.joblib"
 
 
-def _shannon_entropy(values: List[str]) -> float:
-    """Calculate Shannon entropy of a list of strings. Normalized 0-1."""
-    if not values:
-        return 0.0
-    freq: Dict[str, int] = {}
-    for v in values:
-        freq[v] = freq.get(v, 0) + 1
-    total = len(values)
-    entropy = 0.0
-    for count in freq.values():
-        p = count / total
-        if p > 0:
-            entropy -= p * math.log2(p)
-    max_entropy = math.log2(len(freq)) if len(freq) > 1 else 1.0
-    return entropy / max_entropy if max_entropy > 0 else 0.0
+from src.ai.utils import shannon_entropy as _shannon_entropy  # noqa: F401 — L-01: shared utility
 
 
 # Features to extract per user per day (updated with real calculations)

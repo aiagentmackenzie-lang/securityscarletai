@@ -1,6 +1,7 @@
 """
 Notification handlers for Slack and Email alerts.
 """
+from email.mime.text import MIMEText
 from typing import Optional
 
 import httpx
@@ -107,8 +108,6 @@ async def send_email_notification(
         return False
 
     try:
-        from email.mime.text import MIMEText
-
         import aiosmtplib
 
         msg = MIMEText(body)

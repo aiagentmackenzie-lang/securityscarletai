@@ -39,32 +39,7 @@ AUTO_TRAIN_COOLDOWN_SECONDS = 3600  # M-05: 1 hour cooldown between auto-trains
 _last_auto_train_time: float = 0.0
 
 
-def _shannon_entropy(values: List[str]) -> float:
-    """
-    Calculate Shannon entropy of a list of string values.
-
-    Higher entropy = more diverse = more suspicious for process names.
-    Range: 0 (all same) to log2(N) (uniform distribution).
-    Normalized to 0-1 by dividing by max possible entropy.
-    """
-    if not values:
-        return 0.0
-
-    # Count frequency of each unique value
-    freq: Dict[str, int] = {}
-    for v in values:
-        freq[v] = freq.get(v, 0) + 1
-
-    total = len(values)
-    entropy = 0.0
-    for count in freq.values():
-        p = count / total
-        if p > 0:
-            entropy -= p * math.log2(p)
-
-    # Normalize: max entropy is log2(N) where N = number of unique values
-    max_entropy = math.log2(len(freq)) if len(freq) > 1 else 1.0
-    return entropy / max_entropy if max_entropy > 0 else 0.0
+from src.ai.utils import shannon_entropy as _shannon_entropy  # noqa: F401 — L-01: shared utility
 
 
 class AlertTriageModel:

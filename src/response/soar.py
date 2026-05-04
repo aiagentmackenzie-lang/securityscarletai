@@ -79,6 +79,12 @@ class SOARPlaybook:
         """Execute a single action. Override in subclasses."""
         if action.action_type == ActionType.BLOCK_IP:
             return await self._block_ip(action.target)
+        elif action.action_type == ActionType.ISOLATE_HOST:
+            return await self._isolate_host(action.target)
+        elif action.action_type == ActionType.DISABLE_USER:
+            return await self._disable_user(action.target)
+        elif action.action_type == ActionType.KILL_PROCESS:
+            return await self._kill_process(action.target)
         elif action.action_type == ActionType.NOTIFY:
             return await self._send_notification(action.target, action.reason)
         else:
@@ -111,6 +117,22 @@ class SOARPlaybook:
             return "Notification sent"
         except Exception as e:
             return f"Notification failed: {str(e)}"
+
+    # L-02: Stub implementations for ISOLATE_HOST, DISABLE_USER, KILL_PROCESS
+    async def _isolate_host(self, host_name: str) -> str:
+        """Isolate a host from the network. Stub — requires endpoint agent integration."""
+        log.warning("soar_isolate_host_stub", host_name=host_name)
+        return f"Host isolation prepared for {host_name} — requires endpoint agent integration"
+
+    async def _disable_user(self, username: str) -> str:
+        """Disable a user account. Stub — requires AD/LDAP integration."""
+        log.warning("soar_disable_user_stub", username=username)
+        return f"User disable prepared for {username} — requires AD/LDAP integration"
+
+    async def _kill_process(self, target: str) -> str:
+        """Kill a process on a host. Stub — requires endpoint agent integration."""
+        log.warning("soar_kill_process_stub", target=target)
+        return f"Process kill prepared for {target} — requires endpoint agent integration"
 
 
 class BruteForcePlaybook(SOARPlaybook):
