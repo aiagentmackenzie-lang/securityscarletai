@@ -13,22 +13,24 @@ Covers:
 - Alert statistics
 - Request models (AlertUpdate, BulkOperation, AlertNote, SuppressionRuleCreate)
 """
-import pytest
+
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
+
+import pytest
 
 from src.api.alerts import (
+    AlertNote,
+    AlertResponse,
     AlertUpdate,
     BulkOperation,
-    AlertNote,
     SuppressionRuleCreate,
-    AlertResponse,
 )
-
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Pydantic model tests
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestAlertUpdateModel:
     def test_valid_status(self):
@@ -96,9 +98,7 @@ class TestAlertNoteModel:
 class TestSuppressionRuleCreate:
     def test_with_all_fields(self):
         rule = SuppressionRuleCreate(
-            rule_name="test_rule",
-            host_name="server-01",
-            reason="Known false positive"
+            rule_name="test_rule", host_name="server-01", reason="Known false positive"
         )
         assert rule.rule_name == "test_rule"
         assert rule.host_name == "server-01"
@@ -133,6 +133,7 @@ class TestAlertResponseModel:
 # list_alerts endpoint logic
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestListAlertsLogic:
     @pytest.mark.asyncio
     async def test_list_alerts_no_filters(self):
@@ -140,10 +141,22 @@ class TestListAlertsLogic:
         from src.api.alerts import list_alerts
 
         mock_rows = [
-            {"id": 1, "rule_name": "Brute Force", "severity": "high", "status": "new",
-             "host_name": "ws-01", "time": "2024-01-01"},
-            {"id": 2, "rule_name": "Malware", "severity": "critical", "status": "investigating",
-             "host_name": "ws-02", "time": "2024-01-01"},
+            {
+                "id": 1,
+                "rule_name": "Brute Force",
+                "severity": "high",
+                "status": "new",
+                "host_name": "ws-01",
+                "time": "2024-01-01",
+            },
+            {
+                "id": 2,
+                "rule_name": "Malware",
+                "severity": "critical",
+                "status": "investigating",
+                "host_name": "ws-02",
+                "time": "2024-01-01",
+            },
         ]
 
         mock_conn = AsyncMock()
@@ -152,6 +165,7 @@ class TestListAlertsLogic:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -161,12 +175,18 @@ class TestListAlertsLogic:
         mock_user = MagicMock()
         mock_user.__str__ = lambda self: "analyst1"
 
-        with patch("src.api.alerts.get_pool", AsyncMock(return_value=mock_pool)), \
-             patch("src.api.alerts.verify_bearer_token", return_value="analyst1"):
+        with (
+            patch("src.api.alerts.get_pool", AsyncMock(return_value=mock_pool)),
+            patch("src.api.alerts.verify_bearer_token", return_value="analyst1"),
+        ):
             result = await list_alerts(
-                status=None, severity=None, host_name=None,
-                assigned_to=None, limit=100, offset=0,
-                user="analyst1"
+                status=None,
+                severity=None,
+                host_name=None,
+                assigned_to=None,
+                limit=100,
+                offset=0,
+                user="analyst1",
             )
 
         assert len(result) == 2
@@ -177,8 +197,14 @@ class TestListAlertsLogic:
         from src.api.alerts import list_alerts
 
         mock_rows = [
-            {"id": 1, "rule_name": "Brute Force", "severity": "high", "status": "new",
-             "host_name": "ws-01", "time": "2024-01-01"},
+            {
+                "id": 1,
+                "rule_name": "Brute Force",
+                "severity": "high",
+                "status": "new",
+                "host_name": "ws-01",
+                "time": "2024-01-01",
+            },
         ]
 
         mock_conn = AsyncMock()
@@ -187,6 +213,7 @@ class TestListAlertsLogic:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -195,9 +222,13 @@ class TestListAlertsLogic:
 
         with patch("src.api.alerts.get_pool", AsyncMock(return_value=mock_pool)):
             result = await list_alerts(
-                status="new", severity=None, host_name=None,
-                assigned_to=None, limit=100, offset=0,
-                user="analyst1"
+                status="new",
+                severity=None,
+                host_name=None,
+                assigned_to=None,
+                limit=100,
+                offset=0,
+                user="analyst1",
             )
 
         assert len(result) == 1
@@ -207,15 +238,20 @@ class TestListAlertsLogic:
 # get_alert endpoint logic
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestGetAlertLogic:
     @pytest.mark.asyncio
     async def test_get_alert_found(self):
         from src.api.alerts import get_alert
 
         mock_row = {
-            "id": 1, "rule_name": "Test", "severity": "high",
-            "status": "new", "host_name": "ws-01",
-            "time": datetime(2024, 1, 1), "description": "test",
+            "id": 1,
+            "rule_name": "Test",
+            "severity": "high",
+            "status": "new",
+            "host_name": "ws-01",
+            "time": datetime(2024, 1, 1),
+            "description": "test",
         }
         mock_conn = AsyncMock()
         mock_conn.fetchrow = AsyncMock(return_value=mock_row)
@@ -223,6 +259,7 @@ class TestGetAlertLogic:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -236,8 +273,9 @@ class TestGetAlertLogic:
 
     @pytest.mark.asyncio
     async def test_get_alert_not_found(self):
-        from src.api.alerts import get_alert
         from fastapi import HTTPException
+
+        from src.api.alerts import get_alert
 
         mock_conn = AsyncMock()
         mock_conn.fetchrow = AsyncMock(return_value=None)
@@ -245,6 +283,7 @@ class TestGetAlertLogic:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -261,11 +300,11 @@ class TestGetAlertLogic:
 # Alert statistics
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestAlertStatistics:
     @pytest.mark.asyncio
     async def test_alert_statistics(self):
         from src.api.alerts import alert_statistics
-        from src.detection.alerts import get_alert_stats
 
         mock_stats = {
             "new_count": 10,
@@ -289,6 +328,7 @@ class TestAlertStatistics:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Bulk operations delegations
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestBulkOperations:
     @pytest.mark.asyncio
@@ -334,8 +374,9 @@ class TestBulkOperations:
 
     @pytest.mark.asyncio
     async def test_bulk_assign_requires_assigned_to(self):
-        from src.api.alerts import bulk_assign_alerts
         from fastapi import HTTPException
+
+        from src.api.alerts import bulk_assign_alerts
 
         op = BulkOperation(alert_ids=[1, 2])
         with pytest.raises(HTTPException) as exc_info:
@@ -347,13 +388,17 @@ class TestBulkOperations:
 # Export endpoints
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestExport:
     @pytest.mark.asyncio
     async def test_export_csv(self):
-        from src.api.alerts import export_csv
         from fastapi.responses import PlainTextResponse
 
-        with patch("src.api.alerts.export_alerts_csv", AsyncMock(return_value="id,rule_name\n1,Test")):
+        from src.api.alerts import export_csv
+
+        with patch(
+            "src.api.alerts.export_alerts_csv", AsyncMock(return_value="id,rule_name\n1,Test")
+        ):
             result = await export_csv(hours=24, status=None, user="analyst1")
 
         assert isinstance(result, PlainTextResponse)
@@ -379,6 +424,7 @@ class TestExport:
 # Suppression rules
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestSuppressionRules:
     @pytest.mark.asyncio
     async def test_list_suppressions(self):
@@ -399,9 +445,7 @@ class TestSuppressionRules:
 
         with patch("src.api.alerts.create_suppression_rule", AsyncMock(return_value=1)):
             rule = SuppressionRuleCreate(
-                rule_name="test_rule",
-                host_name="server-01",
-                reason="Known false positive"
+                rule_name="test_rule", host_name="server-01", reason="Known false positive"
             )
             result = await create_suppression(rule=rule, user="admin")
 
@@ -413,11 +457,13 @@ class TestSuppressionRules:
 # Add note endpoint logic
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestAddNote:
     @pytest.mark.asyncio
     async def test_add_note_alert_not_found(self):
-        from src.api.alerts import add_note
         from fastapi import HTTPException
+
+        from src.api.alerts import add_note
 
         mock_conn = AsyncMock()
         mock_conn.fetchrow = AsyncMock(return_value=None)
@@ -425,6 +471,7 @@ class TestAddNote:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -447,14 +494,17 @@ class TestAddNote:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
         mock_pool = AsyncMock()
         mock_pool.acquire = MagicMock(return_value=AsyncCtx())
 
-        with patch("src.api.alerts.get_pool", AsyncMock(return_value=mock_pool)), \
-             patch("src.api.alerts.add_alert_note", AsyncMock()):
+        with (
+            patch("src.api.alerts.get_pool", AsyncMock(return_value=mock_pool)),
+            patch("src.api.alerts.add_alert_note", AsyncMock()),
+        ):
             note = AlertNote(text="Investigated this alert")
             result = await add_note(alert_id=1, note=note, user="analyst1")
 
@@ -466,18 +516,20 @@ class TestAddNote:
 # Link alert to case
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestLinkToCase:
     @pytest.mark.asyncio
     async def test_link_to_existing_case(self):
-        from src.api.alerts import link_to_case, LinkCaseRequest
+        from src.api.alerts import LinkCaseRequest, link_to_case
 
         mock_conn = AsyncMock()
         # Sequential fetchrow returns for different queries
         alert_row = {"id": 1, "severity": "high"}
         case_row = {"id": 5, "alert_ids": [3, 4]}
         updated_row = {"id": 1, "status": "investigating"}
-        
+
         call_count = [0]
+
         async def fetchrow_side_effect(sql, *args):
             call_count[0] += 1
             if call_count[0] == 1:
@@ -492,27 +544,29 @@ class TestLinkToCase:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
         mock_pool = AsyncMock()
         mock_pool.acquire = MagicMock(return_value=AsyncCtx())
 
-        with patch("src.api.alerts.get_pool", AsyncMock(return_value=mock_pool)), \
-             patch("src.api.audit.log_audit_action", AsyncMock()):
+        with (
+            patch("src.api.alerts.get_pool", AsyncMock(return_value=mock_pool)),
+            patch("src.api.audit.log_audit_action", AsyncMock()),
+        ):
             body = LinkCaseRequest(case_id=5)
             result = await link_to_case(
-                alert_id=1,
-                body=body,
-                user={"sub": "analyst1", "role": "analyst"}
+                alert_id=1, body=body, user={"sub": "analyst1", "role": "analyst"}
             )
             # Verify the function returned a result (not silently swallowed)
             assert result is not None
 
     @pytest.mark.asyncio
     async def test_link_alert_not_found(self):
-        from src.api.alerts import link_to_case, LinkCaseRequest
         from fastapi import HTTPException
+
+        from src.api.alerts import LinkCaseRequest, link_to_case
 
         mock_conn = AsyncMock()
         mock_conn.fetchrow = AsyncMock(return_value=None)
@@ -520,6 +574,7 @@ class TestLinkToCase:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -530,11 +585,10 @@ class TestLinkToCase:
             body = LinkCaseRequest(case_id=5)
             with pytest.raises(HTTPException) as exc_info:
                 await link_to_case(
-                    alert_id=9999,
-                    body=body,
-                    user={"sub": "analyst1", "role": "analyst"}
+                    alert_id=9999, body=body, user={"sub": "analyst1", "role": "analyst"}
                 )
             assert exc_info.value.status_code == 404
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # T-08: Concurrent Alert Creation Tests
@@ -551,7 +605,6 @@ class TestConcurrentAlertCreation:
     @pytest.mark.asyncio
     async def test_concurrent_dedup_returns_valid_id(self):
         """Two concurrent create_alert calls should deduplicate."""
-        import asyncio
         from src.detection.alerts import create_alert
 
         mock_conn = AsyncMock()
@@ -562,19 +615,33 @@ class TestConcurrentAlertCreation:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *a):
                 pass
 
         mock_pool = AsyncMock()
         mock_pool.acquire = MagicMock(return_value=AsyncCtx())
 
-        with patch("src.detection.alerts.get_pool", return_value=mock_pool), \
-             patch("src.detection.alerts._is_suppressed", new_callable=AsyncMock, return_value=False), \
-             patch("src.detection.alerts._check_severity_escalation", new_callable=AsyncMock, return_value="high"):
+        with (
+            patch("src.detection.alerts.get_pool", return_value=mock_pool),
+            patch(
+                "src.detection.alerts._is_suppressed", new_callable=AsyncMock, return_value=False
+            ),
+            patch(
+                "src.detection.alerts._check_severity_escalation",
+                new_callable=AsyncMock,
+                return_value="high",
+            ),
+        ):
             result = await create_alert(
-                rule_id=1, rule_name="Test", severity="high",
-                host_name="concurrent-host", description="Concurrent test",
-                mitre_tactics=[], mitre_techniques=[], evidence={},
+                rule_id=1,
+                rule_name="Test",
+                severity="high",
+                host_name="concurrent-host",
+                description="Concurrent test",
+                mitre_tactics=[],
+                mitre_techniques=[],
+                evidence={},
             )
             assert result is not None, "create_alert should return a valid ID"
 
@@ -598,28 +665,42 @@ class TestConcurrentAlertCreation:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *a):
                 pass
 
         mock_pool = AsyncMock()
         mock_pool.acquire = MagicMock(return_value=AsyncCtx())
 
-        with patch("src.detection.alerts.get_pool", return_value=mock_pool), \
-             patch("src.detection.alerts._is_suppressed", new_callable=AsyncMock, return_value=False), \
-             patch("src.detection.alerts._check_severity_escalation", new_callable=AsyncMock, return_value="high"):
+        with (
+            patch("src.detection.alerts.get_pool", return_value=mock_pool),
+            patch(
+                "src.detection.alerts._is_suppressed", new_callable=AsyncMock, return_value=False
+            ),
+            patch(
+                "src.detection.alerts._check_severity_escalation",
+                new_callable=AsyncMock,
+                return_value="high",
+            ),
+        ):
             result = await create_alert(
-                rule_id=1, rule_name="LockTest", severity="high",
-                host_name="lock-host", description="Lock test",
-                mitre_tactics=[], mitre_techniques=[], evidence={},
+                rule_id=1,
+                rule_name="LockTest",
+                severity="high",
+                host_name="lock-host",
+                description="Lock test",
+                mitre_tactics=[],
+                mitre_techniques=[],
+                evidence={},
             )
             # Verify advisory lock was acquired (C-02 fix)
-            assert len(lock_calls) >= 1, \
-                "pg_advisory_xact_lock should be called for dedup safety"
+            assert len(lock_calls) >= 1, "pg_advisory_xact_lock should be called for dedup safety"
 
     @pytest.mark.asyncio
     async def test_concurrent_calls_use_lock(self):
         """Multiple asyncio.gather calls should all acquire advisory locks."""
         import asyncio
+
         from src.detection.alerts import create_alert
 
         lock_acquire_count = [0]
@@ -638,27 +719,47 @@ class TestConcurrentAlertCreation:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *a):
                 pass
 
         mock_pool = AsyncMock()
         mock_pool.acquire = MagicMock(return_value=AsyncCtx())
 
-        with patch("src.detection.alerts.get_pool", return_value=mock_pool), \
-             patch("src.detection.alerts._is_suppressed", new_callable=AsyncMock, return_value=False), \
-             patch("src.detection.alerts._check_severity_escalation", new_callable=AsyncMock, return_value="high"):
+        with (
+            patch("src.detection.alerts.get_pool", return_value=mock_pool),
+            patch(
+                "src.detection.alerts._is_suppressed", new_callable=AsyncMock, return_value=False
+            ),
+            patch(
+                "src.detection.alerts._check_severity_escalation",
+                new_callable=AsyncMock,
+                return_value="high",
+            ),
+        ):
             results = await asyncio.gather(
                 create_alert(
-                    rule_id=1, rule_name="Concurrent1", severity="high",
-                    host_name="host-a", description="Test 1",
-                    mitre_tactics=[], mitre_techniques=[], evidence={},
+                    rule_id=1,
+                    rule_name="Concurrent1",
+                    severity="high",
+                    host_name="host-a",
+                    description="Test 1",
+                    mitre_tactics=[],
+                    mitre_techniques=[],
+                    evidence={},
                 ),
                 create_alert(
-                    rule_id=2, rule_name="Concurrent2", severity="medium",
-                    host_name="host-b", description="Test 2",
-                    mitre_tactics=[], mitre_techniques=[], evidence={},
+                    rule_id=2,
+                    rule_name="Concurrent2",
+                    severity="medium",
+                    host_name="host-b",
+                    description="Test 2",
+                    mitre_tactics=[],
+                    mitre_techniques=[],
+                    evidence={},
                 ),
             )
             # Each call should acquire its own advisory lock
-            assert lock_acquire_count[0] >= 2, \
+            assert lock_acquire_count[0] >= 2, (
                 f"Expected >=2 advisory lock acquisitions, got {lock_acquire_count[0]}"
+            )

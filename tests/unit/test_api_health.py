@@ -7,8 +7,10 @@ Covers:
 - GET /health with Ollama unavailable
 - Overall status calculation
 """
-import pytest
+
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from fastapi.testclient import TestClient
 
 from src.api.health import router
@@ -21,6 +23,7 @@ class TestHealthCheck:
     def client(self):
         """Create test client with health router."""
         from fastapi import FastAPI
+
         app = FastAPI()
         app.include_router(router, prefix="/api/v1")
         return TestClient(app)

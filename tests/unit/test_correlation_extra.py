@@ -9,8 +9,10 @@ Covers:
 - get_host_sessions with mocked DB
 - run_all_correlations
 """
-import pytest
+
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from src.detection.correlation import (
     CORRELATION_RULES,
@@ -117,15 +119,17 @@ class TestDetectBruteForce:
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
-        mock_conn.fetch = AsyncMock(return_value=[
-            {
-                "host_name": "server01",
-                "source_ip": "10.0.0.5",
-                "user_name": "admin",
-                "success_time": "2025-01-01T12:30:00",
-                "failed_count": 5,
-            }
-        ])
+        mock_conn.fetch = AsyncMock(
+            return_value=[
+                {
+                    "host_name": "server01",
+                    "source_ip": "10.0.0.5",
+                    "user_name": "admin",
+                    "success_time": "2025-01-01T12:30:00",
+                    "failed_count": 5,
+                }
+            ]
+        )
 
         acquirer = MagicMock()
         acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -185,10 +189,12 @@ class TestRunAllCorrelations:
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         # First call succeeds, rest throw errors
-        mock_conn.fetch = AsyncMock(side_effect=[
-            [],  # brute force
-            Exception("DB error"),
-        ])
+        mock_conn.fetch = AsyncMock(
+            side_effect=[
+                [],  # brute force
+                Exception("DB error"),
+            ]
+        )
 
         acquirer = MagicMock()
         acquirer.__aenter__ = AsyncMock(return_value=mock_conn)

@@ -10,11 +10,12 @@ Covers:
 - RiskScorer.get_top_risk_assets / get_top_risk_users (async, mocked DB)
 - update_asset_risk_scores (async, mocked DB)
 """
-import pytest
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.ai.risk_scoring import RiskScorer, RiskFactors, update_asset_risk_scores
+import pytest
 
+from src.ai.risk_scoring import RiskFactors, RiskScorer, update_asset_risk_scores
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Static / Pure Tests (no DB mocking needed)
@@ -179,8 +180,13 @@ class TestFactorWeights:
 
     def test_alert_severity_is_highest_weight(self):
         """Alert severity should be the most important factor."""
-        assert RiskScorer.FACTOR_WEIGHTS["alert_severity"] >= RiskScorer.FACTOR_WEIGHTS["alert_count"]
-        assert RiskScorer.FACTOR_WEIGHTS["alert_severity"] >= RiskScorer.FACTOR_WEIGHTS["anomaly_score"]
+        assert (
+            RiskScorer.FACTOR_WEIGHTS["alert_severity"] >= RiskScorer.FACTOR_WEIGHTS["alert_count"]
+        )
+        assert (
+            RiskScorer.FACTOR_WEIGHTS["alert_severity"]
+            >= RiskScorer.FACTOR_WEIGHTS["anomaly_score"]
+        )
 
 
 class TestRiskFactors:
@@ -270,7 +276,10 @@ class TestCalculateAssetRisk:
     async def test_asset_risk_no_alerts(self, mock_pool):
         """Asset with no alerts should have minimal risk."""
         mock_pool.acquire.return_value.__aenter__.return_value.fetchrow.return_value = {
-            "critical": 0, "high": 0, "medium": 0, "total": 0,
+            "critical": 0,
+            "high": 0,
+            "medium": 0,
+            "total": 0,
         }
         mock_pool.acquire.return_value.__aenter__.return_value.fetchval = AsyncMock(
             side_effect=[0, 0]
@@ -347,7 +356,9 @@ class TestCalculateUserRisk:
     async def test_user_risk_no_alerts_no_sudo(self, mock_pool):
         """User with no alerts and no sudo should have low risk."""
         mock_pool.acquire.return_value.__aenter__.return_value.fetchrow.return_value = {
-            "critical": 0, "high": 0, "open_count": 0,
+            "critical": 0,
+            "high": 0,
+            "open_count": 0,
         }
         mock_pool.acquire.return_value.__aenter__.return_value.fetchval = AsyncMock(
             return_value=None  # No sudo
@@ -365,10 +376,26 @@ class TestGetTopRisk:
         pool = AsyncMock()
         conn = AsyncMock()
         # Match the actual SQL query columns: host_name, base_risk, crit_alerts, high_alerts, total_alerts, outbound_conns
-        conn.fetch = AsyncMock(return_value=[
-            {"host_name": "server1", "base_risk": 70.0, "crit_alerts": 1, "high_alerts": 2, "total_alerts": 5, "outbound_conns": 0},
-            {"host_name": "server2", "base_risk": 30.0, "crit_alerts": 0, "high_alerts": 0, "total_alerts": 1, "outbound_conns": 0},
-        ])
+        conn.fetch = AsyncMock(
+            return_value=[
+                {
+                    "host_name": "server1",
+                    "base_risk": 70.0,
+                    "crit_alerts": 1,
+                    "high_alerts": 2,
+                    "total_alerts": 5,
+                    "outbound_conns": 0,
+                },
+                {
+                    "host_name": "server2",
+                    "base_risk": 30.0,
+                    "crit_alerts": 0,
+                    "high_alerts": 0,
+                    "total_alerts": 1,
+                    "outbound_conns": 0,
+                },
+            ]
+        )
         acquirer = MagicMock()
         acquirer.__aenter__ = AsyncMock(return_value=conn)
         acquirer.__aexit__ = AsyncMock(return_value=None)
@@ -395,17 +422,21 @@ class TestGetTopRisk:
         """Should return users sorted by risk_score descending."""
         mock_pool = AsyncMock()
         conn = AsyncMock()
-        conn.fetch = AsyncMock(return_value=[
-            {"user_name": "admin1"},
-            {"user_name": "user1"},
-        ])
+        conn.fetch = AsyncMock(
+            return_value=[
+                {"user_name": "admin1"},
+                {"user_name": "user1"},
+            ]
+        )
         acquirer = MagicMock()
         acquirer.__aenter__ = AsyncMock(return_value=conn)
         acquirer.__aexit__ = AsyncMock(return_value=None)
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
         with patch("src.ai.risk_scoring.get_pool", return_value=mock_pool):
-            with patch.object(RiskScorer, "calculate_user_risk", new_callable=AsyncMock) as mock_calc:
+            with patch.object(
+                RiskScorer, "calculate_user_risk", new_callable=AsyncMock
+            ) as mock_calc:
                 mock_calc.side_effect = [
                     {"username": "admin1", "risk_score": 70},
                     {"username": "user1", "risk_score": 20},
@@ -424,10 +455,12 @@ class TestUpdateAssetRiskScores:
         conn = AsyncMock()
 
         # First call: get assets
-        conn.fetch = AsyncMock(return_value=[
-            {"hostname": "server1"},
-            {"hostname": "server2"},
-        ])
+        conn.fetch = AsyncMock(
+            return_value=[
+                {"hostname": "server1"},
+                {"hostname": "server2"},
+            ]
+        )
         conn.execute = AsyncMock(return_value=None)
 
         acquirer = MagicMock()
@@ -436,7 +469,9 @@ class TestUpdateAssetRiskScores:
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
         with patch("src.ai.risk_scoring.get_pool", return_value=mock_pool):
-            with patch.object(RiskScorer, "calculate_asset_risk", new_callable=AsyncMock) as mock_calc:
+            with patch.object(
+                RiskScorer, "calculate_asset_risk", new_callable=AsyncMock
+            ) as mock_calc:
                 mock_calc.side_effect = [
                     {"hostname": "server1", "risk_score": 75.5},
                     {"hostname": "server2", "risk_score": 32.1},
@@ -460,7 +495,9 @@ class TestUpdateAssetRiskScores:
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
         with patch("src.ai.risk_scoring.get_pool", return_value=mock_pool):
-            with patch.object(RiskScorer, "calculate_asset_risk", new_callable=AsyncMock) as mock_calc:
+            with patch.object(
+                RiskScorer, "calculate_asset_risk", new_callable=AsyncMock
+            ) as mock_calc:
                 mock_calc.return_value = {"hostname": "srv1", "risk_score": 42.0}
                 await update_asset_risk_scores()
                 # The UPDATE should have been executed

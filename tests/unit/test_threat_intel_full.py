@@ -11,17 +11,19 @@ Covers:
 - Scheduler (start/stop)
 - _map_ioc_type helper
 """
+
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
-from datetime import datetime, timedelta
 
 from src.intel.threat_intel import (
     AbuseIPDBClient,
     OTXClient,
     URLhausClient,
+    _map_ioc_type,
     cache_ioc,
     cache_iocs_bulk,
-    _map_ioc_type,
     check_ioc_match,
     enrich_ip_with_threat_intel,
     enrich_url_with_threat_intel,
@@ -31,10 +33,10 @@ from src.intel.threat_intel import (
     stop_threat_intel_scheduler,
 )
 
-
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # _map_ioc_type (pure function, no mocking needed)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestMapIocType:
     def test_ipv4(self):
@@ -75,8 +77,8 @@ class TestMapIocType:
 # AbuseIPDBClient
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-class TestAbuseIPDBClient:
 
+class TestAbuseIPDBClient:
     @pytest.mark.asyncio
     async def test_check_ip_no_api_key(self):
         """Should return None when abuseipdb_api_key is not set."""
@@ -107,8 +109,10 @@ class TestAbuseIPDBClient:
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch("src.intel.threat_intel.settings") as mock_settings, \
-             patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client):
+        with (
+            patch("src.intel.threat_intel.settings") as mock_settings,
+            patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client),
+        ):
             mock_settings.abuseipdb_api_key = "test-key"
             result = await client.check_ip("1.2.3.4")
 
@@ -140,8 +144,10 @@ class TestAbuseIPDBClient:
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch("src.intel.threat_intel.settings") as mock_settings, \
-             patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client):
+        with (
+            patch("src.intel.threat_intel.settings") as mock_settings,
+            patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client),
+        ):
             mock_settings.abuseipdb_api_key = "test-key"
             result = await client.check_ip("5.6.7.8")
 
@@ -153,14 +159,17 @@ class TestAbuseIPDBClient:
     async def test_check_ip_timeout(self):
         """Should return None on timeout."""
         import httpx
+
         client = AbuseIPDBClient()
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
 
-        with patch("src.intel.threat_intel.settings") as mock_settings, \
-             patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client):
+        with (
+            patch("src.intel.threat_intel.settings") as mock_settings,
+            patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client),
+        ):
             mock_settings.abuseipdb_api_key = "test-key"
             result = await client.check_ip("1.2.3.4")
             assert result is None
@@ -174,8 +183,10 @@ class TestAbuseIPDBClient:
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(side_effect=Exception("connection error"))
 
-        with patch("src.intel.threat_intel.settings") as mock_settings, \
-             patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client):
+        with (
+            patch("src.intel.threat_intel.settings") as mock_settings,
+            patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client),
+        ):
             mock_settings.abuseipdb_api_key = "test-key"
             result = await client.check_ip("1.2.3.4")
             assert result is None
@@ -208,8 +219,10 @@ class TestAbuseIPDBClient:
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch("src.intel.threat_intel.settings") as mock_settings, \
-             patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client):
+        with (
+            patch("src.intel.threat_intel.settings") as mock_settings,
+            patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client),
+        ):
             mock_settings.abuseipdb_api_key = "test-key"
             result = await client.get_blacklist(confidence_minimum=90)
 
@@ -225,8 +238,10 @@ class TestAbuseIPDBClient:
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(side_effect=Exception("error"))
 
-        with patch("src.intel.threat_intel.settings") as mock_settings, \
-             patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client):
+        with (
+            patch("src.intel.threat_intel.settings") as mock_settings,
+            patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client),
+        ):
             mock_settings.abuseipdb_api_key = "test-key"
             result = await client.get_blacklist()
             assert result == []
@@ -236,8 +251,8 @@ class TestAbuseIPDBClient:
 # OTXClient
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-class TestOTXClient:
 
+class TestOTXClient:
     @pytest.mark.asyncio
     async def test_get_pulse_indicators_no_api_key(self):
         """Should return empty list when no API key."""
@@ -254,7 +269,12 @@ class TestOTXClient:
         mock_response.json.return_value = {
             "results": [
                 {"type": "IPv4", "indicator": "1.2.3.4", "title": "malicious", "confidence": 80},
-                {"type": "URL", "indicator": "http://evil.com/payload", "title": "malware", "confidence": 90},
+                {
+                    "type": "URL",
+                    "indicator": "http://evil.com/payload",
+                    "title": "malware",
+                    "confidence": 90,
+                },
             ]
         }
 
@@ -373,8 +393,8 @@ class TestOTXClient:
 # URLhausClient
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-class TestURLhausClient:
 
+class TestURLhausClient:
     @pytest.mark.asyncio
     async def test_check_url_malicious(self):
         """Should return threat info for known malicious URLs."""
@@ -439,7 +459,12 @@ class TestURLhausClient:
         mock_response.raise_for_status = MagicMock()
         mock_response.json.return_value = {
             "urls": [
-                {"url": "http://evil1.com", "threat": "malware", "tags": ["trojan"], "host": "evil1.com"},
+                {
+                    "url": "http://evil1.com",
+                    "threat": "malware",
+                    "tags": ["trojan"],
+                    "host": "evil1.com",
+                },
                 {"url": "http://evil2.com", "threat": "phishing", "tags": [], "host": "evil2.com"},
             ]
         }
@@ -474,6 +499,7 @@ class TestURLhausClient:
 # DB Operations (cache_ioc, cache_iocs_bulk, check_ioc_match)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestCacheIoc:
     @pytest.mark.asyncio
     async def test_cache_ioc(self):
@@ -490,6 +516,7 @@ class TestCacheIoc:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -515,6 +542,7 @@ class TestCacheIoc:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -550,6 +578,7 @@ class TestCacheIocsBulk:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -574,6 +603,7 @@ class TestCacheIocsBulk:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -601,6 +631,7 @@ class TestCacheIocsBulk:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -635,6 +666,7 @@ class TestCheckIocMatch:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -657,6 +689,7 @@ class TestCheckIocMatch:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -671,6 +704,7 @@ class TestCheckIocMatch:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Enrichment Functions
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestEnrichIpWithThreatIntel:
     @pytest.mark.asyncio
@@ -719,11 +753,12 @@ class TestEnrichIpWithThreatIntel:
             "domain": None,
         }
 
-        with patch("src.intel.threat_intel.check_ioc_match", AsyncMock(return_value=None)), \
-             patch("src.intel.threat_intel.settings") as mock_settings, \
-             patch("src.intel.threat_intel.AbuseIPDBClient") as MockClient, \
-             patch("src.intel.threat_intel.cache_ioc", AsyncMock()):
-
+        with (
+            patch("src.intel.threat_intel.check_ioc_match", AsyncMock(return_value=None)),
+            patch("src.intel.threat_intel.settings") as mock_settings,
+            patch("src.intel.threat_intel.AbuseIPDBClient") as MockClient,
+            patch("src.intel.threat_intel.cache_ioc", AsyncMock()),
+        ):
             mock_settings.abuseipdb_api_key = "test-key"
             mock_client_instance = MagicMock()
             mock_client_instance.check_ip = AsyncMock(return_value=mock_abuseipdb_result)
@@ -738,8 +773,10 @@ class TestEnrichIpWithThreatIntel:
     @pytest.mark.asyncio
     async def test_no_cache_hit_no_api_key(self):
         """Should return empty dict when no cache hit and no API key."""
-        with patch("src.intel.threat_intel.check_ioc_match", AsyncMock(return_value=None)), \
-             patch("src.intel.threat_intel.settings") as mock_settings:
+        with (
+            patch("src.intel.threat_intel.check_ioc_match", AsyncMock(return_value=None)),
+            patch("src.intel.threat_intel.settings") as mock_settings,
+        ):
             mock_settings.abuseipdb_api_key = ""
             result = await enrich_ip_with_threat_intel("1.2.3.4")
 
@@ -748,10 +785,11 @@ class TestEnrichIpWithThreatIntel:
     @pytest.mark.asyncio
     async def test_abuseipdb_returns_none(self):
         """Should return empty dict when AbuseIPDB also returns None."""
-        with patch("src.intel.threat_intel.check_ioc_match", AsyncMock(return_value=None)), \
-             patch("src.intel.threat_intel.settings") as mock_settings, \
-             patch("src.intel.threat_intel.AbuseIPDBClient") as MockClient:
-
+        with (
+            patch("src.intel.threat_intel.check_ioc_match", AsyncMock(return_value=None)),
+            patch("src.intel.threat_intel.settings") as mock_settings,
+            patch("src.intel.threat_intel.AbuseIPDBClient") as MockClient,
+        ):
             mock_settings.abuseipdb_api_key = "test-key"
             mock_client_instance = MagicMock()
             mock_client_instance.check_ip = AsyncMock(return_value=None)
@@ -774,10 +812,11 @@ class TestEnrichIpWithThreatIntel:
             "domain": None,
         }
 
-        with patch("src.intel.threat_intel.check_ioc_match", AsyncMock(return_value=None)), \
-             patch("src.intel.threat_intel.settings") as mock_settings, \
-             patch("src.intel.threat_intel.AbuseIPDBClient") as MockClient:
-
+        with (
+            patch("src.intel.threat_intel.check_ioc_match", AsyncMock(return_value=None)),
+            patch("src.intel.threat_intel.settings") as mock_settings,
+            patch("src.intel.threat_intel.AbuseIPDBClient") as MockClient,
+        ):
             mock_settings.abuseipdb_api_key = "test-key"
             mock_client_instance = MagicMock()
             mock_client_instance.check_ip = AsyncMock(return_value=mock_abuseipdb_result)
@@ -814,10 +853,11 @@ class TestEnrichUrlWithThreatIntel:
             "tags": ["trojan"],
         }
 
-        with patch("src.intel.threat_intel.check_ioc_match", AsyncMock(return_value=None)), \
-             patch("src.intel.threat_intel.URLhausClient") as MockClient, \
-             patch("src.intel.threat_intel.cache_ioc", AsyncMock()):
-
+        with (
+            patch("src.intel.threat_intel.check_ioc_match", AsyncMock(return_value=None)),
+            patch("src.intel.threat_intel.URLhausClient") as MockClient,
+            patch("src.intel.threat_intel.cache_ioc", AsyncMock()),
+        ):
             mock_client = MagicMock()
             mock_client.check_url = AsyncMock(return_value=mock_urlhaus_result)
             MockClient.return_value = mock_client
@@ -831,9 +871,10 @@ class TestEnrichUrlWithThreatIntel:
     @pytest.mark.asyncio
     async def test_url_no_cache_urlhaus_miss(self):
         """Should return empty when URLhaus also has no match."""
-        with patch("src.intel.threat_intel.check_ioc_match", AsyncMock(return_value=None)), \
-             patch("src.intel.threat_intel.URLhausClient") as MockClient:
-
+        with (
+            patch("src.intel.threat_intel.check_ioc_match", AsyncMock(return_value=None)),
+            patch("src.intel.threat_intel.URLhausClient") as MockClient,
+        ):
             mock_client = MagicMock()
             mock_client.check_url = AsyncMock(return_value=None)
             MockClient.return_value = mock_client
@@ -846,22 +887,26 @@ class TestEnrichUrlWithThreatIntel:
 # refresh_all_feeds
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestRefreshAllFeeds:
     @pytest.mark.asyncio
     async def test_refresh_all_feeds_no_keys(self):
         """Should return results with -1 for unconfigured feeds."""
-        with patch("src.intel.threat_intel.settings") as mock_settings, \
-             patch("src.intel.threat_intel.URLhausClient") as MockURLhaus, \
-             patch("src.intel.threat_intel.AbuseIPDBClient") as MockAbuseIPDB:
-
+        with (
+            patch("src.intel.threat_intel.settings") as mock_settings,
+            patch("src.intel.threat_intel.URLhausClient") as MockURLhaus,
+            patch("src.intel.threat_intel.AbuseIPDBClient") as MockAbuseIPDB,
+        ):
             mock_settings.abuseipdb_api_key = ""
             mock_settings.otx_api_key = ""
 
             # URLhaus returns some URLs
             mock_urlhaus = MagicMock()
-            mock_urlhaus.get_recent_urls = AsyncMock(return_value=[
-                {"url": "http://evil.com", "threat": "malware", "tags": [], "host": "evil.com"},
-            ])
+            mock_urlhaus.get_recent_urls = AsyncMock(
+                return_value=[
+                    {"url": "http://evil.com", "threat": "malware", "tags": [], "host": "evil.com"},
+                ]
+            )
             MockURLhaus.return_value = mock_urlhaus
 
             with patch("src.intel.threat_intel.cache_iocs_bulk", AsyncMock(return_value=5)):
@@ -874,11 +919,12 @@ class TestRefreshAllFeeds:
     @pytest.mark.asyncio
     async def test_refresh_all_feeds_with_abuseipdb(self):
         """Should cache AbuseIPDB blacklist when API key is set."""
-        with patch("src.intel.threat_intel.settings") as mock_settings, \
-             patch("src.intel.threat_intel.URLhausClient") as MockURLhaus, \
-             patch("src.intel.threat_intel.AbuseIPDBClient") as MockAbuseIPDB, \
-             patch("src.intel.threat_intel.OTXClient") as MockOTX:
-
+        with (
+            patch("src.intel.threat_intel.settings") as mock_settings,
+            patch("src.intel.threat_intel.URLhausClient") as MockURLhaus,
+            patch("src.intel.threat_intel.AbuseIPDBClient") as MockAbuseIPDB,
+            patch("src.intel.threat_intel.OTXClient") as MockOTX,
+        ):
             mock_settings.abuseipdb_api_key = "test-key"
             mock_settings.otx_api_key = ""
 
@@ -900,10 +946,11 @@ class TestRefreshAllFeeds:
     @pytest.mark.asyncio
     async def test_refresh_all_feeds_urlhaus_error(self):
         """Should handle URLhaus error gracefully."""
-        with patch("src.intel.threat_intel.settings") as mock_settings, \
-             patch("src.intel.threat_intel.URLhausClient") as MockURLhaus, \
-             patch("src.intel.threat_intel.AbuseIPDBClient") as MockAbuseIPDB:
-
+        with (
+            patch("src.intel.threat_intel.settings") as mock_settings,
+            patch("src.intel.threat_intel.URLhausClient") as MockURLhaus,
+            patch("src.intel.threat_intel.AbuseIPDBClient") as MockAbuseIPDB,
+        ):
             mock_settings.abuseipdb_api_key = ""
             mock_settings.otx_api_key = ""
 
@@ -917,12 +964,13 @@ class TestRefreshAllFeeds:
     @pytest.mark.asyncio
     async def test_refresh_all_feeds_with_otx(self):
         """Should fetch OTX pulses when API key is set."""
-        with patch("src.intel.threat_intel.settings") as mock_settings, \
-             patch("src.intel.threat_intel.URLhausClient") as MockURLhaus, \
-             patch("src.intel.threat_intel.AbuseIPDBClient") as MockAbuseIPDB, \
-             patch("src.intel.threat_intel.OTXClient") as MockOTX, \
-             patch("src.intel.threat_intel.asyncio.sleep", AsyncMock()):
-
+        with (
+            patch("src.intel.threat_intel.settings") as mock_settings,
+            patch("src.intel.threat_intel.URLhausClient") as MockURLhaus,
+            patch("src.intel.threat_intel.AbuseIPDBClient") as MockAbuseIPDB,
+            patch("src.intel.threat_intel.OTXClient") as MockOTX,
+            patch("src.intel.threat_intel.asyncio.sleep", AsyncMock()),
+        ):
             mock_settings.abuseipdb_api_key = ""
             mock_settings.otx_api_key = "test-otx-key"
 
@@ -930,12 +978,16 @@ class TestRefreshAllFeeds:
             mock_urlhaus.get_recent_urls = AsyncMock(return_value=[])
 
             mock_otx = MagicMock()
-            mock_otx.get_modified_pulses = AsyncMock(return_value=[
-                {"id": "pulse1", "name": "APT29"},
-            ])
-            mock_otx.get_pulse_indicators = AsyncMock(return_value=[
-                {"type": "IPv4", "value": "10.0.0.1", "threat_type": "c2", "confidence": 80},
-            ])
+            mock_otx.get_modified_pulses = AsyncMock(
+                return_value=[
+                    {"id": "pulse1", "name": "APT29"},
+                ]
+            )
+            mock_otx.get_pulse_indicators = AsyncMock(
+                return_value=[
+                    {"type": "IPv4", "value": "10.0.0.1", "threat_type": "c2", "confidence": 80},
+                ]
+            )
             MockURLhaus.return_value = mock_urlhaus
             MockOTX.return_value = mock_otx
 
@@ -947,10 +999,11 @@ class TestRefreshAllFeeds:
     @pytest.mark.asyncio
     async def test_refresh_all_feeds_empty_urls(self):
         """Should handle URLhaus returning empty results."""
-        with patch("src.intel.threat_intel.settings") as mock_settings, \
-             patch("src.intel.threat_intel.URLhausClient") as MockURLhaus, \
-             patch("src.intel.threat_intel.AbuseIPDBClient") as MockAbuseIPDB:
-
+        with (
+            patch("src.intel.threat_intel.settings") as mock_settings,
+            patch("src.intel.threat_intel.URLhausClient") as MockURLhaus,
+            patch("src.intel.threat_intel.AbuseIPDBClient") as MockAbuseIPDB,
+        ):
             mock_settings.abuseipdb_api_key = ""
             mock_settings.otx_api_key = ""
 
@@ -966,16 +1019,19 @@ class TestRefreshAllFeeds:
 # get_threat_intel_stats
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestGetThreatIntelStats:
     @pytest.mark.asyncio
     async def test_stats(self):
         """Should return stats dict with indicators and feed status."""
         mock_conn = AsyncMock()
         mock_conn.fetchval = AsyncMock(return_value=500)
-        mock_conn.fetch = AsyncMock(return_value=[
-            {"ioc_type": "ip", "count": 300},
-            {"ioc_type": "url", "count": 200},
-        ])
+        mock_conn.fetch = AsyncMock(
+            return_value=[
+                {"ioc_type": "ip", "count": 300},
+                {"ioc_type": "url", "count": 200},
+            ]
+        )
         # Second call for by_source
         mock_conn.fetch.side_effect = [
             [{"ioc_type": "ip", "count": 300}, {"ioc_type": "url", "count": 200}],
@@ -986,14 +1042,17 @@ class TestGetThreatIntelStats:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
         mock_pool = AsyncMock()
         mock_pool.acquire = MagicMock(return_value=AsyncCtx())
 
-        with patch("src.intel.threat_intel.get_pool", AsyncMock(return_value=mock_pool)), \
-             patch("src.intel.threat_intel.settings") as mock_settings:
+        with (
+            patch("src.intel.threat_intel.get_pool", AsyncMock(return_value=mock_pool)),
+            patch("src.intel.threat_intel.settings") as mock_settings,
+        ):
             mock_settings.abuseipdb_api_key = "configured"
             mock_settings.otx_api_key = "configured"
             result = await get_threat_intel_stats()
@@ -1022,19 +1081,23 @@ class TestGetThreatIntelStats:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
         mock_pool = AsyncMock()
         mock_pool.acquire = MagicMock(return_value=AsyncCtx())
 
-        with patch("src.intel.threat_intel.get_pool", AsyncMock(return_value=mock_pool)), \
-             patch("src.intel.threat_intel.settings") as mock_settings:
+        with (
+            patch("src.intel.threat_intel.get_pool", AsyncMock(return_value=mock_pool)),
+            patch("src.intel.threat_intel.settings") as mock_settings,
+        ):
             mock_settings.abuseipdb_api_key = ""
             mock_settings.otx_api_key = ""
 
             # We need to handle sequential fetchval calls
             call_count = [0]
+
             async def fake_fetchval(sql, *args):
                 return 0
 
@@ -1055,6 +1118,7 @@ class TestGetThreatIntelStats:
 # Scheduler
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestThreatIntelScheduler:
     @pytest.mark.asyncio
     async def test_start_scheduler(self):
@@ -1063,10 +1127,14 @@ class TestThreatIntelScheduler:
         mock_scheduler.start = MagicMock()
         mock_scheduler.add_job = MagicMock()
 
-        with patch("src.intel.threat_intel._async_scheduler", None), \
-             patch("src.intel.threat_intel.refresh_all_feeds", AsyncMock(return_value={"urlhaus": 0})), \
-             patch("apscheduler.schedulers.asyncio.AsyncIOScheduler", return_value=mock_scheduler), \
-             patch("apscheduler.triggers.interval.IntervalTrigger"):
+        with (
+            patch("src.intel.threat_intel._async_scheduler", None),
+            patch(
+                "src.intel.threat_intel.refresh_all_feeds", AsyncMock(return_value={"urlhaus": 0})
+            ),
+            patch("apscheduler.schedulers.asyncio.AsyncIOScheduler", return_value=mock_scheduler),
+            patch("apscheduler.triggers.interval.IntervalTrigger"),
+        ):
             await start_threat_intel_scheduler()
 
         mock_scheduler.add_job.assert_called_once()
@@ -1079,10 +1147,15 @@ class TestThreatIntelScheduler:
         mock_scheduler.start = MagicMock()
         mock_scheduler.add_job = MagicMock()
 
-        with patch("src.intel.threat_intel._async_scheduler", None), \
-             patch("src.intel.threat_intel.refresh_all_feeds", AsyncMock(side_effect=Exception("db error"))), \
-             patch("apscheduler.schedulers.asyncio.AsyncIOScheduler", return_value=mock_scheduler), \
-             patch("apscheduler.triggers.interval.IntervalTrigger"):
+        with (
+            patch("src.intel.threat_intel._async_scheduler", None),
+            patch(
+                "src.intel.threat_intel.refresh_all_feeds",
+                AsyncMock(side_effect=Exception("db error")),
+            ),
+            patch("apscheduler.schedulers.asyncio.AsyncIOScheduler", return_value=mock_scheduler),
+            patch("apscheduler.triggers.interval.IntervalTrigger"),
+        ):
             # Should not raise even when initial refresh fails
             await start_threat_intel_scheduler()
 

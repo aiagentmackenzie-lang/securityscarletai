@@ -2,16 +2,16 @@
 Tests for Sigma rule library — validates all 45+ rules parse correctly
 and contain required fields, proper MITRE tags, and produce valid SQL.
 """
-import pytest
+
 from pathlib import Path
 
+import pytest
+
 from src.detection.sigma import (
+    _validate_column,
+    load_rules_from_directory,
     parse_sigma_rule,
     sigma_to_sql,
-    load_rules_from_directory,
-    _validate_column,
-    _timeframe_to_seconds,
-    _extract_mitre_tags,
 )
 
 RULES_DIR = Path(__file__).parent.parent.parent / "rules" / "sigma"
@@ -35,8 +35,9 @@ class TestRuleLibraryCompleteness:
             assert rule.title, f"Rule missing title: {rule.id}"
             assert rule.id, f"Rule missing id: {rule.title}"
             assert rule.description or True  # description can be empty
-            assert rule.level in ("info", "low", "medium", "high", "critical"), \
+            assert rule.level in ("info", "low", "medium", "high", "critical"), (
                 f"Rule {rule.title} has invalid level: {rule.level}"
+            )
             assert rule.detection is not None, f"Rule {rule.title} has no detection"
 
     def test_all_rules_have_mitre_tags(self, all_rules):
@@ -45,8 +46,7 @@ class TestRuleLibraryCompleteness:
         for rule in all_rules:
             if not rule.mitre_tactics and not rule.mitre_techniques:
                 rules_without_mitre.append(rule.title)
-        assert len(rules_without_mitre) == 0, \
-            f"Rules missing MITRE tags: {rules_without_mitre}"
+        assert len(rules_without_mitre) == 0, f"Rules missing MITRE tags: {rules_without_mitre}"
 
     def test_all_rules_produce_valid_sql(self, all_rules):
         """Each rule must parse to valid parameterized SQL."""
@@ -61,23 +61,24 @@ class TestRuleLibraryCompleteness:
                     assert len(sql) > 0, f"Rule {rule.title} produced empty SQL"
                     assert "FROM logs" in sql, f"Rule {rule.title} SQL missing FROM logs"
                     # All dynamic values should be parameterized
-                    assert sql.count("$") > 0 or "TRUE" in sql, \
+                    assert sql.count("$") > 0 or "TRUE" in sql, (
                         f"Rule {rule.title} has no parameterized values"
+                    )
                     break
 
     def test_mitre_tactic_format(self, all_rules):
         """MITRE tactics must be in TA00XX format (uppercase)."""
         for rule in all_rules:
             for tactic in rule.mitre_tactics:
-                assert tactic.startswith("TA0"), \
-                    f"Rule {rule.title} has malformed tactic: {tactic}"
+                assert tactic.startswith("TA0"), f"Rule {rule.title} has malformed tactic: {tactic}"
 
     def test_mitre_technique_format(self, all_rules):
         """MITRE techniques must be in TXXXX format (uppercase, no TA prefix)."""
         for rule in all_rules:
             for tech in rule.mitre_techniques:
-                assert tech.startswith("T") and not tech.startswith("TA"), \
+                assert tech.startswith("T") and not tech.startswith("TA"), (
                     f"Rule {rule.title} has malformed technique: {tech}"
+                )
 
     def test_rule_ids_are_unique(self, all_rules):
         """All rule IDs must be unique."""
@@ -112,10 +113,21 @@ class TestRuleCategoryCoverage:
 
     def test_macos_rules_exist(self, all_rules):
         """At least 8 macOS-specific rules must exist."""
-        mac_rules = [r for r in all_rules if any(
-            tag in r.tags for tag in
-            ["attack.t1547", "attack.t1553", "attack.t1562", "attack.t1555", "attack.t1564", "attack.t1176"]
-        )]
+        mac_rules = [
+            r
+            for r in all_rules
+            if any(
+                tag in r.tags
+                for tag in [
+                    "attack.t1547",
+                    "attack.t1553",
+                    "attack.t1562",
+                    "attack.t1555",
+                    "attack.t1564",
+                    "attack.t1176",
+                ]
+            )
+        ]
         # Also count by directory structure
         mac_dir = RULES_DIR / "macOS"
         if mac_dir.exists():
@@ -233,6 +245,7 @@ class TestNewColumnsInRules:
         assert rule is not None
         # process_path should be in the allowed columns
         from src.detection.sigma import ALLOWED_COLUMNS
+
         assert "process_path" in ALLOWED_COLUMNS
 
     def test_validate_process_cmdline(self):

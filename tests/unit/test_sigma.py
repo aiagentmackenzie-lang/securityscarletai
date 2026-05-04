@@ -1,7 +1,8 @@
 """Tests for Sigma parser — including SQL injection defense."""
-import pytest
-from src.detection.sigma import parse_sigma_rule, sigma_to_sql, _validate_column, ALLOWED_COLUMNS
 
+import pytest
+
+from src.detection.sigma import ALLOWED_COLUMNS, _validate_column, parse_sigma_rule, sigma_to_sql
 
 # ───────────────────────────────────────────────────────────
 # Basic parsing tests
@@ -75,6 +76,7 @@ detection:
 # ───────────────────────────────────────────────────────────
 # ── SECURITY: SQL Injection Defense Tests ───────────────────
 # ───────────────────────────────────────────────────────────
+
 
 def test_sigma_prevents_sql_injection_in_values():
     """SQL injection in field VALUES must be parameterized, not raw SQL."""
@@ -158,9 +160,15 @@ def test_sigma_rejects_invalid_column_in_count():
 def test_sigma_all_columns_whitelisted():
     """All expected columns must be in the whitelist."""
     essential_columns = [
-        "event_type", "event_action", "event_category",
-        "host_name", "source_ip", "destination_ip",
-        "process_name", "user_name", "severity",
+        "event_type",
+        "event_action",
+        "event_category",
+        "host_name",
+        "source_ip",
+        "destination_ip",
+        "process_name",
+        "user_name",
+        "severity",
     ]
     for col in essential_columns:
         assert col in ALLOWED_COLUMNS, f"Column '{col}' missing from ALLOWED_COLUMNS"
@@ -169,6 +177,7 @@ def test_sigma_all_columns_whitelisted():
 # ───────────────────────────────────────────────────────────
 # ── MITRE Tag Parsing Tests ─────────────────────────────────
 # ───────────────────────────────────────────────────────────
+
 
 def test_mitre_tactic_and_technique_parsing():
     """Tactic IDs (TA prefix) and Technique IDs (T prefix, no TA) must be separated."""

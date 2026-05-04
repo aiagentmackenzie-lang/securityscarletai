@@ -47,14 +47,16 @@ class RequestValidationMiddleware(BaseHTTPMiddleware):
                     if len(body) > self.MAX_BODY_SIZE:
                         return JSONResponse(
                             status_code=413,
-                            content={"detail": f"Request body too large. Max {self.MAX_BODY_SIZE} bytes."},
+                            content={
+                            "detail": f"Request body too large. Max {self.MAX_BODY_SIZE} bytes."
+                        },
                         )
                     # Re-inject body so downstream handlers can read it
                     async def receive():
                         return {"type": "http.request", "body": body}
                     request._receive = receive
                 except Exception:
-                    pass  # Body read failed; let downstream handle it
+                    log.debug("request_body_read_failed")  # Let downstream handle it
 
             # Content-Type enforcement for ingest endpoint
             if request.url.path.endswith("/ingest"):

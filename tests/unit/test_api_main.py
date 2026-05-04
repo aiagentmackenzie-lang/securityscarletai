@@ -8,16 +8,18 @@ Covers:
 - lifespan (startup/shutdown via mock)
 - load_sigma_rules (already loaded, yaml error)
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.api.main import app, load_sigma_rules, RULES_DIR
+import pytest
 
+from src.api.main import RULES_DIR, app, load_sigma_rules
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # App configuration
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestAppConfiguration:
     def test_app_title(self):
@@ -34,7 +36,7 @@ class TestAppConfiguration:
 
     def test_routes_registered(self):
         """Should have expected API routes."""
-        route_paths = [r.path for r in app.routes if hasattr(r, 'path')]
+        route_paths = [r.path for r in app.routes if hasattr(r, "path")]
         assert any("/api/v1" in p for p in route_paths)
 
     def test_rules_dir_path(self):
@@ -46,6 +48,7 @@ class TestAppConfiguration:
 # load_sigma_rules
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestLoadSigmaRules:
     @pytest.mark.asyncio
     async def test_rules_already_loaded(self):
@@ -56,6 +59,7 @@ class TestLoadSigmaRules:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -79,6 +83,7 @@ class TestLoadSigmaRules:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -86,12 +91,15 @@ class TestLoadSigmaRules:
         mock_pool.acquire = MagicMock(return_value=AsyncCtx())
 
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             rule_file = Path(tmpdir) / "bad_rule.yml"
             rule_file.write_text("title: [broken\n  invalid")
 
-            with patch("src.api.main.get_pool", AsyncMock(return_value=mock_pool)), \
-                 patch("src.api.main.RULES_DIR", Path(tmpdir)):
+            with (
+                patch("src.api.main.get_pool", AsyncMock(return_value=mock_pool)),
+                patch("src.api.main.RULES_DIR", Path(tmpdir)),
+            ):
                 # Should not raise, just log error
                 await load_sigma_rules()
 
@@ -99,6 +107,7 @@ class TestLoadSigmaRules:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Lifespan
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestLifespan:
     @pytest.mark.asyncio
@@ -111,16 +120,17 @@ class TestLifespan:
         mock_writer.stop = AsyncMock()
 
         # Import in-function so the patches target the right names
-        with patch("src.api.main.get_pool", AsyncMock()), \
-             patch("src.api.main.writer", mock_writer), \
-             patch("src.api.main.load_sigma_rules", AsyncMock()), \
-             patch("src.detection.scheduler.schedule_rules", AsyncMock()), \
-             patch("src.intel.threat_intel.start_threat_intel_scheduler", AsyncMock()), \
-             patch("src.detection.scheduler.stop_scheduler", AsyncMock()), \
-             patch("src.intel.threat_intel.stop_threat_intel_scheduler", AsyncMock()), \
-             patch("src.api.main.close_pool", AsyncMock()), \
-             patch("src.config.logging.setup_logging"):
-
+        with (
+            patch("src.api.main.get_pool", AsyncMock()),
+            patch("src.api.main.writer", mock_writer),
+            patch("src.api.main.load_sigma_rules", AsyncMock()),
+            patch("src.detection.scheduler.schedule_rules", AsyncMock()),
+            patch("src.intel.threat_intel.start_threat_intel_scheduler", AsyncMock()),
+            patch("src.detection.scheduler.stop_scheduler", AsyncMock()),
+            patch("src.intel.threat_intel.stop_threat_intel_scheduler", AsyncMock()),
+            patch("src.api.main.close_pool", AsyncMock()),
+            patch("src.config.logging.setup_logging"),
+        ):
             async with lifespan(app):
                 mock_writer.start.assert_awaited_once()
 
@@ -131,13 +141,19 @@ class TestLifespan:
 # Router paths check
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestRouterPaths:
     def test_expected_route_prefixes(self):
         """App should have routes for all major features."""
-        route_paths = [r.path for r in app.routes if hasattr(r, 'path')]
+        route_paths = [r.path for r in app.routes if hasattr(r, "path")]
         prefix_checks = [
-            "/health", "/ingest", "/alerts", "/rules",
-            "/ws/logs", "/threat-intel", "/cases"
+            "/health",
+            "/ingest",
+            "/alerts",
+            "/rules",
+            "/ws/logs",
+            "/threat-intel",
+            "/cases",
         ]
         for prefix in prefix_checks:
             assert any(prefix in p for p in route_paths), f"Missing route for {prefix}"

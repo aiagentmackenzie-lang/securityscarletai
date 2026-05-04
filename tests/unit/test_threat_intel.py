@@ -3,15 +3,17 @@ Tests for Threat Intelligence v2.
 
 Tests the threat intel clients, caching, enrichment, and stats.
 """
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
 from src.intel.threat_intel import (
-    AbuseIPDBClient,
-    URLhausClient,
-    OTXClient,
-    _map_ioc_type,
     FEED_REFRESH_INTERVAL_HOURS,
+    AbuseIPDBClient,
+    OTXClient,
+    URLhausClient,
+    _map_ioc_type,
 )
 
 
@@ -119,8 +121,9 @@ class TestThreatIntelStats:
     @pytest.mark.asyncio
     async def test_get_stats(self):
         """Stats should return correct structure."""
-        from src.intel.threat_intel import get_threat_intel_stats
         from unittest.mock import MagicMock
+
+        from src.intel.threat_intel import get_threat_intel_stats
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()

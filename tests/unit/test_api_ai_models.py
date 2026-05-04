@@ -8,14 +8,14 @@ Covers:
 - UEBAResponse model
 - ExplainResponse model
 """
-import pytest
+
 from src.api.ai import (
+    ExplainResponse,
+    StatusResponse,
     TrainRequest,
     TrainResponse,
-    StatusResponse,
     TriageResponse,
     UEBAResponse,
-    ExplainResponse,
 )
 
 

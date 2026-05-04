@@ -10,10 +10,10 @@ POST /api/v1/ai/explain/{id}  — Generate AI explanation for alert
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from src.api.auth import require_role
 from src.ai.alert_explanation import explain_alert
 from src.ai.alert_triage import AlertTriageModel, check_auto_train, get_triage_model
 from src.ai.ueba import get_ueba
+from src.api.auth import require_role
 from src.config.logging import get_logger
 from src.db.connection import get_pool
 

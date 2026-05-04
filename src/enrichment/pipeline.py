@@ -55,7 +55,7 @@ def close_geoip_reader():
         try:
             _geoip_reader.close()
         except Exception:
-            pass
+            log.debug("geoip_close_failed")  # Non-critical, best-effort close
         _geoip_reader = None
         _geoip_loaded = False
 

@@ -6,13 +6,14 @@ POST /api/v1/auth/seed-admin — Create initial admin user
 GET  /api/v1/auth/me      — Get current user info
 POST /api/v1/auth/change-password — Change password
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
+
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.api.auth import create_jwt, JWT_ALGORITHM, verify_password
+import pytest
+
+from src.api.auth import JWT_ALGORITHM, create_jwt
 from src.config.settings import settings
-
 
 # Pre-computed bcrypt hash for "testpass123" with SHA-256 pre-hash (M-10 fix).
 # Generated via: hash_password('testpass123') which does SHA-256 then bcrypt.
@@ -30,6 +31,7 @@ class TestCreateJWT:
         """Test that JWT contains the correct role."""
         token = create_jwt("analyst1", "analyst")
         from jose import jwt
+
         payload = jwt.decode(token, settings.api_secret_key, algorithms=[JWT_ALGORITHM])
         assert payload["sub"] == "analyst1"
         assert payload["role"] == "analyst"
@@ -38,6 +40,7 @@ class TestCreateJWT:
         """Test that JWT has an expiry."""
         token = create_jwt("admin1", "admin")
         from jose import jwt
+
         payload = jwt.decode(token, settings.api_secret_key, algorithms=[JWT_ALGORITHM])
         assert "exp" in payload
         assert payload["exp"] > datetime.now(tz=timezone.utc).timestamp()
@@ -46,6 +49,7 @@ class TestCreateJWT:
         """Test JWT with admin role."""
         token = create_jwt("superadmin", "admin")
         from jose import jwt
+
         payload = jwt.decode(token, settings.api_secret_key, algorithms=[JWT_ALGORITHM])
         assert payload["role"] == "admin"
 
@@ -53,6 +57,7 @@ class TestCreateJWT:
         """Test JWT with viewer role."""
         token = create_jwt("readonly", "viewer")
         from jose import jwt
+
         payload = jwt.decode(token, settings.api_secret_key, algorithms=[JWT_ALGORITHM])
         assert payload["role"] == "viewer"
 
@@ -92,7 +97,7 @@ class TestLoginEndpoint:
         # Mock verify_password to return True for our test password
         with patch("src.api.auth_login.get_pool", return_value=pool):
             with patch("src.api.auth_login.verify_password", return_value=True):
-                from src.api.auth_login import login, LoginRequest
+                from src.api.auth_login import LoginRequest, login
 
                 request = LoginRequest(username="testadmin", password="testpass123")
                 result = await login(request)
@@ -110,8 +115,9 @@ class TestLoginEndpoint:
 
         with patch("src.api.auth_login.get_pool", return_value=pool):
             with patch("src.api.auth_login.verify_password", return_value=False):
-                from src.api.auth_login import login, LoginRequest
                 from fastapi import HTTPException
+
+                from src.api.auth_login import LoginRequest, login
 
                 request = LoginRequest(username="testadmin", password="wrongpassword")
 
@@ -133,8 +139,9 @@ class TestLoginEndpoint:
 
         with patch("src.api.auth_login.get_pool", return_value=pool):
             with patch("src.api.auth_login.hash_password", return_value="dummy_hash"):
-                from src.api.auth_login import login, LoginRequest
                 from fastapi import HTTPException
+
+                from src.api.auth_login import LoginRequest, login
 
                 request = LoginRequest(username="ghost", password="whatever")
 
@@ -149,8 +156,9 @@ class TestLoginEndpoint:
         user_row["is_active"] = False
 
         with patch("src.api.auth_login.get_pool", return_value=pool):
-            from src.api.auth_login import login, LoginRequest
             from fastapi import HTTPException
+
+            from src.api.auth_login import LoginRequest, login
 
             request = LoginRequest(username="testadmin", password="testpass123")
 
@@ -200,8 +208,9 @@ class TestSeedAdmin:
         pool.acquire = MagicMock(return_value=acquirer)
 
         with patch("src.api.auth_login.get_pool", return_value=pool):
-            from src.api.auth_login import seed_admin_user
             from fastapi import HTTPException
+
+            from src.api.auth_login import seed_admin_user
 
             with pytest.raises(HTTPException) as exc_info:
                 await seed_admin_user()
@@ -216,10 +225,12 @@ class TestChangePassword:
         """Test successful password change."""
         pool = AsyncMock()
         conn = AsyncMock()
-        conn.fetchrow = AsyncMock(return_value={
-            "id": 1,
-            "password_hash": "old_hash",
-        })
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": 1,
+                "password_hash": "old_hash",
+            }
+        )
         conn.execute = AsyncMock(return_value=None)
 
         acquirer = MagicMock()
@@ -232,7 +243,7 @@ class TestChangePassword:
         with patch("src.api.auth_login.get_pool", return_value=pool):
             with patch("src.api.auth_login.verify_password", return_value=True):
                 with patch("src.api.auth_login.hash_password", return_value="new_hash"):
-                    from src.api.auth_login import change_password, ChangePasswordRequest
+                    from src.api.auth_login import ChangePasswordRequest, change_password
 
                     request = ChangePasswordRequest(
                         current_password="oldpassword",
@@ -246,10 +257,12 @@ class TestChangePassword:
         """Test password change with wrong current password."""
         pool = AsyncMock()
         conn = AsyncMock()
-        conn.fetchrow = AsyncMock(return_value={
-            "id": 1,
-            "password_hash": "real_hash",
-        })
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": 1,
+                "password_hash": "real_hash",
+            }
+        )
 
         acquirer = MagicMock()
         acquirer.__aenter__ = AsyncMock(return_value=conn)
@@ -260,8 +273,9 @@ class TestChangePassword:
 
         with patch("src.api.auth_login.get_pool", return_value=pool):
             with patch("src.api.auth_login.verify_password", return_value=False):
-                from src.api.auth_login import change_password, ChangePasswordRequest
                 from fastapi import HTTPException
+
+                from src.api.auth_login import ChangePasswordRequest, change_password
 
                 request = ChangePasswordRequest(
                     current_password="wrongpassword",
@@ -287,8 +301,9 @@ class TestChangePassword:
         payload = {"sub": "ghost", "role": "analyst"}
 
         with patch("src.api.auth_login.get_pool", return_value=pool):
-            from src.api.auth_login import change_password, ChangePasswordRequest
             from fastapi import HTTPException
+
+            from src.api.auth_login import ChangePasswordRequest, change_password
 
             request = ChangePasswordRequest(
                 current_password="whatever",
@@ -308,13 +323,15 @@ class TestGetMe:
         """Test getting current user info."""
         pool = AsyncMock()
         conn = AsyncMock()
-        conn.fetchrow = AsyncMock(return_value={
-            "username": "testadmin",
-            "role": "admin",
-            "email": "admin@localhost",
-            "is_active": True,
-            "last_login": datetime.now(tz=timezone.utc),
-        })
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "username": "testadmin",
+                "role": "admin",
+                "email": "admin@localhost",
+                "is_active": True,
+                "last_login": datetime.now(tz=timezone.utc),
+            }
+        )
 
         acquirer = MagicMock()
         acquirer.__aenter__ = AsyncMock(return_value=conn)
@@ -324,7 +341,7 @@ class TestGetMe:
         payload = {"sub": "testadmin", "role": "admin"}
 
         with patch("src.api.auth_login.get_pool", return_value=pool):
-            from src.api.auth_login import get_current_user, UserInfoResponse
+            from src.api.auth_login import get_current_user
 
             result = await get_current_user(payload)
             assert result.username == "testadmin"
@@ -345,8 +362,9 @@ class TestGetMe:
         payload = {"sub": "ghost", "role": "viewer"}
 
         with patch("src.api.auth_login.get_pool", return_value=pool):
-            from src.api.auth_login import get_current_user
             from fastapi import HTTPException
+
+            from src.api.auth_login import get_current_user
 
             with pytest.raises(HTTPException) as exc_info:
                 await get_current_user(payload)

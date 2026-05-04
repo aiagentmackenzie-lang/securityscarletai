@@ -7,11 +7,13 @@ Covers:
 - enrich_alert() — DB updates
 - Ollama unavailability handling
 """
+
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.detection.ai_analyzer import build_prompt, analyze_alert, enrich_alert
+import pytest
+
+from src.detection.ai_analyzer import analyze_alert, build_prompt, enrich_alert
 
 
 class TestBuildPrompt:
@@ -93,13 +95,15 @@ class TestAnalyzeAlert:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "response": json.dumps({
-                "summary": "SSH brute force detected",
-                "risk_score": 75,
-                "verdict": "threat",
-                "response": ["Block IP", "Notify admin"],
-                "reasoning": "Multiple failed logins from same IP",
-            })
+            "response": json.dumps(
+                {
+                    "summary": "SSH brute force detected",
+                    "risk_score": 75,
+                    "verdict": "threat",
+                    "response": ["Block IP", "Notify admin"],
+                    "reasoning": "Multiple failed logins from same IP",
+                }
+            )
         }
 
         mock_client = AsyncMock()

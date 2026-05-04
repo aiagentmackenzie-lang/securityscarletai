@@ -8,8 +8,8 @@ Covers:
 - Sigma YAML validation
 - Auth requirements
 """
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.api.rules import RuleCreate, RuleResponse
 
@@ -113,12 +113,14 @@ class TestRulesEndpoint:
     def test_parse_sigma_raises_on_invalid_yaml(self):
         """Invalid Sigma YAML should raise an exception."""
         from src.detection.sigma import parse_sigma_rule
+
         with pytest.raises(Exception):
             parse_sigma_rule("not: valid: sigma: yaml:")
 
     def test_parse_sigma_valid_yaml(self):
         """Valid Sigma YAML should parse."""
         from src.detection.sigma import parse_sigma_rule
+
         yaml = """
 title: Test Rule
 level: high

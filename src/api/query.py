@@ -9,12 +9,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from src.api.auth import require_role
 from src.ai.nl2sql import (
     get_available_templates,
     nl_query,
     nl_to_sql,
 )
+from src.api.auth import require_role
 from src.config.logging import get_logger
 
 log = get_logger("api.query")

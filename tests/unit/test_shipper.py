@@ -6,12 +6,14 @@ Covers:
 - NormalizedEvent validation
 - FileShipper checkpoint handling
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
 
-from src.ingestion.schemas import NormalizedEvent
+from datetime import datetime, timezone
+from unittest.mock import patch
+
+import pytest
+
 from src.db.writer import LogWriter
+from src.ingestion.schemas import NormalizedEvent
 
 
 class TestLogWriter:
@@ -123,13 +125,15 @@ class TestFileShipper:
     def test_checkpoint_load_handles_missing_file(self):
         """Should return 0 if checkpoint file missing."""
         from src.ingestion.shipper import FileShipper
+
         writer = LogWriter()
         shipper = FileShipper("/nonexistent/path.log", writer)
         assert shipper._offset == 0
 
     def test_checkpoint_load_handles_invalid_content(self, tmp_path):
         """Should return 0 if checkpoint content is invalid."""
-        from src.ingestion.shipper import FileShipper, CHECKPOINT_FILE
+        from src.ingestion.shipper import FileShipper
+
         writer = LogWriter()
         # Write invalid checkpoint
         invalid_file = tmp_path / "checkpoint"
@@ -142,6 +146,7 @@ class TestFileShipper:
     def test_checkpoint_load_valid(self, tmp_path):
         """Should load valid checkpoint."""
         from src.ingestion.shipper import FileShipper
+
         writer = LogWriter()
         checkpoint = tmp_path / "checkpoint"
         checkpoint.write_text("12345")
@@ -153,6 +158,7 @@ class TestFileShipper:
     def test_checkpoint_save(self, tmp_path):
         """Should save checkpoint."""
         from src.ingestion.shipper import FileShipper
+
         writer = LogWriter()
         checkpoint = tmp_path / "checkpoint"
 

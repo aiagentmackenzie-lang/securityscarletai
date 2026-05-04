@@ -840,7 +840,7 @@ def template_match(nl_query: str) -> Optional[str]:
     best_match = None
     best_score = 0
 
-    for template_id, template in QUERY_TEMPLATES.items():
+    for _template_id, template in QUERY_TEMPLATES.items():
         score = sum(1 for kw in template["keywords"] if kw in nl_lower)
         if score > best_score:
             best_score = score

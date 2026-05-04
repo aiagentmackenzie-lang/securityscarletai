@@ -10,13 +10,13 @@ GET  /api/v1/hunt/history                — Get hunt execution history
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from src.api.auth import require_role
 from src.ai.hunting_assistant import (
     execute_hunt,
     get_hunting_templates,
     hunt_from_alert,
     mitre_gap_analysis,
 )
+from src.api.auth import require_role
 from src.config.logging import get_logger
 
 log = get_logger("api.hunt")

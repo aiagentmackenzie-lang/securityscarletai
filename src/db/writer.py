@@ -152,7 +152,10 @@ class LogWriter:
         dead_letter_file = DEAD_LETTER_DIR / f"{timestamp}.jsonl"
 
         # Check file size — if too large, rotate to a numbered file
-        if dead_letter_file.exists() and dead_letter_file.stat().st_size > DEAD_LETTER_MAX_FILE_SIZE:
+        if (
+            dead_letter_file.exists()
+            and dead_letter_file.stat().st_size > DEAD_LETTER_MAX_FILE_SIZE
+        ):
             n = 1
             while (DEAD_LETTER_DIR / f"{timestamp}_{n}.jsonl").exists():
                 n += 1

@@ -4,8 +4,8 @@ Tests for Phase 4.2 features: auto-refresh, loading states, and visual polish.
 Tests the auto-refresh fallback, loading state patterns, toast/notification patterns,
 and CSS theme configuration.
 """
-import pytest
-from unittest.mock import patch, MagicMock
+
+from unittest.mock import MagicMock, patch
 
 from dashboard.api_client import ApiClient, ApiError
 
@@ -17,6 +17,7 @@ class TestAutoRefreshFallback:
         """When streamlit_autorefresh is installed, HAS_AUTOREFRESH should be True."""
         # Import main to check the flag
         from dashboard.main import HAS_AUTOREFRESH
+
         # If the package is installed (which it should be), this is True
         assert isinstance(HAS_AUTOREFRESH, bool)
 
@@ -26,25 +27,39 @@ class TestAutoRefreshFallback:
         with patch.dict("sys.modules", {"streamlit_autorefresh": None}):
             # The module should still be importable
             import importlib
+
             import dashboard.main
+
             importlib.reload(dashboard.main)
             # Should not raise even if autorefresh is not available
 
     def test_page_refresh_intervals_defined(self):
         """Every page should have a refresh interval defined."""
         from dashboard.main import PAGE_REFRESH_MS
-        expected_pages = ["overview", "logs", "alerts", "rules", "cases", "ai_chat", "hunting", "audit"]
+
+        expected_pages = [
+            "overview",
+            "logs",
+            "alerts",
+            "rules",
+            "cases",
+            "ai_chat",
+            "hunting",
+            "audit",
+        ]
         for page in expected_pages:
             assert page in PAGE_REFRESH_MS, f"Missing refresh interval for page: {page}"
 
     def test_ai_chat_never_auto_refreshes(self):
         """AI chat should never auto-refresh (preserves chat context)."""
         from dashboard.main import PAGE_REFRESH_MS
+
         assert PAGE_REFRESH_MS["ai_chat"] == 0, "AI chat should have 0 refresh interval"
 
     def test_refresh_intervals_are_reasonable(self):
         """Refresh intervals should be between 10-120 seconds."""
         from dashboard.main import PAGE_REFRESH_MS
+
         for page, ms in PAGE_REFRESH_MS.items():
             if ms == 0:  # 0 means disabled
                 continue
@@ -57,14 +72,15 @@ class TestLoadingStatePatterns:
     def test_charts_all_functions_exist(self):
         """All chart rendering functions should exist and be callable."""
         from dashboard.charts import (
-            render_severity_distribution,
             render_alert_trend,
-            render_top_hosts,
-            render_mitre_heatmap,
             render_dashboard_metrics,
-            render_severity_sparklines,
             render_host_risk_scores,
+            render_mitre_heatmap,
+            render_severity_distribution,
+            render_severity_sparklines,
+            render_top_hosts,
         )
+
         assert callable(render_severity_distribution)
         assert callable(render_alert_trend)
         assert callable(render_top_hosts)
@@ -75,12 +91,12 @@ class TestLoadingStatePatterns:
 
     def test_view_functions_exist(self):
         """All dashboard view functions should exist and be callable."""
-        from dashboard.logs_view import render_log_viewer
-        from dashboard.alerts_view import render_alert_list
-        from dashboard.rules_view import render_rules_view
-        from dashboard.cases_view import render_cases_view
         from dashboard.ai_chat_view import render_ai_chat
+        from dashboard.alerts_view import render_alert_list
+        from dashboard.cases_view import render_cases_view
         from dashboard.hunt_view import render_hunt_view
+        from dashboard.logs_view import render_log_viewer
+        from dashboard.rules_view import render_rules_view
 
         assert callable(render_log_viewer)
         assert callable(render_alert_list)
@@ -91,7 +107,8 @@ class TestLoadingStatePatterns:
 
     def test_main_page_routing_dict(self):
         """PAGES dict should contain all expected page routes."""
-        from dashboard.main import PAGES, ADMIN_PAGES
+        from dashboard.main import ADMIN_PAGES, PAGES
+
         assert "📊 Overview" in PAGES
         assert "📡 Live Logs" in PAGES
         assert "🚨 Alerts" in PAGES
@@ -108,12 +125,14 @@ class TestDarkThemeCSS:
     def test_dark_theme_css_exists(self):
         """Dark theme CSS should be defined."""
         from dashboard.main import DARK_THEME_CSS
+
         assert len(DARK_THEME_CSS) > 100
         assert "background-color" in DARK_THEME_CSS
 
     def test_dark_theme_has_animations(self):
         """Dark theme CSS should include animation keyframes."""
         from dashboard.main import DARK_THEME_CSS
+
         assert "fadeInContent" in DARK_THEME_CSS
         assert "fadeInValue" in DARK_THEME_CSS
         assert "@keyframes" in DARK_THEME_CSS
@@ -121,12 +140,14 @@ class TestDarkThemeCSS:
     def test_dark_theme_has_button_transitions(self):
         """Dark theme CSS should include button transition effects."""
         from dashboard.main import DARK_THEME_CSS
+
         assert "transition" in DARK_THEME_CSS
         assert "hover" in DARK_THEME_CSS.lower()
 
     def test_dark_theme_has_severity_colors(self):
         """Dark theme CSS should include severity color classes."""
         from dashboard.main import DARK_THEME_CSS
+
         assert "severity-critical" in DARK_THEME_CSS
         assert "severity-high" in DARK_THEME_CSS
         assert "severity-medium" in DARK_THEME_CSS
@@ -136,12 +157,14 @@ class TestDarkThemeCSS:
     def test_dark_theme_has_metrics_animation(self):
         """Dark theme CSS should animate metric values."""
         from dashboard.main import DARK_THEME_CSS
+
         assert "stMetricValue" in DARK_THEME_CSS
         assert "animation" in DARK_THEME_CSS
 
     def test_dark_theme_has_toast_animation(self):
         """Dark theme CSS should animate toast notifications."""
         from dashboard.main import DARK_THEME_CSS
+
         assert "stToast" in DARK_THEME_CSS
         assert "slideInRight" in DARK_THEME_CSS
 
@@ -152,17 +175,20 @@ class TestChartsThemeConfig:
     def test_severity_colors_complete(self):
         """Severity color map should cover all severity levels."""
         from dashboard.charts import SEVERITY_COLORS
+
         expected_keys = {"critical", "high", "medium", "low", "info"}
         assert set(SEVERITY_COLORS.keys()) == expected_keys
 
     def test_severity_order_complete(self):
         """Severity order should be from highest to lowest."""
         from dashboard.charts import SEVERITY_ORDER
+
         assert SEVERITY_ORDER == ["critical", "high", "medium", "low", "info"]
 
     def test_dark_theme_config(self):
         """Altair dark theme config should have dark background."""
         from dashboard.charts import DARK_THEME
+
         assert DARK_THEME["background"] == "#0e1117"
         assert DARK_THEME["title"]["color"] == "#fafafa"
         assert DARK_THEME["axis"]["labelColor"] == "#a0a0a0"
@@ -174,12 +200,14 @@ class TestAlertBadges:
     def test_severity_badges_complete(self):
         """All severity levels should have badge icons."""
         from dashboard.alerts_view import SEVERITY_BADGES
+
         expected = {"critical", "high", "medium", "low", "info"}
         assert set(SEVERITY_BADGES.keys()) == expected
 
     def test_status_badges_complete(self):
         """All alert statuses should have badge icons."""
         from dashboard.alerts_view import STATUS_BADGES
+
         expected = {"new", "investigating", "resolved", "false_positive", "closed"}
         assert set(STATUS_BADGES.keys()) == expected
 
@@ -190,6 +218,7 @@ class TestQuickActions:
     def test_quick_actions_defined(self):
         """Quick action suggestions should be defined."""
         from dashboard.ai_chat_view import QUICK_ACTIONS
+
         assert len(QUICK_ACTIONS) > 0
         assert any("investigate" in a.lower() for a in QUICK_ACTIONS)
         assert any("posture" in a.lower() or "summar" in a.lower() for a in QUICK_ACTIONS)
@@ -197,6 +226,7 @@ class TestQuickActions:
     def test_quick_actions_are_questions(self):
         """Quick actions should be question strings."""
         from dashboard.ai_chat_view import QUICK_ACTIONS
+
         for action in QUICK_ACTIONS:
             assert isinstance(action, str)
             assert len(action) > 5
@@ -208,6 +238,7 @@ class TestRuleTemplates:
     def test_rule_templates_defined(self):
         """Rule templates should be defined for rule creation."""
         from dashboard.rules_view import RULE_TEMPLATES
+
         assert len(RULE_TEMPLATES) >= 4
         assert "Process Execution" in RULE_TEMPLATES
         assert "Network Connection" in RULE_TEMPLATES
@@ -217,6 +248,7 @@ class TestRuleTemplates:
     def test_rule_templates_have_yaml(self):
         """Each template should contain valid YAML-like content."""
         from dashboard.rules_view import RULE_TEMPLATES
+
         for name, template in RULE_TEMPLATES.items():
             assert "title:" in template or "{name}" in template
             assert "detection:" in template
@@ -230,14 +262,18 @@ class TestApiClientConvenience:
         client = ApiClient(base_url="http://localhost:8000/api/v1")
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.content = b'{"access_token": "test-jwt", "username": "admin", "role": "admin"}'
+        mock_response.content = (
+            b'{"access_token": "test-jwt", "username": "admin", "role": "admin"}'
+        )
         mock_response.json.return_value = {
             "access_token": "test-jwt",
             "username": "admin",
             "role": "admin",
         }
 
-        with patch("streamlit.session_state", {"access_token": None, "username": None, "role": None}):
+        with patch(
+            "streamlit.session_state", {"access_token": None, "username": None, "role": None}
+        ):
             with patch.object(client, "_post", return_value=mock_response.json()):
                 # Verify the method exists and is callable
                 assert hasattr(client, "login")
@@ -262,6 +298,7 @@ class TestKeyboardShortcuts:
     def test_keyboard_shortcuts_js_exists(self):
         """Keyboard shortcuts JavaScript should be defined."""
         from dashboard.main import KEYBOARD_SHORTCUTS_JS
+
         assert "keydown" in KEYBOARD_SHORTCUTS_JS
         assert "Overview" in KEYBOARD_SHORTCUTS_JS
         assert "Live Logs" in KEYBOARD_SHORTCUTS_JS
@@ -269,4 +306,5 @@ class TestKeyboardShortcuts:
     def test_keyboard_shortcuts_7_pages(self):
         """Keyboard shortcuts should support 7 pages (1-7)."""
         from dashboard.main import KEYBOARD_SHORTCUTS_JS
+
         assert "num >= 1 && num <= 7" in KEYBOARD_SHORTCUTS_JS

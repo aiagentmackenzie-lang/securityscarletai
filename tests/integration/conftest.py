@@ -3,19 +3,21 @@
 Integration tests require a live PostgreSQL database.
 They are automatically skipped when the DB is unavailable.
 """
+
 import os
+
 import pytest
 
 # Skip all integration tests if no DATABASE_URL is configured
 # or if the DB is not reachable.
-_SKIP_INTEGRATION = not os.environ.get("DATABASE_URL") and not os.environ.get("RUN_INTEGRATION_TESTS")
+_SKIP_INTEGRATION = not os.environ.get("DATABASE_URL") and not os.environ.get(
+    "RUN_INTEGRATION_TESTS"
+)
 
 
 def pytest_configure(config):
     """Register the 'integration' marker."""
-    config.addinivalue_line(
-        "markers", "integration: mark test as requiring a live database"
-    )
+    config.addinivalue_line("markers", "integration: mark test as requiring a live database")
 
 
 def pytest_collection_modifyitems(items):

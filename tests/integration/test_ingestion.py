@@ -4,6 +4,7 @@ Integration test for the full ingestion pipeline.
 Requires: PostgreSQL running with schema applied.
 Run with: poetry run pytest tests/integration/test_ingestion.py -v
 """
+
 # Integration tests require a live PostgreSQL database.
 # Run with: poetry run pytest tests/integration/ -v -s
 # Skip automatically if DB is unavailable.
@@ -20,20 +21,22 @@ from src.db.connection import close_pool, get_pool
 from src.db.writer import LogWriter
 from src.ingestion.parser import parse_osquery_line
 
-SYNTHETIC_EVENT = json.dumps({
-    "name": "processes",
-    "hostIdentifier": "integration-test-host",
-    "calendarTime": "Mon Mar 21 12:00:00 2026 UTC",
-    "unixTime": 1774267200,
-    "columns": {
-        "pid": "9999",
-        "name": "suspicious_binary",
-        "path": "/tmp/suspicious_binary",
-        "cmdline": "/tmp/suspicious_binary --exfil",
-        "uid": "0",  # root — suspicious
-    },
-    "action": "added"
-})
+SYNTHETIC_EVENT = json.dumps(
+    {
+        "name": "processes",
+        "hostIdentifier": "integration-test-host",
+        "calendarTime": "Mon Mar 21 12:00:00 2026 UTC",
+        "unixTime": 1774267200,
+        "columns": {
+            "pid": "9999",
+            "name": "suspicious_binary",
+            "path": "/tmp/suspicious_binary",
+            "cmdline": "/tmp/suspicious_binary --exfil",
+            "uid": "0",  # root — suspicious
+        },
+        "action": "added",
+    }
+)
 
 
 @pytest.fixture
@@ -71,6 +74,4 @@ async def test_full_ingestion_pipeline(db_pool):
         assert row["process_pid"] == 9999
 
         # Cleanup
-        await conn.execute(
-            "DELETE FROM logs WHERE host_name = $1", "integration-test-host"
-        )
+        await conn.execute("DELETE FROM logs WHERE host_name = $1", "integration-test-host")

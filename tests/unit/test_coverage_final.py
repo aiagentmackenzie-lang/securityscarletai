@@ -9,29 +9,34 @@ Covers:
 - src/enrichment/pipeline.py (enrich_event with both IPs, dest-only)
 - src/db/writer.py (LogWriter start/stop)
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
 
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # src/api/ai.py models and logic
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestAiEndpointsModels:
     def test_train_request_model(self):
-        from src.api.ai import TrainRequest, TrainResponse
+        from src.api.ai import TrainRequest
+
         req = TrainRequest(min_samples=50)
         assert req.min_samples == 50
 
     def test_train_response_success(self):
         from src.api.ai import TrainResponse
+
         resp = TrainResponse(success=True, message="OK", samples=100, accuracy=0.95)
         assert resp.success is True
         assert resp.accuracy == 0.95
 
     def test_status_response_model(self):
         from src.api.ai import StatusResponse
+
         resp = StatusResponse(
             triage={"is_trained": True},
             ueba={"is_trained": False},
@@ -41,6 +46,7 @@ class TestAiEndpointsModels:
 
     def test_triage_response_model(self):
         from src.api.ai import TriageResponse
+
         resp = TriageResponse(
             alert_id=1,
             prediction="true_positive",
@@ -51,6 +57,7 @@ class TestAiEndpointsModels:
 
     def test_ueba_response_model(self):
         from src.api.ai import UEBAResponse
+
         resp = UEBAResponse(
             user_name="admin",
             anomaly_score=0.3,
@@ -60,6 +67,7 @@ class TestAiEndpointsModels:
 
     def test_explain_response_model(self):
         from src.api.ai import ExplainResponse
+
         resp = ExplainResponse(
             alert_id=1,
             explanation="This alert indicates brute force activity.",
@@ -71,10 +79,11 @@ class TestAiEndpointsModels:
 # src/api/ai.py endpoint logic
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestAiTrainEndpoint:
     @pytest.mark.asyncio
     async def test_train_success(self):
-        from src.api.ai import train_models, TrainRequest
+        from src.api.ai import TrainRequest, train_models
 
         mock_triage = MagicMock()
         mock_triage.train = AsyncMock(return_value=True)
@@ -84,8 +93,10 @@ class TestAiTrainEndpoint:
         mock_ueba = MagicMock()
         mock_ueba.train = AsyncMock(return_value=True)
 
-        with patch("src.api.ai.get_triage_model", AsyncMock(return_value=mock_triage)), \
-             patch("src.api.ai.get_ueba", AsyncMock(return_value=mock_ueba)):
+        with (
+            patch("src.api.ai.get_triage_model", AsyncMock(return_value=mock_triage)),
+            patch("src.api.ai.get_ueba", AsyncMock(return_value=mock_ueba)),
+        ):
             result = await train_models(
                 request=TrainRequest(min_samples=50),
                 _user={"sub": "analyst1", "role": "analyst"},
@@ -96,7 +107,7 @@ class TestAiTrainEndpoint:
 
     @pytest.mark.asyncio
     async def test_train_insufficient_data(self):
-        from src.api.ai import train_models, TrainRequest
+        from src.api.ai import TrainRequest, train_models
 
         mock_triage = MagicMock()
         mock_triage.train = AsyncMock(return_value=False)
@@ -106,8 +117,10 @@ class TestAiTrainEndpoint:
         mock_ueba = MagicMock()
         mock_ueba.train = AsyncMock(return_value=False)
 
-        with patch("src.api.ai.get_triage_model", AsyncMock(return_value=mock_triage)), \
-             patch("src.api.ai.get_ueba", AsyncMock(return_value=mock_ueba)):
+        with (
+            patch("src.api.ai.get_triage_model", AsyncMock(return_value=mock_triage)),
+            patch("src.api.ai.get_ueba", AsyncMock(return_value=mock_ueba)),
+        ):
             result = await train_models(
                 request=TrainRequest(min_samples=50),
                 _user={"sub": "analyst1", "role": "analyst"},
@@ -124,8 +137,10 @@ class TestAiStatusEndpoint:
         mock_ueba = MagicMock()
         mock_ueba.get_status = MagicMock(return_value={"is_trained": False})
 
-        with patch("src.api.ai.get_ueba", AsyncMock(return_value=mock_ueba)), \
-             patch("src.ai.ollama_client.is_ollama_available", AsyncMock(return_value=True)):
+        with (
+            patch("src.api.ai.get_ueba", AsyncMock(return_value=mock_ueba)),
+            patch("src.ai.ollama_client.is_ollama_available", AsyncMock(return_value=True)),
+        ):
             result = await get_status(_user={"sub": "analyst1", "role": "viewer"})
 
         assert result.ollama_available is True
@@ -136,8 +151,9 @@ class TestAiStatusEndpoint:
 class TestAiTriageEndpoint:
     @pytest.mark.asyncio
     async def test_triage_alert_not_found(self):
-        from src.api.ai import triage_alert
         from fastapi import HTTPException
+
+        from src.api.ai import triage_alert
 
         mock_conn = AsyncMock()
         mock_conn.fetchrow = AsyncMock(return_value=None)
@@ -145,6 +161,7 @@ class TestAiTriageEndpoint:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -160,8 +177,9 @@ class TestAiTriageEndpoint:
 class TestAiExplainEndpoint:
     @pytest.mark.asyncio
     async def test_explain_alert_not_found(self):
-        from src.api.ai import explain_alert_endpoint
         from fastapi import HTTPException
+
+        from src.api.ai import explain_alert_endpoint
 
         mock_conn = AsyncMock()
         mock_conn.fetchrow = AsyncMock(return_value=None)
@@ -169,6 +187,7 @@ class TestAiExplainEndpoint:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -177,7 +196,9 @@ class TestAiExplainEndpoint:
 
         with patch("src.api.ai.get_pool", AsyncMock(return_value=mock_pool)):
             with pytest.raises(HTTPException) as exc_info:
-                await explain_alert_endpoint(alert_id=9999, _user={"sub": "analyst1", "role": "analyst"})
+                await explain_alert_endpoint(
+                    alert_id=9999, _user={"sub": "analyst1", "role": "analyst"}
+                )
             assert exc_info.value.status_code == 404
 
 
@@ -185,12 +206,14 @@ class TestAiExplainEndpoint:
 # src/api/websocket.py endpoint logic
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestWebSocketEndpoint:
     @pytest.mark.asyncio
     async def test_websocket_auth_failure(self):
         """WebSocket should close on auth failure."""
-        from src.api.websocket import websocket_logs
         from fastapi import status as http_status
+
+        from src.api.websocket import websocket_logs
 
         mock_ws = AsyncMock()
         mock_ws.close = AsyncMock()
@@ -211,14 +234,17 @@ class TestWebSocketEndpoint:
 # src/api/auth.py
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestAuthFunctions:
     def test_require_role_viewer(self):
         from src.api.auth import require_role
+
         fn = require_role("viewer")
         assert callable(fn)
 
     def test_require_role_admin(self):
         from src.api.auth import require_role
+
         fn = require_role("admin")
         assert callable(fn)
 
@@ -227,15 +253,19 @@ class TestAuthFunctions:
 # src/ai/alert_triage.py remaining
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestTriageRemaining:
     @pytest.mark.asyncio
     async def test_get_triage_model_creates_instance(self):
-        from src.ai.alert_triage import get_triage_model, AlertTriageModel
         import src.ai.alert_triage as triage_mod
+        from src.ai.alert_triage import AlertTriageModel, get_triage_model
+
         triage_mod._triage_model = None
 
-        with patch.object(AlertTriageModel, "_load_model", return_value=False), \
-             patch.object(AlertTriageModel, "train", AsyncMock(return_value=False)):
+        with (
+            patch.object(AlertTriageModel, "_load_model", return_value=False),
+            patch.object(AlertTriageModel, "train", AsyncMock(return_value=False)),
+        ):
             model = await get_triage_model()
             assert isinstance(model, AlertTriageModel)
 
@@ -245,6 +275,7 @@ class TestTriageRemaining:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # src/enrichment/pipeline.py remaining
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestEnrichPipelineRemaining:
     @pytest.mark.asyncio
@@ -256,9 +287,17 @@ class TestEnrichPipelineRemaining:
         mock_event.source_ip = "8.8.8.8"
         mock_event.destination_ip = "9.9.9.9"
 
-        with patch("src.enrichment.pipeline.enrich_geoip", AsyncMock(return_value={"geo": {"country_iso": "US"}})), \
-             patch("src.enrichment.pipeline.enrich_dns_reverse", return_value={"dns": {"reverse": "dns.google"}}), \
-             patch("src.intel.threat_intel.enrich_ip_with_threat_intel", AsyncMock(return_value={})):
+        with (
+            patch(
+                "src.enrichment.pipeline.enrich_geoip",
+                AsyncMock(return_value={"geo": {"country_iso": "US"}}),
+            ),
+            patch(
+                "src.enrichment.pipeline.enrich_dns_reverse",
+                return_value={"dns": {"reverse": "dns.google"}},
+            ),
+            patch("src.intel.threat_intel.enrich_ip_with_threat_intel", AsyncMock(return_value={})),
+        ):
             result = await enrich_event(mock_event)
 
         assert "geo" in result
@@ -274,9 +313,14 @@ class TestEnrichPipelineRemaining:
         mock_event.source_ip = None
         mock_event.destination_ip = "9.9.9.9"
 
-        with patch("src.enrichment.pipeline.enrich_geoip", AsyncMock(return_value={"geo": {"country_iso": "DE"}})), \
-             patch("src.enrichment.pipeline.enrich_dns_reverse", return_value={}), \
-             patch("src.intel.threat_intel.enrich_ip_with_threat_intel", AsyncMock(return_value={})):
+        with (
+            patch(
+                "src.enrichment.pipeline.enrich_geoip",
+                AsyncMock(return_value={"geo": {"country_iso": "DE"}}),
+            ),
+            patch("src.enrichment.pipeline.enrich_dns_reverse", return_value={}),
+            patch("src.intel.threat_intel.enrich_ip_with_threat_intel", AsyncMock(return_value={})),
+        ):
             result = await enrich_event(mock_event)
 
         assert "destination" in result
@@ -287,15 +331,18 @@ class TestEnrichPipelineRemaining:
 # src/db/writer.py
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestLogWriter:
     def test_writer_init(self):
         from src.db.writer import LogWriter
+
         writer = LogWriter()
         assert writer is not None
 
     @pytest.mark.asyncio
     async def test_writer_start(self):
         from src.db.writer import LogWriter
+
         writer = LogWriter()
         with patch("src.db.writer.get_pool", AsyncMock()):
             await writer.start()
@@ -303,6 +350,7 @@ class TestLogWriter:
     @pytest.mark.asyncio
     async def test_writer_stop(self):
         from src.db.writer import LogWriter
+
         writer = LogWriter()
         # close_pool is an async function in connection.py, patch it
         with patch("src.db.connection.close_pool", AsyncMock()):
@@ -313,9 +361,11 @@ class TestLogWriter:
 # src/ingestion/schemas.py
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestSchemas:
     def test_normalized_event_model(self):
         from src.ingestion.schemas import NormalizedEvent
+
         event = NormalizedEvent(
             **{"@timestamp": datetime(2024, 1, 1, tzinfo=timezone.utc)},
             host_name="server-01",
@@ -332,9 +382,10 @@ class TestSchemas:
 # src/api/chat.py
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestAiChatModels:
     def test_chat_request_model(self):
         from src.api.chat import ChatRequest
+
         req = ChatRequest(message="Hello", history=[])
         assert req.message == "Hello"
-

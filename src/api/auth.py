@@ -12,10 +12,10 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
+import bcrypt as _bcrypt
 from fastapi import HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-import bcrypt as _bcrypt
 
 from src.config.settings import settings
 
@@ -53,7 +53,7 @@ def verify_jwt(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
-        )
+        ) from None
 
 
 def require_role(min_role: str):

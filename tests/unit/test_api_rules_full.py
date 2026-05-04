@@ -11,16 +11,18 @@ Covers:
 - delete_rule (found, not found)
 - get_rule_by_id helper
 """
-import pytest
+
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from fastapi import HTTPException
 
 from src.api.rules import RuleCreate, RuleResponse
 
-
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Pydantic models
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestRuleCreateModel:
     def test_valid_rule(self):
@@ -88,16 +90,33 @@ class TestRuleResponseModel:
 # list_rules
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestListRules:
     @pytest.mark.asyncio
     async def test_list_all_rules(self):
         from src.api.rules import list_rules
 
         mock_rows = [
-            {"id": 1, "name": "Rule 1", "description": "Desc 1", "severity": "high",
-             "enabled": True, "last_run": None, "last_match": None, "match_count": 0},
-            {"id": 2, "name": "Rule 2", "description": "Desc 2", "severity": "medium",
-             "enabled": False, "last_run": None, "last_match": None, "match_count": 10},
+            {
+                "id": 1,
+                "name": "Rule 1",
+                "description": "Desc 1",
+                "severity": "high",
+                "enabled": True,
+                "last_run": None,
+                "last_match": None,
+                "match_count": 0,
+            },
+            {
+                "id": 2,
+                "name": "Rule 2",
+                "description": "Desc 2",
+                "severity": "medium",
+                "enabled": False,
+                "last_run": None,
+                "last_match": None,
+                "match_count": 10,
+            },
         ]
         mock_conn = AsyncMock()
         mock_conn.fetch = AsyncMock(return_value=mock_rows)
@@ -105,6 +124,7 @@ class TestListRules:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -129,6 +149,7 @@ class TestListRules:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -145,6 +166,7 @@ class TestListRules:
 # get_rule_by_id helper
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestGetRuleById:
     @pytest.mark.asyncio
     async def test_found(self):
@@ -157,6 +179,7 @@ class TestGetRuleById:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -179,6 +202,7 @@ class TestGetRuleById:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -194,6 +218,7 @@ class TestGetRuleById:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # create_rule
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestCreateRule:
     @pytest.mark.asyncio
@@ -215,6 +240,7 @@ class TestCreateRule:
 # delete_rule
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestDeleteRule:
     @pytest.mark.asyncio
     async def test_delete_not_found(self):
@@ -226,14 +252,17 @@ class TestDeleteRule:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
         mock_pool = AsyncMock()
         mock_pool.acquire = MagicMock(return_value=AsyncCtx())
 
-        with patch("src.api.rules.get_pool", AsyncMock(return_value=mock_pool)), \
-             patch("src.api.rules.reload_rules", AsyncMock()):
+        with (
+            patch("src.api.rules.get_pool", AsyncMock(return_value=mock_pool)),
+            patch("src.api.rules.reload_rules", AsyncMock()),
+        ):
             with pytest.raises(HTTPException) as exc_info:
                 await delete_rule(rule_id=9999, user="admin")
             assert exc_info.value.status_code == 404

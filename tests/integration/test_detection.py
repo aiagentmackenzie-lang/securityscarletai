@@ -5,6 +5,7 @@ Tests end-to-end: Sigma rule → scheduled execution → alert generation.
 Requires: PostgreSQL running with schema applied.
 Run with: poetry run pytest tests/integration/test_detection.py -v -s
 """
+
 import pytest
 
 # Integration tests require a live PostgreSQL database.
@@ -41,7 +42,9 @@ async def db_pool():
     yield pool
     # Cleanup test data
     async with pool.acquire() as conn:
-        await conn.execute("DELETE FROM alerts WHERE rule_name LIKE '%Test%' OR rule_name LIKE '%Duplicate%' OR rule_name LIKE '%Stats Test%'")
+        await conn.execute(
+            "DELETE FROM alerts WHERE rule_name LIKE '%Test%' OR rule_name LIKE '%Duplicate%' OR rule_name LIKE '%Stats Test%'"
+        )
         await conn.execute("DELETE FROM rules WHERE name = 'Test Rule'")
     await close_pool()
 
@@ -136,5 +139,3 @@ async def test_alert_stats(db_pool):
     assert "new_count" in stats
     assert "critical_count" in stats
     assert stats["critical_count"] >= 1
-
-

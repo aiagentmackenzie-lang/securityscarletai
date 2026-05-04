@@ -4,16 +4,16 @@ Tests for Alert Management v2.
 Tests deduplication, severity escalation, bulk operations,
 export, and suppression rules.
 """
-import json
+
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
-from datetime import datetime, timedelta
 
 from src.detection.alerts import (
-    SEVERITY_ORDER,
-    SEVERITY_INDEX,
     DEDUP_WINDOW_SECONDS,
     ESCALATION_FIRE_THRESHOLD,
+    SEVERITY_INDEX,
     _add_note,
     _check_severity_escalation,
     _is_suppressed,
@@ -147,9 +147,17 @@ class TestAlertExport:
         mock_acquirer.__aexit__ = AsyncMock(return_value=False)
         mock_pool.acquire = MagicMock(return_value=mock_acquirer)
         mock_conn.fetch.return_value = [
-            {"id": 1, "time": datetime.utcnow(), "rule_name": "Test Rule",
-             "severity": "high", "status": "new", "host_name": "host1",
-             "description": "test", "assigned_to": None, "risk_score": 75.0},
+            {
+                "id": 1,
+                "time": datetime.utcnow(),
+                "rule_name": "Test Rule",
+                "severity": "high",
+                "status": "new",
+                "host_name": "host1",
+                "description": "test",
+                "assigned_to": None,
+                "risk_score": 75.0,
+            },
         ]
 
         with patch("src.detection.alerts.get_pool", return_value=mock_pool):
@@ -166,10 +174,17 @@ class TestAlertExport:
         mock_acquirer.__aexit__ = AsyncMock(return_value=False)
         mock_pool.acquire = MagicMock(return_value=mock_acquirer)
         mock_conn.fetch.return_value = [
-            {"id": 1, "time": datetime.utcnow(), "rule_name": "Test Rule",
-             "severity": "high", "status": "new", "host_name": "host1",
-             "description": "test", "mitre_tactics": ["TA0006"],
-             "mitre_techniques": ["T1110"]},
+            {
+                "id": 1,
+                "time": datetime.utcnow(),
+                "rule_name": "Test Rule",
+                "severity": "high",
+                "status": "new",
+                "host_name": "host1",
+                "description": "test",
+                "mitre_tactics": ["TA0006"],
+                "mitre_techniques": ["T1110"],
+            },
         ]
 
         with patch("src.detection.alerts.get_pool", return_value=mock_pool):

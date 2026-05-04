@@ -13,36 +13,38 @@ Covers:
 - export_alerts_csv, export_alerts_stix
 - SEVERITY_ORDER, SEVERITY_INDEX constants
 """
-import pytest
+
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
+
+import pytest
 
 from src.detection.alerts import (
     DEDUP_WINDOW_SECONDS,
-    ESCALATION_WINDOW_HOURS,
     ESCALATION_FIRE_THRESHOLD,
-    SEVERITY_ORDER,
+    ESCALATION_WINDOW_HOURS,
     SEVERITY_INDEX,
-    create_alert,
+    SEVERITY_ORDER,
     _check_severity_escalation,
     _is_suppressed,
-    update_alert_status,
-    bulk_acknowledge,
-    bulk_mark_false_positive,
-    bulk_assign,
-    bulk_resolve,
     add_alert_note,
-    get_alert_stats,
+    bulk_acknowledge,
+    bulk_assign,
+    bulk_mark_false_positive,
+    bulk_resolve,
+    create_alert,
     create_suppression_rule,
-    list_suppression_rules,
     export_alerts_csv,
     export_alerts_stix,
+    get_alert_stats,
+    list_suppression_rules,
+    update_alert_status,
 )
-
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Constants
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestConstants:
     def test_dedup_window(self):
@@ -69,6 +71,7 @@ class TestConstants:
 # _check_severity_escalation
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestCheckSeverityEscalation:
     @pytest.mark.asyncio
     async def test_no_escalation_below_threshold(self):
@@ -76,7 +79,9 @@ class TestCheckSeverityEscalation:
         mock_conn = AsyncMock()
         mock_conn.fetchval = AsyncMock(return_value=1)  # 1+1=2 < 3, below threshold
 
-        result = await _check_severity_escalation(mock_conn, rule_id=1, host_name="ws-01", current_severity="medium")
+        result = await _check_severity_escalation(
+            mock_conn, rule_id=1, host_name="ws-01", current_severity="medium"
+        )
         assert result == "medium"
 
     @pytest.mark.asyncio
@@ -85,7 +90,9 @@ class TestCheckSeverityEscalation:
         mock_conn = AsyncMock()
         mock_conn.fetchval = AsyncMock(return_value=3)  # At threshold
 
-        result = await _check_severity_escalation(mock_conn, rule_id=1, host_name="ws-01", current_severity="medium")
+        result = await _check_severity_escalation(
+            mock_conn, rule_id=1, host_name="ws-01", current_severity="medium"
+        )
         assert result == "high"
 
     @pytest.mark.asyncio
@@ -94,7 +101,9 @@ class TestCheckSeverityEscalation:
         mock_conn = AsyncMock()
         mock_conn.fetchval = AsyncMock(return_value=5)  # Well above threshold
 
-        result = await _check_severity_escalation(mock_conn, rule_id=1, host_name="ws-01", current_severity="high")
+        result = await _check_severity_escalation(
+            mock_conn, rule_id=1, host_name="ws-01", current_severity="high"
+        )
         assert result == "critical"
 
     @pytest.mark.asyncio
@@ -103,7 +112,9 @@ class TestCheckSeverityEscalation:
         mock_conn = AsyncMock()
         mock_conn.fetchval = AsyncMock(return_value=10)
 
-        result = await _check_severity_escalation(mock_conn, rule_id=1, host_name="ws-01", current_severity="critical")
+        result = await _check_severity_escalation(
+            mock_conn, rule_id=1, host_name="ws-01", current_severity="critical"
+        )
         assert result == "critical"
 
     @pytest.mark.asyncio
@@ -112,7 +123,9 @@ class TestCheckSeverityEscalation:
         mock_conn = AsyncMock()
         mock_conn.fetchval = AsyncMock(return_value=3)
 
-        result = await _check_severity_escalation(mock_conn, rule_id=1, host_name="ws-01", current_severity="low")
+        result = await _check_severity_escalation(
+            mock_conn, rule_id=1, host_name="ws-01", current_severity="low"
+        )
         assert result == "medium"
 
     @pytest.mark.asyncio
@@ -121,13 +134,16 @@ class TestCheckSeverityEscalation:
         mock_conn = AsyncMock()
         mock_conn.fetchval = AsyncMock(return_value=4)
 
-        result = await _check_severity_escalation(mock_conn, rule_id=1, host_name="ws-01", current_severity="info")
+        result = await _check_severity_escalation(
+            mock_conn, rule_id=1, host_name="ws-01", current_severity="info"
+        )
         assert result == "low"
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # _is_suppressed
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestIsSuppressed:
     @pytest.mark.asyncio
@@ -153,6 +169,7 @@ class TestIsSuppressed:
 # create_alert
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestCreateAlert:
     @pytest.mark.asyncio
     async def test_create_alert_dedup(self):
@@ -164,6 +181,7 @@ class TestCreateAlert:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -194,6 +212,7 @@ class TestCreateAlert:
 
         # No duplicate
         call_count = [0]
+
         async def side_effect_fetchrow(sql, *args):
             call_count[0] += 1
             if call_count[0] == 1:
@@ -206,6 +225,7 @@ class TestCreateAlert:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -228,6 +248,7 @@ class TestCreateAlert:
 # update_alert_status
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestUpdateAlertStatus:
     @pytest.mark.asyncio
     async def test_update_status(self):
@@ -237,6 +258,7 @@ class TestUpdateAlertStatus:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -260,6 +282,7 @@ class TestUpdateAlertStatus:
 # Bulk operations
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestBulkAcknowledge:
     @pytest.mark.asyncio
     async def test_bulk_acknowledge(self):
@@ -269,6 +292,7 @@ class TestBulkAcknowledge:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -294,6 +318,7 @@ class TestBulkMarkFalsePositive:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -319,6 +344,7 @@ class TestBulkAssign:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -339,6 +365,7 @@ class TestBulkResolve:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -354,6 +381,7 @@ class TestBulkResolve:
 # add_alert_note
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestAddAlertNote:
     @pytest.mark.asyncio
     async def test_add_note(self):
@@ -363,6 +391,7 @@ class TestAddAlertNote:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -378,6 +407,7 @@ class TestAddAlertNote:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # get_alert_stats
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestGetAlertStats:
     @pytest.mark.asyncio
@@ -400,6 +430,7 @@ class TestGetAlertStats:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -417,6 +448,7 @@ class TestGetAlertStats:
 # Suppression rules
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestSuppressionRules:
     @pytest.mark.asyncio
     async def test_create_suppression_rule(self):
@@ -427,6 +459,7 @@ class TestSuppressionRules:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -446,8 +479,20 @@ class TestSuppressionRules:
     @pytest.mark.asyncio
     async def test_list_suppression_rules(self):
         mock_rules = [
-            {"id": 1, "rule_name": "noisy_rule", "host_name": None, "reason": "FP", "enabled": True},
-            {"id": 2, "rule_name": None, "host_name": "server-01", "reason": "Testing", "enabled": True},
+            {
+                "id": 1,
+                "rule_name": "noisy_rule",
+                "host_name": None,
+                "reason": "FP",
+                "enabled": True,
+            },
+            {
+                "id": 2,
+                "rule_name": None,
+                "host_name": "server-01",
+                "reason": "Testing",
+                "enabled": True,
+            },
         ]
 
         mock_conn = AsyncMock()
@@ -456,6 +501,7 @@ class TestSuppressionRules:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -473,13 +519,22 @@ class TestSuppressionRules:
 # Export
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestExportAlerts:
     @pytest.mark.asyncio
     async def test_export_csv(self):
         mock_rows = [
-            {"id": 1, "time": "2024-01-01", "rule_name": "Test", "severity": "high",
-             "status": "new", "host_name": "ws-01", "description": "Desc",
-             "assigned_to": None, "risk_score": 75.0},
+            {
+                "id": 1,
+                "time": "2024-01-01",
+                "rule_name": "Test",
+                "severity": "high",
+                "status": "new",
+                "host_name": "ws-01",
+                "description": "Desc",
+                "assigned_to": None,
+                "risk_score": 75.0,
+            },
         ]
 
         mock_conn = AsyncMock()
@@ -488,6 +543,7 @@ class TestExportAlerts:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -508,6 +564,7 @@ class TestExportAlerts:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -542,6 +599,7 @@ class TestExportAlerts:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -553,7 +611,10 @@ class TestExportAlerts:
 
         assert result["type"] == "bundle"
         assert len(result["objects"]) == 1
-        assert result["objects"][0]["pattern"] == f"[network-traffic:dst_ref.type = 'hostname' AND network-traffic:dst_ref.value = 'ws-01']"
+        assert (
+            result["objects"][0]["pattern"]
+            == "[network-traffic:dst_ref.type = 'hostname' AND network-traffic:dst_ref.value = 'ws-01']"
+        )
         assert result["objects"][0]["confidence"] == 80  # High severity = 80
 
     @pytest.mark.asyncio
@@ -579,6 +640,7 @@ class TestExportAlerts:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 

@@ -50,7 +50,7 @@ async def create_rule(
     try:
         parsed = parse_sigma_rule(rule.sigma_yaml)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid Sigma rule: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Invalid Sigma rule: {str(e)}") from None
 
     pool = await get_pool()
     async with pool.acquire() as conn:

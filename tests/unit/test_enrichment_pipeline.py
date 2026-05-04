@@ -11,25 +11,26 @@ Covers:
 - calculate_severity_boost
 - severity boost thresholds
 """
-import pytest
+
 import socket
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
+
+import pytest
 
 from src.enrichment.pipeline import (
-    is_public_ip,
-    enrich_geoip,
+    calculate_severity_boost,
     enrich_dns_reverse,
-    enrich_with_threat_intel,
     enrich_event,
     enrich_event_dict,
-    calculate_severity_boost,
+    enrich_geoip,
+    enrich_with_threat_intel,
+    is_public_ip,
 )
-
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # is_public_ip
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestIsPublicIp:
     def test_public_ip(self):
@@ -82,6 +83,7 @@ class TestIsPublicIp:
 # enrich_geoip
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestEnrichGeoip:
     @pytest.mark.asyncio
     async def test_private_ip_returns_empty(self):
@@ -110,8 +112,10 @@ class TestEnrichGeoip:
         mock_reader = MagicMock()
         mock_reader.city = MagicMock(return_value=mock_response)
 
-        with patch("src.enrichment.pipeline.is_public_ip", return_value=True), \
-             patch("geoip2.database.Reader", return_value=mock_reader):
+        with (
+            patch("src.enrichment.pipeline.is_public_ip", return_value=True),
+            patch("geoip2.database.Reader", return_value=mock_reader),
+        ):
             result = await enrich_geoip("8.8.8.8")
 
         # Result should contain geo info or be empty if import failed
@@ -121,6 +125,7 @@ class TestEnrichGeoip:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # enrich_dns_reverse
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestEnrichDnsReverse:
     def test_private_ip_returns_empty(self):
@@ -140,8 +145,10 @@ class TestEnrichDnsReverse:
 
     def test_dns_resolution_success(self):
         """Should return hostname for resolvable IP."""
-        with patch("src.enrichment.pipeline.is_public_ip", return_value=True), \
-             patch("socket.gethostbyaddr", return_value=("dns.google", [], "8.8.8.8")):
+        with (
+            patch("src.enrichment.pipeline.is_public_ip", return_value=True),
+            patch("socket.gethostbyaddr", return_value=("dns.google", [], "8.8.8.8")),
+        ):
             result = enrich_dns_reverse("8.8.8.8")
             if result:
                 assert result["dns"]["reverse"] == "dns.google"
@@ -150,6 +157,7 @@ class TestEnrichDnsReverse:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # enrich_with_threat_intel
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestEnrichWithThreatIntel:
     @pytest.mark.asyncio
@@ -160,14 +168,20 @@ class TestEnrichWithThreatIntel:
         # But in pipeline.py it does a local import: from src.intel.threat_intel import enrich_ip_with_threat_intel
         # So we need to mock src.intel.threat_intel.enrich_ip_with_threat_intel
         mock_result = {"threat_intel": {"match": True, "source": "abuseipdb"}}
-        with patch("src.intel.threat_intel.enrich_ip_with_threat_intel", AsyncMock(return_value=mock_result)):
+        with patch(
+            "src.intel.threat_intel.enrich_ip_with_threat_intel",
+            AsyncMock(return_value=mock_result),
+        ):
             result = await enrich_with_threat_intel("8.8.8.8")
             assert "threat_intel" in result
 
     @pytest.mark.asyncio
     async def test_error_handling(self):
         """Should return empty dict on error."""
-        with patch("src.intel.threat_intel.enrich_ip_with_threat_intel", AsyncMock(side_effect=Exception("DB error"))):
+        with patch(
+            "src.intel.threat_intel.enrich_ip_with_threat_intel",
+            AsyncMock(side_effect=Exception("DB error")),
+        ):
             result = await enrich_with_threat_intel("1.2.3.4")
             assert result == {}
 
@@ -175,6 +189,7 @@ class TestEnrichWithThreatIntel:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # enrich_event
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestEnrichEvent:
     @pytest.mark.asyncio
@@ -204,9 +219,17 @@ class TestEnrichEvent:
         mock_event.source_ip = "8.8.8.8"
         mock_event.destination_ip = None
 
-        with patch("src.enrichment.pipeline.enrich_geoip", AsyncMock(return_value={"geo": {"country_iso": "US"}})), \
-             patch("src.enrichment.pipeline.enrich_dns_reverse", return_value={"dns": {"reverse": "dns.google"}}), \
-             patch("src.enrichment.pipeline.enrich_with_threat_intel", AsyncMock(return_value={})):
+        with (
+            patch(
+                "src.enrichment.pipeline.enrich_geoip",
+                AsyncMock(return_value={"geo": {"country_iso": "US"}}),
+            ),
+            patch(
+                "src.enrichment.pipeline.enrich_dns_reverse",
+                return_value={"dns": {"reverse": "dns.google"}},
+            ),
+            patch("src.enrichment.pipeline.enrich_with_threat_intel", AsyncMock(return_value={})),
+        ):
             result = await enrich_event(mock_event)
 
         assert "geo" in result
@@ -219,11 +242,23 @@ class TestEnrichEvent:
         mock_event.source_ip = "1.2.3.4"
         mock_event.destination_ip = None
 
-        with patch("src.enrichment.pipeline.enrich_geoip", AsyncMock(return_value={})), \
-             patch("src.enrichment.pipeline.enrich_dns_reverse", return_value={}), \
-             patch("src.enrichment.pipeline.enrich_with_threat_intel", AsyncMock(return_value={
-                 "threat_intel": {"match": True, "confidence": 85, "source": "abuseipdb", "threat_type": "malicious_ip"}
-             })):
+        with (
+            patch("src.enrichment.pipeline.enrich_geoip", AsyncMock(return_value={})),
+            patch("src.enrichment.pipeline.enrich_dns_reverse", return_value={}),
+            patch(
+                "src.enrichment.pipeline.enrich_with_threat_intel",
+                AsyncMock(
+                    return_value={
+                        "threat_intel": {
+                            "match": True,
+                            "confidence": 85,
+                            "source": "abuseipdb",
+                            "threat_type": "malicious_ip",
+                        }
+                    }
+                ),
+            ),
+        ):
             result = await enrich_event(mock_event)
 
         assert result["threat_intel"]["match"] is True
@@ -236,11 +271,23 @@ class TestEnrichEvent:
         mock_event.source_ip = "1.2.3.4"
         mock_event.destination_ip = None
 
-        with patch("src.enrichment.pipeline.enrich_geoip", AsyncMock(return_value={})), \
-             patch("src.enrichment.pipeline.enrich_dns_reverse", return_value={}), \
-             patch("src.enrichment.pipeline.enrich_with_threat_intel", AsyncMock(return_value={
-                 "threat_intel": {"match": True, "confidence": 60, "source": "abuseipdb", "threat_type": "suspicious"}
-             })):
+        with (
+            patch("src.enrichment.pipeline.enrich_geoip", AsyncMock(return_value={})),
+            patch("src.enrichment.pipeline.enrich_dns_reverse", return_value={}),
+            patch(
+                "src.enrichment.pipeline.enrich_with_threat_intel",
+                AsyncMock(
+                    return_value={
+                        "threat_intel": {
+                            "match": True,
+                            "confidence": 60,
+                            "source": "abuseipdb",
+                            "threat_type": "suspicious",
+                        }
+                    }
+                ),
+            ),
+        ):
             result = await enrich_event(mock_event)
 
         assert result["severity_boost"] == "high"
@@ -252,11 +299,23 @@ class TestEnrichEvent:
         mock_event.source_ip = "1.2.3.4"
         mock_event.destination_ip = None
 
-        with patch("src.enrichment.pipeline.enrich_geoip", AsyncMock(return_value={})), \
-             patch("src.enrichment.pipeline.enrich_dns_reverse", return_value={}), \
-             patch("src.enrichment.pipeline.enrich_with_threat_intel", AsyncMock(return_value={
-                 "threat_intel": {"match": True, "confidence": 30, "source": "otx", "threat_type": "unknown"}
-             })):
+        with (
+            patch("src.enrichment.pipeline.enrich_geoip", AsyncMock(return_value={})),
+            patch("src.enrichment.pipeline.enrich_dns_reverse", return_value={}),
+            patch(
+                "src.enrichment.pipeline.enrich_with_threat_intel",
+                AsyncMock(
+                    return_value={
+                        "threat_intel": {
+                            "match": True,
+                            "confidence": 30,
+                            "source": "otx",
+                            "threat_type": "unknown",
+                        }
+                    }
+                ),
+            ),
+        ):
             result = await enrich_event(mock_event)
 
         assert result["severity_boost"] == "medium"
@@ -268,9 +327,11 @@ class TestEnrichEvent:
         mock_event.source_ip = "8.8.8.8"
         mock_event.destination_ip = "9.9.9.9"
 
-        with patch("src.enrichment.pipeline.enrich_geoip", AsyncMock(return_value={})), \
-             patch("src.enrichment.pipeline.enrich_dns_reverse", return_value={}), \
-             patch("src.enrichment.pipeline.enrich_with_threat_intel", AsyncMock(return_value={})):
+        with (
+            patch("src.enrichment.pipeline.enrich_geoip", AsyncMock(return_value={})),
+            patch("src.enrichment.pipeline.enrich_dns_reverse", return_value={}),
+            patch("src.enrichment.pipeline.enrich_with_threat_intel", AsyncMock(return_value={})),
+        ):
             result = await enrich_event(mock_event)
 
         # With both source and dest IPs, enrichment should happen
@@ -280,6 +341,7 @@ class TestEnrichEvent:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # enrich_event_dict
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestEnrichEventDict:
     @pytest.mark.asyncio
@@ -291,7 +353,10 @@ class TestEnrichEventDict:
     @pytest.mark.asyncio
     async def test_enrich_event_dict_with_source_ip(self):
         """Should create internal _Event and enrich."""
-        with patch("src.enrichment.pipeline.enrich_event", AsyncMock(return_value={"geo": {"country_iso": "US"}})):
+        with patch(
+            "src.enrichment.pipeline.enrich_event",
+            AsyncMock(return_value={"geo": {"country_iso": "US"}}),
+        ):
             result = await enrich_event_dict({"source_ip": "8.8.8.8", "destination_ip": None})
             assert "geo" in result
 
@@ -299,6 +364,7 @@ class TestEnrichEventDict:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # calculate_severity_boost
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestCalculateSeverityBoost:
     def test_no_boost(self):

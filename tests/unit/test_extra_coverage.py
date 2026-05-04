@@ -2,11 +2,10 @@
 Tests for modules with lower coverage — enrichment pipeline, threat intel,
 postgresql backend, and ingestion shipper.
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
 
-from src.ingestion.schemas import NormalizedEvent
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 def _can_import(module_name: str) -> bool:
@@ -28,7 +27,8 @@ class TestFileShipper:
 
     def test_new_shipper_default_offset(self, tmp_path):
         """New shipper should start at offset 0 if no checkpoint."""
-        from src.ingestion.shipper import FileShipper, CHECKPOINT_FILE as orig_checkpoint
+        from src.ingestion.shipper import FileShipper
+
         writer = MagicMock()
         checkpoint = tmp_path / "nonexistent_checkpoin"
         with patch("src.ingestion.shipper.CHECKPOINT_FILE", checkpoint):
@@ -38,6 +38,7 @@ class TestFileShipper:
     def test_stop_sets_flag(self, tmp_path):
         """stop() should set running to False."""
         from src.ingestion.shipper import FileShipper
+
         writer = MagicMock()
         checkpoint = tmp_path / "checkpoint"
         with patch("src.ingestion.shipper.CHECKPOINT_FILE", checkpoint):
@@ -49,6 +50,7 @@ class TestFileShipper:
     def test_initial_events_shipped(self, tmp_path):
         """Should start with 0 events shipped."""
         from src.ingestion.shipper import FileShipper
+
         writer = MagicMock()
         checkpoint = tmp_path / "checkpoint"
         with patch("src.ingestion.shipper.CHECKPOINT_FILE", checkpoint):
@@ -71,6 +73,7 @@ class TestPostgreSQLBackend:
     def test_backend_importable(self):
         """PostgreSQL backend module should be importable."""
         from src.detection.backends.postgresql import PostgreSQLBackend
+
         backend = PostgreSQLBackend()
         assert backend is not None
 
@@ -81,9 +84,10 @@ class TestPostgreSQLBackend:
     def test_backend_is_pysigma_backend(self):
         """Backend should be a pySigma backend that can convert Sigma rules."""
         from src.detection.backends.postgresql import PostgreSQLBackend
+
         backend = PostgreSQLBackend()
         assert backend is not None
-        assert hasattr(backend, 'convert_rule') or hasattr(backend, 'convert')
+        assert hasattr(backend, "convert_rule") or hasattr(backend, "convert")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -117,7 +121,12 @@ class TestThreatIntelModule:
         """check_ioc_match should return match data."""
         from src.intel.threat_intel import check_ioc_match
 
-        match_data = {"ioc_type": "ip", "ioc_value": "1.2.3.4", "source": "abuse_ch", "severity": "high"}
+        match_data = {
+            "ioc_type": "ip",
+            "ioc_value": "1.2.3.4",
+            "source": "abuse_ch",
+            "severity": "high",
+        }
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.fetchrow = AsyncMock(return_value=match_data)
@@ -163,6 +172,7 @@ class TestAIChatModule:
     def test_sanitize_chat_input(self):
         """sanitize_chat_input should strip dangerous patterns."""
         from src.ai.chat import sanitize_chat_input
+
         clean, warnings = sanitize_chat_input("What happened on server01?")
         assert isinstance(clean, str)
         assert isinstance(warnings, list)
@@ -170,18 +180,21 @@ class TestAIChatModule:
     def test_sanitize_chat_input_drops_dangerous(self):
         """sanitize_chat_input should warn on injection attempts."""
         from src.ai.chat import sanitize_chat_input
+
         clean, warnings = sanitize_chat_input("DROP TABLE users; --")
         assert len(warnings) > 0
 
     def test_sanitize_chat_input_allows_normal(self):
         """sanitize_chat_input should allow normal questions."""
         from src.ai.chat import sanitize_chat_input
+
         clean, warnings = sanitize_chat_input("How many critical alerts?")
         assert "critical" in clean or "alerts" in clean
 
     def test_generate_fallback_response(self):
         """generate_fallback_response should produce a response."""
         from src.ai.chat import generate_fallback_response
+
         response = generate_fallback_response("test message", "some context")
         assert isinstance(response, str)
         assert len(response) > 0
@@ -237,6 +250,7 @@ class TestConfigSettings:
     def test_settings_exist(self):
         """Settings object should exist and have attributes."""
         from src.config.settings import settings
+
         assert settings is not None
         assert hasattr(settings, "api_host")
         assert hasattr(settings, "api_port")
@@ -244,12 +258,14 @@ class TestConfigSettings:
     def test_database_settings(self):
         """Database settings should be accessible."""
         from src.config.settings import settings
+
         assert settings.db_host is not None
         assert settings.db_port is not None
 
     def test_ollama_settings(self):
         """Ollama settings should be accessible."""
         from src.config.settings import settings
+
         assert settings.ollama_base_url is not None
         assert settings.ollama_model is not None
 
@@ -265,6 +281,7 @@ class TestLogWriter:
     def test_writer_init(self):
         """LogWriter should initialize without errors."""
         from src.db.writer import LogWriter
+
         writer = LogWriter()
         assert writer is not None
 
@@ -272,6 +289,7 @@ class TestLogWriter:
     async def test_writer_start(self):
         """LogWriter start should initialize pool."""
         from src.db.writer import LogWriter
+
         writer = LogWriter()
         mock_pool = AsyncMock()
 
@@ -282,6 +300,7 @@ class TestLogWriter:
     async def test_writer_stop(self):
         """LogWriter stop should clean up."""
         from src.db.writer import LogWriter
+
         writer = LogWriter()
         writer._pool = AsyncMock()
         await writer.stop()
@@ -297,6 +316,7 @@ class TestDBConnection:
 
     def test_connection_module_importable(self):
         """Connection module should be importable."""
-        from src.db.connection import get_pool, close_pool
+        from src.db.connection import close_pool, get_pool
+
         assert get_pool is not None
         assert close_pool is not None

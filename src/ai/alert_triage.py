@@ -12,7 +12,6 @@ Changes from Phase 0:
 - Fallback when Ollama is down
 """
 import hashlib
-import math
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,7 +38,9 @@ AUTO_TRAIN_COOLDOWN_SECONDS = 3600  # M-05: 1 hour cooldown between auto-trains
 _last_auto_train_time: float = 0.0
 
 
-from src.ai.utils import shannon_entropy as _shannon_entropy  # noqa: F401 — L-01: shared utility
+from src.ai.utils import (  # noqa: E402 — L-01: shared utility, after config constants
+    shannon_entropy as _shannon_entropy,
+)
 
 
 class AlertTriageModel:
@@ -359,7 +360,11 @@ class AlertTriageModel:
         try:
             cv_scores = cross_val_score(self.model, X_array, y_array, cv=min(5, len(X_array)))
             accuracy = float(cv_scores.mean())
-            log.info("triage_cv_accuracy", cv_mean=round(accuracy, 2), cv_std=round(float(cv_scores.std()), 2))
+            log.info(
+                "triage_cv_accuracy",
+                cv_mean=round(accuracy, 2),
+                cv_std=round(float(cv_scores.std()), 2),
+            )
         except ValueError:
             # Too few samples for CV — fall back to training accuracy
             predictions = self.model.predict(X_array)
@@ -440,7 +445,7 @@ class AlertTriageModel:
         priority_score = max(0, min(100, base_priority))
 
         # Feature names for interpretability
-        feature_dict = dict(zip(self.FEATURES, features))
+        feature_dict = dict(zip(self.FEATURES, features, strict=True))
 
         return {
             "prediction": "true_positive" if prediction == 1 else "false_positive",

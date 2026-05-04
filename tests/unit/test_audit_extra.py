@@ -7,9 +7,11 @@ Covers:
 - Audit log query endpoint
 - Parameterized query safety
 """
+
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from src.api.audit import log_audit_action
 
@@ -119,19 +121,21 @@ class TestAuditQueryEndpoint:
         """Should query audit log with filters."""
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
-        mock_conn.fetch = AsyncMock(return_value=[
-            {
-                "id": 1,
-                "actor": "admin",
-                "action": "rule.create",
-                "target_type": "rule",
-                "target_id": 1,
-                "old_values": None,
-                "new_values": None,
-                "ip_address": "10.0.0.1",
-                "created_at": "2025-01-01T00:00:00",
-            }
-        ])
+        mock_conn.fetch = AsyncMock(
+            return_value=[
+                {
+                    "id": 1,
+                    "actor": "admin",
+                    "action": "rule.create",
+                    "target_type": "rule",
+                    "target_id": 1,
+                    "old_values": None,
+                    "new_values": None,
+                    "ip_address": "10.0.0.1",
+                    "created_at": "2025-01-01T00:00:00",
+                }
+            ]
+        )
 
         acquirer = MagicMock()
         acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -141,4 +145,5 @@ class TestAuditQueryEndpoint:
         with patch("src.api.audit.get_pool", return_value=mock_pool):
             # The query_audit_log endpoint should be callable
             from src.api.audit import router
+
             assert router is not None

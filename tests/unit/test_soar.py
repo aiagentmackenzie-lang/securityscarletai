@@ -10,15 +10,17 @@ Covers:
 - get_playbook_for_alert
 - Approval and dry-run logic
 """
-import pytest
+
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from src.response.soar import (
     ActionType,
-    ResponseAction,
-    SOARPlaybook,
     BruteForcePlaybook,
     MalwarePlaybook,
+    ResponseAction,
+    SOARPlaybook,
     get_playbook_for_alert,
 )
 
@@ -94,12 +96,14 @@ class TestSOARPlaybook:
     async def test_execute_unapproved_dry_run(self):
         """Unapproved actions should get PENDING_APPROVAL result."""
         pb = SOARPlaybook("test", "Test")
-        pb.add_action(ResponseAction(
-            action_type=ActionType.BLOCK_IP,
-            target="10.0.0.1",
-            reason="Test",
-            approved=False,
-        ))
+        pb.add_action(
+            ResponseAction(
+                action_type=ActionType.BLOCK_IP,
+                target="10.0.0.1",
+                reason="Test",
+                approved=False,
+            )
+        )
         results = await pb.execute(dry_run=True)
         assert len(results) == 1
         assert results[0].result == "PENDING_APPROVAL"
@@ -108,12 +112,14 @@ class TestSOARPlaybook:
     async def test_execute_approved_dry_run(self):
         """Approved actions in dry_run should report what would happen."""
         pb = SOARPlaybook("test", "Test")
-        pb.add_action(ResponseAction(
-            action_type=ActionType.BLOCK_IP,
-            target="10.0.0.1",
-            reason="Test",
-            approved=True,
-        ))
+        pb.add_action(
+            ResponseAction(
+                action_type=ActionType.BLOCK_IP,
+                target="10.0.0.1",
+                reason="Test",
+                approved=True,
+            )
+        )
         results = await pb.execute(dry_run=True)
         assert len(results) == 1
         assert "DRY_RUN" in results[0].result
@@ -122,14 +128,20 @@ class TestSOARPlaybook:
     async def test_execute_approved_real_run_notify(self):
         """Approved NOTIFY actions should attempt notification."""
         pb = SOARPlaybook("test", "Test")
-        pb.add_action(ResponseAction(
-            action_type=ActionType.NOTIFY,
-            target="Security team",
-            reason="Test notification",
-            approved=True,
-        ))
+        pb.add_action(
+            ResponseAction(
+                action_type=ActionType.NOTIFY,
+                target="Security team",
+                reason="Test notification",
+                approved=True,
+            )
+        )
 
-        with patch("src.response.notifications.send_slack_notification", new_callable=AsyncMock, return_value=True):
+        with patch(
+            "src.response.notifications.send_slack_notification",
+            new_callable=AsyncMock,
+            return_value=True,
+        ):
             results = await pb.execute(dry_run=False)
             assert results[0].executed is True
             assert "Notification sent" in results[0].result
@@ -138,20 +150,28 @@ class TestSOARPlaybook:
     async def test_execute_mixed_approved(self):
         """Playbook with both approved and unapproved actions."""
         pb = SOARPlaybook("test", "Test")
-        pb.add_action(ResponseAction(
-            action_type=ActionType.BLOCK_IP,
-            target="10.0.0.1",
-            reason="Test",
-            approved=False,
-        ))
-        pb.add_action(ResponseAction(
-            action_type=ActionType.NOTIFY,
-            target="Team",
-            reason="Test",
-            approved=True,
-        ))
+        pb.add_action(
+            ResponseAction(
+                action_type=ActionType.BLOCK_IP,
+                target="10.0.0.1",
+                reason="Test",
+                approved=False,
+            )
+        )
+        pb.add_action(
+            ResponseAction(
+                action_type=ActionType.NOTIFY,
+                target="Team",
+                reason="Test",
+                approved=True,
+            )
+        )
 
-        with patch("src.response.notifications.send_slack_notification", new_callable=AsyncMock, return_value=True):
+        with patch(
+            "src.response.notifications.send_slack_notification",
+            new_callable=AsyncMock,
+            return_value=True,
+        ):
             results = await pb.execute(dry_run=False)
             assert len(results) == 2
             assert results[0].result == "PENDING_APPROVAL"
@@ -161,12 +181,14 @@ class TestSOARPlaybook:
     async def test_block_ip_action(self):
         """BLOCK_IP action should prepare firewall rule."""
         pb = SOARPlaybook("test", "Test")
-        pb.add_action(ResponseAction(
-            action_type=ActionType.BLOCK_IP,
-            target="192.168.1.100",
-            reason="C2 callback",
-            approved=True,
-        ))
+        pb.add_action(
+            ResponseAction(
+                action_type=ActionType.BLOCK_IP,
+                target="192.168.1.100",
+                reason="C2 callback",
+                approved=True,
+            )
+        )
         results = await pb.execute(dry_run=False)
         assert "192.168.1.100" in results[0].result
         assert "pf" in results[0].result.lower() or "block" in results[0].result.lower()

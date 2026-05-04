@@ -6,8 +6,8 @@ POST /api/v1/ai/chat — Context-aware security chat
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from src.api.auth import require_role
 from src.ai.chat import chat
+from src.api.auth import require_role
 from src.config.logging import get_logger
 
 log = get_logger("api.chat")

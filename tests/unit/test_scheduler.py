@@ -7,9 +7,11 @@ Covers:
 - stop_scheduler()
 - reload_rules()
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, call
+
 from datetime import timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from src.detection.scheduler import run_rule, schedule_rules, stop_scheduler
 
@@ -94,12 +96,25 @@ class TestRunRule:
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
         with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
-            with patch("src.detection.scheduler.sigma_to_sql", return_value=("SELECT * FROM logs WHERE host_name = $1", ["server01"])):
-                with patch("src.detection.scheduler.create_alert", new_callable=AsyncMock) as mock_create:
+            with patch(
+                "src.detection.scheduler.sigma_to_sql",
+                return_value=("SELECT * FROM logs WHERE host_name = $1", ["server01"]),
+            ):
+                with patch(
+                    "src.detection.scheduler.create_alert", new_callable=AsyncMock
+                ) as mock_create:
                     mock_create.return_value = 1  # Return alert ID
-                    with patch("src.detection.ai_analyzer.analyze_alert", new_callable=AsyncMock) as mock_analyze:
-                        mock_analyze.return_value = {"summary": "test", "risk_score": 50, "verdict": "suspicious"}
-                        with patch("src.detection.ai_analyzer.enrich_alert", new_callable=AsyncMock):
+                    with patch(
+                        "src.detection.ai_analyzer.analyze_alert", new_callable=AsyncMock
+                    ) as mock_analyze:
+                        mock_analyze.return_value = {
+                            "summary": "test",
+                            "risk_score": 50,
+                            "verdict": "suspicious",
+                        }
+                        with patch(
+                            "src.detection.ai_analyzer.enrich_alert", new_callable=AsyncMock
+                        ):
                             await run_rule(rule_id=1)
                             # Should have called create_alert for each match
                             assert mock_create.call_count == 2
@@ -128,7 +143,9 @@ class TestRunRule:
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
         with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
-            with patch("src.detection.scheduler.sigma_to_sql", side_effect=Exception("Invalid Sigma rule")):
+            with patch(
+                "src.detection.scheduler.sigma_to_sql", side_effect=Exception("Invalid Sigma rule")
+            ):
                 # Should not raise, just log error
                 await run_rule(rule_id=1)
 
@@ -141,10 +158,12 @@ class TestScheduleRules:
         """Should schedule all enabled rules."""
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
-        mock_conn.fetch = AsyncMock(return_value=[
-            {"id": 1, "run_interval": timedelta(seconds=60)},
-            {"id": 2, "run_interval": timedelta(seconds=300)},
-        ])
+        mock_conn.fetch = AsyncMock(
+            return_value=[
+                {"id": 1, "run_interval": timedelta(seconds=60)},
+                {"id": 2, "run_interval": timedelta(seconds=300)},
+            ]
+        )
 
         acquirer = MagicMock()
         acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -200,9 +219,11 @@ class TestReloadRules:
         mock_scheduler = MagicMock()
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
-        mock_conn.fetch = AsyncMock(return_value=[
-            {"id": 1, "run_interval": timedelta(seconds=60)},
-        ])
+        mock_conn.fetch = AsyncMock(
+            return_value=[
+                {"id": 1, "run_interval": timedelta(seconds=60)},
+            ]
+        )
 
         acquirer = MagicMock()
         acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -212,5 +233,6 @@ class TestReloadRules:
         with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
             with patch("src.detection.scheduler.scheduler", mock_scheduler):
                 from src.detection.scheduler import reload_rules
+
                 await reload_rules()
                 mock_scheduler.remove_all_jobs.assert_called_once()

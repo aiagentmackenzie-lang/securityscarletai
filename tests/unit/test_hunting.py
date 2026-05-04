@@ -9,6 +9,7 @@ Covers:
 - Template listing
 - API endpoints
 """
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -17,7 +18,6 @@ from src.ai.hunting_assistant import (
     HUNTING_QUERY_TEMPLATES,
     get_hunting_templates,
 )
-
 
 # ---------------------------------------------------------------------------
 # Hunt template tests
@@ -36,9 +36,7 @@ class TestHuntTemplates:
         """Every template SQL must start with SELECT."""
         for t in HUNTING_QUERY_TEMPLATES:
             sql = t["sql"].strip()
-            assert sql.upper().startswith("SELECT"), (
-                f"Template {t['id']} is not a SELECT query"
-            )
+            assert sql.upper().startswith("SELECT"), f"Template {t['id']} is not a SELECT query"
 
     def test_all_templates_have_mitre(self):
         """Every template should have MITRE ATT&CK tags."""
@@ -58,9 +56,7 @@ class TestHuntTemplates:
         for t in HUNTING_QUERY_TEMPLATES:
             sql = t["sql"].upper()
             for keyword in ["DROP", "INSERT", "UPDATE", "DELETE", "ALTER", "CREATE"]:
-                assert keyword not in sql, (
-                    f"Template {t['id']} contains {keyword}"
-                )
+                assert keyword not in sql, f"Template {t['id']} contains {keyword}"
 
     def test_template_count(self):
         """Should have at least 5 hunt templates."""
@@ -112,6 +108,7 @@ class TestGapAnalysis:
             mock_pool.return_value = mock_pool_instance2
 
             from src.ai.hunting_assistant import mitre_gap_analysis
+
             result = await mitre_gap_analysis()
 
         assert "total_critical_techniques" in result
@@ -125,6 +122,7 @@ class TestGapAnalysis:
     async def test_gap_analysis_has_hunt_techniques(self):
         """Hunt templates contribute to coverage."""
         from src.ai.hunting_assistant import HUNTING_QUERY_TEMPLATES
+
         hunt_techniques = set()
         for t in HUNTING_QUERY_TEMPLATES:
             for tech in t.get("mitre", []):
@@ -173,12 +171,14 @@ class TestHuntFromAlert:
         for template in HUNTING_QUERY_TEMPLATES:
             overlap = set(mitre_techniques) & set(template.get("mitre", []))
             if overlap:
-                matching_hunts.append({
-                    "id": template["id"],
-                    "name": template["name"],
-                    "category": template["category"],
-                    "matched_mitre": list(overlap),
-                })
+                matching_hunts.append(
+                    {
+                        "id": template["id"],
+                        "name": template["name"],
+                        "category": template["category"],
+                        "matched_mitre": list(overlap),
+                    }
+                )
 
         # Should find at least the brute-force hunt (T1110 overlap)
         assert len(matching_hunts) >= 1, f"Expected >=1 matching hunt, got {len(matching_hunts)}"
@@ -200,6 +200,7 @@ class TestHuntFromAlert:
             mock_pool.return_value = mock_pool_instance2
 
             from src.ai.hunting_assistant import hunt_from_alert
+
             result = await hunt_from_alert(99999)
 
         assert result["success"] is False

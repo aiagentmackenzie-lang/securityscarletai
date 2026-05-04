@@ -8,19 +8,19 @@ Uses hypothesis for property-based testing of:
 - NL→SQL injection defense
 - Rate limiting edge cases
 """
-import pytest
+
 import string
-from unittest.mock import AsyncMock, MagicMock, patch
-
-from hypothesis import given, settings, assume, strategies as st
-
-from src.api.ingest import IngestEvent
-from fastapi import HTTPException
-from src.api.cases import CaseUpdate, _validate_resolve
-from src.ai.risk_scoring import RiskScorer
-from src.detection.correlation import CORRELATION_RULES
 from datetime import datetime, timezone
 
+import pytest
+from fastapi import HTTPException
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
+from src.ai.risk_scoring import RiskScorer
+from src.api.cases import CaseUpdate, _validate_resolve
+from src.api.ingest import IngestEvent
+from src.detection.correlation import CORRELATION_RULES
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # SQL Injection Property Tests
@@ -40,7 +40,9 @@ class TestSQLInjectionPrevention:
             st.just("admin'--"),
             st.just("' OR 1=1 --"),
             st.just("1; INSERT INTO users VALUES('hacked','pass')"),
-            st.just("' AND 1=CONVERT(int,(SELECT TOP 1 table_name FROM information_schema.tables))--"),
+            st.just(
+                "' AND 1=CONVERT(int,(SELECT TOP 1 table_name FROM information_schema.tables))--"
+            ),
             st.just("1' AND '1'='1"),
         )
     )
@@ -125,7 +127,9 @@ class TestRiskScoringProperties:
         anomaly_score=st.floats(min_value=0.0, max_value=1.0),
     )
     @settings(max_examples=100)
-    def test_alert_risk_always_bounded(self, severity, asset_criticality, threat_intel, anomaly_score):
+    def test_alert_risk_always_bounded(
+        self, severity, asset_criticality, threat_intel, anomaly_score
+    ):
         """Risk score should always be between 0 and 100."""
         score = RiskScorer.calculate_alert_risk(
             severity=severity,
@@ -173,7 +177,9 @@ class TestCorrelationRulesIntegrity:
         """Every rule severity should be one of the defined levels."""
         valid = {"critical", "high", "medium", "low", "info"}
         for name, rule in CORRELATION_RULES.items():
-            assert rule["severity"] in valid, f"Rule {name} has invalid severity: {rule['severity']}"
+            assert rule["severity"] in valid, (
+                f"Rule {name} has invalid severity: {rule['severity']}"
+            )
 
     def test_all_rules_have_confidence(self):
         """Every rule should have a confidence_base between 0 and 100."""

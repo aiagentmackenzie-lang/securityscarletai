@@ -294,12 +294,25 @@ class RiskScorer:
                     COUNT(DISTINCT al.id) FILTER (WHERE al.severity = 'critical') as crit_alerts,
                     COUNT(DISTINCT al.id) FILTER (WHERE al.severity = 'high') as high_alerts,
                     COUNT(DISTINCT al.id) as total_alerts,
-                    COUNT(DISTINCT l.id) FILTER (WHERE l.event_category = 'network' AND l.source_ip IS NOT NULL) as outbound_conns
-                FROM (SELECT DISTINCT host_name FROM logs WHERE time > NOW() - INTERVAL '24 hours' LIMIT 50) l
-                LEFT JOIN alerts al ON al.host_name = l.host_name AND al.time > NOW() - INTERVAL '24 hours'
+                    COUNT(DISTINCT l.id) FILTER (
+                        WHERE l.event_category = 'network' AND l.source_ip IS NOT NULL
+                    ) as outbound_conns
+                FROM (
+                    SELECT DISTINCT host_name
+                    FROM logs
+                    WHERE time > NOW() - INTERVAL '24 hours'
+                    LIMIT 50
+                ) l
+                LEFT JOIN alerts al
+                    ON al.host_name = l.host_name
+                    AND al.time > NOW() - INTERVAL '24 hours'
                 LEFT JOIN assets a ON a.hostname = l.host_name
                 GROUP BY l.host_name, a.risk_score
-                ORDER BY COALESCE(a.risk_score, 50.0) + COUNT(DISTINCT al.id) FILTER (WHERE al.severity = 'critical') * 20 + COUNT(DISTINCT al.id) FILTER (WHERE al.severity = 'high') * 10 DESC
+                ORDER BY
+                    COALESCE(a.risk_score, 50.0)
+                    + COUNT(DISTINCT al.id) FILTER (WHERE al.severity = 'critical') * 20
+                    + COUNT(DISTINCT al.id) FILTER (WHERE al.severity = 'high') * 10
+                    DESC
                 LIMIT $1
                 """,
                 limit,

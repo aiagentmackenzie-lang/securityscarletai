@@ -7,14 +7,16 @@ Covers:
 - Alert notification formatting
 - Daily summary formatting
 """
-import pytest
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from src.response.notifications import (
-    send_slack_notification,
     send_alert_notification,
-    send_email_notification,
     send_daily_summary,
+    send_email_notification,
+    send_slack_notification,
 )
 
 
@@ -73,9 +75,13 @@ class TestSendSlackNotification:
         import httpx
 
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(side_effect=httpx.HTTPStatusError(
-            "Error", request=MagicMock(), response=MagicMock(status_code=500),
-        ))
+        mock_client.post = AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "Error",
+                request=MagicMock(),
+                response=MagicMock(status_code=500),
+            )
+        )
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -113,7 +119,11 @@ class TestSendAlertNotification:
             "time": "2025-01-01T12:00:00",
             "description": "Multiple failed logins",
         }
-        with patch("src.response.notifications.send_slack_notification", new_callable=AsyncMock, return_value=True) as mock_slack:
+        with patch(
+            "src.response.notifications.send_slack_notification",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as mock_slack:
             result = await send_alert_notification(alert)
             assert result is True
             call_args = mock_slack.call_args[0][0]
@@ -130,7 +140,11 @@ class TestSendAlertNotification:
             "time": "2025-01-01T12:00:00",
             "description": "Suspicious process",
         }
-        with patch("src.response.notifications.send_slack_notification", new_callable=AsyncMock, return_value=True) as mock_slack:
+        with patch(
+            "src.response.notifications.send_slack_notification",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as mock_slack:
             result = await send_alert_notification(alert)
             call_args = mock_slack.call_args[0][0]
             assert "🟠" in call_args
@@ -145,7 +159,11 @@ class TestSendAlertNotification:
             "time": "2025-01-01T12:00:00",
             "description": "Test",
         }
-        with patch("src.response.notifications.send_slack_notification", new_callable=AsyncMock, return_value=True) as mock_slack:
+        with patch(
+            "src.response.notifications.send_slack_notification",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as mock_slack:
             result = await send_alert_notification(alert)
             call_args = mock_slack.call_args[0][0]
             assert "🟡" in call_args
@@ -160,7 +178,11 @@ class TestSendAlertNotification:
             "time": "2025-01-01T12:00:00",
             "description": "Low severity",
         }
-        with patch("src.response.notifications.send_slack_notification", new_callable=AsyncMock, return_value=True) as mock_slack:
+        with patch(
+            "src.response.notifications.send_slack_notification",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as mock_slack:
             result = await send_alert_notification(alert)
             call_args = mock_slack.call_args[0][0]
             assert "🔵" in call_args
@@ -175,7 +197,11 @@ class TestSendAlertNotification:
             "time": "2025-01-01T12:00:00",
             "description": "Test description",
         }
-        with patch("src.response.notifications.send_slack_notification", new_callable=AsyncMock, return_value=True) as mock_slack:
+        with patch(
+            "src.response.notifications.send_slack_notification",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as mock_slack:
             await send_alert_notification(alert)
             call_args = mock_slack.call_args[0][0]
             assert "My Test Rule" in call_args
@@ -190,7 +216,11 @@ class TestSendAlertNotification:
             "time": "2025-01-01",
             "description": "Desc",
         }
-        with patch("src.response.notifications.send_slack_notification", new_callable=AsyncMock, return_value=True) as mock_slack:
+        with patch(
+            "src.response.notifications.send_slack_notification",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as mock_slack:
             await send_alert_notification(alert)
             call_args = mock_slack.call_args[0][0]
             assert "prod-server-01" in call_args
@@ -242,7 +272,9 @@ class TestSendEmailNotification:
             mock_settings.smtp_port = 587
             mock_settings.alert_email_to = "admin@example.com"
 
-            with patch("aiosmtplib.send", new_callable=AsyncMock, side_effect=Exception("SMTP error")):
+            with patch(
+                "aiosmtplib.send", new_callable=AsyncMock, side_effect=Exception("SMTP error")
+            ):
                 result = await send_email_notification("Alert", "Body")
                 assert result is False
 
@@ -257,7 +289,9 @@ class TestSendEmailNotification:
             mock_settings.alert_email_to = "default@example.com"
 
             with patch("aiosmtplib.send", new_callable=AsyncMock) as mock_send:
-                result = await send_email_notification("Subject", "Body", to_email="custom@example.com")
+                result = await send_email_notification(
+                    "Subject", "Body", to_email="custom@example.com"
+                )
                 assert result is True
 
 
@@ -267,7 +301,11 @@ class TestSendDailySummary:
     @pytest.mark.asyncio
     async def test_daily_summary_format(self):
         """Summary should include all stats."""
-        with patch("src.response.notifications.send_slack_notification", new_callable=AsyncMock, return_value=True) as mock_slack:
+        with patch(
+            "src.response.notifications.send_slack_notification",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as mock_slack:
             result = await send_daily_summary(alert_count=42, critical_count=5, new_rules=3)
             assert result is True
             call_args = mock_slack.call_args[0][0]
@@ -278,6 +316,10 @@ class TestSendDailySummary:
     @pytest.mark.asyncio
     async def test_daily_summary_with_zero_counts(self):
         """Should handle zero counts."""
-        with patch("src.response.notifications.send_slack_notification", new_callable=AsyncMock, return_value=True) as mock_slack:
+        with patch(
+            "src.response.notifications.send_slack_notification",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as mock_slack:
             result = await send_daily_summary(alert_count=0, critical_count=0, new_rules=0)
             assert result is True

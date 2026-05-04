@@ -9,23 +9,25 @@ Covers:
 - TEMPLATE_EXPLANATIONS structure
 - _fallback_investigation_steps
 """
+
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.ai.alert_explanation import (
-    explain_alert,
-    summarize_multiple_alerts,
-    suggest_investigation_steps,
-    get_template_explanation,
+    SYSTEM_PROMPT,
     TEMPLATE_EXPLANATIONS,
     _fallback_investigation_steps,
-    SYSTEM_PROMPT,
+    explain_alert,
+    get_template_explanation,
+    suggest_investigation_steps,
+    summarize_multiple_alerts,
 )
-
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TEMPLATE_EXPLANATIONS structure
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestTemplateExplanations:
     def test_templates_exist(self):
@@ -58,6 +60,7 @@ class TestTemplateExplanations:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # get_template_explanation
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestGetTemplateExplanation:
     def test_exact_match(self):
@@ -93,6 +96,7 @@ class TestGetTemplateExplanation:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # explain_alert
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestExplainAlert:
     @pytest.mark.asyncio
@@ -147,14 +151,22 @@ class TestExplainAlert:
             )
 
         # Generic fallback explanation should have key elements
-        assert "medium" in result.upper() or "Medium" in result or "workstation-01" in result or "Next steps" in result or "custom_alert" in result.lower()
+        assert (
+            "medium" in result.upper()
+            or "Medium" in result
+            or "workstation-01" in result
+            or "Next steps" in result
+            or "custom_alert" in result.lower()
+        )
 
     @pytest.mark.asyncio
     async def test_explain_with_mitre_and_evidence(self):
         """Should include MITRE techniques and evidence in context."""
         mock_explanation = "Analysis of the alert."
 
-        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_explanation)) as mock_llm:
+        with patch(
+            "src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_explanation)
+        ) as mock_llm:
             await explain_alert(
                 rule_name="C2 Beaconing",
                 rule_description="Regular connections to suspicious IPs",
@@ -189,6 +201,7 @@ class TestExplainAlert:
 # summarize_multiple_alerts
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestSummarizeMultipleAlerts:
     @pytest.mark.asyncio
     async def test_summarize_empty_list(self):
@@ -202,8 +215,18 @@ class TestSummarizeMultipleAlerts:
         mock_summary = "These alerts appear to be part of a coordinated attack campaign."
 
         alerts = [
-            {"severity": "high", "rule_name": "Brute Force SSH", "host_name": "server-01", "time": "2024-01-01T12:00:00"},
-            {"severity": "critical", "rule_name": "Malware Detected", "host_name": "server-01", "time": "2024-01-01T12:05:00"},
+            {
+                "severity": "high",
+                "rule_name": "Brute Force SSH",
+                "host_name": "server-01",
+                "time": "2024-01-01T12:00:00",
+            },
+            {
+                "severity": "critical",
+                "rule_name": "Malware Detected",
+                "host_name": "server-01",
+                "time": "2024-01-01T12:05:00",
+            },
         ]
 
         with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_summary)):
@@ -217,8 +240,18 @@ class TestSummarizeMultipleAlerts:
         from src.ai.ollama_client import FALLBACK_MESSAGE
 
         alerts = [
-            {"severity": "high", "rule_name": "Brute Force", "host_name": "ws-01", "time": "2024-01-01"},
-            {"severity": "medium", "rule_name": "Suspicious Process", "host_name": "ws-02", "time": "2024-01-01"},
+            {
+                "severity": "high",
+                "rule_name": "Brute Force",
+                "host_name": "ws-01",
+                "time": "2024-01-01",
+            },
+            {
+                "severity": "medium",
+                "rule_name": "Suspicious Process",
+                "host_name": "ws-02",
+                "time": "2024-01-01",
+            },
         ]
 
         with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=FALLBACK_MESSAGE)):
@@ -233,7 +266,12 @@ class TestSummarizeMultipleAlerts:
         from src.ai.ollama_client import FALLBACK_MESSAGE
 
         alerts = [
-            {"severity": "high", "rule_name": f"Alert {i}", "host_name": f"ws-{i}", "time": "2024-01-01"}
+            {
+                "severity": "high",
+                "rule_name": f"Alert {i}",
+                "host_name": f"ws-{i}",
+                "time": "2024-01-01",
+            }
             for i in range(10)
         ]
 
@@ -247,6 +285,7 @@ class TestSummarizeMultipleAlerts:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # suggest_investigation_steps
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestSuggestInvestigationSteps:
     @pytest.mark.asyncio
@@ -316,6 +355,7 @@ class TestSuggestInvestigationSteps:
 # _fallback_investigation_steps
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestFallbackInvestigationSteps:
     def test_returns_list(self):
         result = _fallback_investigation_steps("brute_force", "server-01")
@@ -334,6 +374,7 @@ class TestFallbackInvestigationSteps:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # SYSTEM_PROMPT structure
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestSystemPrompt:
     def test_system_prompt_exists(self):

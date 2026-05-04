@@ -10,28 +10,28 @@ Covers:
 - Alert explanation fallback
 - API endpoints
 """
-import math
-from datetime import datetime, timezone
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.ai.alert_triage import (
-    AlertTriageModel,
-    _shannon_entropy,
-    AUTO_TRAIN_THRESHOLD,
-    check_auto_train,
-)
 from src.ai.alert_explanation import (
-    get_template_explanation,
     TEMPLATE_EXPLANATIONS,
     _fallback_investigation_steps,
+    get_template_explanation,
+)
+from src.ai.alert_triage import (
+    AUTO_TRAIN_THRESHOLD,
+    AlertTriageModel,
+    _shannon_entropy,
+    check_auto_train,
 )
 from src.ai.ueba import (
     UEBABaseline,
+)
+from src.ai.ueba import (
     _shannon_entropy as ueba_entropy,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shannon entropy tests
@@ -76,8 +76,16 @@ class TestShannonEntropy:
     def test_high_diversity_process_names(self):
         """High diversity simulates suspicious process activity."""
         processes = [
-            "python3", "curl", "nc", "bash", "ssh", "scp", "wget",
-            "chmod", "chown", "base64",
+            "python3",
+            "curl",
+            "nc",
+            "bash",
+            "ssh",
+            "scp",
+            "wget",
+            "chmod",
+            "chown",
+            "base64",
         ]
         entropy = _shannon_entropy(processes)
         assert entropy > 0.8  # Very diverse
@@ -199,7 +207,9 @@ class TestAutoTrain:
 
                 result = await check_auto_train()
                 # Training should have been called (the primary assertion)
-                assert mock_model.train.called, "Auto-train should call model.train() when threshold is met"
+                assert mock_model.train.called, (
+                    "Auto-train should call model.train() when threshold is met"
+                )
                 # Result should also be True when training succeeds
                 assert result is True, "check_auto_train should return True when training succeeds"
 
@@ -253,6 +263,7 @@ class TestUEBAModel:
     def test_ueba_features_updated(self):
         """UEBA features no longer have placeholders."""
         from src.ai.ueba import UEBA_FEATURES
+
         assert "command_diversity" in UEBA_FEATURES
         assert "session_duration_minutes" in UEBA_FEATURES
         assert "login_hour_of_day" in UEBA_FEATURES

@@ -9,11 +9,11 @@ Covers:
 - Query endpoint with mocked DB
 - SQL injection adversarial tests (T-07)
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from src.ai.nl2sql import add_safety_limits, sanitize_input, validate_sql_structure
 from src.api.query import NLQueryRequest, NLQueryResponse, TemplateResponse
-from src.ai.nl2sql import add_safety_limits, validate_sql_structure, sanitize_input
 
 
 class TestNLQueryRequest:
@@ -110,9 +110,15 @@ class TestSQLInjectionPrevention:
         malicious = "SELECT * FROM alerts; DROP TABLE alerts; --"
         # The real defense is validate_sql_structure which rejects forbidden patterns
         from src.ai.nl2sql import validate_sql_structure
+
         is_valid, reason = validate_sql_structure(malicious)
         assert not is_valid
-        assert "DROP" in reason or "forbidden" in reason.lower() or "semicolon" in reason.lower() or "comment" in reason.lower()
+        assert (
+            "DROP" in reason
+            or "forbidden" in reason.lower()
+            or "semicolon" in reason.lower()
+            or "comment" in reason.lower()
+        )
 
     def test_union_select_injection(self):
         """UNION SELECT to extract other tables should be blocked."""
@@ -169,8 +175,7 @@ class TestSQLInjectionPrevention:
         ]
         for sql in dangerous_queries:
             is_valid, reason = validate_sql_structure(sql)
-            assert is_valid is False, \
-                f"validate_sql_structure should block: {sql[:50]} — {reason}"
+            assert is_valid is False, f"validate_sql_structure should block: {sql[:50]} — {reason}"
 
     def test_request_rejects_sql_keywords_in_question(self):
         """NLQueryRequest should accept any string (filtering is downstream)."""
@@ -188,8 +193,7 @@ class TestSQLInjectionPrevention:
         ]
         for question in dangerous_questions:
             cleaned, warnings = sanitize_input(question)
-            assert len(warnings) > 0, \
-                f"sanitize_input should flag dangerous input: {question[:40]}"
+            assert len(warnings) > 0, f"sanitize_input should flag dangerous input: {question[:40]}"
 
 
 class TestAddSafetyLimitsCTE:
@@ -211,8 +215,9 @@ class TestAddSafetyLimitsCTE:
         cte_body = result.upper().split("SELECT")[1]  # After first SELECT
         # The LIMIT should be near the end, not inside WITH block
         limit_pos = result.upper().rfind("LIMIT")
-        assert limit_pos > result.upper().find(") SELECT"), \
+        assert limit_pos > result.upper().find(") SELECT"), (
             "LIMIT should be in the final SELECT, not inside CTE definition"
+        )
 
     def test_nested_cte_with_limit(self):
         """Nested CTEs should have LIMIT only on final SELECT."""
@@ -226,6 +231,7 @@ class TestAddSafetyLimitsCTE:
         result = add_safety_limits(sql)
         # Should have a reasonable limit, not 1M
         import re
+
         match = re.search(r"LIMIT\s+(\d+)", result, re.IGNORECASE)
         assert match, "Should have LIMIT clause"
         limit_val = int(match.group(1))

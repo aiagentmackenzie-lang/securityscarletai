@@ -6,7 +6,9 @@ Covers:
 - ChatResponse model
 - Auth requirement
 """
+
 import pytest
+
 from src.api.chat import ChatRequest, ChatResponse
 
 
@@ -58,12 +60,14 @@ class TestApiHuntModels:
 
     def test_hunt_execute_response(self):
         from src.api.hunt import HuntExecuteResponse
+
         resp = HuntExecuteResponse(success=True, hunt_id="brute_force_check")
         assert resp.success is True
         assert resp.hunt_id == "brute_force_check"
 
     def test_gap_analysis_response(self):
         from src.api.hunt import GapAnalysisResponse
+
         resp = GapAnalysisResponse(
             total_critical_techniques=50,
             covered_by_rules=30,

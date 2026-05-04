@@ -9,11 +9,12 @@ Covers:
 - get_ueba singleton
 - Edge cases in feature extraction
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-import math
 
-from src.ai.ueba import _shannon_entropy, UEBABaseline, UEBA_FEATURES
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from src.ai.ueba import UEBA_FEATURES, UEBABaseline, _shannon_entropy
 
 
 class TestShannonEntropy:
@@ -50,15 +51,22 @@ class TestShannonEntropy:
     def test_mixed_process_names(self):
         """Realistic process names should produce reasonable entropy."""
         processes = [
-            "sshd", "bash", "python", "sshd", "bash",
-            "nginx", "postgres", "sshd", "bash", "python",
+            "sshd",
+            "bash",
+            "python",
+            "sshd",
+            "bash",
+            "nginx",
+            "postgres",
+            "sshd",
+            "bash",
+            "python",
         ]
         result = _shannon_entropy(processes)
         assert 0.0 < result <= 1.0
 
     def test_large_list(self):
         """Should handle large lists efficiently."""
-        import random
         processes = [f"proc_{i % 10}" for i in range(1000)]
         result = _shannon_entropy(processes)
         assert 0.0 < result <= 1.0
@@ -130,6 +138,7 @@ class TestUEBABaselineStatus:
     def test_trained_status(self):
         """Trained model should include training info."""
         import time
+
         baseline = UEBABaseline()
         baseline.is_trained = True
         baseline.trained_at = time.time()
@@ -152,10 +161,12 @@ class TestUEBABaselineTrain:
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         # Only 2 users (< 3 threshold)
-        mock_conn.fetch = AsyncMock(return_value=[
-            {"user_name": "user1"},
-            {"user_name": "user2"},
-        ])
+        mock_conn.fetch = AsyncMock(
+            return_value=[
+                {"user_name": "user1"},
+                {"user_name": "user2"},
+            ]
+        )
 
         acquirer = MagicMock()
         acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -169,7 +180,6 @@ class TestUEBABaselineTrain:
     @pytest.mark.asyncio
     async def test_train_with_mock_data(self):
         """Should train successfully with sufficient mock data."""
-        import numpy as np
 
         baseline = UEBABaseline()
 
@@ -184,13 +194,17 @@ class TestUEBABaselineTrain:
 
         # Mock feature extraction calls
         mock_conn.fetchval = AsyncMock(return_value=None)  # Most queries return None
-        mock_conn.fetchrow = AsyncMock(return_value={
-            "first_event": None,
-            "last_event": None,
-        })
+        mock_conn.fetchrow = AsyncMock(
+            return_value={
+                "first_event": None,
+                "last_event": None,
+            }
+        )
 
         # Return some process names for entropy calculation
-        mock_conn.fetch = AsyncMock(side_effect=[mock_users] + [[{"process_name": f"proc_{i}"} for i in range(5)]] * 10)
+        mock_conn.fetch = AsyncMock(
+            side_effect=[mock_users] + [[{"process_name": f"proc_{i}"} for i in range(5)]] * 10
+        )
 
         acquirer = MagicMock()
         acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -198,19 +212,21 @@ class TestUEBABaselineTrain:
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
         # Mock extract_user_features to return realistic data
-        baseline.extract_user_features = AsyncMock(side_effect=[
-            {
-                "login_hour_of_day": 9.0,
-                "unique_processes_count": 5.0,
-                "command_diversity": 0.7,
-                "network_connections_count": 10.0,
-                "unique_destination_ips": 3.0,
-                "file_access_count": 20.0,
-                "sudo_usage_count": 2.0,
-                "session_duration_minutes": 480.0,
-            }
-            for _ in range(10)
-        ])
+        baseline.extract_user_features = AsyncMock(
+            side_effect=[
+                {
+                    "login_hour_of_day": 9.0,
+                    "unique_processes_count": 5.0,
+                    "command_diversity": 0.7,
+                    "network_connections_count": 10.0,
+                    "unique_destination_ips": 3.0,
+                    "file_access_count": 20.0,
+                    "sudo_usage_count": 2.0,
+                    "session_duration_minutes": 480.0,
+                }
+                for _ in range(10)
+            ]
+        )
 
         with patch("src.ai.ueba.get_pool", return_value=mock_pool):
             result = await baseline.train(min_days=1)
@@ -238,7 +254,9 @@ class TestUEBABaselineScoreUser:
         baseline.is_trained = True
 
         # Mock extract_user_features to return None
-        with patch.object(baseline, "extract_user_features", new_callable=AsyncMock, return_value=None):
+        with patch.object(
+            baseline, "extract_user_features", new_callable=AsyncMock, return_value=None
+        ):
             result = await baseline.score_user("nonexistent_user")
             assert result["anomaly_score"] is None
             assert result["is_anomaly"] is False
@@ -250,6 +268,7 @@ class TestUEBAModelIntegrity:
     def test_sha256_file_nonexistent(self):
         """Should raise for nonexistent files."""
         from pathlib import Path
+
         with pytest.raises(Exception):
             UEBABaseline._sha256_file(Path("/nonexistent/file"))
 

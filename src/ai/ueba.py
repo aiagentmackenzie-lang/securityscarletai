@@ -12,7 +12,6 @@ Changes from Phase 0:
 - Model status API endpoint
 """
 import hashlib
-import math
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,8 +35,9 @@ HASH_PATH = MODEL_DIR / "ueba_model.sha256"
 META_PATH = MODEL_DIR / "ueba_meta.joblib"
 
 
-from src.ai.utils import shannon_entropy as _shannon_entropy  # noqa: F401 — L-01: shared utility
-
+from src.ai.utils import (  # noqa: E402 — L-01: shared utility, after config constants
+    shannon_entropy as _shannon_entropy,
+)
 
 # Features to extract per user per day (updated with real calculations)
 UEBA_FEATURES = [

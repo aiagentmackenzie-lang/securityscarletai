@@ -8,22 +8,24 @@ Covers:
 - lookup_url
 - lookup_hash (MD5, SHA256, invalid)
 """
+
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import HTTPException
 
 from src.api.threat_intel import (
-    threat_intel_stats,
-    refresh_threat_intel,
+    lookup_hash,
     lookup_ip,
     lookup_url,
-    lookup_hash,
+    refresh_threat_intel,
+    threat_intel_stats,
 )
-
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # threat_intel_stats
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestThreatIntelStats:
     @pytest.mark.asyncio
@@ -40,7 +42,9 @@ class TestThreatIntelStats:
             },
         }
 
-        with patch("src.api.threat_intel.get_threat_intel_stats", AsyncMock(return_value=mock_stats)):
+        with patch(
+            "src.api.threat_intel.get_threat_intel_stats", AsyncMock(return_value=mock_stats)
+        ):
             result = await threat_intel_stats(user="admin")
 
         assert result["total_indicators"] == 500
@@ -50,6 +54,7 @@ class TestThreatIntelStats:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # refresh_threat_intel
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestRefreshThreatIntel:
     @pytest.mark.asyncio
@@ -68,7 +73,9 @@ class TestRefreshThreatIntel:
 
     @pytest.mark.asyncio
     async def test_refresh_error(self):
-        with patch("src.api.threat_intel.refresh_all_feeds", AsyncMock(side_effect=Exception("DB error"))):
+        with patch(
+            "src.api.threat_intel.refresh_all_feeds", AsyncMock(side_effect=Exception("DB error"))
+        ):
             with pytest.raises(HTTPException) as exc_info:
                 await refresh_threat_intel(user="admin")
             assert exc_info.value.status_code == 500
@@ -77,6 +84,7 @@ class TestRefreshThreatIntel:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # lookup_ip
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestLookupIp:
     @pytest.mark.asyncio
@@ -108,6 +116,7 @@ class TestLookupIp:
 # lookup_url
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestLookupUrl:
     @pytest.mark.asyncio
     async def test_lookup_url_found(self):
@@ -135,6 +144,7 @@ class TestLookupUrl:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # lookup_hash
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestLookupHash:
     @pytest.mark.asyncio

@@ -8,12 +8,13 @@ Covers:
 - Singleton get_mitre_data()
 - Search functionality
 """
-import json
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from pathlib import Path
 
-from src.detection.mitre import MitreAttackData, CACHE_FILE
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from src.detection.mitre import MitreAttackData
 
 
 class TestMitreAttackData:
@@ -168,7 +169,6 @@ class TestMitreCacheHandling:
     @pytest.mark.asyncio
     async def test_download_saves_cache(self, tmp_path):
         """Should save downloaded data to cache file."""
-        import httpx
 
         inst = MitreAttackData()
 
@@ -229,10 +229,10 @@ class TestMitreSingleton:
     @pytest.mark.asyncio
     async def test_singleton_returns_instance(self):
         """get_mitre_data should return a MitreAttackData instance."""
-        from src.detection.mitre import get_mitre_data
 
         # Reset singleton
         import src.detection.mitre as mitre_module
+
         mitre_module._mitre_data = None
 
         inst = MitreAttackData()

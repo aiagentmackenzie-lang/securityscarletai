@@ -11,12 +11,11 @@ Covers:
 - Lessons learned required on resolve
 - RBAC enforcement (viewer can't create, analyst can update, admin can delete)
 """
-import json
-import pytest
+
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from fastapi.testclient import TestClient
+import pytest
 
 # We'll test the API endpoints by mocking the database pool
 
@@ -27,10 +26,17 @@ def _make_user(role: str = "analyst", username: str = "testuser") -> dict:
 
 
 def _make_case_row(
-    id=1, title="Test Case", description="A test case",
-    status="open", severity="medium", assigned_to=None,
-    alert_ids=None, notes=None, lessons_learned=None,
-    resolution_note=None, resolved_at=None,
+    id=1,
+    title="Test Case",
+    description="A test case",
+    status="open",
+    severity="medium",
+    assigned_to=None,
+    alert_ids=None,
+    notes=None,
+    lessons_learned=None,
+    resolution_note=None,
+    resolved_at=None,
 ):
     """Create a mock case database row."""
     return {
@@ -60,6 +66,7 @@ class TestValidateResolve:
 
     def test_resolve_without_lessons_learned_raises(self):
         from src.api.cases import CaseUpdate, _validate_resolve
+
         update = CaseUpdate(status="resolved")
         with pytest.raises(Exception) as exc_info:
             _validate_resolve(update)
@@ -67,6 +74,7 @@ class TestValidateResolve:
 
     def test_close_without_lessons_learned_raises(self):
         from src.api.cases import CaseUpdate, _validate_resolve
+
         update = CaseUpdate(status="closed")
         with pytest.raises(Exception) as exc_info:
             _validate_resolve(update)
@@ -74,18 +82,21 @@ class TestValidateResolve:
 
     def test_resolve_with_lessons_learned_ok(self):
         from src.api.cases import CaseUpdate, _validate_resolve
+
         update = CaseUpdate(status="resolved", lessons_learned="We learned X")
         # Should not raise
         _validate_resolve(update)
 
     def test_open_without_lessons_ok(self):
         from src.api.cases import CaseUpdate, _validate_resolve
+
         update = CaseUpdate(status="open")
         # Should not raise — lessons not required for non-resolved status
         _validate_resolve(update)
 
     def test_in_progress_without_lessons_ok(self):
         from src.api.cases import CaseUpdate, _validate_resolve
+
         update = CaseUpdate(status="in_progress")
         _validate_resolve(update)
 
@@ -95,6 +106,7 @@ class TestCaseCreateModel:
 
     def test_case_create_defaults(self):
         from src.api.cases import CaseCreate
+
         case = CaseCreate(title="Test")
         assert case.title == "Test"
         assert case.description == ""
@@ -104,22 +116,26 @@ class TestCaseCreateModel:
 
     def test_case_create_with_alerts(self):
         from src.api.cases import CaseCreate
+
         case = CaseCreate(title="Test", alert_ids=[1, 2, 3], severity="high")
         assert case.alert_ids == [1, 2, 3]
         assert case.severity == "high"
 
     def test_case_create_with_assignment(self):
         from src.api.cases import CaseCreate
+
         case = CaseCreate(title="Test", assigned_to="analyst1")
         assert case.assigned_to == "analyst1"
 
     def test_case_create_empty_title_fails(self):
         from src.api.cases import CaseCreate
+
         with pytest.raises(Exception):
             CaseCreate(title="")
 
     def test_case_create_invalid_severity_fails(self):
         from src.api.cases import CaseCreate
+
         with pytest.raises(Exception):
             CaseCreate(title="Test", severity="invalid")
 
@@ -129,6 +145,7 @@ class TestCaseUpdateModel:
 
     def test_case_update_empty(self):
         from src.api.cases import CaseUpdate
+
         update = CaseUpdate()
         assert update.title is None
         assert update.status is None
@@ -136,12 +153,14 @@ class TestCaseUpdateModel:
 
     def test_case_update_status_only(self):
         from src.api.cases import CaseUpdate
+
         update = CaseUpdate(status="in_progress")
         assert update.status == "in_progress"
         assert update.title is None
 
     def test_case_update_invalid_status_fails(self):
         from src.api.cases import CaseUpdate
+
         with pytest.raises(Exception):
             CaseUpdate(status="unknown_status")
 
@@ -151,12 +170,14 @@ class TestLinkCaseRequest:
 
     def test_link_with_case_id(self):
         from src.api.alerts import LinkCaseRequest
+
         req = LinkCaseRequest(case_id=5)
         assert req.case_id == 5
         assert req.title is None
 
     def test_link_with_title_for_new_case(self):
         from src.api.alerts import LinkCaseRequest
+
         req = LinkCaseRequest(title="New Case", description="Desc")
         assert req.case_id is None
         assert req.title == "New Case"
@@ -164,6 +185,7 @@ class TestLinkCaseRequest:
 
     def test_link_both_null(self):
         from src.api.alerts import LinkCaseRequest
+
         req = LinkCaseRequest()
         assert req.case_id is None
         assert req.title is None
@@ -174,16 +196,19 @@ class TestAlertNoteModel:
 
     def test_case_note_valid(self):
         from src.api.cases import CaseNote
+
         note = CaseNote(text="Investigating this case")
         assert note.text == "Investigating this case"
 
     def test_case_note_empty_fails(self):
         from src.api.cases import CaseNote
+
         with pytest.raises(Exception):
             CaseNote(text="")
 
     def test_case_note_too_long_fails(self):
         from src.api.cases import CaseNote
+
         with pytest.raises(Exception):
             CaseNote(text="x" * 5001)
 
@@ -269,7 +294,7 @@ class TestCaseCreation:
     @pytest.mark.asyncio
     async def test_create_case_without_alerts(self):
         """Create a case with no linked alerts."""
-        from src.api.cases import create_case, CaseCreate
+        from src.api.cases import CaseCreate, create_case
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
@@ -283,15 +308,17 @@ class TestCaseCreation:
 
         case_data = CaseCreate(title="New Investigation", severity="high")
 
-        with patch("src.api.cases.get_pool", return_value=mock_pool), \
-             patch("src.api.cases.log_audit_action", new_callable=AsyncMock):
+        with (
+            patch("src.api.cases.get_pool", return_value=mock_pool),
+            patch("src.api.cases.log_audit_action", new_callable=AsyncMock),
+        ):
             result = await create_case(case=case_data, user=_make_user())
             assert result["title"] == "Test Case"
 
     @pytest.mark.asyncio
     async def test_create_case_with_alerts(self):
         """Create a case with linked alerts."""
-        from src.api.cases import create_case, CaseCreate
+        from src.api.cases import CaseCreate, create_case
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
@@ -305,8 +332,10 @@ class TestCaseCreation:
 
         case_data = CaseCreate(title="With Alerts", alert_ids=[5, 10])
 
-        with patch("src.api.cases.get_pool", return_value=mock_pool), \
-             patch("src.api.cases.log_audit_action", new_callable=AsyncMock):
+        with (
+            patch("src.api.cases.get_pool", return_value=mock_pool),
+            patch("src.api.cases.log_audit_action", new_callable=AsyncMock),
+        ):
             result = await create_case(case=case_data, user=_make_user())
             # Verify alerts were linked
             assert mock_conn.execute.call_count >= 2  # At least 2 UPDATE alerts queries
@@ -314,7 +343,7 @@ class TestCaseCreation:
     @pytest.mark.asyncio
     async def test_create_case_with_assigned_to(self):
         """Create a case with an assigned analyst."""
-        from src.api.cases import create_case, CaseCreate
+        from src.api.cases import CaseCreate, create_case
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
@@ -328,8 +357,10 @@ class TestCaseCreation:
 
         case_data = CaseCreate(title="Assigned Case", assigned_to="analyst1")
 
-        with patch("src.api.cases.get_pool", return_value=mock_pool), \
-             patch("src.api.cases.log_audit_action", new_callable=AsyncMock):
+        with (
+            patch("src.api.cases.get_pool", return_value=mock_pool),
+            patch("src.api.cases.log_audit_action", new_callable=AsyncMock),
+        ):
             result = await create_case(case=case_data, user=_make_user())
             assert result is not None
 
@@ -340,7 +371,7 @@ class TestCaseUpdate:
     @pytest.mark.asyncio
     async def test_update_case_status(self):
         """Update case status from open to in_progress."""
-        from src.api.cases import update_case, CaseUpdate
+        from src.api.cases import CaseUpdate, update_case
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
@@ -355,28 +386,32 @@ class TestCaseUpdate:
 
         update_data = CaseUpdate(status="in_progress")
 
-        with patch("src.api.cases.get_pool", return_value=mock_pool), \
-             patch("src.api.cases.log_audit_action", new_callable=AsyncMock):
+        with (
+            patch("src.api.cases.get_pool", return_value=mock_pool),
+            patch("src.api.cases.log_audit_action", new_callable=AsyncMock),
+        ):
             result = await update_case(case_id=1, update=update_data, user=_make_user())
             assert result is not None
 
     @pytest.mark.asyncio
     async def test_update_case_resolve_requires_lessons(self):
         """Resolving a case without lessons_learned should raise HTTP 400."""
-        from src.api.cases import update_case, CaseUpdate
         from fastapi import HTTPException
+
+        from src.api.cases import CaseUpdate
 
         update_data = CaseUpdate(status="resolved")
         # This should raise via _validate_resolve
         with pytest.raises(HTTPException) as exc_info:
             from src.api.cases import _validate_resolve
+
             _validate_resolve(update_data)
         assert exc_info.value.status_code == 400
 
     @pytest.mark.asyncio
     async def test_update_case_resolve_with_lessons(self):
         """Resolving a case with lessons_learned should succeed."""
-        from src.api.cases import update_case, CaseUpdate
+        from src.api.cases import CaseUpdate, update_case
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
@@ -391,15 +426,17 @@ class TestCaseUpdate:
 
         update_data = CaseUpdate(status="resolved", lessons_learned="We learned X")
 
-        with patch("src.api.cases.get_pool", return_value=mock_pool), \
-             patch("src.api.cases.log_audit_action", new_callable=AsyncMock):
+        with (
+            patch("src.api.cases.get_pool", return_value=mock_pool),
+            patch("src.api.cases.log_audit_action", new_callable=AsyncMock),
+        ):
             result = await update_case(case_id=1, update=update_data, user=_make_user())
             assert result is not None
 
     @pytest.mark.asyncio
     async def test_update_case_not_found(self):
         """Updating a non-existent case should return 404."""
-        from src.api.cases import update_case, CaseUpdate
+        from src.api.cases import CaseUpdate, update_case
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
@@ -412,9 +449,12 @@ class TestCaseUpdate:
 
         update_data = CaseUpdate(title="Updated Title")
 
-        with patch("src.api.cases.get_pool", return_value=mock_pool), \
-             patch("src.api.cases.log_audit_action", new_callable=AsyncMock):
+        with (
+            patch("src.api.cases.get_pool", return_value=mock_pool),
+            patch("src.api.cases.log_audit_action", new_callable=AsyncMock),
+        ):
             from fastapi import HTTPException
+
             with pytest.raises(HTTPException) as exc_info:
                 await update_case(case_id=999, update=update_data, user=_make_user())
             assert exc_info.value.status_code == 404
@@ -439,16 +479,19 @@ class TestCaseDeletion:
         closed_row = _make_case_row(status="closed")
         mock_conn.fetchrow.side_effect = [current_row, closed_row]
 
-        with patch("src.api.cases.get_pool", return_value=mock_pool), \
-             patch("src.api.cases.log_audit_action", new_callable=AsyncMock):
+        with (
+            patch("src.api.cases.get_pool", return_value=mock_pool),
+            patch("src.api.cases.log_audit_action", new_callable=AsyncMock),
+        ):
             result = await delete_case(case_id=1, user=_make_user(role="admin"))
             assert result["status"] == "closed"
 
     @pytest.mark.asyncio
     async def test_delete_already_closed_case(self):
         """Attempting to delete an already closed case should raise 400."""
-        from src.api.cases import delete_case
         from fastapi import HTTPException
+
+        from src.api.cases import delete_case
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
@@ -459,8 +502,10 @@ class TestCaseDeletion:
 
         mock_conn.fetchrow.return_value = _make_case_row(status="closed")
 
-        with patch("src.api.cases.get_pool", return_value=mock_pool), \
-             patch("src.api.cases.log_audit_action", new_callable=AsyncMock):
+        with (
+            patch("src.api.cases.get_pool", return_value=mock_pool),
+            patch("src.api.cases.log_audit_action", new_callable=AsyncMock),
+        ):
             with pytest.raises(HTTPException) as exc_info:
                 await delete_case(case_id=1, user=_make_user(role="admin"))
             assert exc_info.value.status_code == 400
@@ -468,8 +513,9 @@ class TestCaseDeletion:
     @pytest.mark.asyncio
     async def test_delete_nonexistent_case(self):
         """Attempting to delete a non-existent case should raise 404."""
-        from src.api.cases import delete_case
         from fastapi import HTTPException
+
+        from src.api.cases import delete_case
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
@@ -480,8 +526,10 @@ class TestCaseDeletion:
 
         mock_conn.fetchrow.return_value = None
 
-        with patch("src.api.cases.get_pool", return_value=mock_pool), \
-             patch("src.api.cases.log_audit_action", new_callable=AsyncMock):
+        with (
+            patch("src.api.cases.get_pool", return_value=mock_pool),
+            patch("src.api.cases.log_audit_action", new_callable=AsyncMock),
+        ):
             with pytest.raises(HTTPException) as exc_info:
                 await delete_case(case_id=999, user=_make_user(role="admin"))
             assert exc_info.value.status_code == 404
@@ -493,7 +541,7 @@ class TestAlertLinking:
     @pytest.mark.asyncio
     async def test_link_alert_to_case(self):
         """Link an alert to a case."""
-        from src.api.cases import link_alert, AlertLink
+        from src.api.cases import AlertLink, link_alert
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
@@ -506,8 +554,10 @@ class TestAlertLinking:
         alert_row = {"id": 5, "case_id": None}
         mock_conn.fetchrow.side_effect = [case_row, alert_row]
 
-        with patch("src.api.cases.get_pool", return_value=mock_pool), \
-             patch("src.api.cases.log_audit_action", new_callable=AsyncMock):
+        with (
+            patch("src.api.cases.get_pool", return_value=mock_pool),
+            patch("src.api.cases.log_audit_action", new_callable=AsyncMock),
+        ):
             result = await link_alert(
                 case_id=1,
                 body=AlertLink(alert_id=5),
@@ -520,8 +570,9 @@ class TestAlertLinking:
     @pytest.mark.asyncio
     async def test_link_alert_duplicate(self):
         """Linking an already-linked alert should raise 409."""
-        from src.api.cases import link_alert, AlertLink
         from fastapi import HTTPException
+
+        from src.api.cases import AlertLink, link_alert
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
@@ -534,8 +585,10 @@ class TestAlertLinking:
         alert_row = {"id": 5, "case_id": 1}
         mock_conn.fetchrow.side_effect = [case_row, alert_row]
 
-        with patch("src.api.cases.get_pool", return_value=mock_pool), \
-             patch("src.api.cases.log_audit_action", new_callable=AsyncMock):
+        with (
+            patch("src.api.cases.get_pool", return_value=mock_pool),
+            patch("src.api.cases.log_audit_action", new_callable=AsyncMock),
+        ):
             with pytest.raises(HTTPException) as exc_info:
                 await link_alert(
                     case_id=1,
@@ -547,8 +600,9 @@ class TestAlertLinking:
     @pytest.mark.asyncio
     async def test_link_alert_case_not_found(self):
         """Linking to a non-existent case should raise 404."""
-        from src.api.cases import link_alert, AlertLink
         from fastapi import HTTPException
+
+        from src.api.cases import AlertLink, link_alert
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
@@ -583,16 +637,19 @@ class TestAlertLinking:
         case_row = {"id": 1, "alert_ids": [5, 10]}
         mock_conn.fetchrow.return_value = case_row
 
-        with patch("src.api.cases.get_pool", return_value=mock_pool), \
-             patch("src.api.cases.log_audit_action", new_callable=AsyncMock):
+        with (
+            patch("src.api.cases.get_pool", return_value=mock_pool),
+            patch("src.api.cases.log_audit_action", new_callable=AsyncMock),
+        ):
             result = await unlink_alert(case_id=1, alert_id=5, user=_make_user())
             assert result["status"] == "unlinked"
 
     @pytest.mark.asyncio
     async def test_unlink_alert_not_linked(self):
         """Unlinking an alert not linked to the case should raise 404."""
-        from src.api.cases import unlink_alert
         from fastapi import HTTPException
+
+        from src.api.cases import unlink_alert
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
@@ -616,7 +673,7 @@ class TestCaseNotes:
     @pytest.mark.asyncio
     async def test_add_case_note(self):
         """Add a note to a case."""
-        from src.api.cases import add_case_note, CaseNote
+        from src.api.cases import CaseNote, add_case_note
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
@@ -625,14 +682,22 @@ class TestCaseNotes:
         mock_acquirer.__aexit__ = AsyncMock(return_value=False)
         mock_pool.acquire = MagicMock(return_value=mock_acquirer)
 
-        existing_notes = [{"author": "analyst1", "text": "First note", "timestamp": "2026-01-01T00:00:00"}]
+        existing_notes = [
+            {"author": "analyst1", "text": "First note", "timestamp": "2026-01-01T00:00:00"}
+        ]
         mock_conn.fetchrow.side_effect = [
             {"id": 1, "notes": existing_notes},  # SELECT
-            {"id": 1, "notes": existing_notes + [{"author": "testuser", "text": "New note", "timestamp": "2026-05-03"}]},  # UPDATE RETURNING
+            {
+                "id": 1,
+                "notes": existing_notes
+                + [{"author": "testuser", "text": "New note", "timestamp": "2026-05-03"}],
+            },  # UPDATE RETURNING
         ]
 
-        with patch("src.api.cases.get_pool", return_value=mock_pool), \
-             patch("src.api.cases.log_audit_action", new_callable=AsyncMock):
+        with (
+            patch("src.api.cases.get_pool", return_value=mock_pool),
+            patch("src.api.cases.log_audit_action", new_callable=AsyncMock),
+        ):
             result = await add_case_note(
                 case_id=1,
                 note=CaseNote(text="New note"),
@@ -643,8 +708,9 @@ class TestCaseNotes:
     @pytest.mark.asyncio
     async def test_add_note_case_not_found(self):
         """Adding a note to a non-existent case should raise 404."""
-        from src.api.cases import add_case_note, CaseNote
         from fastapi import HTTPException
+
+        from src.api.cases import CaseNote, add_case_note
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
@@ -724,8 +790,24 @@ class TestCaseGetDetail:
         case_row = _make_case_row(alert_ids=[5, 10])
         mock_conn.fetchrow.return_value = case_row
         mock_conn.fetch.return_value = [
-            {"id": 5, "rule_name": "Rule A", "severity": "high", "status": "new", "host_name": "host1", "description": "", "assigned_to": None},
-            {"id": 10, "rule_name": "Rule B", "severity": "medium", "status": "investigating", "host_name": "host2", "description": "", "assigned_to": None},
+            {
+                "id": 5,
+                "rule_name": "Rule A",
+                "severity": "high",
+                "status": "new",
+                "host_name": "host1",
+                "description": "",
+                "assigned_to": None,
+            },
+            {
+                "id": 10,
+                "rule_name": "Rule B",
+                "severity": "medium",
+                "status": "investigating",
+                "host_name": "host2",
+                "description": "",
+                "assigned_to": None,
+            },
         ]
 
         with patch("src.api.cases.get_pool", return_value=mock_pool):
@@ -736,8 +818,9 @@ class TestCaseGetDetail:
     @pytest.mark.asyncio
     async def test_get_case_not_found(self):
         """Getting a non-existent case should return 404."""
-        from src.api.cases import get_case
         from fastapi import HTTPException
+
+        from src.api.cases import get_case
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
@@ -778,8 +861,9 @@ class TestDashboardApiClient:
 
     def test_get_cases_with_filters(self):
         """Test get_cases builds correct query params."""
+        from unittest.mock import MagicMock, patch
+
         from dashboard.api_client import ApiClient
-        from unittest.mock import patch, MagicMock
 
         client = ApiClient()
         mock_resp = MagicMock()
@@ -797,8 +881,9 @@ class TestDashboardApiClient:
 
     def test_get_case_by_id(self):
         """Test get_case makes correct call."""
+        from unittest.mock import MagicMock, patch
+
         from dashboard.api_client import ApiClient
-        from unittest.mock import patch, MagicMock
 
         client = ApiClient()
         mock_resp = MagicMock()
@@ -814,8 +899,9 @@ class TestDashboardApiClient:
 
     def test_create_case(self):
         """Test create_case sends correct payload."""
+        from unittest.mock import MagicMock, patch
+
         from dashboard.api_client import ApiClient
-        from unittest.mock import patch, MagicMock
 
         client = ApiClient()
         mock_resp = MagicMock()
@@ -825,8 +911,11 @@ class TestDashboardApiClient:
 
         with patch("httpx.post", return_value=mock_resp) as mock_post:
             result = client.create_case(
-                title="New Case", description="Test", severity="high",
-                alert_ids=[1, 2], assigned_to="analyst1"
+                title="New Case",
+                description="Test",
+                severity="high",
+                alert_ids=[1, 2],
+                assigned_to="analyst1",
             )
             assert result["id"] == 5
             call_args = mock_post.call_args
@@ -838,8 +927,9 @@ class TestDashboardApiClient:
 
     def test_update_case(self):
         """Test update_case sends PATCH request."""
+        from unittest.mock import MagicMock, patch
+
         from dashboard.api_client import ApiClient
-        from unittest.mock import patch, MagicMock
 
         client = ApiClient()
         mock_resp = MagicMock()
@@ -857,8 +947,9 @@ class TestDashboardApiClient:
 
     def test_delete_case(self):
         """Test delete_case sends DELETE request."""
+        from unittest.mock import MagicMock, patch
+
         from dashboard.api_client import ApiClient
-        from unittest.mock import patch, MagicMock
 
         client = ApiClient()
         mock_resp = MagicMock()
@@ -873,8 +964,9 @@ class TestDashboardApiClient:
 
     def test_link_alert_to_case(self):
         """Test link_alert_to_case sends correct request."""
+        from unittest.mock import MagicMock, patch
+
         from dashboard.api_client import ApiClient
-        from unittest.mock import patch, MagicMock
 
         client = ApiClient()
         mock_resp = MagicMock()
@@ -891,8 +983,9 @@ class TestDashboardApiClient:
 
     def test_unlink_alert_from_case(self):
         """Test unlink_alert_from_case sends DELETE request."""
+        from unittest.mock import MagicMock, patch
+
         from dashboard.api_client import ApiClient
-        from unittest.mock import patch, MagicMock
 
         client = ApiClient()
         mock_resp = MagicMock()
@@ -907,8 +1000,9 @@ class TestDashboardApiClient:
 
     def test_add_case_note(self):
         """Test add_case_note sends correct request."""
+        from unittest.mock import MagicMock, patch
+
         from dashboard.api_client import ApiClient
-        from unittest.mock import patch, MagicMock
 
         client = ApiClient()
         mock_resp = MagicMock()
@@ -924,8 +1018,9 @@ class TestDashboardApiClient:
 
     def test_get_case_notes(self):
         """Test get_case_notes fetches notes."""
+        from unittest.mock import MagicMock, patch
+
         from dashboard.api_client import ApiClient
-        from unittest.mock import patch, MagicMock
 
         client = ApiClient()
         mock_resp = MagicMock()
@@ -940,8 +1035,9 @@ class TestDashboardApiClient:
 
     def test_get_cases_returns_empty_on_none(self):
         """Test get_cases returns empty list when API returns null."""
+        from unittest.mock import MagicMock, patch
+
         from dashboard.api_client import ApiClient
-        from unittest.mock import patch, MagicMock
 
         client = ApiClient()
         mock_resp = MagicMock()
@@ -955,8 +1051,9 @@ class TestDashboardApiClient:
 
     def test_create_case_minimal(self):
         """Test create_case with minimal parameters."""
+        from unittest.mock import MagicMock, patch
+
         from dashboard.api_client import ApiClient
-        from unittest.mock import patch, MagicMock
 
         client = ApiClient()
         mock_resp = MagicMock()

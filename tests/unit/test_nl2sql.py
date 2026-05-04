@@ -9,6 +9,7 @@ Covers:
 - Conversation context
 - API endpoint
 """
+
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -16,7 +17,6 @@ import pytest
 
 from src.ai.nl2sql import (
     MAX_INPUT_LENGTH,
-    MAX_QUERY_COST_ROWS,
     MAX_RESULT_ROWS,
     QUERY_TIMEOUT_SECONDS,
     ConversationContext,
@@ -28,7 +28,6 @@ from src.ai.nl2sql import (
     template_match,
     validate_sql_structure,
 )
-
 
 # ---------------------------------------------------------------------------
 # Input sanitization tests
@@ -248,9 +247,12 @@ class TestTemplateMatch:
     def test_template_all_are_select(self):
         """All templates must be SELECT-only queries."""
         from src.ai.nl2sql import QUERY_TEMPLATES
+
         for template_id, template in QUERY_TEMPLATES.items():
             sql = template["sql"]
-            assert sql.strip().upper().startswith("SELECT"), f"Template {template_id} is not a SELECT query"
+            assert sql.strip().upper().startswith("SELECT"), (
+                f"Template {template_id} is not a SELECT query"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +310,7 @@ class TestConversationManager:
 
     def test_expired_session_replaced(self):
         import time
+
         mgr = ConversationManager()
         ctx = mgr.get_or_create()
         ctx.last_used = time.time() - 3600  # Expired
@@ -373,6 +376,7 @@ class TestNLToSQL:
     async def test_available_templates(self):
         """Template list should be non-empty."""
         from src.ai.nl2sql import get_available_templates
+
         templates = get_available_templates()
         assert len(templates) > 0
         assert all(t["id"] for t in templates)
@@ -417,6 +421,7 @@ class TestExecuteQuery:
     async def test_reject_non_select_execution(self):
         """execute_query should reject non-SELECT queries."""
         from src.ai.nl2sql import execute_query
+
         result = await execute_query("DROP TABLE logs")
         assert result["success"] is False
         assert "validation" in result["error"].lower() or "forbidden" in result["error"].lower()
@@ -425,8 +430,10 @@ class TestExecuteQuery:
     async def test_query_timeout(self):
         """Query should timeout after QUERY_TIMEOUT_SECONDS."""
         from src.ai.nl2sql import execute_query
+
         with patch("src.ai.nl2sql.get_pool") as mock_pool:
             mock_conn = AsyncMock()
+
             # Simulate a query that takes too long
             async def slow_query(sql):
                 await asyncio.sleep(QUERY_TIMEOUT_SECONDS + 10)

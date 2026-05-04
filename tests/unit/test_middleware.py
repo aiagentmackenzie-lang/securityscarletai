@@ -6,10 +6,12 @@ Covers:
 - RequestValidationMiddleware content-type enforcement
 - AuditLogMiddleware logging of state-changing requests
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.api.middleware import RequestValidationMiddleware, AuditLogMiddleware, limiter
+from unittest.mock import MagicMock
+
+import pytest
+
+from src.api.middleware import AuditLogMiddleware, RequestValidationMiddleware, limiter
 
 
 class TestRequestValidationMiddleware:
@@ -38,7 +40,6 @@ class TestRateLimiter:
 
     def test_limiter_exists(self):
         """Rate limiter should be configured."""
-        from src.api.middleware import limiter
         assert limiter is not None
         # Limiter is a slowapi.Limiter instance
         assert type(limiter).__name__ == "Limiter"

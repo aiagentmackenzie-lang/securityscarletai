@@ -8,9 +8,10 @@ Covers:
 - Field sanitization
 - Auth requirement
 """
-import pytest
+
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from src.api.ingest import IngestEvent, IngestResponse
 
@@ -162,8 +163,9 @@ class TestIngestEndpoint:
         """Create test client with ingestion router."""
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
-        from src.api.ingest import router
+
         from src.api.auth import verify_bearer_token
+        from src.api.ingest import router
 
         app = FastAPI()
         app.include_router(router, prefix="/api/v1")
@@ -176,13 +178,23 @@ class TestIngestEndpoint:
         """Ingestion should require authentication."""
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
+
         from src.api.ingest import router
 
         app = FastAPI()
         app.include_router(router, prefix="/api/v1")
         client = TestClient(app)
-        response = client.post("/api/v1/ingest", json=[
-            {"@timestamp": datetime.now(tz=timezone.utc).isoformat(), "host_name": "s1", "source": "syslog", "event_category": "process", "event_type": "start"}
-        ])
+        response = client.post(
+            "/api/v1/ingest",
+            json=[
+                {
+                    "@timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                    "host_name": "s1",
+                    "source": "syslog",
+                    "event_category": "process",
+                    "event_type": "start",
+                }
+            ],
+        )
         # Should return 401 or 403
         assert response.status_code in (401, 403, 422)

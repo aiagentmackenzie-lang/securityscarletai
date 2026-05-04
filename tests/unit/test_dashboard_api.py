@@ -4,9 +4,10 @@ Tests for the dashboard API client module.
 Tests the synchronous API client that all dashboard views use for data access.
 No direct database access — everything goes through HTTP.
 """
+
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-from types import SimpleNamespace
 
 from dashboard.api_client import ApiClient, ApiError
 
@@ -206,6 +207,7 @@ class TestApiClientConnectivity:
 
     def test_connect_error_on_get(self, client):
         import httpx
+
         with patch("httpx.get", side_effect=httpx.ConnectError("Connection refused")):
             with pytest.raises(ApiError) as exc_info:
                 client._get("/test")
@@ -214,6 +216,7 @@ class TestApiClientConnectivity:
 
     def test_timeout_error_on_get(self, client):
         import httpx
+
         with patch("httpx.get", side_effect=httpx.TimeoutException("Timed out")):
             with pytest.raises(ApiError) as exc_info:
                 client._get("/test")
@@ -221,12 +224,14 @@ class TestApiClientConnectivity:
 
     def test_connect_error_on_post(self, client):
         import httpx
+
         with patch("httpx.post", side_effect=httpx.ConnectError("Connection refused")):
             with pytest.raises(ApiError) as exc_info:
                 client._post("/test")
 
     def test_timeout_error_on_post(self, client):
         import httpx
+
         with patch("httpx.post", side_effect=httpx.TimeoutException("Timed out")):
             with pytest.raises(ApiError) as exc_info:
                 client._post("/test")

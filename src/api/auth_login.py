@@ -1,9 +1,9 @@
 """
 Authentication endpoints for dashboard users.
 
-POST /api/v1/auth/login   — Authenticate and get JWT
-POST /api/v1/auth/change-password — Change own password (requires JWT)
-GET  /api/v1/auth/me      — Get current user info (requires JWT)
+POST /api/v1/auth/login   - Authenticate and get JWT
+POST /api/v1/auth/change-password - Change own password (requires JWT)
+GET  /api/v1/auth/me      - Get current user info (requires JWT)
 
 Users are stored in the siem_users table with bcrypt-hashed passwords.
 """
@@ -59,7 +59,7 @@ class UserInfoResponse(BaseModel):
 
 
 class ForceChangePasswordRequest(BaseModel):
-    """Used when must_change_password is true — no current password required."""
+    """Used when must_change_password is true - no current password required."""
     new_password: str = Field(..., min_length=8, max_length=200)
 
 
@@ -79,7 +79,7 @@ async def login(request: LoginRequest):
         )
 
         if row is None:
-            # Don't reveal whether user exists — constant-time check
+            # Don't reveal whether user exists - constant-time check
             hash_password("dummy")  # Burn equivalent CPU time
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -204,7 +204,7 @@ async def force_change_password(
     """Force password change when must_change_password is true.
 
     This endpoint is called with the force_change_token from the 403 response.
-    It does NOT require the current password — used for migration flow only.
+    It does NOT require the current password - used for migration flow only.
     The token must contain 'force_password_change': True.
     """
     if not payload.get("force_password_change"):
@@ -217,7 +217,11 @@ async def force_change_password(
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE siem_users SET password_hash = $1, must_change_password = false WHERE username = $2",
+            (
+                "UPDATE siem_users"
+                " SET password_hash = $1, must_change_password = false"
+                " WHERE username = $2"
+            ),
             new_hash,
             payload["sub"],
         )
@@ -225,12 +229,11 @@ async def force_change_password(
     log.info("force_password_changed", username=payload["sub"])
     return {"message": "Password changed successfully. You can now log in normally."}
 
-
 @router.post("/seed-admin")
 async def seed_admin_user():
     """
     Create an initial admin user if no users exist.
-   
+
     Race-condition safe: uses advisory lock + INSERT ... ON CONFLICT DO NOTHING
     so concurrent requests cannot create duplicate admin accounts.
     Default credentials: admin / admin (must be changed after first login).
@@ -265,8 +268,8 @@ async def seed_admin_user():
             detail="Users already exist. Use the login endpoint.",
         )
 
-    log.warning("seed_admin_created", message="Default admin user created — CHANGE PASSWORD IMMEDIATELY")  # noqa: E501
+    log.warning("seed_admin_created", message="Default admin user created - CHANGE PASSWORD IMMEDIATELY")  # noqa: E501
     return {
-        "message": "Admin user created. Username: admin, Password: admin — CHANGE PASSWORD IMMEDIATELY",  # noqa: E501
+        "message": "Admin user created. Username: admin, Password: admin - CHANGE PASSWORD IMMEDIATELY",  # noqa: E501
         "username": "admin",
     }

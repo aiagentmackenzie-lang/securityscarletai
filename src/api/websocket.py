@@ -11,7 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
 from starlette.websockets import WebSocketState
 
-from src.api.auth import verify_jwt, require_role
+from src.api.auth import require_role, verify_jwt
 from src.config.logging import get_logger
 from src.ingestion.schemas import NormalizedEvent
 
@@ -79,8 +79,11 @@ async def websocket_logs(
     async with _clients_lock:
         _connected_clients.append(websocket)
 
-    log.info("websocket_connected", client=str(websocket.client), user=token_data.get("username"), filters={
-        "host": host_filter,
+    log.info(
+        "websocket_connected",
+        client=str(websocket.client),
+        user=token_data.get("username"),
+        filters={"host": host_filter,
         "category": category_filter,
         "severity": severity_filter,
     })

@@ -251,7 +251,10 @@ async def execute_hunt(hunt_id: str) -> Dict[str, Any]:
 
     except asyncio.TimeoutError:
         log.error("hunt_execution_timeout", hunt_id=hunt_id, timeout=HUNT_TIMEOUT_SECONDS)
-        return {"success": False, "error": f"Hunt timed out after {HUNT_TIMEOUT_SECONDS}s — query too expensive"}
+        return {
+            "success": False,
+            "error": f"Hunt timed out after {HUNT_TIMEOUT_SECONDS}s — query too expensive",
+        }
     except Exception as e:
         log.error("hunt_execution_error", hunt_id=hunt_id, error=str(e))
         return {"success": False, "error": f"Hunt execution failed: {str(e)[:200]}"}

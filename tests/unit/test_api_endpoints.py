@@ -11,10 +11,10 @@ Covers:
 - Audit API logic
 - Auth enforcement tests
 """
-import json
-import pytest
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Correlation Tests
@@ -27,6 +27,7 @@ class TestCorrelationRules:
     def test_list_correlation_rules(self):
         """list_correlation_rules should return all 5 rules."""
         from src.detection.correlation import list_correlation_rules
+
         rules = list_correlation_rules()
         assert len(rules) == 5
         for rule in rules:
@@ -37,6 +38,7 @@ class TestCorrelationRules:
     def test_get_existing_rule_info(self):
         """get_correlation_rule_info should return metadata for known rules."""
         from src.detection.correlation import get_correlation_rule_info
+
         info = get_correlation_rule_info("brute_force_success")
         assert info is not None
         assert "title" in info
@@ -45,18 +47,20 @@ class TestCorrelationRules:
     def test_get_nonexistent_rule_info(self):
         """get_correlation_rule_info should return None for unknown rules."""
         from src.detection.correlation import get_correlation_rule_info
+
         assert get_correlation_rule_info("nonexistent") is None
 
     def test_all_rules_have_functions(self):
         """Every rule in CORRELATION_RULES should have a matching async detection function."""
-        from src.detection.correlation import CORRELATION_RULES
         from src.detection.correlation import (
+            CORRELATION_RULES,
             detect_brute_force_then_success,
+            detect_data_exfiltration,
             detect_payload_callback,
             detect_persistence_activated,
-            detect_data_exfiltration,
             detect_privilege_escalation_chain,
         )
+
         func_map = {
             "brute_force_success": detect_brute_force_then_success,
             "payload_callback": detect_payload_callback,
@@ -70,6 +74,7 @@ class TestCorrelationRules:
     def test_brute_force_confidence_calculation(self):
         """Confidence should increase with failed count."""
         from src.detection.correlation import CORRELATION_RULES
+
         base_conf = CORRELATION_RULES["brute_force_success"]["confidence_base"]
         assert base_conf == 80
 
@@ -80,6 +85,7 @@ class TestCorrelationDetection:
     @pytest.mark.asyncio
     async def test_detect_payload_callback(self):
         from src.detection.correlation import detect_payload_callback
+
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.fetch = AsyncMock(return_value=[])
@@ -95,6 +101,7 @@ class TestCorrelationDetection:
     @pytest.mark.asyncio
     async def test_detect_persistence_activated(self):
         from src.detection.correlation import detect_persistence_activated
+
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.fetch = AsyncMock(return_value=[])
@@ -110,6 +117,7 @@ class TestCorrelationDetection:
     @pytest.mark.asyncio
     async def test_detect_data_exfiltration(self):
         from src.detection.correlation import detect_data_exfiltration
+
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.fetch = AsyncMock(return_value=[])
@@ -125,6 +133,7 @@ class TestCorrelationDetection:
     @pytest.mark.asyncio
     async def test_detect_privilege_escalation_chain(self):
         from src.detection.correlation import detect_privilege_escalation_chain
+
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.fetch = AsyncMock(return_value=[])
@@ -140,6 +149,7 @@ class TestCorrelationDetection:
     @pytest.mark.asyncio
     async def test_get_host_sessions(self):
         from src.detection.correlation import get_host_sessions
+
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.fetch = AsyncMock(return_value=[])
@@ -163,7 +173,6 @@ class TestThreatIntelAPIModels:
 
     def test_hash_type_detection_md5(self):
         """32-char hash should be classified as MD5."""
-        from src.api.threat_intel import lookup_hash
         # Just verify it accepts 32-char hashes (the endpoint validates length)
         assert len("a" * 32) == 32
 
@@ -183,6 +192,7 @@ class TestAuditLogFunction:
     @pytest.mark.asyncio
     async def test_log_with_all_fields(self):
         from src.api.audit import log_audit_action
+
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.fetchval = AsyncMock(return_value=42)
@@ -210,6 +220,7 @@ class TestAuditLogFunction:
     @pytest.mark.asyncio
     async def test_log_minimal_fields(self):
         from src.api.audit import log_audit_action
+
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.fetchval = AsyncMock(return_value=1)
@@ -228,6 +239,7 @@ class TestAuditLogFunction:
     @pytest.mark.asyncio
     async def test_log_db_error_returns_none(self):
         from src.api.audit import log_audit_action
+
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.fetchval = AsyncMock(side_effect=Exception("DB connection lost"))
@@ -254,16 +266,19 @@ class TestAuthRoleHierarchy:
 
     def test_admin_has_highest_level(self):
         from src.api.auth import ROLE_HIERARCHY
+
         assert ROLE_HIERARCHY["admin"] > ROLE_HIERARCHY["analyst"]
         assert ROLE_HIERARCHY["analyst"] > ROLE_HIERARCHY["viewer"]
 
     def test_role_hierarchy_values(self):
         from src.api.auth import ROLE_HIERARCHY
+
         assert ROLE_HIERARCHY == {"admin": 3, "analyst": 2, "viewer": 1}
 
     def test_password_hash_and_verify(self):
         """Password hashing should work correctly."""
         from src.api.auth import hash_password, verify_password
+
         hashed = hash_password("test_password_123")
         assert verify_password("test_password_123", hashed) is True
         assert verify_password("wrong_password", hashed) is False
@@ -272,6 +287,7 @@ class TestAuthRoleHierarchy:
         """After M-10 fix: SHA-256 pre-hash ensures passwords >72 bytes work correctly.
         bcrypt silently truncated at 72 bytes — SHA-256 pre-hash fixes this."""
         from src.api.auth import hash_password, verify_password
+
         long_password = "a" * 100
         hashed = hash_password(long_password)
         # Full password should verify (SHA-256 always produces 32-byte output)
@@ -283,8 +299,9 @@ class TestAuthRoleHierarchy:
 
     def test_jwt_creation_and_verification(self):
         """JWT should encode and decode correctly."""
-        from src.api.auth import create_jwt, verify_jwt, JWT_ALGORITHM
         from jose import jwt
+
+        from src.api.auth import JWT_ALGORITHM, create_jwt
         from src.config.settings import settings
 
         token = create_jwt("analyst1", "analyst")
@@ -294,17 +311,21 @@ class TestAuthRoleHierarchy:
 
     def test_jwt_expiry(self):
         """JWT should have an expiry time."""
-        from src.api.auth import create_jwt, JWT_EXPIRY_HOURS
+        from src.api.auth import create_jwt
+
         token = create_jwt("admin", "admin")
         from jose import jwt
-        from src.config.settings import settings
+
         from src.api.auth import JWT_ALGORITHM
+        from src.config.settings import settings
+
         payload = jwt.decode(token, settings.api_secret_key, algorithms=[JWT_ALGORITHM])
         assert "exp" in payload
 
     def test_constant_time_token_comparison(self):
         """Token comparison should use constant-time comparison."""
         import secrets
+
         # This just verifies the import works - actual test would need timing analysis
         assert secrets.compare_digest("token1", "token1") is True
         assert secrets.compare_digest("token1", "token2") is False

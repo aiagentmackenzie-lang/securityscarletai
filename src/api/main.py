@@ -9,8 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.ai import router as ai_router
 from src.api.alerts import router as alerts_router
-from src.api.auth_login import router as auth_login_router
 from src.api.audit import router as audit_router
+from src.api.auth_login import router as auth_login_router
 from src.api.cases import router as cases_router
 from src.api.chat import router as chat_router
 from src.api.correlation import router as correlation_router

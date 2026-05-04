@@ -4,17 +4,16 @@ Tests for Correlation Engine v2.
 Tests sequence definitions, correlation rule metadata,
 and parameterized SQL safety.
 """
-import pytest
-from src.detection.sequences import (
-    SEQUENCE_DEFINITIONS,
-    EventSequence,
-    get_sequence,
-    list_sequences,
-)
+
 from src.detection.correlation import (
     CORRELATION_RULES,
-    list_correlation_rules,
     get_correlation_rule_info,
+    list_correlation_rules,
+)
+from src.detection.sequences import (
+    SEQUENCE_DEFINITIONS,
+    get_sequence,
+    list_sequences,
 )
 
 
@@ -31,16 +30,18 @@ class TestSequenceDefinitions:
             assert seq.name, f"Sequence missing name: {seq}"
             assert seq.title, f"Sequence missing title: {seq.name}"
             assert seq.description, f"Sequence missing description: {seq.name}"
-            assert seq.severity in ("low", "medium", "high", "critical"), \
+            assert seq.severity in ("low", "medium", "high", "critical"), (
                 f"Sequence {seq.name} has invalid severity: {seq.severity}"
+            )
             assert seq.trigger_category, f"Sequence {seq.name} missing trigger_category"
             assert seq.followup_category, f"Sequence {seq.name} missing followup_category"
             assert seq.join_key, f"Sequence {seq.name} missing join_key"
             assert seq.time_window_minutes > 0, f"Sequence {seq.name} has invalid time_window"
             assert len(seq.mitre_tactics) > 0, f"Sequence {seq.name} missing MITRE tactics"
             assert len(seq.mitre_techniques) > 0, f"Sequence {seq.name} missing MITRE techniques"
-            assert 0 < seq.confidence_base <= 100, \
+            assert 0 < seq.confidence_base <= 100, (
                 f"Sequence {seq.name} has invalid confidence: {seq.confidence_base}"
+            )
 
     def test_sequence_names_are_unique(self):
         """Sequence names must be unique."""
@@ -97,12 +98,14 @@ class TestCorrelationRules:
         for name, info in CORRELATION_RULES.items():
             assert info["title"], f"Rule {name} missing title"
             assert info["description"], f"Rule {name} missing description"
-            assert info["severity"] in ("low", "medium", "high", "critical"), \
+            assert info["severity"] in ("low", "medium", "high", "critical"), (
                 f"Rule {name} invalid severity: {info['severity']}"
+            )
             assert len(info["mitre_tactics"]) > 0, f"Rule {name} missing tactics"
             assert len(info["mitre_techniques"]) > 0, f"Rule {name} missing techniques"
-            assert 0 < info["confidence_base"] <= 100, \
+            assert 0 < info["confidence_base"] <= 100, (
                 f"Rule {name} invalid confidence: {info['confidence_base']}"
+            )
 
     def test_list_correlation_rules(self):
         """list_correlation_rules should return properly formatted list."""

@@ -8,14 +8,15 @@ Covers:
 - Client disconnection handling
 - Ping/pong and filter messages
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from src.api.websocket import (
     _connected_clients,
     broadcast_event,
-    _clients_lock,
 )
 from src.ingestion.schemas import NormalizedEvent
 
@@ -49,6 +50,7 @@ def make_test_event(**kwargs):
 # broadcast_event
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestBroadcastEvent:
     @pytest.mark.asyncio
     async def test_broadcast_no_clients(self):
@@ -65,6 +67,7 @@ class TestBroadcastEvent:
         mock_client = MagicMock()
         mock_client.client_state = MagicMock()
         from starlette.websockets import WebSocketState
+
         mock_client.client_state = WebSocketState.CONNECTED
         mock_client.send_json = AsyncMock()
 
@@ -94,6 +97,7 @@ class TestBroadcastEvent:
         """Should remove clients that throw exceptions."""
         mock_client = MagicMock()
         from starlette.websockets import WebSocketState
+
         mock_client.client_state = WebSocketState.CONNECTED
         mock_client.send_json = AsyncMock(side_effect=Exception("disconnected"))
 
@@ -115,6 +119,7 @@ class TestBroadcastEvent:
         """Should handle event with None optional fields."""
         mock_client = MagicMock()
         from starlette.websockets import WebSocketState
+
         mock_client.client_state = WebSocketState.CONNECTED
         mock_client.send_json = AsyncMock()
 
@@ -134,10 +139,12 @@ class TestBroadcastEvent:
 # WebSocket endpoint (tested as much as possible without TestClient)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestWebSocketAuth:
     def test_router_exists(self):
         """WebSocket router should be defined."""
         from src.api.websocket import router
+
         assert router is not None
 
     def test_connected_clients_start_empty(self):
@@ -148,6 +155,7 @@ class TestWebSocketAuth:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # broadcast_event with mixed clients
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestBroadcastMixedClients:
     @pytest.mark.asyncio

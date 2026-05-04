@@ -4,13 +4,15 @@ Tests for Enrichment Pipeline v2.
 Tests GeoIP checks, threat intel enrichment, severity boosting,
 and the enrichment pipeline composition.
 """
-import pytest
+
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from src.enrichment.pipeline import (
-    is_public_ip,
-    enrich_dns_reverse,
     calculate_severity_boost,
+    enrich_dns_reverse,
+    is_public_ip,
 )
 
 
@@ -88,33 +90,29 @@ class TestSeverityBoost:
 
     def test_high_confidence_boost(self):
         """High confidence threat match should boost to critical."""
-        result = calculate_severity_boost("high", {
-            "threat_intel": {"match": True, "confidence": 85},
-            "severity_boost": "critical"
-        })
+        result = calculate_severity_boost(
+            "high",
+            {"threat_intel": {"match": True, "confidence": 85}, "severity_boost": "critical"},
+        )
         assert result == "critical"
 
     def test_medium_confidence_boost(self):
         """Medium confidence threat match should boost to high."""
-        result = calculate_severity_boost("medium", {
-            "threat_intel": {"match": True, "confidence": 60},
-            "severity_boost": "high"
-        })
+        result = calculate_severity_boost(
+            "medium", {"threat_intel": {"match": True, "confidence": 60}, "severity_boost": "high"}
+        )
         assert result == "high"
 
     def test_low_confidence_boost(self):
         """Low confidence threat match should boost to medium."""
-        result = calculate_severity_boost("low", {
-            "threat_intel": {"match": True, "confidence": 30},
-            "severity_boost": "medium"
-        })
+        result = calculate_severity_boost(
+            "low", {"threat_intel": {"match": True, "confidence": 30}, "severity_boost": "medium"}
+        )
         assert result == "medium"
 
     def test_boost_doesnt_lower(self):
         """Boost should never lower severity."""
-        result = calculate_severity_boost("critical", {
-            "severity_boost": "medium"
-        })
+        result = calculate_severity_boost("critical", {"severity_boost": "medium"})
         assert result == "critical"
 
 
@@ -124,6 +122,7 @@ class TestEnrichmentPipeline:
     @pytest.mark.asyncio
     async def test_enrich_event_no_ips(self):
         """Event with no public IPs should return empty enrichment."""
+
         class _Event:
             source_ip = None
             destination_ip = None
@@ -131,8 +130,14 @@ class TestEnrichmentPipeline:
         from src.enrichment.pipeline import enrich_event
 
         # Mock enrichment modules to avoid API calls
-        with patch("src.enrichment.pipeline.enrich_geoip", new_callable=AsyncMock, return_value={}), \
-             patch("src.enrichment.pipeline.enrich_with_threat_intel", new_callable=AsyncMock, return_value={}):
+        with (
+            patch("src.enrichment.pipeline.enrich_geoip", new_callable=AsyncMock, return_value={}),
+            patch(
+                "src.enrichment.pipeline.enrich_with_threat_intel",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+        ):
             result = await enrich_event(_Event())
             assert isinstance(result, dict)
 
@@ -141,7 +146,13 @@ class TestEnrichmentPipeline:
         """Enriching from dict should work."""
         from src.enrichment.pipeline import enrich_event_dict
 
-        with patch("src.enrichment.pipeline.enrich_geoip", new_callable=AsyncMock, return_value={}), \
-             patch("src.enrichment.pipeline.enrich_with_threat_intel", new_callable=AsyncMock, return_value={}):
+        with (
+            patch("src.enrichment.pipeline.enrich_geoip", new_callable=AsyncMock, return_value={}),
+            patch(
+                "src.enrichment.pipeline.enrich_with_threat_intel",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+        ):
             result = await enrich_event_dict({"source_ip": None, "destination_ip": None})
             assert isinstance(result, dict)

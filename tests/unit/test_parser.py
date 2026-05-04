@@ -2,20 +2,22 @@ import json
 
 from src.ingestion.parser import parse_osquery_line
 
-SAMPLE_PROCESS_LOG = json.dumps({
-    "name": "processes",
-    "hostIdentifier": "test-mac.local",
-    "calendarTime": "Mon Mar 21 12:00:00 2026 UTC",
-    "unixTime": 1774267200,
-    "columns": {
-        "pid": "1234",
-        "name": "python3",
-        "path": "/opt/homebrew/bin/python3",
-        "cmdline": "python3 -m pytest",
-        "uid": "501",
-    },
-    "action": "added"
-})
+SAMPLE_PROCESS_LOG = json.dumps(
+    {
+        "name": "processes",
+        "hostIdentifier": "test-mac.local",
+        "calendarTime": "Mon Mar 21 12:00:00 2026 UTC",
+        "unixTime": 1774267200,
+        "columns": {
+            "pid": "1234",
+            "name": "python3",
+            "path": "/opt/homebrew/bin/python3",
+            "cmdline": "python3 -m pytest",
+            "uid": "501",
+        },
+        "action": "added",
+    }
+)
 
 
 def test_parse_process_event():

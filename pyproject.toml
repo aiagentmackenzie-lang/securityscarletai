@@ -70,7 +70,10 @@ select = ["E", "F", "W", "I", "S", "B"]
 #   Our pattern uses $1, $2, etc. for parameterization, which is safe.
 #   The string-based query construction flagged by S608 uses ONLY safe placeholders,
 #   never user input directly. All user values are passed as separate parameters.
-ignore = ["S608"]
+ignore = ["S608", "B008"]  # B008: FastAPI Depends() in args is standard pattern
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S108", "B017", "F841", "E402", "B007", "S110", "B904", "E501"]  # test files: relaxed line length, assert OK, unused vars OK
 
 [tool.mypy]
 python_version = "3.11"

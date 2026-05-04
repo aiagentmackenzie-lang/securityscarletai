@@ -12,27 +12,29 @@ Covers:
 - save_hunt_history / get_hunt_history
 - _suggest_hunts_for_alert (LLM + fallback)
 """
-import pytest
+
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from src.ai.hunting_assistant import (
     HUNTING_QUERY_TEMPLATES,
-    execute_hunt,
-    hunt_from_alert,
-    mitre_gap_analysis,
-    suggest_hunting_queries,
+    HUNTING_SYSTEM_PROMPT,
+    _suggest_hunts_for_alert,
     analyze_hunting_results,
-    save_hunt_history,
+    execute_hunt,
     get_hunt_history,
     get_hunting_templates,
-    _suggest_hunts_for_alert,
-    HUNTING_SYSTEM_PROMPT,
+    hunt_from_alert,
+    mitre_gap_analysis,
+    save_hunt_history,
+    suggest_hunting_queries,
 )
-
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Static Data Tests
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestHuntingTemplates:
     def test_templates_exist(self):
@@ -73,6 +75,7 @@ class TestHuntingTemplates:
 # execute_hunt
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestExecuteHunt:
     @pytest.mark.asyncio
     async def test_hunt_not_found(self):
@@ -90,9 +93,14 @@ class TestExecuteHunt:
         ]
         mock_pool.fetch = AsyncMock(return_value=mock_rows)
 
-        with patch("src.ai.hunting_assistant.get_pool", AsyncMock(return_value=mock_pool)), \
-             patch("src.ai.hunting_assistant.save_hunt_history", AsyncMock()), \
-             patch("src.ai.hunting_assistant.analyze_hunting_results", AsyncMock(return_value="Analysis")):
+        with (
+            patch("src.ai.hunting_assistant.get_pool", AsyncMock(return_value=mock_pool)),
+            patch("src.ai.hunting_assistant.save_hunt_history", AsyncMock()),
+            patch(
+                "src.ai.hunting_assistant.analyze_hunting_results",
+                AsyncMock(return_value="Analysis"),
+            ),
+        ):
             result = await execute_hunt("lateral_movement_service_accounts")
 
         assert result["success"] is True
@@ -118,14 +126,23 @@ class TestExecuteHunt:
         """Should include LLM analysis when results found."""
         mock_pool = AsyncMock()
         mock_rows = [
-            {"destination_ip": "10.0.0.1", "connection_count": 50,
-             "first_seen": "2024-01-01", "last_seen": "2024-01-02"},
+            {
+                "destination_ip": "10.0.0.1",
+                "connection_count": 50,
+                "first_seen": "2024-01-01",
+                "last_seen": "2024-01-02",
+            },
         ]
         mock_pool.fetch = AsyncMock(return_value=mock_rows)
 
-        with patch("src.ai.hunting_assistant.get_pool", AsyncMock(return_value=mock_pool)), \
-             patch("src.ai.hunting_assistant.save_hunt_history", AsyncMock()), \
-             patch("src.ai.hunting_assistant.analyze_hunting_results", AsyncMock(return_value="Suspicious activity detected")):
+        with (
+            patch("src.ai.hunting_assistant.get_pool", AsyncMock(return_value=mock_pool)),
+            patch("src.ai.hunting_assistant.save_hunt_history", AsyncMock()),
+            patch(
+                "src.ai.hunting_assistant.analyze_hunting_results",
+                AsyncMock(return_value="Suspicious activity detected"),
+            ),
+        ):
             result = await execute_hunt("c2_beaconing_connections")
 
         assert result["success"] is True
@@ -137,8 +154,10 @@ class TestExecuteHunt:
         mock_pool = AsyncMock()
         mock_pool.fetch = AsyncMock(return_value=[])
 
-        with patch("src.ai.hunting_assistant.get_pool", AsyncMock(return_value=mock_pool)), \
-             patch("src.ai.hunting_assistant.save_hunt_history", AsyncMock()):
+        with (
+            patch("src.ai.hunting_assistant.get_pool", AsyncMock(return_value=mock_pool)),
+            patch("src.ai.hunting_assistant.save_hunt_history", AsyncMock()),
+        ):
             result = await execute_hunt("privilege_escalation_sudo")
 
         assert result["success"] is True
@@ -150,6 +169,7 @@ class TestExecuteHunt:
 # hunt_from_alert
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestHuntFromAlert:
     @pytest.mark.asyncio
     async def test_alert_not_found(self):
@@ -160,6 +180,7 @@ class TestHuntFromAlert:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -200,16 +221,27 @@ class TestHuntFromAlert:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
         mock_pool = AsyncMock()
         mock_pool.acquire = MagicMock(return_value=AsyncCtx())
 
-        with patch("src.ai.hunting_assistant.get_pool", AsyncMock(return_value=mock_pool)), \
-             patch("src.ai.hunting_assistant._suggest_hunts_for_alert", AsyncMock(return_value=[
-                 {"name": "Investigate server-01", "description": "Check for lateral movement"}
-             ])):
+        with (
+            patch("src.ai.hunting_assistant.get_pool", AsyncMock(return_value=mock_pool)),
+            patch(
+                "src.ai.hunting_assistant._suggest_hunts_for_alert",
+                AsyncMock(
+                    return_value=[
+                        {
+                            "name": "Investigate server-01",
+                            "description": "Check for lateral movement",
+                        }
+                    ]
+                ),
+            ),
+        ):
             result = await hunt_from_alert(alert_id=1)
 
         assert result["success"] is True
@@ -239,14 +271,17 @@ class TestHuntFromAlert:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
         mock_pool = AsyncMock()
         mock_pool.acquire = MagicMock(return_value=AsyncCtx())
 
-        with patch("src.ai.hunting_assistant.get_pool", AsyncMock(return_value=mock_pool)), \
-             patch("src.ai.hunting_assistant._suggest_hunts_for_alert", AsyncMock(return_value=[])):
+        with (
+            patch("src.ai.hunting_assistant.get_pool", AsyncMock(return_value=mock_pool)),
+            patch("src.ai.hunting_assistant._suggest_hunts_for_alert", AsyncMock(return_value=[])),
+        ):
             result = await hunt_from_alert(alert_id=2)
 
         assert result["success"] is True
@@ -258,19 +293,23 @@ class TestHuntFromAlert:
 # mitre_gap_analysis
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestMitreGapAnalysis:
     @pytest.mark.asyncio
     async def test_gap_analysis(self):
         """Should return covered and uncovered techniques."""
         mock_conn = AsyncMock()
-        mock_conn.fetch = AsyncMock(return_value=[
-            {"technique": "T1078"},
-            {"technique": "T1059"},
-        ])
+        mock_conn.fetch = AsyncMock(
+            return_value=[
+                {"technique": "T1078"},
+                {"technique": "T1059"},
+            ]
+        )
 
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -297,6 +336,7 @@ class TestMitreGapAnalysis:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -315,6 +355,7 @@ class TestMitreGapAnalysis:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # suggest_hunting_queries
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestSuggestHuntingQueries:
     @pytest.mark.asyncio
@@ -360,11 +401,14 @@ class TestSuggestHuntingQueries:
 # analyze_hunting_results
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestAnalyzeHuntingResults:
     @pytest.mark.asyncio
     async def test_analyze_with_llm(self):
         """Should return LLM analysis string."""
-        with patch("src.ai.hunting_assistant.query_llm", AsyncMock(return_value="This looks suspicious.")):
+        with patch(
+            "src.ai.hunting_assistant.query_llm", AsyncMock(return_value="This looks suspicious.")
+        ):
             result = await analyze_hunting_results(
                 "C2 Beaconing", 5, [{"ip": "10.0.0.1", "count": 50}]
             )
@@ -393,6 +437,7 @@ class TestAnalyzeHuntingResults:
 # _suggest_hunts_for_alert
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestSuggestHuntsForAlert:
     @pytest.mark.asyncio
     async def test_llm_response_parsed(self):
@@ -403,12 +448,14 @@ class TestSuggestHuntsForAlert:
             "3. Investigate lateral movement patterns"
         )
         with patch("src.ai.hunting_assistant.query_llm", AsyncMock(return_value=mock_response)):
-            result = await _suggest_hunts_for_alert({
-                "rule_name": "Brute Force SSH",
-                "severity": "high",
-                "host_name": "server-01",
-                "mitre_techniques": ["T1078"],
-            })
+            result = await _suggest_hunts_for_alert(
+                {
+                    "rule_name": "Brute Force SSH",
+                    "severity": "high",
+                    "host_name": "server-01",
+                    "mitre_techniques": ["T1078"],
+                }
+            )
 
         assert len(result) >= 1
         assert "name" in result[0]
@@ -419,24 +466,30 @@ class TestSuggestHuntsForAlert:
         from src.ai.ollama_client import FALLBACK_MESSAGE
 
         with patch("src.ai.hunting_assistant.query_llm", AsyncMock(return_value=FALLBACK_MESSAGE)):
-            result = await _suggest_hunts_for_alert({
-                "rule_name": "Brute Force SSH",
-                "severity": "high",
-                "host_name": "server-01",
-            })
+            result = await _suggest_hunts_for_alert(
+                {
+                    "rule_name": "Brute Force SSH",
+                    "severity": "high",
+                    "host_name": "server-01",
+                }
+            )
 
         assert len(result) >= 2
-        assert any("server-01" in s.get("name", "") or "Investigate" in s.get("name", "") for s in result)
+        assert any(
+            "server-01" in s.get("name", "") or "Investigate" in s.get("name", "") for s in result
+        )
 
     @pytest.mark.asyncio
     async def test_empty_llm_response(self):
         """Should handle empty LLM response with fallback."""
         with patch("src.ai.hunting_assistant.query_llm", AsyncMock(return_value="")):
-            result = await _suggest_hunts_for_alert({
-                "rule_name": "Test",
-                "severity": "low",
-                "host_name": "test-host",
-            })
+            result = await _suggest_hunts_for_alert(
+                {
+                    "rule_name": "Test",
+                    "severity": "low",
+                    "host_name": "test-host",
+                }
+            )
         # Should still return something
         assert len(result) >= 1
 
@@ -444,6 +497,7 @@ class TestSuggestHuntsForAlert:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Hunt History
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestHuntHistory:
     @pytest.mark.asyncio
@@ -455,6 +509,7 @@ class TestHuntHistory:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -474,6 +529,7 @@ class TestHuntHistory:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -505,6 +561,7 @@ class TestHuntHistory:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 

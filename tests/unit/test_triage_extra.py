@@ -10,15 +10,13 @@ Covers:
 - AUTO_TRAIN_THRESHOLD
 - Feature extraction edge cases
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
+
+from unittest.mock import patch
 
 from src.ai.alert_triage import (
-    _shannon_entropy,
-    AlertTriageModel,
-    AlertTriageModel,
     AUTO_TRAIN_THRESHOLD,
+    AlertTriageModel,
+    _shannon_entropy,
 )
 
 
@@ -101,9 +99,9 @@ class TestPredictFromFeatures:
 
     def _make_trained_model(self):
         """Create a model with a mock trained model."""
+        import numpy as np
         from sklearn.ensemble import RandomForestClassifier
         from sklearn.preprocessing import StandardScaler
-        import numpy as np
 
         model = AlertTriageModel.__new__(AlertTriageModel)
         model.is_trained = True
@@ -117,7 +115,9 @@ class TestPredictFromFeatures:
         y = np.random.randint(0, 2, 100)
 
         model.model = RandomForestClassifier(
-            n_estimators=10, max_depth=3, random_state=42,
+            n_estimators=10,
+            max_depth=3,
+            random_state=42,
         )
         model.model.fit(X, y)
 
@@ -221,6 +221,7 @@ class TestFeatureList:
     def test_all_features_present(self):
         """All 11 features should be defined."""
         from src.ai.alert_triage import AlertTriageModel
+
         expected_features = [
             "severity_score",
             "hour_of_day",

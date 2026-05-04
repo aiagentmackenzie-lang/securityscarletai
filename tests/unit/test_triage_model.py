@@ -14,27 +14,25 @@ Covers:
 - get_triage_model singleton
 - Model save/load integrity
 """
-import time
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from pathlib import Path
+
 import tempfile
-import shutil
+import time
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
+import pytest
 
 from src.ai.alert_triage import (
     AlertTriageModel,
     _shannon_entropy,
-    AUTO_TRAIN_THRESHOLD,
     check_auto_train,
-    get_triage_model,
 )
-
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # _shannon_entropy
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestShannonEntropy:
     def test_empty_list(self):
@@ -76,6 +74,7 @@ class TestShannonEntropy:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # AlertTriageModel — init and status
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestAlertTriageModelInit:
     def test_model_features_list(self):
@@ -125,20 +124,24 @@ class TestAlertTriageModelInit:
 # _predict_from_features with real sklearn
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestPredictFromFeatures:
     def _make_trained_model(self):
         """Create a model manually and train it with small data."""
         from sklearn.ensemble import RandomForestClassifier
+
         model = AlertTriageModel()
         # Create simple training data
-        X = np.array([
-            [1.0, 0.5, 0.3, 0.2, 0.6, 0.4, 0.8, 1.0, 0.7, 0.5, 0.3],  # TP
-            [0.8, 0.4, 0.2, 0.3, 0.5, 0.3, 0.6, 0.8, 0.6, 0.4, 0.2],  # TP
-            [0.2, 0.5, 0.1, 0.1, 0.2, 0.0, 0.1, 0.0, 0.2, 0.8, 0.1],  # FP
-            [0.1, 0.3, 0.0, 0.0, 0.1, 0.0, 0.2, 0.0, 0.1, 0.9, 0.0],  # FP
-            [0.9, 0.6, 0.4, 0.3, 0.7, 0.5, 0.7, 0.9, 0.8, 0.3, 0.4],  # TP
-            [0.3, 0.4, 0.1, 0.1, 0.3, 0.1, 0.3, 0.1, 0.3, 0.7, 0.2],  # FP
-        ])
+        X = np.array(
+            [
+                [1.0, 0.5, 0.3, 0.2, 0.6, 0.4, 0.8, 1.0, 0.7, 0.5, 0.3],  # TP
+                [0.8, 0.4, 0.2, 0.3, 0.5, 0.3, 0.6, 0.8, 0.6, 0.4, 0.2],  # TP
+                [0.2, 0.5, 0.1, 0.1, 0.2, 0.0, 0.1, 0.0, 0.2, 0.8, 0.1],  # FP
+                [0.1, 0.3, 0.0, 0.0, 0.1, 0.0, 0.2, 0.0, 0.1, 0.9, 0.0],  # FP
+                [0.9, 0.6, 0.4, 0.3, 0.7, 0.5, 0.7, 0.9, 0.8, 0.3, 0.4],  # TP
+                [0.3, 0.4, 0.1, 0.1, 0.3, 0.1, 0.3, 0.1, 0.3, 0.7, 0.2],  # FP
+            ]
+        )
         y = np.array([1, 1, 0, 0, 1, 0])
         model.model = RandomForestClassifier(n_estimators=10, random_state=42)
         model.model.fit(X, y)
@@ -198,6 +201,7 @@ class TestPredictFromFeatures:
 # predict() with mocked DB
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestPredict:
     @pytest.mark.asyncio
     async def test_predict_not_trained(self):
@@ -225,6 +229,7 @@ class TestPredict:
 # train() success and failure paths
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestTrain:
     @pytest.mark.asyncio
     async def test_train_insufficient_samples(self):
@@ -232,13 +237,14 @@ class TestTrain:
         model = AlertTriageModel()
         mock_conn = AsyncMock()
         # Return only 10 rows, below min_samples=50
-        mock_conn.fetch = AsyncMock(return_value=[
-            {"id": i, "status": "resolved"} for i in range(10)
-        ])
+        mock_conn.fetch = AsyncMock(
+            return_value=[{"id": i, "status": "resolved"} for i in range(10)]
+        )
 
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -263,6 +269,7 @@ class TestTrain:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -271,8 +278,10 @@ class TestTrain:
 
         # Mock extract_features to return valid features
         mock_features = [0.5] * 11
-        with patch("src.ai.alert_triage.get_pool", AsyncMock(return_value=mock_pool)), \
-             patch.object(model, "extract_features", AsyncMock(return_value=mock_features)):
+        with (
+            patch("src.ai.alert_triage.get_pool", AsyncMock(return_value=mock_pool)),
+            patch.object(model, "extract_features", AsyncMock(return_value=mock_features)),
+        ):
             result = await model.train(min_samples=50)
             assert result is False
 
@@ -282,7 +291,9 @@ class TestTrain:
         model = AlertTriageModel()
 
         # Create rows with mixed labels
-        rows = [{"id": i, "status": "resolved" if i % 2 == 0 else "false_positive"} for i in range(60)]
+        rows = [
+            {"id": i, "status": "resolved" if i % 2 == 0 else "false_positive"} for i in range(60)
+        ]
 
         mock_conn = AsyncMock()
         mock_conn.fetch = AsyncMock(return_value=rows)
@@ -290,6 +301,7 @@ class TestTrain:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -297,9 +309,11 @@ class TestTrain:
         mock_pool.acquire = MagicMock(return_value=AsyncCtx())
 
         mock_features = [0.5] * 11
-        with patch("src.ai.alert_triage.get_pool", AsyncMock(return_value=mock_pool)), \
-             patch.object(model, "extract_features", AsyncMock(return_value=mock_features)), \
-             patch.object(model, "_save_model"):
+        with (
+            patch("src.ai.alert_triage.get_pool", AsyncMock(return_value=mock_pool)),
+            patch.object(model, "extract_features", AsyncMock(return_value=mock_features)),
+            patch.object(model, "_save_model"),
+        ):
             result = await model.train(min_samples=50)
 
         assert result is True
@@ -312,7 +326,9 @@ class TestTrain:
         """Should return False when not enough features extracted."""
         model = AlertTriageModel()
 
-        rows = [{"id": i, "status": "resolved" if i % 2 == 0 else "false_positive"} for i in range(60)]
+        rows = [
+            {"id": i, "status": "resolved" if i % 2 == 0 else "false_positive"} for i in range(60)
+        ]
 
         mock_conn = AsyncMock()
         mock_conn.fetch = AsyncMock(return_value=rows)
@@ -320,6 +336,7 @@ class TestTrain:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -332,8 +349,10 @@ class TestTrain:
                 return None
             return [0.5] * 11
 
-        with patch("src.ai.alert_triage.get_pool", AsyncMock(return_value=mock_pool)), \
-             patch.object(model, "extract_features", mock_extract):
+        with (
+            patch("src.ai.alert_triage.get_pool", AsyncMock(return_value=mock_pool)),
+            patch.object(model, "extract_features", mock_extract),
+        ):
             result = await model.train(min_samples=50)
             # May fail if not enough features
             assert isinstance(result, bool)
@@ -342,6 +361,7 @@ class TestTrain:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # extract_features with mocked DB
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 class TestExtractFeatures:
     @pytest.mark.asyncio
@@ -354,6 +374,7 @@ class TestExtractFeatures:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -370,6 +391,7 @@ class TestExtractFeatures:
         model = AlertTriageModel()
 
         from datetime import datetime as dt
+
         alert_row = {
             "id": 1,
             "severity": "high",
@@ -384,17 +406,21 @@ class TestExtractFeatures:
         mock_conn.fetchrow = AsyncMock(return_value=alert_row)
 
         # Mock additional queries
-        mock_conn.fetchval = AsyncMock(side_effect=[
-            50,  # rule_hits
-            3,   # host_alerts
-            75.0,  # asset_risk
-            dt(2024, 6, 15, 12, 0, 0),  # last_similar
-            14.0,  # typical_hour (MODE)
-        ])
-        mock_conn.fetch = AsyncMock(return_value=[
-            {"process_name": "cmd.exe"},
-            {"process_name": "powershell.exe"},
-        ])
+        mock_conn.fetchval = AsyncMock(
+            side_effect=[
+                50,  # rule_hits
+                3,  # host_alerts
+                75.0,  # asset_risk
+                dt(2024, 6, 15, 12, 0, 0),  # last_similar
+                14.0,  # typical_hour (MODE)
+            ]
+        )
+        mock_conn.fetch = AsyncMock(
+            return_value=[
+                {"process_name": "cmd.exe"},
+                {"process_name": "powershell.exe"},
+            ]
+        )
 
         # session_times
         session_row = {
@@ -403,6 +429,7 @@ class TestExtractFeatures:
         }
         # Override fetchrow to return alert on first call, session on second
         call_count = [0]
+
         async def mock_fetchrow(sql, *args):
             call_count[0] += 1
             if call_count[0] == 1:
@@ -415,6 +442,7 @@ class TestExtractFeatures:
         class AsyncCtx:
             async def __aenter__(self_inner):
                 return mock_conn
+
             async def __aexit__(self_inner, *args):
                 pass
 
@@ -435,6 +463,7 @@ class TestExtractFeatures:
         model = AlertTriageModel()
 
         from datetime import datetime as dt
+
         alert_row = {
             "id": 2,
             "severity": "low",
@@ -448,6 +477,7 @@ class TestExtractFeatures:
         mock_conn = AsyncMock()
 
         call_count = [0]
+
         async def mock_fetchrow(sql, *args):
             call_count[0] += 1
             if call_count[0] == 1:
@@ -455,18 +485,21 @@ class TestExtractFeatures:
             return {"first_event": None, "last_event": None}
 
         mock_conn.fetchrow = mock_fetchrow
-        mock_conn.fetchval = AsyncMock(side_effect=[
-            10,   # rule_hits
-            2,    # host_alerts
-            40.0, # asset_risk
-            None, # last_similar
-            None, # typical_hour (MODE)
-        ])
+        mock_conn.fetchval = AsyncMock(
+            side_effect=[
+                10,  # rule_hits
+                2,  # host_alerts
+                40.0,  # asset_risk
+                None,  # last_similar
+                None,  # typical_hour (MODE)
+            ]
+        )
         mock_conn.fetch = AsyncMock(return_value=[])
 
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -487,6 +520,7 @@ class TestExtractFeatures:
 # get_priority_queue
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestGetPriorityQueue:
     @pytest.mark.asyncio
     async def test_untrained_returns_empty(self):
@@ -503,10 +537,12 @@ class TestGetPriorityQueue:
 
         model = AlertTriageModel()
         # Train a simple model
-        X = np.array([
-            [1.0, 0.5, 0.3, 0.2, 0.6, 0.4, 0.8, 1.0, 0.7, 0.5, 0.3],
-            [0.2, 0.5, 0.1, 0.1, 0.2, 0.0, 0.1, 0.0, 0.2, 0.8, 0.1],
-        ])
+        X = np.array(
+            [
+                [1.0, 0.5, 0.3, 0.2, 0.6, 0.4, 0.8, 1.0, 0.7, 0.5, 0.3],
+                [0.2, 0.5, 0.1, 0.1, 0.2, 0.0, 0.1, 0.0, 0.2, 0.8, 0.1],
+            ]
+        )
         y = np.array([1, 0])
         model.model = RandomForestClassifier(n_estimators=10, random_state=42)
         model.model.fit(X, y)
@@ -515,8 +551,20 @@ class TestGetPriorityQueue:
         model.training_samples = 2
 
         mock_rows = [
-            {"id": 1, "rule_name": "Brute Force", "severity": "high", "host_name": "ws-01", "time": "2024-01-01"},
-            {"id": 2, "rule_name": "Suspicious Process", "severity": "medium", "host_name": "ws-02", "time": "2024-01-01"},
+            {
+                "id": 1,
+                "rule_name": "Brute Force",
+                "severity": "high",
+                "host_name": "ws-01",
+                "time": "2024-01-01",
+            },
+            {
+                "id": 2,
+                "rule_name": "Suspicious Process",
+                "severity": "medium",
+                "host_name": "ws-02",
+                "time": "2024-01-01",
+            },
         ]
 
         mock_conn = AsyncMock()
@@ -525,6 +573,7 @@ class TestGetPriorityQueue:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -533,8 +582,10 @@ class TestGetPriorityQueue:
 
         mock_features = [0.5] * 11
 
-        with patch("src.ai.alert_triage.get_pool", AsyncMock(return_value=mock_pool)), \
-             patch.object(model, "extract_features", AsyncMock(return_value=mock_features)):
+        with (
+            patch("src.ai.alert_triage.get_pool", AsyncMock(return_value=mock_pool)),
+            patch.object(model, "extract_features", AsyncMock(return_value=mock_features)),
+        ):
             result = await model.get_priority_queue(limit=10)
 
         assert len(result) == 2
@@ -547,6 +598,7 @@ class TestGetPriorityQueue:
 # check_auto_train
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestCheckAutoTrain:
     @pytest.mark.asyncio
     async def test_below_threshold(self):
@@ -557,6 +609,7 @@ class TestCheckAutoTrain:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -573,6 +626,7 @@ class TestCheckAutoTrain:
     async def test_above_threshold_triggers_train(self):
         """Should trigger training when above threshold."""
         import src.ai.alert_triage as at_module
+
         # Reset cooldown so test isn't blocked by a previous call
         at_module._last_auto_train_time = 0
 
@@ -582,6 +636,7 @@ class TestCheckAutoTrain:
         class AsyncCtx:
             async def __aenter__(self):
                 return mock_conn
+
             async def __aexit__(self, *args):
                 pass
 
@@ -591,8 +646,10 @@ class TestCheckAutoTrain:
         mock_model = MagicMock()
         mock_model.train = AsyncMock(return_value=True)
 
-        with patch("src.ai.alert_triage.get_pool", AsyncMock(return_value=mock_pool)), \
-             patch("src.ai.alert_triage.get_triage_model", AsyncMock(return_value=mock_model)):
+        with (
+            patch("src.ai.alert_triage.get_pool", AsyncMock(return_value=mock_pool)),
+            patch("src.ai.alert_triage.get_triage_model", AsyncMock(return_value=mock_model)),
+        ):
             result = await check_auto_train()
             assert result is True
             mock_model.train.assert_called_once()
@@ -602,16 +659,19 @@ class TestCheckAutoTrain:
 # Model save/load integrity
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class TestModelSaveLoad:
     def test_save_and_load_model(self):
         """Should save and load model with integrity verification."""
         from sklearn.ensemble import RandomForestClassifier
 
         model = AlertTriageModel()
-        X = np.array([
-            [1.0, 0.5, 0.3, 0.2, 0.6, 0.4, 0.8, 1.0, 0.7, 0.5, 0.3],
-            [0.2, 0.5, 0.1, 0.1, 0.2, 0.0, 0.1, 0.0, 0.2, 0.8, 0.1],
-        ])
+        X = np.array(
+            [
+                [1.0, 0.5, 0.3, 0.2, 0.6, 0.4, 0.8, 1.0, 0.7, 0.5, 0.3],
+                [0.2, 0.5, 0.1, 0.1, 0.2, 0.0, 0.1, 0.0, 0.2, 0.8, 0.1],
+            ]
+        )
         y = np.array([1, 0])
         model.model = RandomForestClassifier(n_estimators=10, random_state=42)
         model.model.fit(X, y)
@@ -621,9 +681,9 @@ class TestModelSaveLoad:
         model.training_accuracy = 1.0
 
         # Use a temp directory
-        from src.ai.alert_triage import MODEL_DIR, MODEL_PATH, HASH_PATH, META_PATH
         with tempfile.TemporaryDirectory() as tmpdir:
             import src.ai.alert_triage as triage_mod
+
             # Temporarily override paths
             orig_model_path = triage_mod.MODEL_PATH
             orig_hash_path = triage_mod.HASH_PATH
@@ -652,9 +712,9 @@ class TestModelSaveLoad:
 
     def test_load_model_integrity_failure(self):
         """Should reject model with wrong hash."""
-        from src.ai.alert_triage import MODEL_PATH, HASH_PATH, MODEL_DIR
         with tempfile.TemporaryDirectory() as tmpdir:
             import src.ai.alert_triage as triage_mod
+
             orig_model_path = triage_mod.MODEL_PATH
             orig_hash_path = triage_mod.HASH_PATH
             orig_meta_path = triage_mod.META_PATH
