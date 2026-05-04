@@ -6,7 +6,6 @@ and suppression rules for portfolio demonstrations.
 Idempotent — checks if data exists before inserting.
 """
 import asyncio
-import hashlib
 import random
 from datetime import timedelta
 from typing import Any
@@ -680,7 +679,12 @@ async def seed() -> None:
         print(f"   ✅ Inserted {len(THREAT_INTEL_ENTRIES)} threat intel entries")
 
         # --- Insert demo user ---
-        password_hash = hashlib.sha256(b"demo analyst password").hexdigest()
+        # Demo credentials for portfolio demonstration only — NOT for production.
+        # In production, always use bcrypt with 12+ rounds via src.api.auth.hash_password().
+        import json
+        from src.api.auth import hash_password
+
+        password_hash = hash_password("demo_analyst_2026")
         try:
             await conn.execute(
                 """
@@ -689,12 +693,12 @@ async def seed() -> None:
                 ON CONFLICT (username) DO NOTHING
                 """,
                 "demo_analyst",
-                "analyst@scarletai.demo",
+                "analyst@scarletai.local",
                 password_hash,
                 "analyst",
                 True,
             )
-            print("   ✅ Inserted demo user (demo_analyst)")
+            print("   ✅ Inserted demo user (demo_analyst / demo_analyst_2026)")
         except Exception:
             print("   ⏩  Demo user already exists, skipping")
 

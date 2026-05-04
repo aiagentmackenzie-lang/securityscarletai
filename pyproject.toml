@@ -3,7 +3,7 @@ name = "securityscarletai"
 version = "0.1.0"
 description = ""
 authors = [
-    {name = "Raphael Main",email = "raphael@main.com"}
+    {name = "SecurityScarletAI Contributors"}
 ]
 requires-python = ">=3.11,<4.0"
 package-mode = false

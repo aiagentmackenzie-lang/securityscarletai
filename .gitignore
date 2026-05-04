@@ -74,3 +74,9 @@ data/GeoLite2-City.mmdb
 
 # Dead letter queue (failed writes, retried later)
 data/dead_letter/
+
+# Internal development docs (not for public repo)
+HOW_TO_USE.md
+docs/HANDOVER.md
+docs/PHASE5-CONTINUATION-PROMPT.md
+docs/SECURITYSCARLETAI-PLAN.md

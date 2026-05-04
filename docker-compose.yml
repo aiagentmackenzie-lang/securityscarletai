@@ -7,7 +7,7 @@ services:
     container_name: scarletai-db
     environment:
       POSTGRES_USER: scarletai
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-scarletai_secure_2026}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
       POSTGRES_DB: scarletai
     ports:
       # Port 5433 to avoid conflict with Homebrew PostgreSQL on macOS
@@ -31,7 +31,7 @@ services:
       DB_PORT: 5432
       DB_NAME: scarletai
       DB_USER: scarletai
-      DB_PASSWORD: ${DB_PASSWORD:-scarletai_secure_2026}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
       API_SECRET_KEY: ${API_SECRET_KEY}
       API_BEARER_TOKEN: ${API_BEARER_TOKEN}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
