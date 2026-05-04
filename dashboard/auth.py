@@ -8,9 +8,14 @@ Three roles:
 
 This module uses the API client for authentication — NO direct DB access.
 """
+import time
+
 import streamlit as st
 
 from dashboard.api_client import ApiClient, ApiError
+
+# H-24 fix: Re-verify token every N seconds instead of once per session
+ROLE_REVERIFY_INTERVAL = 300  # 5 minutes
 
 # Role definitions
 ROLES = {
@@ -144,21 +149,27 @@ def render_sidebar_user_info():
 
 
 def require_auth():
-    """Check if user is authenticated. Returns True if authenticated, shows login if not."""
+    """Check if user is authenticated. Returns True if authenticated, shows login if not.
+
+    H-24 fix: Re-verify token periodically (every ROLE_REVERIFY_INTERVAL seconds)
+    instead of once per session, so server-side role changes are picked up.
+    """
     if st.session_state.get("authenticated") and st.session_state.get("access_token"):
-        # Verify token is still valid by calling /auth/me
         api = get_api_client()
-        try:
-            # Only verify once per session
-            if "user_verified" not in st.session_state:
+        last_verified = st.session_state.get("last_role_verify", 0)
+        now = time.time()
+
+        # Re-verify token if never verified or interval elapsed
+        if now - last_verified > ROLE_REVERIFY_INTERVAL:
+            try:
                 me = api.get_me()
-                st.session_state.user_verified = True
+                st.session_state.last_role_verify = now
                 st.session_state.role = me.get("role", st.session_state.role)
                 st.session_state.username = me.get("username", st.session_state.username)
-            return True
-        except ApiError:
-            # Token expired or invalid
-            ApiClient.logout()
-            st.session_state.authenticated = False
-            return False
+            except ApiError:
+                # Token expired or invalid — force re-login
+                ApiClient.logout()
+                st.session_state.authenticated = False
+                return False
+        return True
     return False

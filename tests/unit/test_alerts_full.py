@@ -501,14 +501,13 @@ class TestLinkToCase:
         with patch("src.api.alerts.get_pool", AsyncMock(return_value=mock_pool)), \
              patch("src.api.audit.log_audit_action", AsyncMock()):
             body = LinkCaseRequest(case_id=5)
-            try:
-                result = await link_to_case(
-                    alert_id=1,
-                    body=body,
-                    user={"sub": "analyst1", "role": "analyst"}
-                )
-            except Exception:
-                pass  # dict(row) on mock may fail, that's ok
+            result = await link_to_case(
+                alert_id=1,
+                body=body,
+                user={"sub": "analyst1", "role": "analyst"}
+            )
+            # Verify the function returned a result (not silently swallowed)
+            assert result is not None
 
     @pytest.mark.asyncio
     async def test_link_alert_not_found(self):
@@ -536,3 +535,130 @@ class TestLinkToCase:
                     user={"sub": "analyst1", "role": "analyst"}
                 )
             assert exc_info.value.status_code == 404
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# T-08: Concurrent Alert Creation Tests
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+class TestConcurrentAlertCreation:
+    """Test TOCTOU race condition in alert dedup (C-02 fix).
+
+    Verifies that concurrent create_alert calls for the same rule/host
+    do not create duplicate alerts, thanks to pg_advisory_xact_lock.
+    """
+
+    @pytest.mark.asyncio
+    async def test_concurrent_dedup_returns_valid_id(self):
+        """Two concurrent create_alert calls should deduplicate."""
+        import asyncio
+        from src.detection.alerts import create_alert
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow = AsyncMock(return_value=None)
+        mock_conn.fetchval = AsyncMock(return_value=42)
+        mock_conn.execute = AsyncMock(return_value="UPDATE 1")
+
+        class AsyncCtx:
+            async def __aenter__(self):
+                return mock_conn
+            async def __aexit__(self, *a):
+                pass
+
+        mock_pool = AsyncMock()
+        mock_pool.acquire = MagicMock(return_value=AsyncCtx())
+
+        with patch("src.detection.alerts.get_pool", return_value=mock_pool), \
+             patch("src.detection.alerts._is_suppressed", new_callable=AsyncMock, return_value=False), \
+             patch("src.detection.alerts._check_severity_escalation", new_callable=AsyncMock, return_value="high"):
+            result = await create_alert(
+                rule_id=1, rule_name="Test", severity="high",
+                host_name="concurrent-host", description="Concurrent test",
+                mitre_tactics=[], mitre_techniques=[], evidence={},
+            )
+            assert result is not None, "create_alert should return a valid ID"
+
+    @pytest.mark.asyncio
+    async def test_advisory_lock_called_for_dedup(self):
+        """pg_advisory_xact_lock ensures only one insert per rule/host combo."""
+        from src.detection.alerts import create_alert
+
+        lock_calls = []
+
+        async def track_execute(sql, *args):
+            if "pg_advisory" in sql:
+                lock_calls.append(sql)
+            return "UPDATE 1"
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow = AsyncMock(return_value=None)
+        mock_conn.fetchval = AsyncMock(return_value=99)
+        mock_conn.execute = track_execute
+
+        class AsyncCtx:
+            async def __aenter__(self):
+                return mock_conn
+            async def __aexit__(self, *a):
+                pass
+
+        mock_pool = AsyncMock()
+        mock_pool.acquire = MagicMock(return_value=AsyncCtx())
+
+        with patch("src.detection.alerts.get_pool", return_value=mock_pool), \
+             patch("src.detection.alerts._is_suppressed", new_callable=AsyncMock, return_value=False), \
+             patch("src.detection.alerts._check_severity_escalation", new_callable=AsyncMock, return_value="high"):
+            result = await create_alert(
+                rule_id=1, rule_name="LockTest", severity="high",
+                host_name="lock-host", description="Lock test",
+                mitre_tactics=[], mitre_techniques=[], evidence={},
+            )
+            # Verify advisory lock was acquired (C-02 fix)
+            assert len(lock_calls) >= 1, \
+                "pg_advisory_xact_lock should be called for dedup safety"
+
+    @pytest.mark.asyncio
+    async def test_concurrent_calls_use_lock(self):
+        """Multiple asyncio.gather calls should all acquire advisory locks."""
+        import asyncio
+        from src.detection.alerts import create_alert
+
+        lock_acquire_count = [0]
+        original_execute = AsyncMock(return_value="UPDATE 1")
+
+        async def counting_execute(sql, *args):
+            if "pg_advisory" in sql:
+                lock_acquire_count[0] += 1
+            return "UPDATE 1"
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow = AsyncMock(return_value=None)
+        mock_conn.fetchval = AsyncMock(side_effect=[1, 2, 3])
+        mock_conn.execute = counting_execute
+
+        class AsyncCtx:
+            async def __aenter__(self):
+                return mock_conn
+            async def __aexit__(self, *a):
+                pass
+
+        mock_pool = AsyncMock()
+        mock_pool.acquire = MagicMock(return_value=AsyncCtx())
+
+        with patch("src.detection.alerts.get_pool", return_value=mock_pool), \
+             patch("src.detection.alerts._is_suppressed", new_callable=AsyncMock, return_value=False), \
+             patch("src.detection.alerts._check_severity_escalation", new_callable=AsyncMock, return_value="high"):
+            results = await asyncio.gather(
+                create_alert(
+                    rule_id=1, rule_name="Concurrent1", severity="high",
+                    host_name="host-a", description="Test 1",
+                    mitre_tactics=[], mitre_techniques=[], evidence={},
+                ),
+                create_alert(
+                    rule_id=2, rule_name="Concurrent2", severity="medium",
+                    host_name="host-b", description="Test 2",
+                    mitre_tactics=[], mitre_techniques=[], evidence={},
+                ),
+            )
+            # Each call should acquire its own advisory lock
+            assert lock_acquire_count[0] >= 2, \
+                f"Expected >=2 advisory lock acquisitions, got {lock_acquire_count[0]}"

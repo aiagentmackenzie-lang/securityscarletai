@@ -68,19 +68,32 @@ def render_alert_list():
         bc1, bc2, bc3, bc4 = st.columns(4)
         with bc1:
             if st.button("✅ Acknowledge All New", key="bulk_ack"):
-                with st.spinner("Acknowledging alerts..."):
-                    alerts = api.get_alerts(status="new", limit=500)
-                    if alerts:
-                        ids = [a["id"] for a in alerts]
-                        try:
-                            api.bulk_acknowledge(ids)
-                            st.toast(f"✅ Acknowledged {len(ids)} alerts", icon="✅")
-                            st.success(f"Acknowledged {len(ids)} alerts")
-                            st.rerun()
-                        except ApiError as e:
-                            st.error(f"Bulk acknowledge failed: {e.detail}")
-                    else:
-                        st.info("No new alerts to acknowledge")
+                # L-06 fix: Add confirmation for destructive bulk action
+                st.session_state.confirm_bulk_ack = True
+
+            if st.session_state.get("confirm_bulk_ack"):
+                st.warning("⚠️ This will acknowledge ALL new alerts. Are you sure?")
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("✅ Confirm", key="confirm_bulk_ack_yes"):
+                        with st.spinner("Acknowledging alerts..."):
+                            alerts = api.get_alerts(status="new", limit=500)
+                            if alerts:
+                                ids = [a["id"] for a in alerts]
+                                try:
+                                    api.bulk_acknowledge(ids)
+                                    st.toast(f"✅ Acknowledged {len(ids)} alerts", icon="✅")
+                                    st.success(f"Acknowledged {len(ids)} alerts")
+                                    st.session_state.confirm_bulk_ack = False
+                                    st.rerun()
+                                except ApiError as e:
+                                    st.error(f"Bulk acknowledge failed: {e.detail}")
+                            else:
+                                st.info("No new alerts to acknowledge")
+                                st.session_state.confirm_bulk_ack = False
+                with c2:
+                    if st.button("❌ Cancel", key="confirm_bulk_ack_no"):
+                        st.session_state.confirm_bulk_ack = False
 
         with bc2:
             if st.button("🔚 Resolve Selected", key="bulk_resolve"):

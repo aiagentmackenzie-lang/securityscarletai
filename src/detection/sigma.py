@@ -385,7 +385,10 @@ class SigmaParser:
         }
         mapped = mapping.get(sigma_field, sigma_field)
         if mapped not in ALLOWED_COLUMNS:
-            log.warning("unknown_field_mapped", sigma_field=sigma_field, mapped=mapped)
+            raise ValueError(
+                f"Invalid Sigma field '{sigma_field}' (mapped to '{mapped}') — "
+                f"not in allowed columns: {sorted(ALLOWED_COLUMNS)}"
+            )
         return mapped
 
     def _add_param(self, value: Any) -> str:

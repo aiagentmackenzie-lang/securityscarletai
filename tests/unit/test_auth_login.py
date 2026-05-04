@@ -14,10 +14,13 @@ from src.api.auth import create_jwt, JWT_ALGORITHM, verify_password
 from src.config.settings import settings
 
 
-# Pre-computed bcrypt hash for "testpass123" to avoid runtime hashing in tests
-# This avoids the passlib/bcrypt 5.x incompatibility during test fixtures
-TEST_PASSWORD_HASH = "$2b$12$LJ3m4ys3Laq5U1TGXfCBUeW7rO0OqE.vHW0PDJF8VvIqZb4OiK1Ce"
-TEST_ADMIN_HASH = "$2b$12$eiv0H/WeZ7CbZ4s3b0eUqu3kY0fA8n1eKz7r8Q9b5b0b0b0b0b0b0b"
+# Pre-computed bcrypt hash for "testpass123" with SHA-256 pre-hash (M-10 fix).
+# Generated via: hash_password('testpass123') which does SHA-256 then bcrypt.
+# SHA-256 of 'testpass123' = '7e6e0c3079a08c5cc6036789b57e951f65f82383913ba1a49ae992544f1b4b6e'
+# bcrypt hash of that hex digest:
+TEST_PASSWORD_HASH = "$2b$12$YNQh8sU8gYbuyuT78FvzW.ywTViRGQbnMPk4Of9fQIviwxThEsk9S"
+# Admin hash: properly generated via hash_password('adminpassword123')
+TEST_ADMIN_HASH = "$2b$12$zutMf2AsHf14wrcjDue8IekvKCzlKJseJzirLZzwV5CsiB2Eoq3kq"
 
 
 class TestCreateJWT:

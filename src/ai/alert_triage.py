@@ -35,34 +35,11 @@ META_PATH = MODEL_DIR / "triage_meta.joblib"
 
 # Auto-training threshold
 AUTO_TRAIN_THRESHOLD = 100
+AUTO_TRAIN_COOLDOWN_SECONDS = 3600  # M-05: 1 hour cooldown between auto-trains
+_last_auto_train_time: float = 0.0
 
 
-def _shannon_entropy(values: List[str]) -> float:
-    """
-    Calculate Shannon entropy of a list of string values.
-
-    Higher entropy = more diverse = more suspicious for process names.
-    Range: 0 (all same) to log2(N) (uniform distribution).
-    Normalized to 0-1 by dividing by max possible entropy.
-    """
-    if not values:
-        return 0.0
-
-    # Count frequency of each unique value
-    freq: Dict[str, int] = {}
-    for v in values:
-        freq[v] = freq.get(v, 0) + 1
-
-    total = len(values)
-    entropy = 0.0
-    for count in freq.values():
-        p = count / total
-        if p > 0:
-            entropy -= p * math.log2(p)
-
-    # Normalize: max entropy is log2(N) where N = number of unique values
-    max_entropy = math.log2(len(freq)) if len(freq) > 1 else 1.0
-    return entropy / max_entropy if max_entropy > 0 else 0.0
+from src.ai.utils import shannon_entropy as _shannon_entropy  # noqa: F401 — L-01: shared utility
 
 
 class AlertTriageModel:
@@ -377,9 +354,17 @@ class AlertTriageModel:
         )
         self.model.fit(X_array, y_array)
 
-        # Calculate training accuracy
-        predictions = self.model.predict(X_array)
-        accuracy = float(np.mean(predictions == y_array))
+        # M-04 fix: Use cross-validation instead of training-set accuracy
+        from sklearn.model_selection import cross_val_score
+        try:
+            cv_scores = cross_val_score(self.model, X_array, y_array, cv=min(5, len(X_array)))
+            accuracy = float(cv_scores.mean())
+            log.info("triage_cv_accuracy", cv_mean=round(accuracy, 2), cv_std=round(float(cv_scores.std()), 2))
+        except ValueError:
+            # Too few samples for CV — fall back to training accuracy
+            predictions = self.model.predict(X_array)
+            accuracy = float(np.mean(predictions == y_array))
+            log.warning("triage_fallback_to_training_accuracy", accuracy=round(accuracy, 2))
 
         self.is_trained = True
         self.trained_at = time.time()
@@ -526,7 +511,14 @@ async def check_auto_train() -> bool:
     Check if auto-training should be triggered.
 
     Returns True if training was triggered.
+    M-05: Added 1-hour cooldown to prevent retraining on every call.
     """
+    global _last_auto_train_time
+
+    # Check cooldown
+    if (time.time() - _last_auto_train_time) < AUTO_TRAIN_COOLDOWN_SECONDS:
+        return False
+
     pool = await get_pool()
     async with pool.acquire() as conn:
         resolved_count = await conn.fetchval(
@@ -538,6 +530,7 @@ async def check_auto_train() -> bool:
         )
 
     if (resolved_count or 0) >= AUTO_TRAIN_THRESHOLD:
+        _last_auto_train_time = time.time()
         log.info(
             "auto_train_triggered",
             resolved_count=resolved_count,

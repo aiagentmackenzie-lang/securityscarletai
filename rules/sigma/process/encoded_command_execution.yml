@@ -8,15 +8,17 @@ logsource:
     category: process
 detection:
     selection_base64:
-        process_cmdline|contains: base64
-        process_cmdline|contains: -d
+        process_cmdline|contains:
+            - base64
+            - -d
     selection_bash_c:
         process_name: bash
         process_cmdline|contains: -c
     selection_python_encode:
         process_name: python
-        process_cmdline|contains: exec
-        process_cmdline|contains: decode
+        process_cmdline|contains:
+            - exec
+            - decode
     condition: selection_base64 or selection_bash_c or selection_python_encode
 level: high
 tags:

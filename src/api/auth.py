@@ -8,6 +8,7 @@ Security notes:
 - Passwords are hashed with bcrypt (12 rounds minimum).
 - RBAC: JWT tokens carry a 'role' claim used by require_role() for authorization.
 """
+import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -95,14 +96,24 @@ def create_jwt(username: str, role: str) -> str:
 
 
 def hash_password(plain: str) -> str:
-    """Hash a password using bcrypt. Truncates to 72 bytes per bcrypt spec."""
-    password_bytes = plain.encode("utf-8")[:72]
+    """Hash a password using bcrypt.
+
+    M-10 fix: SHA-256 pre-hash before bcrypt to handle passwords >72 bytes.
+    This prevents silent truncation while keeping bcrypt's salt + cost factor.
+    """
+    # SHA-256 pre-hash: always 32 bytes regardless of input length
+    prehashed = hashlib.sha256(plain.encode("utf-8")).hexdigest()
+    password_bytes = prehashed.encode("utf-8")[:72]  # hex digest is 64 chars, well under 72
     salt = _bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
     return _bcrypt.hashpw(password_bytes, salt).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    """Verify a password against a bcrypt hash."""
-    password_bytes = plain.encode("utf-8")[:72]
+    """Verify a password against a bcrypt hash.
+
+    M-10 fix: Must use same SHA-256 pre-hash as hash_password().
+    """
+    prehashed = hashlib.sha256(plain.encode("utf-8")).hexdigest()
+    password_bytes = prehashed.encode("utf-8")[:72]
     hashed_bytes = hashed.encode("utf-8")
     return _bcrypt.checkpw(password_bytes, hashed_bytes)

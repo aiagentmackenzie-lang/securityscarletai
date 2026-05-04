@@ -70,8 +70,14 @@ async def log_audit_action(
             )
             return audit_id
         except Exception as e:
-            log.error("audit_log_failed", actor=actor, action=action, error=str(e))
-            return None
+            log.error(
+                "audit_log_failed",
+                actor=actor,
+                action=action,
+                error=str(e),
+            )
+            # M-22 fix: Don't silently return None — raise so caller knows audit failed
+            raise RuntimeError(f"Audit log write failed: {e}") from e
 
 
 @router.get("")

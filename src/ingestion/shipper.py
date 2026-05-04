@@ -5,6 +5,7 @@ Uses watchfiles (Rust-based) for efficient file watching on macOS.
 Stores a checkpoint (byte offset) so restarts don't re-ingest old data.
 """
 import asyncio
+import os
 from pathlib import Path
 
 from src.config.logging import get_logger
@@ -23,8 +24,16 @@ class FileShipper:
         self.log_path = Path(log_path)
         self.writer = writer
         self._offset = self._load_checkpoint()
+        self._inode = self._get_inode()  # H-15: track inode for rotation detection
         self._running = False
         self._events_shipped = 0
+
+    def _get_inode(self) -> int | None:
+        """Get file inode number (0 on systems that don't support it)."""
+        try:
+            return os.stat(self.log_path).st_ino if self.log_path.exists() else None
+        except OSError:
+            return None
 
     async def run(self) -> None:
         """Main loop — tail the file forever."""
@@ -40,12 +49,22 @@ class FileShipper:
 
                 current_size = self.log_path.stat().st_size
 
-                # Detect log rotation (file got smaller)
-                if current_size < self._offset:
+                # H-15 fix: Detect log rotation via inode change OR file shrink
+                current_inode = self._get_inode()
+                if current_inode != self._inode:
+                    log.info(
+                        "log_rotation_detected",
+                        old_inode=self._inode,
+                        new_inode=current_inode,
+                    )
+                    self._offset = 0
+                    self._inode = current_inode
+                elif current_size < self._offset:
                     log.info(
                         "log_rotation_detected",
                         old_offset=self._offset,
                         new_size=current_size,
+                        reason="file_shrank",
                     )
                     self._offset = 0
 
@@ -81,8 +100,17 @@ class FileShipper:
             return 0
 
     def _save_checkpoint(self) -> None:
-        """Persist the current byte offset."""
-        CHECKPOINT_FILE.write_text(str(self._offset))
+        """Persist the current byte offset.
+
+        M-20 fix: Use atomic write via temp file + os.replace()
+        to prevent corruption from crash mid-write.
+        """
+        temp_file = CHECKPOINT_FILE.with_suffix(".tmp")
+        try:
+            temp_file.write_text(str(self._offset))
+            os.replace(temp_file, CHECKPOINT_FILE)
+        except OSError as e:
+            log.error("checkpoint_save_failed", error=str(e))
 
     def stop(self) -> None:
         self._running = False

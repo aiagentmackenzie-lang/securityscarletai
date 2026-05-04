@@ -79,19 +79,19 @@ async def run_rule(rule_id: int) -> None:
                         if analysis:
                             await enrich_alert(alert_id, analysis)
 
-                # Update rule stats
+                # Update rule stats (match + last_run in single update)
                 await conn.execute(
                     "UPDATE rules SET last_match = NOW(), match_count = match_count + $1, "
                     "last_run = NOW() WHERE id = $2",
                     len(rows),
                     rule_id,
                 )
-
-            # Update last_run timestamp
-            await conn.execute(
-                "UPDATE rules SET last_run = NOW() WHERE id = $1",
-                rule_id
-            )
+            else:
+                # No matches — only update last_run
+                await conn.execute(
+                    "UPDATE rules SET last_run = NOW() WHERE id = $1",
+                    rule_id
+                )
 
         except Exception as e:
             log.error("rule_execution_failed", rule_id=rule_id, error=str(e))

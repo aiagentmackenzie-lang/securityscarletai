@@ -268,15 +268,18 @@ class TestAuthRoleHierarchy:
         assert verify_password("test_password_123", hashed) is True
         assert verify_password("wrong_password", hashed) is False
 
-    def test_password_truncation(self):
-        """Passwords longer than 72 bytes should be truncated."""
+    def test_password_sha256_prehash_handles_long_passwords(self):
+        """After M-10 fix: SHA-256 pre-hash ensures passwords >72 bytes work correctly.
+        bcrypt silently truncated at 72 bytes — SHA-256 pre-hash fixes this."""
         from src.api.auth import hash_password, verify_password
         long_password = "a" * 100
         hashed = hash_password(long_password)
-        # First 72 characters should match
-        assert verify_password("a" * 72, hashed) is True
-        # Completely different should not
-        assert verify_password("b" * 72, hashed) is False
+        # Full password should verify (SHA-256 always produces 32-byte output)
+        assert verify_password(long_password, hashed) is True
+        # Shortened password should NOT verify (SHA-256 digest changes)
+        assert verify_password("a" * 72, hashed) is False
+        # Completely different should not verify
+        assert verify_password("b" * 100, hashed) is False
 
     def test_jwt_creation_and_verification(self):
         """JWT should encode and decode correctly."""

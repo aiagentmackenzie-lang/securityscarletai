@@ -105,9 +105,14 @@ def render_ai_chat():
     # ─── Chat Interface ───
     st.subheader("💬 Conversation")
 
-    # Initialize chat history
+    # Initialize chat history (L-07: cap at 50 messages)
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
+
+    # L-07 fix: Cap chat history to prevent unbounded memory growth
+    MAX_CHAT_HISTORY = 50
+    if len(st.session_state.chat_history) > MAX_CHAT_HISTORY:
+        st.session_state.chat_history = st.session_state.chat_history[-MAX_CHAT_HISTORY:]
 
     # Display chat history
     for msg in st.session_state.chat_history:

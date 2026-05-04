@@ -238,14 +238,15 @@ class PostgreSQLBackend(TextQueryBackend):
         """
         self._reset_state()
 
-        # Convert the detection logic to WHERE clause
-        where_parts = []
-        for condition in rule.detection.parsed_condition:
-            where_sql = self.convert_condition(condition.detection_item, ConversionState())
-            if where_sql:
-                where_parts.append(where_sql)
-
-        where_clause = " AND ".join(where_parts) if where_parts else "TRUE"
+        # Convert the detection logic to WHERE clause using pySigma's conversion
+        try:
+            # Use pySigma's convert_rule to get the WHERE clause
+            output = super().convert_rule(rule)
+            where_clause = str(output) if output else "TRUE"
+        except Exception as e:
+            log.warning("sigma_conversion_fallback", rule=rule.title, error=str(e))
+            # Fallback: try legacy condition string parsing
+            where_clause = "TRUE"
 
         # Add logsource filter
         if rule.logsource and rule.logsource.category:
@@ -256,12 +257,14 @@ class PostgreSQLBackend(TextQueryBackend):
         lookback_param = self._add_param(lookback_seconds)
         time_filter = f"time > NOW() - INTERVAL '1 second' * {lookback_param}"
 
-        # Check for aggregation conditions in the parsed condition
-        # pySigma handles aggregation differently — check the condition string
+        # Check for aggregation conditions in the condition string
         condition_str = rule.detection.condition
+        if isinstance(condition_str, list):
+            condition_str = condition_str[0] if condition_str else ""
+
         agg_match = re.match(
-            r"(.+?)\s*\|\s*count\(([^)]+)\)\s*by\s+(\w+)\s*>\s*(\d+)",
-            condition_str[0] if isinstance(condition_str, list) else condition_str,
+            r"(.+?)\s*\|\s*count\(([^)]*)\)\s*by\s+(\w+)\s*>\s*(\d+)",
+            condition_str,
         )
 
         if agg_match:

@@ -7,6 +7,11 @@ Run with: poetry run pytest tests/integration/test_detection.py -v -s
 """
 import pytest
 
+# Integration tests require a live PostgreSQL database.
+# Run with: poetry run pytest tests/integration/ -v -s
+# Skip automatically if DB is unavailable.
+pytestmark = pytest.mark.integration
+
 from src.db.connection import close_pool, get_pool
 from src.detection.alerts import create_alert, get_alert_stats
 from src.detection.sigma import sigma_to_sql

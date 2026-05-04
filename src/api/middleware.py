@@ -20,7 +20,7 @@ limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
 class RequestValidationMiddleware(BaseHTTPMiddleware):
     """
     Middleware for request validation:
-    - Max body size (1MB default)
+    - Max body size (1MB default) — works with both Content-Length and chunked transfer
     - Content-Type enforcement on ingestion endpoints
     - Request logging
     """
@@ -30,12 +30,31 @@ class RequestValidationMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         # Check body size for POST/PUT/PATCH
         if request.method in ("POST", "PUT", "PATCH"):
+            # 1. Content-Length header check (fast, for non-chunked requests)
             content_length = request.headers.get("content-length")
             if content_length and int(content_length) > self.MAX_BODY_SIZE:
                 return JSONResponse(
                     status_code=413,
                     content={"detail": f"Request body too large. Max {self.MAX_BODY_SIZE} bytes."},
                 )
+
+            # 2. Chunked transfer encoding — Content-Length absent, must read body
+            #    Starlette streams chunked bodies; we must consume and check size.
+            transfer_encoding = request.headers.get("transfer-encoding", "").lower()
+            if "chunked" in transfer_encoding or not content_length:
+                try:
+                    body = await request.body()
+                    if len(body) > self.MAX_BODY_SIZE:
+                        return JSONResponse(
+                            status_code=413,
+                            content={"detail": f"Request body too large. Max {self.MAX_BODY_SIZE} bytes."},
+                        )
+                    # Re-inject body so downstream handlers can read it
+                    async def receive():
+                        return {"type": "http.request", "body": body}
+                    request._receive = receive
+                except Exception:
+                    pass  # Body read failed; let downstream handle it
 
             # Content-Type enforcement for ingest endpoint
             if request.url.path.endswith("/ingest"):

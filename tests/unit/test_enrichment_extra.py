@@ -51,9 +51,16 @@ class TestEnrichEvent:
             raw_data={"source_ip": "1.2.3.4"},
             enrichment={},
         )
-        # This test primarily verifies enrichment doesn't crash
-        result = event
-        assert result.host_name == "server01"
+        # Actually call enrich_event with threat intel mock
+        with patch("src.enrichment.pipeline.enrich_geoip", AsyncMock(return_value={})), \
+             patch("src.enrichment.pipeline.enrich_dns_reverse", return_value={}), \
+             patch("src.enrichment.pipeline.enrich_with_threat_intel", AsyncMock(return_value={
+                 "threat_intel": {"match": True, "confidence": 85, "source": "abuseipdb"}
+             })):
+            result = await enrich_event(event)
+            assert result is not None
+            assert "threat_intel" in result
+            assert result["threat_intel"]["match"] is True
 
 
 class TestEnrichmentPipeline:
@@ -172,8 +179,10 @@ class TestAlertFunctions:
                     mitre_techniques=[],
                     evidence={},
                 )
-                # Should return None or similar for suppressed alerts
-                assert result is None or result is not None  # Either behavior is acceptable
+                # Suppressed alerts should return -1 (sentinel value from C-02/M-11 fix)
+                # or None depending on suppression path. Either is acceptable.
+                if result is not None:
+                    assert result == -1, f"Suppressed alert should return -1, got {result}"
 
 
 class TestAlertExportFormats:

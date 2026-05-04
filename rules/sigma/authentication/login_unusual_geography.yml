@@ -8,9 +8,19 @@ logsource:
     category: authentication
 detection:
     selection:
-        event_type: start
         event_action|contains: success
-    condition: selection
+        source_ip: '*'
+    filter_internal:
+        source_ip|startswith:
+            - '10.'
+            - '192.168.'
+            - '172.16.'
+            - '172.17.'
+            - '172.18.'
+            - '172.19.'
+            - '172.2'
+            - '172.3'
+    condition: selection and not filter_internal
 level: medium
 tags:
     - attack.initial_access

@@ -36,21 +36,7 @@ HASH_PATH = MODEL_DIR / "ueba_model.sha256"
 META_PATH = MODEL_DIR / "ueba_meta.joblib"
 
 
-def _shannon_entropy(values: List[str]) -> float:
-    """Calculate Shannon entropy of a list of strings. Normalized 0-1."""
-    if not values:
-        return 0.0
-    freq: Dict[str, int] = {}
-    for v in values:
-        freq[v] = freq.get(v, 0) + 1
-    total = len(values)
-    entropy = 0.0
-    for count in freq.values():
-        p = count / total
-        if p > 0:
-            entropy -= p * math.log2(p)
-    max_entropy = math.log2(len(freq)) if len(freq) > 1 else 1.0
-    return entropy / max_entropy if max_entropy > 0 else 0.0
+from src.ai.utils import shannon_entropy as _shannon_entropy  # noqa: F401 — L-01: shared utility
 
 
 # Features to extract per user per day (updated with real calculations)
@@ -254,6 +240,9 @@ class UEBABaseline:
             ) or 0
 
             # Session duration — derived from first/last event (REAL)
+            # M-02: Note this is "activity span" not true session length.
+            # True session boundaries require login/logout pairs which aren't
+            # always available. Span is a reasonable proxy for UEBA anomaly detection.
             session_times = await conn.fetchrow(
                 """
                 SELECT MIN(time) as first_event,
@@ -320,6 +309,11 @@ class UEBABaseline:
         if len(user_names) < 3:
             log.warning("ueba_training_insufficient_data", users=len(user_names))
             return False
+
+        # M-03: We train on 1 aggregated feature vector per user.
+        # With min 3 users, the model is a rough heuristic, not statistically robust.
+        # For production: aggregate per-session features or use min_users=10+.
+        # For this SIEM portfolio project, 3 users with per-user aggregates is acceptable.
 
         # Extract features for each user
         feature_vectors = []
@@ -405,7 +399,7 @@ class UEBABaseline:
         raw_score = self.model.decision_function(X_scaled)[0]  # type: ignore[union-attr]
 
         # Convert to 0-1 scale (1 = high anomaly)
-        anomaly_score = 1 - (raw_score + 0.5)  # Normalize
+        anomaly_score = max(0.0, min(1.0, 1 - (raw_score + 0.5)))  # M-01: clamp to [0, 1]
 
         # Isolation Forest: -1 = anomaly, 1 = normal
         is_anomaly = self.model.predict(X_scaled)[0] == -1  # type: ignore[union-attr]

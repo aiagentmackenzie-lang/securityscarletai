@@ -15,8 +15,19 @@ from datetime import datetime, timezone
 from src.api.websocket import (
     _connected_clients,
     broadcast_event,
+    _clients_lock,
 )
 from src.ingestion.schemas import NormalizedEvent
+
+
+@pytest.fixture(autouse=True)
+def _isolate_connected_clients():
+    """Isolate _connected_clients between tests to prevent shared mutable state (T-09)."""
+    original = list(_connected_clients)
+    _connected_clients.clear()
+    yield
+    _connected_clients.clear()
+    _connected_clients.extend(original)
 
 
 def make_test_event(**kwargs):
@@ -42,24 +53,15 @@ class TestBroadcastEvent:
     @pytest.mark.asyncio
     async def test_broadcast_no_clients(self):
         """Should be a no-op when no clients connected."""
-        # Save and restore _connected_clients
-        original = list(_connected_clients)
-        _connected_clients.clear()
-
+        # _connected_clients is isolated by autouse fixture
         event = make_test_event()
 
         # Should not raise
         await broadcast_event(event)
 
-        # Restore
-        _connected_clients.extend(original)
-
     @pytest.mark.asyncio
     async def test_broadcast_with_connected_client(self):
         """Should send JSON message to connected clients."""
-        original = list(_connected_clients)
-        _connected_clients.clear()
-
         mock_client = MagicMock()
         mock_client.client_state = MagicMock()
         from starlette.websockets import WebSocketState
@@ -87,15 +89,9 @@ class TestBroadcastEvent:
         assert message["process_name"] == "cmd.exe"
         assert message["source_ip"] == "10.0.0.1"
 
-        _connected_clients.clear()
-        _connected_clients.extend(original)
-
     @pytest.mark.asyncio
     async def test_broadcast_removes_disconnected_client(self):
         """Should remove clients that throw exceptions."""
-        original = list(_connected_clients)
-        _connected_clients.clear()
-
         mock_client = MagicMock()
         from starlette.websockets import WebSocketState
         mock_client.client_state = WebSocketState.CONNECTED
@@ -114,14 +110,9 @@ class TestBroadcastEvent:
         # Disconnected client should be removed
         assert mock_client not in _connected_clients
 
-        _connected_clients.extend(original)
-
     @pytest.mark.asyncio
     async def test_broadcast_with_optional_none_fields(self):
         """Should handle event with None optional fields."""
-        original = list(_connected_clients)
-        _connected_clients.clear()
-
         mock_client = MagicMock()
         from starlette.websockets import WebSocketState
         mock_client.client_state = WebSocketState.CONNECTED
@@ -137,9 +128,6 @@ class TestBroadcastEvent:
         assert message["user_name"] is None
         assert message["source_ip"] is None
         assert message["destination_ip"] is None
-
-        _connected_clients.clear()
-        _connected_clients.extend(original)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -165,9 +153,6 @@ class TestBroadcastMixedClients:
     @pytest.mark.asyncio
     async def test_broadcast_to_multiple_clients(self):
         """Should send to all connected clients."""
-        original = list(_connected_clients)
-        _connected_clients.clear()
-
         from starlette.websockets import WebSocketState
 
         mock_client1 = MagicMock()
@@ -192,6 +177,3 @@ class TestBroadcastMixedClients:
 
         mock_client1.send_json.assert_called_once()
         mock_client2.send_json.assert_called_once()
-
-        _connected_clients.clear()
-        _connected_clients.extend(original)

@@ -143,6 +143,36 @@ class RiskScorer:
         # Threat intel
         factors.threat_intel_hits = min(ti_hits / 5, 1.0) if ti_hits else 0.0
 
+        # UEBA anomaly score — fetch from UEBA if available
+        try:
+            from src.ai.ueba import UEBAEngine
+            ueba_engine = UEBAEngine()
+            anomaly = await ueba_engine.get_user_anomaly_score("__host__" + hostname)
+            factors.anomaly_score = max(0.0, min(1.0, anomaly or 0.0))
+        except Exception:
+            factors.anomaly_score = 0.0
+
+        # Exposure score — internet-facing host check
+        try:
+            # A host is exposed if it has inbound connections from non-RFC1918 IPs
+            exposed = await conn.fetchval(
+                """
+                SELECT COUNT(*)
+                FROM logs
+                WHERE host_name = $1
+                  AND source_ip NOT << '10.0.0.0/8'::inet
+                  AND source_ip NOT << '192.168.0.0/16'::inet
+                  AND source_ip NOT << '172.16.0.0/12'::inet
+                  AND time > NOW() - INTERVAL '1 hour' * $2
+                  AND event_category = 'network'
+                """,
+                hostname,
+                hours,
+            )
+            factors.exposure_score = min(exposed / 10, 1.0) if exposed else 0.0
+        except Exception:
+            factors.exposure_score = 0.0
+
         # Calculate weighted risk
         risk_score = (
             factors.alert_severity * RiskScorer.FACTOR_WEIGHTS["alert_severity"] +
@@ -160,6 +190,8 @@ class RiskScorer:
                 "alert_severity": round(factors.alert_severity, 2),
                 "alert_count": round(factors.alert_count, 2),
                 "threat_intel_hits": round(factors.threat_intel_hits, 2),
+                "anomaly_score": round(factors.anomaly_score, 2),
+                "exposure_score": round(factors.exposure_score, 2),
             },
             "open_high_critical_alerts": open_alerts or 0,
             "calculation_time": datetime.now().isoformat(),
@@ -178,16 +210,19 @@ class RiskScorer:
         """
         pool = await get_pool()
         async with pool.acquire() as conn:
-            # Alerts involving user — parameterized interval
+            # Alerts involving user — correlated via host_name, NOT Cartesian JOIN
             user_alerts = await conn.fetchrow(
                 """
                 SELECT
-                    COUNT(*) FILTER (WHERE severity = 'critical') as critical,
-                    COUNT(*) FILTER (WHERE severity = 'high') as high,
+                    COUNT(*) FILTER (WHERE a.severity = 'critical') as critical,
+                    COUNT(*) FILTER (WHERE a.severity = 'high') as high,
                     COUNT(*) FILTER (WHERE a.status = 'new') as open_count
                 FROM alerts a
-                JOIN logs l ON l.user_name = $1
-                WHERE l.time > NOW() - INTERVAL '1 hour' * $2
+                WHERE a.host_name IN (
+                    SELECT DISTINCT host_name FROM logs
+                    WHERE user_name = $1 AND time > NOW() - INTERVAL '1 hour' * $2
+                )
+                AND a.time > NOW() - INTERVAL '1 hour' * $2
                 """,
                 username,
                 hours,
@@ -245,30 +280,46 @@ class RiskScorer:
 
     @staticmethod
     async def get_top_risk_assets(limit: int = 10) -> List[Dict]:
-        """Get highest risk assets."""
+        """Get highest risk assets.
+
+        M-13 fix: Batch into single query instead of N+1 per-host calls.
+        """
         pool = await get_pool()
         async with pool.acquire() as conn:
-            # Get active hosts
             rows = await conn.fetch(
                 """
-                SELECT DISTINCT host_name
-                FROM logs
-                WHERE time > NOW() - INTERVAL '24 hours'
-                LIMIT 50
-                """
+                SELECT
+                    l.host_name,
+                    COALESCE(a.risk_score, 50.0) as base_risk,
+                    COUNT(DISTINCT al.id) FILTER (WHERE al.severity = 'critical') as crit_alerts,
+                    COUNT(DISTINCT al.id) FILTER (WHERE al.severity = 'high') as high_alerts,
+                    COUNT(DISTINCT al.id) as total_alerts,
+                    COUNT(DISTINCT l.id) FILTER (WHERE l.event_category = 'network' AND l.source_ip IS NOT NULL) as outbound_conns
+                FROM (SELECT DISTINCT host_name FROM logs WHERE time > NOW() - INTERVAL '24 hours' LIMIT 50) l
+                LEFT JOIN alerts al ON al.host_name = l.host_name AND al.time > NOW() - INTERVAL '24 hours'
+                LEFT JOIN assets a ON a.hostname = l.host_name
+                GROUP BY l.host_name, a.risk_score
+                ORDER BY COALESCE(a.risk_score, 50.0) + COUNT(DISTINCT al.id) FILTER (WHERE al.severity = 'critical') * 20 + COUNT(DISTINCT al.id) FILTER (WHERE al.severity = 'high') * 10 DESC
+                LIMIT $1
+                """,
+                limit,
             )
-            hosts = [r["host_name"] for r in rows]
 
-        # Score each host
         scored = []
-        for host in hosts:
-            score = await RiskScorer.calculate_asset_risk(host)
-            scored.append(score)
+        for r in rows:
+            base_risk = float(r["base_risk"])
+            crit_bonus = (r["crit_alerts"] or 0) * 20
+            high_bonus = (r["high_alerts"] or 0) * 10
+            risk_score = min(100.0, base_risk + crit_bonus + high_bonus)
+            scored.append({
+                "host_name": r["host_name"],
+                "risk_score": risk_score,
+                "total_alerts": r["total_alerts"] or 0,
+                "critical_alerts": r["crit_alerts"] or 0,
+                "high_alerts": r["high_alerts"] or 0,
+            })
 
-        # Sort by risk score
-        scored.sort(key=lambda x: x["risk_score"], reverse=True)
-
-        return scored[:limit]
+        return scored
 
     @staticmethod
     async def get_top_risk_users(limit: int = 10) -> List[Dict]:

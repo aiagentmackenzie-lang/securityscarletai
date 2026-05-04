@@ -10,7 +10,9 @@ Usage in Streamlit views:
     alerts = api.get_alerts(status="new", limit=50)
 """
 import os
+import re
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import streamlit as st
@@ -174,9 +176,11 @@ class ApiClient:
 
     @staticmethod
     def logout():
-        """Clear session state."""
-        for key in ("access_token", "username", "role"):
-            st.session_state.pop(key, None)
+        """Clear session state — L-09 fix: clear all auth-related keys."""
+        for key in list(st.session_state.keys()):
+            if key in ("access_token", "username", "role", "authenticated",
+                       "user_verified", "last_role_verify", "api_client"):
+                st.session_state.pop(key, None)
 
     # ───────────────────────────────────────────────────────────
     # Health
@@ -333,7 +337,10 @@ class ApiClient:
 
     def lookup_ip(self, ip: str) -> dict:
         """Look up an IP in threat intel feeds."""
-        return self._get(f"/threat-intel/lookup/ip/{ip}") or {}
+        # Validate IP format to prevent path traversal
+        if not re.match(r'^[0-9]{1,3}(\.[0-9]{1,3}){3}$', ip):
+            raise ApiError(400, f"Invalid IP address format: {ip}")
+        return self._get(f"/threat-intel/lookup/ip/{quote(ip, safe='')}") or {}
 
     def refresh_threat_intel(self) -> dict:
         """Trigger threat intel feed refresh."""

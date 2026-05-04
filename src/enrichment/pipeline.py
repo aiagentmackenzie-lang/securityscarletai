@@ -19,6 +19,47 @@ from src.config.logging import get_logger
 log = get_logger("enrichment")
 
 
+# ───────────────────────────────────────────────────────────────
+# Singleton GeoIP reader — initialized once, reused for all lookups
+# ───────────────────────────────────────────────────────────────
+_geoip_reader = None
+_geoip_loaded = False
+
+
+def _get_geoip_reader():
+    """Get or initialize the singleton GeoIP reader."""
+    global _geoip_reader, _geoip_loaded
+
+    if _geoip_loaded:
+        return _geoip_reader
+
+    _geoip_loaded = True  # Mark as attempted (don't retry on every call)
+    try:
+        import geoip2.database
+        _geoip_reader = geoip2.database.Reader("data/GeoLite2-City.mmdb")
+        return _geoip_reader
+    except FileNotFoundError:
+        log.debug("geoip_db_not_found")
+        _geoip_reader = None
+        return None
+    except Exception as e:
+        log.debug("geoip_init_failed", error=str(e))
+        _geoip_reader = None
+        return None
+
+
+def close_geoip_reader():
+    """Close the singleton GeoIP reader (call on shutdown)."""
+    global _geoip_reader, _geoip_loaded
+    if _geoip_reader:
+        try:
+            _geoip_reader.close()
+        except Exception:
+            pass
+        _geoip_reader = None
+        _geoip_loaded = False
+
+
 def is_public_ip(ip_str: str | None) -> bool:
     """Check if an IP is routable (not private, loopback, or link-local)."""
     if not ip_str:
@@ -34,12 +75,16 @@ async def enrich_geoip(ip: str) -> dict[str, Any]:
 
     Requires GeoLite2-City.mmdb in data/ directory.
     Returns empty dict if not available.
+    Uses singleton reader to avoid file handle leaks.
     """
     if not is_public_ip(ip):
         return {}
+
+    reader = _get_geoip_reader()
+    if reader is None:
+        return {}
+
     try:
-        import geoip2.database
-        reader = geoip2.database.Reader("data/GeoLite2-City.mmdb")
         response = reader.city(ip)
         return {
             "geo": {
@@ -50,9 +95,6 @@ async def enrich_geoip(ip: str) -> dict[str, Any]:
                 "longitude": response.location.longitude,
             }
         }
-    except FileNotFoundError:
-        log.debug("geoip_db_not_found")
-        return {}
     except Exception as e:
         log.debug("geoip_lookup_failed", ip=ip, error=str(e))
         return {}
@@ -128,13 +170,10 @@ async def enrich_event(event) -> dict[str, Any]:
         if ti:
             dest_enrichment.update(ti)
 
-        # Store destination enrichment under separate key
+        # Always namespace destination enrichment under "destination" key
+        # to prevent overwriting source IP enrichment data
         if dest_enrichment:
-            # If source already had enrichment, namespace the dest enrichment
-            if enrichment:
-                enrichment["destination"] = dest_enrichment
-            else:
-                enrichment.update(dest_enrichment)
+            enrichment["destination"] = dest_enrichment
 
     # ── Severity boost ──────────────────────────────────────────
     # If threat intel found a match, boost the event severity

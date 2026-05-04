@@ -180,8 +180,8 @@ class TestHuntFromAlert:
                     "matched_mitre": list(overlap),
                 })
 
-        # Should find at least the privilege escalation hunt
-        assert len(matching_hunts) >= 0  # Depends on MITRE overlap
+        # Should find at least the brute-force hunt (T1110 overlap)
+        assert len(matching_hunts) >= 1, f"Expected >=1 matching hunt, got {len(matching_hunts)}"
 
     @pytest.mark.asyncio
     async def test_hunt_from_alert_not_found(self):

@@ -9,15 +9,19 @@ logsource:
 detection:
     selection_curl_exec:
         process_name: bash
-        process_cmdline|contains: curl
-        process_cmdline|contains: sh
+        process_cmdline|contains:
+            - curl
+            - sh
     selection_wget_exec:
         process_name: bash
-        process_cmdline|contains: wget
+        process_cmdline|contains:
+            - wget
+            - sh
     selection_powershell_download:
         process_name: python
-        process_cmdline|contains: urllib
-        process_cmdline|contains: exec
+        process_cmdline|contains:
+            - urllib
+            - exec
     condition: selection_curl_exec or selection_wget_exec or selection_powershell_download
 level: high
 tags:

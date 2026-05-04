@@ -18,7 +18,7 @@ detection:
     selection_hosts:
         file_path|contains: /etc/hosts
         event_action|contains: modification
-    condition: selection_shadow or selection_ssh or selection_ssh_keys or selection_kerberos
+    condition: selection_shadow or selection_ssh or selection_ssh_keys or selection_kerberos or selection_hosts
 level: high
 tags:
     - attack.credential_access

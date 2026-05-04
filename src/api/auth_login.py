@@ -72,28 +72,27 @@ async def login(request: LoginRequest):
             request.username,
         )
 
-    if row is None:
-        # Don't reveal whether user exists — constant-time check
-        hash_password("dummy")  # Burn equivalent CPU time
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
-        )
+        if row is None:
+            # Don't reveal whether user exists — constant-time check
+            hash_password("dummy")  # Burn equivalent CPU time
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password",
+            )
 
-    if not row["is_active"]:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Account is disabled",
-        )
+        if not row["is_active"]:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Account is disabled",
+            )
 
-    if not verify_password(request.password, row["password_hash"]):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
-        )
+        if not verify_password(request.password, row["password_hash"]):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password",
+            )
 
-    # Update last_login
-    async with pool.acquire() as conn:
+        # M-21 fix: Update last_login in same connection/transaction
         await conn.execute(
             "UPDATE siem_users SET last_login = NOW() WHERE id = $1",
             row["id"],
@@ -174,28 +173,39 @@ async def change_password(
 async def seed_admin_user():
     """
     Create an initial admin user if no users exist.
-    This endpoint is only available when the siem_users table is empty.
+   
+    Race-condition safe: uses advisory lock + INSERT ... ON CONFLICT DO NOTHING
+    so concurrent requests cannot create duplicate admin accounts.
     Default credentials: admin / admin (must be changed after first login).
     """
     pool = await get_pool()
-    async with pool.acquire() as conn:
-        user_count = await conn.fetchval("SELECT COUNT(*) FROM siem_users")
+    admin_hash = hash_password("admin")
 
-    if user_count > 0:
+    async with pool.acquire() as conn:
+        # Advisory lock prevents race condition: only one seed at a time
+        await conn.execute("SELECT pg_advisory_lock(12345)")
+        try:
+            # Check + insert atomically within the same transaction + lock
+            result = await conn.fetchrow(
+                """
+                INSERT INTO siem_users (username, email, password_hash, role)
+                SELECT $1, $2, $3, $4
+                WHERE NOT EXISTS (SELECT 1 FROM siem_users)
+                ON CONFLICT DO NOTHING
+                RETURNING username
+                """,
+                "admin",
+                "admin@localhost",
+                admin_hash,
+                "admin",
+            )
+        finally:
+            await conn.execute("SELECT pg_advisory_unlock(12345)")
+
+    if result is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Users already exist. Use the login endpoint.",
-        )
-
-    # Create default admin user
-    admin_hash = hash_password("admin")
-    async with pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO siem_users (username, email, password_hash, role) VALUES ($1, $2, $3, $4)",
-            "admin",
-            "admin@localhost",
-            admin_hash,
-            "admin",
         )
 
     log.warning("seed_admin_created", message="Default admin user created — CHANGE PASSWORD IMMEDIATELY")  # noqa: E501

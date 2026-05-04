@@ -47,9 +47,18 @@ def render_log_viewer():
     category = None if category_filter == "All" else category_filter
     host = host_filter if host_filter else None
 
+    # L-05 fix: Wire time_range into API call
+    time_map = {
+        "Last 15 minutes": 15,
+        "Last 1 hour": 60,
+        "Last 6 hours": 360,
+        "Last 24 hours": 1440,
+    }
+    time_minutes = time_map.get(time_range, 60)  # default 1h
+
     with st.spinner("Loading log entries...", show_time=True):
         try:
-            logs = api.get_logs(limit=limit, category=category, host=host)
+            logs = api.get_logs(limit=limit, category=category, host=host, time_minutes=time_minutes)
         except ApiError as e:
             if e.status_code == 401:
                 st.error("Session expired. Please log in again.")

@@ -28,7 +28,7 @@ async def main():
         import json
         try:
             evidence = json.loads(alert["evidence"]) if alert["evidence"] else {}
-        except:
+        except (json.JSONDecodeError, ValueError):
             evidence = {}
         
         analysis = await analyze_alert(
