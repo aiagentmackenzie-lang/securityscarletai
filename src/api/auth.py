@@ -84,14 +84,22 @@ def require_role(min_role: str):
     return _check_role
 
 
-def create_jwt(username: str, role: str) -> str:
-    """Create a JWT token for dashboard authentication."""
+def create_jwt(username: str, role: str, extra: dict | None = None) -> str:
+    """Create a JWT token for dashboard authentication.
+
+    Args:
+        username: Subject claim
+        role: User role (admin, analyst, viewer)
+        extra: Optional extra claims to include (e.g. force_password_change)
+    """
     payload = {
         "sub": username,
         "role": role,
         "exp": datetime.now(tz=timezone.utc) + timedelta(hours=JWT_EXPIRY_HOURS),
         "iat": datetime.now(tz=timezone.utc),
     }
+    if extra:
+        payload.update(extra)
     return jwt.encode(payload, settings.api_secret_key, algorithm=JWT_ALGORITHM)
 
 

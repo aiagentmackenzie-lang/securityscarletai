@@ -154,14 +154,15 @@ END $$;
 -- USERS — SIEM operators (not endpoint users)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS siem_users (
-    id             SERIAL PRIMARY KEY,
-    username       TEXT NOT NULL UNIQUE,
-    email          TEXT UNIQUE,
-    password_hash  TEXT NOT NULL,           -- bcrypt with 12 rounds minimum
-    role           TEXT NOT NULL DEFAULT 'analyst' CHECK (role IN ('admin', 'analyst', 'viewer')),
-    is_active      BOOLEAN NOT NULL DEFAULT true,
-    last_login     TIMESTAMPTZ,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                    SERIAL PRIMARY KEY,
+    username               TEXT NOT NULL UNIQUE,
+    email                 TEXT UNIQUE,
+    password_hash         TEXT NOT NULL,           -- bcrypt(SHA-256(password)) — M-10 fix
+    role                  TEXT NOT NULL DEFAULT 'analyst' CHECK (role IN ('admin', 'analyst', 'viewer')),
+    is_active             BOOLEAN NOT NULL DEFAULT true,
+    must_change_password  BOOLEAN NOT NULL DEFAULT false,  -- M-10 migration: force reset on first login
+    last_login            TIMESTAMPTZ,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 

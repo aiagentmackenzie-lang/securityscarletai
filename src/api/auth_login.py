@@ -55,6 +55,12 @@ class UserInfoResponse(BaseModel):
     email: str | None
     is_active: bool
     last_login: datetime | None
+    must_change_password: bool = False
+
+
+class ForceChangePasswordRequest(BaseModel):
+    """Used when must_change_password is true — no current password required."""
+    new_password: str = Field(..., min_length=8, max_length=200)
 
 
 # ───────────────────────────────────────────────────────────────
@@ -68,7 +74,7 @@ async def login(request: LoginRequest):
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT id, username, password_hash, role, is_active FROM siem_users WHERE username = $1",  # noqa: E501
+            "SELECT id, username, password_hash, role, is_active, must_change_password FROM siem_users WHERE username = $1",  # noqa: E501
             request.username,
         )
 
@@ -90,6 +96,27 @@ async def login(request: LoginRequest):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid username or password",
+            )
+
+        # M-10 migration: enforce password change if flagged
+        if row.get("must_change_password", False):
+            # Issue a short-lived token that can ONLY be used for password change
+            force_token = create_jwt(
+                row["username"],
+                row["role"],
+                extra={"force_password_change": True},
+            )
+            log.warning(
+                "login_blocked_password_reset_required",
+                username=row["username"],
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "message": "Password change required before login",
+                    "code": "PASSWORD_CHANGE_REQUIRED",
+                    "force_change_token": force_token,
+                },
             )
 
         # M-21 fix: Update last_login in same connection/transaction
@@ -122,7 +149,7 @@ async def get_current_user(payload: dict = Depends(verify_jwt)):
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT username, role, email, is_active, last_login FROM siem_users WHERE username = $1",  # noqa: E501
+            "SELECT username, role, email, is_active, last_login, must_change_password FROM siem_users WHERE username = $1",  # noqa: E501
             payload["sub"],
         )
 
@@ -160,13 +187,43 @@ async def change_password(
     new_hash = hash_password(request.new_password)
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE siem_users SET password_hash = $1 WHERE id = $2",
+            "UPDATE siem_users SET password_hash = $1, must_change_password = false WHERE id = $2",
             new_hash,
             row["id"],
         )
 
     log.info("password_changed", username=payload["sub"])
     return {"message": "Password changed successfully"}
+
+
+@router.post("/force-change-password")
+async def force_change_password(
+    request: ForceChangePasswordRequest,
+    payload: dict = Depends(verify_jwt),
+):
+    """Force password change when must_change_password is true.
+
+    This endpoint is called with the force_change_token from the 403 response.
+    It does NOT require the current password — used for migration flow only.
+    The token must contain 'force_password_change': True.
+    """
+    if not payload.get("force_password_change"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This endpoint requires a force_password_change token",
+        )
+
+    new_hash = hash_password(request.new_password)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE siem_users SET password_hash = $1, must_change_password = false WHERE username = $2",
+            new_hash,
+            payload["sub"],
+        )
+
+    log.info("force_password_changed", username=payload["sub"])
+    return {"message": "Password changed successfully. You can now log in normally."}
 
 
 @router.post("/seed-admin")
