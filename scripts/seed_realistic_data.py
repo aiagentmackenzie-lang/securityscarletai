@@ -138,7 +138,7 @@ def main():
 
     for i in range(0, len(events), 50):
         batch = events[i:i+50]
-        resp = httpx.post(API, json=batch, headers={"Authorization": f"Bearer {TOKEN}"}, timeout=10)
+        resp = httpx.post(API_BASE, json=batch, headers={"Authorization": f"Bearer {TOKEN}"}, timeout=10)
         print(f"  Batch {i//50+1}: {resp.status_code} - {resp.json()}")
 
     print(f"\nDone! {len(events)} events ingested.")

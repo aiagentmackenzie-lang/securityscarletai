@@ -100,8 +100,17 @@ class FileShipper:
             return 0
 
     def _save_checkpoint(self) -> None:
-        """Persist the current byte offset."""
-        CHECKPOINT_FILE.write_text(str(self._offset))
+        """Persist the current byte offset.
+
+        M-20 fix: Use atomic write via temp file + os.replace()
+        to prevent corruption from crash mid-write.
+        """
+        temp_file = CHECKPOINT_FILE.with_suffix(".tmp")
+        try:
+            temp_file.write_text(str(self._offset))
+            os.replace(temp_file, CHECKPOINT_FILE)
+        except OSError as e:
+            log.error("checkpoint_save_failed", error=str(e))
 
     def stop(self) -> None:
         self._running = False

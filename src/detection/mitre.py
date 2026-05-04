@@ -15,7 +15,9 @@ log = get_logger("detection.mitre")
 
 # MITRE ATT&CK STIX data URL
 ATTACK_STIX_URL = "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack.json"
-CACHE_FILE = Path.home() / ".scarletai_mitre_cache.json"
+# M-14 fix: Move cache to project-local data/ directory with version
+CACHE_DIR = Path(__file__).parent.parent.parent / "data"
+CACHE_FILE = CACHE_DIR / "mitre_attack_cache_v14.json"  # versioned filename
 
 
 class MitreAttackData:
@@ -88,6 +90,7 @@ class MitreAttackData:
                             }
 
         # Save cache
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
         with open(CACHE_FILE, "w") as f:
             json.dump({
                 "tactics": self._tactics,

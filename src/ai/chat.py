@@ -208,9 +208,9 @@ async def chat(message: str, session_context: Optional[str] = None) -> Dict[str,
 
 User Question: {sanitized}
 
-Answer the user's question based on the security context above. "
-    "Be specific about alerts, hosts, and priorities. "
-    "If you mention specific alerts, reference their IDs."""
+Answer the user's question based on the security context above.
+Be specific about alerts, hosts, and priorities.
+If you mention specific alerts, reference their IDs."""
 
     log.info("chat_request", message=sanitized[:50])
 

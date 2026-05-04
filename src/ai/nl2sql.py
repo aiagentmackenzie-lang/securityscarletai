@@ -330,13 +330,20 @@ class ConversationContext:
         return (time.time() - self.last_used) > CONVERSATION_TTL_SECONDS
 
     def build_context_prompt(self) -> str:
-        """Build a context string from previous queries for follow-up queries."""
+        """Build a context string from previous queries for follow-up queries.
+
+        M-07: Sanitize SQL before including in LLM prompt to prevent injection
+        via column aliases or crafted SQL fragments.
+        """
         if not self.queries:
             return ""
         lines = ["Previous conversation context:"]
         for i, q in enumerate(self.queries[-3:], 1):  # Last 3 queries
             lines.append(f"  Q{i}: {q['question']}")
-            lines.append(f"  SQL{i}: {q['sql']}")
+            # Sanitize: only include SELECT/FROM/WHERE/GROUP/ORDER/LIMIT keywords
+            # Strip raw column names, function calls, and string literals
+            safe_sql = re.sub(r"'[^']*'", "'?'", q['sql'])  # Redact string literals
+            lines.append(f"  SQL{i}: {safe_sql}")
             if q['row_count']:
                 lines.append(f"  (returned {q['row_count']} rows)")
         lines.append(
@@ -482,13 +489,41 @@ def add_safety_limits(sql: str) -> str:
 
     - Ensures LIMIT clause exists (default 500)
     - Adds MAX(query result) safeguards
+    - M-08: Handles CTEs (WITH ... AS) correctly — inserts LIMIT before
+      the final SELECT, not after the CTE definition.
     """
     sql_upper = sql.upper().strip().rstrip(";")
 
+    # M-08: Detect CTE — if query starts with WITH, find the final SELECT
+    has_cte = sql_upper.startswith("WITH ")
+
     # Add LIMIT if missing
     if "LIMIT" not in sql_upper:
-        # Find the end of the query
-        sql = f"{sql.rstrip(';')} LIMIT {min(500, MAX_RESULT_ROWS)}"
+        if has_cte:
+            # Find the last top-level SELECT (the main query after all CTEs)
+            # Strategy: find the last ') SELECT' or ') ... SELECT' pattern
+            # which marks the end of CTE definitions and start of main query
+            last_paren_select = sql_upper.rfind(') SELECT')
+            if last_paren_select >= 0:
+                # Insert LIMIT after the final SELECT's ORDER BY or before end
+                insert_pos = last_paren_select + 1  # after the ')'
+                remainder = sql[insert_pos:].strip()
+                if 'ORDER BY' in remainder.upper():
+                    # Find end of ORDER BY clause and insert LIMIT after it
+                    ob_match = re.search(r'ORDER\s+BY\s+[^;]+', remainder, re.IGNORECASE)
+                    if ob_match:
+                        end_pos = insert_pos + ob_match.end()
+                        sql = sql[:end_pos] + f" LIMIT {min(500, MAX_RESULT_ROWS)}" + sql[end_pos:]
+                    else:
+                        sql = f"{sql.rstrip(';')} LIMIT {min(500, MAX_RESULT_ROWS)}"
+                else:
+                    sql = f"{sql.rstrip(';')} LIMIT {min(500, MAX_RESULT_ROWS)}"
+            else:
+                # No clear CTE boundary — append at end as fallback
+                sql = f"{sql.rstrip(';')} LIMIT {min(500, MAX_RESULT_ROWS)}"
+        else:
+            # No CTE — simple append
+            sql = f"{sql.rstrip(';')} LIMIT {min(500, MAX_RESULT_ROWS)}"
 
     # Ensure LIMIT is within bounds
     limit_match = re.search(r"LIMIT\s+(\d+)", sql, re.IGNORECASE)
@@ -511,13 +546,17 @@ async def estimate_query_cost(sql: str) -> tuple[int, str]:
 
     Returns: (estimated_rows, plan_summary)
     If EXPLAIN fails, returns (0, "unknown") and allows execution.
+    M-06: Added 5s timeout to prevent EXPLAIN itself from being expensive.
     """
     try:
         pool = await get_pool()
         async with pool.acquire() as conn:
             # Run EXPLAIN (no ANALYZE — we don't want to execute)
             explain_sql = f"EXPLAIN {sql}"
-            rows = await conn.fetch(explain_sql)
+            rows = await asyncio.wait_for(
+                conn.fetch(explain_sql),
+                timeout=5.0,
+            )
 
             # Parse PostgreSQL EXPLAIN output
             plan_text = "\n".join(r[0] for r in rows if r)

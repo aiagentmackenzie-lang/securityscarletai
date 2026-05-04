@@ -185,7 +185,12 @@ async def _is_suppressed(
 
     H-11 fix: A suppression rule must match at least one of rule_name
     or host_name (both cannot be NULL), otherwise it would suppress ALL alerts.
+    M-12 fix: Critical and high-severity alerts are never suppressed.
     """
+    # M-12: Never suppress critical or high-severity alerts
+    if severity in ("critical", "high"):
+        return False
+
     row = await conn.fetchrow(
         """
         SELECT id FROM alert_suppressions

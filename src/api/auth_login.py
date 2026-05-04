@@ -72,28 +72,27 @@ async def login(request: LoginRequest):
             request.username,
         )
 
-    if row is None:
-        # Don't reveal whether user exists — constant-time check
-        hash_password("dummy")  # Burn equivalent CPU time
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
-        )
+        if row is None:
+            # Don't reveal whether user exists — constant-time check
+            hash_password("dummy")  # Burn equivalent CPU time
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password",
+            )
 
-    if not row["is_active"]:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Account is disabled",
-        )
+        if not row["is_active"]:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Account is disabled",
+            )
 
-    if not verify_password(request.password, row["password_hash"]):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
-        )
+        if not verify_password(request.password, row["password_hash"]):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password",
+            )
 
-    # Update last_login
-    async with pool.acquire() as conn:
+        # M-21 fix: Update last_login in same connection/transaction
         await conn.execute(
             "UPDATE siem_users SET last_login = NOW() WHERE id = $1",
             row["id"],
