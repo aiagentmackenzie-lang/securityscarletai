@@ -13,6 +13,7 @@ Features:
 import csv
 import io
 import json
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -49,21 +50,24 @@ async def create_alert(
     Create a new alert with deduplication, severity escalation, and notification.
 
     Steps:
-    1. Check deduplication — suppress if same rule+host within window
+    1. Insert alert atomically with dedup_key (INSERT ... ON CONFLICT for race safety)
     2. Check escalation — bump severity if same rule fires frequently
     3. Check suppression rules — suppress if whitelisted
-    4. Insert alert
-    5. Trigger notifications
+    4. Trigger notifications
 
     Args:
         dedup_window_seconds: Deduplication window in seconds (default 15 min)
 
     Returns:
-        The ID of the created alert (or existing alert ID if suppressed)
+        The ID of the created alert, or -1 if suppressed/deduplicated
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
-        # ── Step 1: Deduplication ────────────────────────────
+        # ── Step 1: Insert with dedup check (race-safe) ───────
+        # Use advisory lock per (rule_id, host_name) to prevent TOCTOU races
+        lock_key = (rule_id * 1000 + hash(host_name)) % (2**31)
+        await conn.execute("SELECT pg_advisory_xact_lock($1)", lock_key)
+
         existing = await conn.fetchrow(
             """
             SELECT id FROM alerts
@@ -85,17 +89,17 @@ async def create_alert(
                 host_name=host_name,
                 alert_id=existing["id"],
             )
-            return existing["id"]
+            return -1  # Dedup hit — indicate suppression
 
-        # ── Step 2: Severity escalation ──────────────────────
+        # ── Step 2: Check escalation BEFORE insert ───────────
         escalated_severity = await _check_severity_escalation(
             conn, rule_id, host_name, severity
         )
 
-        # ── Step 3: Suppression rules ────────────────────────
+        # ── Step 3: Check suppression rules ──────────────────
         if await _is_suppressed(conn, rule_name, host_name, escalated_severity):
             log.info("alert_suppressed_by_rule", rule_name=rule_name, host_name=host_name)
-            return 0  # Suppressed — no alert created
+            return -1  # Suppressed — no alert created
 
         # ── Step 4: Insert alert ─────────────────────────────
         alert_id = await conn.fetchval(
@@ -142,7 +146,9 @@ async def _check_severity_escalation(
     Check if the same rule has fired enough times to warrant severity escalation.
 
     If same rule fires ESCALATION_FIRE_THRESHOLD times within the lookback window,
-    bump severity one level.
+    bump severity one level. Off-by-one fixed: includes the current alert count
+    (which is about to be inserted), so threshold is checked against >= (THRESHOLD - 1)
+    existing alerts since the current one will make it THRESHOLD.
     """
     recent_count = await conn.fetchval(
         """
@@ -157,7 +163,8 @@ async def _check_severity_escalation(
         ESCALATION_WINDOW_HOURS,
     )
 
-    if recent_count >= ESCALATION_FIRE_THRESHOLD:
+    # +1 for the alert about to be created; escalate if total >= threshold
+    if recent_count + 1 >= ESCALATION_FIRE_THRESHOLD:
         current_idx = SEVERITY_INDEX.get(current_severity, 2)
         new_idx = min(current_idx + 1, len(SEVERITY_ORDER) - 1)
         new_severity = SEVERITY_ORDER[new_idx]
@@ -165,7 +172,7 @@ async def _check_severity_escalation(
             log.info("severity_escalated",
                      rule_id=rule_id, host_name=host_name,
                      from_severity=current_severity, to_severity=new_severity,
-                     recent_count=recent_count)
+                     recent_count=recent_count + 1)
             return new_severity
 
     return current_severity
@@ -174,13 +181,18 @@ async def _check_severity_escalation(
 async def _is_suppressed(
     conn, rule_name: str, host_name: str, severity: str
 ) -> bool:
-    """Check if an alert should be suppressed by suppression rules."""
+    """Check if an alert should be suppressed by suppression rules.
+
+    H-11 fix: A suppression rule must match at least one of rule_name
+    or host_name (both cannot be NULL), otherwise it would suppress ALL alerts.
+    """
     row = await conn.fetchrow(
         """
         SELECT id FROM alert_suppressions
         WHERE (rule_name = $1 OR rule_name IS NULL)
           AND (host_name = $2 OR host_name IS NULL)
           AND enabled = TRUE
+          AND (rule_name IS NOT NULL OR host_name IS NOT NULL)
         LIMIT 1
         """,
         rule_name,
@@ -216,12 +228,14 @@ async def _send_alert_notification(
 ) -> None:
     """Send alert notification via configured channels (Slack, email)."""
     try:
-        from src.response.notifications import send_notification
-        await send_notification(
-            title=f"[{severity.upper()}] {rule_name}",
-            body=f"Host: {host_name}\n{description}\nAlert ID: {alert_id}",
-            severity=severity,
-        )
+        from src.response.notifications import send_alert_notification
+        await send_alert_notification({
+            "severity": severity,
+            "rule_name": rule_name,
+            "host_name": host_name,
+            "description": description,
+            "time": datetime.now(timezone.utc).isoformat(),
+        })
     except Exception as e:
         log.warning("notification_failed", alert_id=alert_id, error=str(e))
 
@@ -430,7 +444,13 @@ async def create_suppression_rule(
     reason: str,
     created_by: str = "admin",
 ) -> int:
-    """Create an alert suppression rule (false positive whitelist)."""
+    """Create an alert suppression rule (false positive whitelist).
+
+    H-11 fix: At least one of rule_name or host_name must be provided.
+    A suppression with both NULL would suppress ALL alerts.
+    """
+    if rule_name is None and host_name is None:
+        raise ValueError("Suppression rule must specify at least rule_name or host_name")
     pool = await get_pool()
     async with pool.acquire() as conn:
         # Create table if not exists (lazy migration)
@@ -535,11 +555,11 @@ async def export_alerts_stix(hours: int = 24) -> dict:
     objects = []
     for row in rows:
         d = dict(row)
-        # Generate STIX Indicator object
+        # Generate STIX Indicator object with valid UUID and STIX pattern
         indicator = {
             "type": "indicator",
             "spec_version": "2.1",
-            "id": f"indicator--{d['id']:012d}",
+            "id": f"indicator--{uuid.uuid4()}",
             "created": (
                 d["time"].isoformat()
                 if isinstance(d["time"], datetime)
@@ -552,7 +572,10 @@ async def export_alerts_stix(hours: int = 24) -> dict:
             ),
             "name": d["rule_name"],
             "description": d["description"],
-            "pattern": f"[host_name = '{d['host_name']}']",
+            "pattern": (
+                f"[network-traffic:dst_ref.type = 'hostname' "
+                f"AND network-traffic:dst_ref.value = '{d['host_name']}']"
+            ),
             "pattern_type": "stix",
             "valid_from": (
                 d["time"].isoformat()
@@ -566,7 +589,7 @@ async def export_alerts_stix(hours: int = 24) -> dict:
 
     bundle = {
         "type": "bundle",
-        "id": "bundle--securityscarletai-export",
+        "id": f"bundle--{uuid.uuid4()}",
         "objects": objects,
     }
 

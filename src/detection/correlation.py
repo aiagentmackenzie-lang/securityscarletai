@@ -99,7 +99,7 @@ async def detect_brute_force_then_success(
                 OVER (
                     PARTITION BY host_name, source_ip
                     ORDER BY time
-                    RANGE BETWEEN INTERVAL '1 minute' * $2 PRECEDING AND CURRENT ROW
+                    RANGE BETWEEN '$2 minutes'::interval PRECEDING AND CURRENT ROW
                 ) AS failed_count
         FROM logs
         WHERE event_category = 'authentication'
@@ -297,9 +297,10 @@ async def detect_data_exfiltration(
           AND destination_ip IS NOT NULL
           AND NOT destination_ip <<= $1::inet
           AND NOT destination_ip <<= $2::inet
-          AND time > NOW() - INTERVAL '1 hour' * $3
+          AND NOT destination_ip <<= $3::inet
+          AND time > NOW() - INTERVAL '1 hour' * $4
         GROUP BY host_name, destination_ip
-        HAVING SUM(COALESCE((enrichment->>'bytes_sent')::bigint, 0)) > $4
+        HAVING SUM(COALESCE((enrichment->>'bytes_sent')::bigint, 0)) > $5
     )
     SELECT
         host_name,
@@ -315,10 +316,11 @@ async def detect_data_exfiltration(
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             sql,
-            "10.0.0.0/8",       # $1 - RFC1918 range 1
-            "192.168.0.0/16",   # $2 - RFC1918 range 2
-            lookback_hours,     # $3
-            threshold_bytes,    # $4
+            "10.0.0.0/8",        # $1 - RFC1918 range 1
+            "192.168.0.0/16",    # $2 - RFC1918 range 2
+            "172.16.0.0/12",     # $3 - RFC1918 range 3
+            lookback_hours,     # $4
+            threshold_bytes,    # $5
         )
         results = []
         for row in rows:

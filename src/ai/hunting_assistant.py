@@ -16,6 +16,7 @@ Changes from Phase 0:
 - Hunt history tracking
 - Ollama fallback for analysis
 """
+import asyncio
 import json
 from typing import Any, Dict, List
 
@@ -211,7 +212,11 @@ async def execute_hunt(hunt_id: str) -> Dict[str, Any]:
 
     try:
         pool = await get_pool()
-        rows = await pool.fetch(sql)
+        # H-12 fix: Apply timeout to prevent slow queries from blocking the pool
+        rows = await asyncio.wait_for(
+            pool.fetch(sql),
+            timeout=HUNT_TIMEOUT_SECONDS,
+        )
 
         results = [dict(r) for r in rows[:HUNT_MAX_ROWS]]
         truncated = len(rows) > HUNT_MAX_ROWS
@@ -244,6 +249,9 @@ async def execute_hunt(hunt_id: str) -> Dict[str, Any]:
             "analysis": analysis,
         }
 
+    except asyncio.TimeoutError:
+        log.error("hunt_execution_timeout", hunt_id=hunt_id, timeout=HUNT_TIMEOUT_SECONDS)
+        return {"success": False, "error": f"Hunt timed out after {HUNT_TIMEOUT_SECONDS}s — query too expensive"}
     except Exception as e:
         log.error("hunt_execution_error", hunt_id=hunt_id, error=str(e))
         return {"success": False, "error": f"Hunt execution failed: {str(e)[:200]}"}
@@ -616,7 +624,25 @@ async def save_hunt_history(
     hunt_name: str,
     result_count: int,
 ) -> None:
-    """Save hunt execution to audit log for history tracking."""
+    """Save hunt execution to audit log for history tracking.
+
+    H-13 fix: Actually INSERT into audit_log so get_hunt_history() returns data.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO audit_log (actor, action, new_values, created_at)
+            VALUES ($1, $2, $3, NOW())
+            """,
+            "hunting_assistant",
+            "hunt.execute",
+            json.dumps({
+                "hunt_id": hunt_id,
+                "hunt_name": hunt_name,
+                "result_count": result_count,
+            }),
+        )
     log.info(
         "hunt_executed",
         hunt_id=hunt_id,

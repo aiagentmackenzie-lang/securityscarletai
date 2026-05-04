@@ -7,10 +7,14 @@ date: 2026/05/03
 logsource:
     category: authentication
 detection:
-    selection:
-        event_type: start
+    selection_failed:
+        event_action|contains: failed
+        source_ip: '*'
+    selection_success:
         event_action|contains: success
-    condition: selection
+        event_action|contains: ssh
+    condition: selection_failed | count(*) by source_ip > 3 and selection_success
+timeframe: 10m
 level: critical
 tags:
     - attack.credential_access

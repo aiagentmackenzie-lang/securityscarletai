@@ -10,7 +10,7 @@ detection:
     selection:
         event_type: start
         event_action|contains: failed
-    condition: selection | count() by source_ip > 10
+    condition: selection | count(*) by source_ip > 10
 timeframe: 5m
 level: high
 tags:

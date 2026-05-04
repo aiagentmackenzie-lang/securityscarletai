@@ -24,6 +24,8 @@ log = get_logger("db.writer")
 BATCH_SIZE = 100
 FLUSH_INTERVAL = 5.0  # seconds — flush even if batch isn't full
 DEAD_LETTER_DIR = Path("data/dead_letter")
+DEAD_LETTER_MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB per daily file
+DEAD_LETTER_RETENTION_DAYS = 30
 
 
 class LogWriter:
@@ -141,10 +143,20 @@ class LogWriter:
             await self._write_to_dead_letter(batch, str(e))
 
     async def _write_to_dead_letter(self, batch: list, error: str) -> None:
-        """Write failed batch to dead letter queue for later retry."""
+        """Write failed batch to dead letter queue for later retry.
+
+        H-14 fix: Enforce max file size and clean up old files.
+        """
         DEAD_LETTER_DIR.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
         dead_letter_file = DEAD_LETTER_DIR / f"{timestamp}.jsonl"
+
+        # Check file size — if too large, rotate to a numbered file
+        if dead_letter_file.exists() and dead_letter_file.stat().st_size > DEAD_LETTER_MAX_FILE_SIZE:
+            n = 1
+            while (DEAD_LETTER_DIR / f"{timestamp}_{n}.jsonl").exists():
+                n += 1
+            dead_letter_file = DEAD_LETTER_DIR / f"{timestamp}_{n}.jsonl"
 
         try:
             with open(dead_letter_file, "a") as f:
@@ -161,3 +173,23 @@ class LogWriter:
             log.info("dead_letter_written", count=len(batch), file=str(dead_letter_file))
         except Exception as write_error:
             log.error("dead_letter_write_failed", error=str(write_error))
+
+        # Cleanup old dead letter files
+        try:
+            self._cleanup_old_dead_letters()
+        except Exception as cleanup_error:
+            log.error("dead_letter_cleanup_failed", error=str(cleanup_error))
+
+    @staticmethod
+    def _cleanup_old_dead_letters() -> None:
+        """Remove dead letter files older than DEAD_LETTER_RETENTION_DAYS."""
+        if not DEAD_LETTER_DIR.exists():
+            return
+        cutoff = datetime.now(tz=timezone.utc).timestamp() - (DEAD_LETTER_RETENTION_DAYS * 86400)
+        for f in DEAD_LETTER_DIR.glob("*.jsonl"):
+            try:
+                if f.stat().st_mtime < cutoff:
+                    f.unlink()
+                    log.info("dead_letter_cleaned", file=str(f))
+            except OSError:
+                pass

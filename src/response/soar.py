@@ -4,6 +4,7 @@ SOAR Lite - Simple automated response actions.
 Basic response playbooks for common scenarios.
 Note: Automated blocking requires human approval at this stage.
 """
+import ipaddress
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional
@@ -85,6 +86,13 @@ class SOARPlaybook:
 
     async def _block_ip(self, ip: str) -> str:
         """Block an IP using macOS pf firewall."""
+        # H-09 fix: Validate IP format to prevent shell injection
+        try:
+            ipaddress.ip_address(ip)
+        except ValueError:
+            log.error("soar_block_invalid_ip", ip=ip)
+            return f"Invalid IP address: {ip} — refusing to block"
+
         try:
             # Add rule to pf (requires sudo)
             rule = f'block drop quick from {ip} to any'
@@ -174,17 +182,48 @@ def get_playbook_for_alert(alert: dict) -> Optional[SOARPlaybook]:
     rule_name = alert.get("rule_name", "").lower()
 
     if "brute" in rule_name or "ssh" in rule_name:
-        # Extract attacker IP from evidence if available
+        # H-10 fix: Extract attacker IP and target user from alert evidence
+        evidence = alert.get("evidence", [])
+        attacker_ip = "unknown"
+        target_user = "admin"
+
+        if isinstance(evidence, list) and evidence:
+            for item in evidence:
+                if isinstance(item, dict):
+                    if item.get("source_ip") and attacker_ip == "unknown":
+                        attacker_ip = item["source_ip"]
+                    if item.get("user_name") and target_user == "admin":
+                        target_user = item["user_name"]
+        elif isinstance(evidence, dict):
+            attacker_ip = evidence.get("source_ip", "unknown") or attacker_ip
+            target_user = evidence.get("user_name", "admin") or target_user
+
         return BruteForcePlaybook(
-            attacker_ip="unknown",  # Would extract from alert
-            target_user="admin",
+            attacker_ip=attacker_ip,
+            target_user=target_user,
         )
 
     if "malware" in rule_name or "suspicious" in rule_name:
+        evidence = alert.get("evidence", [])
+        host_name = alert.get("host_name", "unknown")
+        process_name = "unknown"
+        user_name = "unknown"
+
+        if isinstance(evidence, list) and evidence:
+            for item in evidence:
+                if isinstance(item, dict):
+                    if item.get("process_name") and process_name == "unknown":
+                        process_name = item["process_name"]
+                    if item.get("user_name") and user_name == "unknown":
+                        user_name = item["user_name"]
+        elif isinstance(evidence, dict):
+            process_name = evidence.get("process_name", "unknown") or process_name
+            user_name = evidence.get("user_name", "unknown") or user_name
+
         return MalwarePlaybook(
-            host_name=alert.get("host_name", "unknown"),
-            process_name="unknown",
-            user_name="unknown",
+            host_name=host_name,
+            process_name=process_name,
+            user_name=user_name,
         )
 
     return None

@@ -10,7 +10,7 @@ detection:
     selection:
         event_type: start
         event_action|contains: download
-    condition: selection | count() by user_name > 5
+    condition: selection | count(*) by user_name > 5
 timeframe: 10m
 level: medium
 tags:

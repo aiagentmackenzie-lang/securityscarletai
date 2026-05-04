@@ -6,6 +6,7 @@ and suppression rules for portfolio demonstrations.
 Idempotent — checks if data exists before inserting.
 """
 import asyncio
+import json
 import random
 from datetime import timedelta
 from typing import Any
@@ -579,7 +580,7 @@ async def seed() -> None:
                 tmpl["description"],
                 tmpl.get("mitre_tactics", []),
                 tmpl.get("mitre_techniques", []),
-                str(tmpl["evidence"]).replace("'", '"'),  # JSONB
+                json.dumps(tmpl["evidence"]),  # H-23 fix: proper JSON serialization
                 alert_time,
                 random.uniform(30, 95) if tmpl["severity"] in ("critical", "high") else random.uniform(10, 50),
             )
@@ -673,7 +674,7 @@ async def seed() -> None:
                 ti["source"],
                 ti.get("threat_type"),
                 ti.get("confidence", 50),
-                str(ti.get("metadata", {})).replace("'", '"'),
+                json.dumps(ti.get("metadata", {})),
             )
 
         print(f"   ✅ Inserted {len(THREAT_INTEL_ENTRIES)} threat intel entries")

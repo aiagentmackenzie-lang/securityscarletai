@@ -225,14 +225,15 @@ QUERY_TEMPLATES: Dict[str, Dict[str, Any]] = {
     "lateral_movement": {
         "keywords": ["lateral movement", "lateral", "spread", "internal scan"],
         "sql": (
-            "SELECT time, host_name, source_ip, destination_ip, destination_port "
+            "SELECT host_name, source_ip, destination_ip, destination_port, "
+            "  MIN(time) as first_seen, COUNT(*) as connection_count "
             "FROM logs "
             "WHERE event_category = 'network' "
             "AND source_ip IS NOT NULL AND destination_ip IS NOT NULL "
             "AND time > NOW() - INTERVAL '6 hours' "
-            "GROUP BY time, host_name, source_ip, destination_ip, "
-            "  destination_port HAVING COUNT(*) > 10 "
-            "ORDER BY time DESC LIMIT 100"
+            "GROUP BY host_name, source_ip, destination_ip, destination_port "
+            "HAVING COUNT(*) > 10 "
+            "ORDER BY connection_count DESC LIMIT 100"
         ),
         "description": "Signs of lateral movement — frequent internal connections",
     },
@@ -289,8 +290,8 @@ QUERY_TEMPLATES: Dict[str, Dict[str, Any]] = {
         "sql": (
             "SELECT time, host_name, user_name, file_path, process_cmdline "
             "FROM logs "
-            "WHERE (event_category = 'file' "
-            "AND file_path ILIKE '%/LaunchAgents/%' "
+            "WHERE event_category = 'file' "
+            "AND (file_path ILIKE '%/LaunchAgents/%' "
             "OR file_path ILIKE '%/LaunchDaemons/%' "
             "OR file_path ILIKE '%/cron%') "
             "AND time > NOW() - INTERVAL '24 hours' "

@@ -8,9 +8,21 @@ logsource:
     category: network
 detection:
     selection:
-        event_type: start
         event_category: network
-    condition: selection
+        event_type: connection
+        destination_ip: '*'
+    filter_internal:
+        destination_ip|startswith:
+            - '10.'
+            - '192.168.'
+            - '172.16.'
+            - '172.17.'
+            - '172.18.'
+            - '172.19.'
+            - '172.2'
+            - '172.3'
+    condition: selection and not filter_internal | count(*) by host_name > 50
+timeframe: 1h
 level: high
 tags:
     - attack.exfiltration

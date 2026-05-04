@@ -12,11 +12,11 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15
+        image: postgres:17
         env:
           POSTGRES_DB: scarletai
           POSTGRES_USER: scarletai
-          POSTGRES_PASSWORD: scarlet_test_ci
+          POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
         ports:
           - 5433:5432
         options: >-
@@ -43,13 +43,13 @@ jobs:
       - name: Unit tests
         run: poetry run pytest tests/unit/ -q
         env:
-          DB_PASSWORD: scarlet_test_ci
-          API_SECRET_KEY: test_ci_secret_key_minimum_32_chars_long_for_ci
-          API_BEARER_TOKEN: test_ci_bearer_token_16ch
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          API_SECRET_KEY: ${{ secrets.API_SECRET_KEY }}
+          API_BEARER_TOKEN: ${{ secrets.API_BEARER_TOKEN }}
 
       - name: Coverage
         run: poetry run pytest tests/ --cov=src --cov-fail-under=80 --tb=short -q
         env:
-          DB_PASSWORD: scarlet_test_ci
-          API_SECRET_KEY: test_ci_secret_key_minimum_32_chars_long_for_ci
-          API_BEARER_TOKEN: test_ci_bearer_token_16ch
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          API_SECRET_KEY: ${{ secrets.API_SECRET_KEY }}
+          API_BEARER_TOKEN: ${{ secrets.API_BEARER_TOKEN }}

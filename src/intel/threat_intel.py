@@ -331,13 +331,13 @@ def _map_ioc_type(otx_type: str) -> str:
     mapping = {
         "IPv4": "ip",
         "IPv6": "ip",
-        "domain": "ip",  # Will be stored as domain type
-        "hostname": "ip",
+        "domain": "domain",
+        "hostname": "domain",
         "URL": "url",
         "uri": "url",
         "FileHash-MD5": "hash_md5",
         "FileHash-SHA256": "hash_sha256",
-        "email": "ip",  # Store as generic for now
+        "email": "email",
     }
     return mapping.get(otx_type, "")
 

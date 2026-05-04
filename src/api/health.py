@@ -22,7 +22,7 @@ async def health_check():
             await conn.fetchval("SELECT 1")
         checks["database"] = "ok"
     except Exception as e:
-        checks["database"] = f"error: {str(e)}"
+        checks["database"] = "error"  # H-16 fix: don't expose internal details
         log.error("health_check_db_failed", error=str(e))
 
     # Ollama (non-blocking check)
@@ -32,7 +32,7 @@ async def health_check():
         from src.config.settings import settings
         async with httpx.AsyncClient(timeout=3) as client:
             resp = await client.get(f"{settings.ollama_base_url}/api/tags")
-            checks["ollama"] = "ok" if resp.status_code == 200 else f"status {resp.status_code}"
+            checks["ollama"] = "ok" if resp.status_code == 200 else "error"  # H-16 fix
     except Exception:
         checks["ollama"] = "unreachable"
 
