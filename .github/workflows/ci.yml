@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main, polish-and-docs]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: scarletai
+          POSTGRES_USER: scarletai
+          POSTGRES_PASSWORD: scarlet_test_ci
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install poetry
+          poetry install
+
+      - name: Lint
+        run: poetry run ruff check src/ dashboard/ --select S,E,F,W
+
+      - name: Unit tests
+        run: poetry run pytest tests/unit/ -q
+        env:
+          DB_PASSWORD: scarlet_test_ci
+          API_SECRET_KEY: test_ci_secret_key_minimum_32_chars_long_for_ci
+          API_BEARER_TOKEN: test_ci_bearer_token_16ch
+
+      - name: Coverage
+        run: poetry run pytest tests/ --cov=src --cov-fail-under=80 --tb=short -q
+        env:
+          DB_PASSWORD: scarlet_test_ci
+          API_SECRET_KEY: test_ci_secret_key_minimum_32_chars_long_for_ci
+          API_BEARER_TOKEN: test_ci_bearer_token_16ch

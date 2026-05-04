@@ -65,8 +65,12 @@ temp/
 *.tmp
 
 # Trained ML models (gitignored — regenerated, never committed)
-models/*.joblib
-models/*.sha256
+models/
+*.joblib
+*.sha256
+
+# GeoIP database (downloaded separately)
+data/GeoLite2-City.mmdb
 
 # Dead letter queue (failed writes, retried later)
 data/dead_letter/
