@@ -13,12 +13,13 @@ from typing import Optional
 import httpx
 
 from src.config.logging import get_logger
+from src.config.settings import settings
 from src.db.connection import get_pool
 
 log = get_logger("detection.ai")
 
-OLLAMA_URL = "http://localhost:11434"
-MODEL = "mistral:7b"  # Fast local model for real-time analysis
+OLLAMA_URL = settings.ollama_base_url
+MODEL = settings.ollama_model  # Configurable via OLLAMA_MODEL env var
 
 
 def build_prompt(rule_name: str, severity: str, host_name: str, evidence: dict) -> str:
@@ -26,24 +27,27 @@ def build_prompt(rule_name: str, severity: str, host_name: str, evidence: dict) 
     # Truncate evidence to avoid token overflow
     evidence_str = json.dumps(evidence, default=str, indent=2)[:2000]
 
-    return f"""You are a cybersecurity analyst AI. Analyze this security alert and provide a structured assessment.
-
-ALERT DETAILS:
-- Rule: {rule_name}
-- Severity: {severity}
-- Host: {host_name}
-- Evidence: {evidence_str}
-
-Respond in this EXACT JSON format (no other text):
-{{
-  "summary": "One sentence describing what happened",
-  "risk_score": 75,
-  "verdict": "threat|suspicious|benign|false_positive",
-  "response": ["Step 1", "Step 2", "Step 3"],
-  "reasoning": "Why this verdict was chosen"
-}}
-
-Risk score: 0-25=benign, 26-50=suspicious, 51-75=threat, 76-100=critical threat."""
+    return (
+        f"You are a cybersecurity analyst AI. "
+        f"Analyze this security alert and provide a structured assessment.\n\n"
+        f"ALERT DETAILS:\n"
+        f"- Rule: {rule_name}\n"
+        f"- Severity: {severity}\n"
+        f"- Host: {host_name}\n"
+        f"- Evidence: {evidence_str}\n\n"
+        f"Respond in this EXACT JSON format (no other text):\n"
+        f'{{\n'
+        f'  "summary": "One sentence describing what happened",\n'
+        f'  "risk_score": 75,\n'
+        f'  "verdict": "threat|suspicious|benign|false_positive",\n'
+        f'  "response": ["Step 1", "Step 2", "Step 3"],\n'
+        f'  "reasoning": "Why this verdict was chosen"\n'
+        f'}}\n\n'
+        f"Risk score: 0-25=benign, "
+        f"26-50=suspicious, "
+        f"51-75=threat, "
+        f"76-100=critical threat."
+    )
 
 
 async def analyze_alert(
@@ -102,7 +106,12 @@ async def analyze_alert(
         log.warning("ollama_unavailable", alert_id=alert_id)
         return None
     except Exception as e:
-        log.warning("ai_analysis_failed", alert_id=alert_id, error=str(e), error_type=type(e).__name__)
+        log.warning(
+            "ai_analysis_failed",
+            alert_id=alert_id,
+            error=str(e),
+            error_type=type(e).__name__,
+        )
         return None
 
 

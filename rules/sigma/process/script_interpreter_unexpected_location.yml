@@ -1,0 +1,30 @@
+title: Script Interpreter from Unexpected Location
+id: scarlet-proc-007
+status: stable
+description: Detects script interpreters (python, perl, ruby, node) running from unexpected directories like /tmp or /var/tmp
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: process
+detection:
+    selection:
+        event_type: start
+        process_name:
+            - python
+            - python3
+            - perl
+            - ruby
+            - node
+            - bash
+            - sh
+    filter_legitimate:
+        process_path|contains:
+            - /usr/bin/
+            - /usr/local/bin/
+            - /opt/homebrew/bin/
+    condition: selection and not filter_legitimate
+level: medium
+tags:
+    - attack.execution
+    - attack.ta0002
+    - attack.t1059

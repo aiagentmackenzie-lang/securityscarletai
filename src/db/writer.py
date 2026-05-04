@@ -4,12 +4,13 @@ Batched async log writer for PostgreSQL.
 Design decisions:
 - Batch inserts (configurable size, default 100) for throughput
 - Flush on batch full OR timeout (whichever comes first) to bound latency
-- On insert failure: log the error, skip the batch, continue.
-  A dead writer is worse than a dropped batch.
+- Failed batches are written to a dead letter queue for retry
+- NEVER silently drops data
 """
 import asyncio
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 import asyncpg
@@ -22,6 +23,7 @@ log = get_logger("db.writer")
 
 BATCH_SIZE = 100
 FLUSH_INTERVAL = 5.0  # seconds — flush even if batch isn't full
+DEAD_LETTER_DIR = Path("data/dead_letter")
 
 
 class LogWriter:
@@ -47,7 +49,11 @@ class LogWriter:
         if self._flush_task:
             self._flush_task.cancel()
         await self._flush()
-        log.info("writer_stopped", total_written=self._total_written, total_errors=self._total_errors)
+        log.info(
+            "writer_stopped",
+            total_written=self._total_written,
+            total_errors=self._total_errors,
+        )
 
     async def write(self, event: NormalizedEvent) -> None:
         """Add an event to the buffer. Flushes automatically when full."""
@@ -98,7 +104,12 @@ class LogWriter:
                         e.file_path,
                         e.file_hash,
                         json.dumps(e.raw_data),
-                        json.dumps(e.model_dump(exclude={"raw_data", "enrichment", "severity"}, mode="json")),
+                        json.dumps(
+                            e.model_dump(
+                                exclude={"raw_data", "enrichment", "severity"},
+                                mode="json",
+                            )
+                        ),
                         json.dumps(e.enrichment),
                         datetime.now(tz=timezone.utc),
                     )
@@ -113,7 +124,10 @@ class LogWriter:
                         source_ip, destination_ip, destination_port,
                         file_path, file_hash, raw_data, normalized,
                         enrichment, ingested_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+                    ) VALUES (
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9,
+                        $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+                    )
                     """,
                     rows,
                 )
@@ -123,4 +137,27 @@ class LogWriter:
         except (asyncpg.PostgresError, OSError) as e:
             self._total_errors += len(batch)
             log.error("batch_insert_failed", count=len(batch), error=str(e))
-            # TODO: Dead letter queue — write failed batches to a local file for retry
+            # Dead letter queue — write failed batches to disk for later retry
+            await self._write_to_dead_letter(batch, str(e))
+
+    async def _write_to_dead_letter(self, batch: list, error: str) -> None:
+        """Write failed batch to dead letter queue for later retry."""
+        DEAD_LETTER_DIR.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+        dead_letter_file = DEAD_LETTER_DIR / f"{timestamp}.jsonl"
+
+        try:
+            with open(dead_letter_file, "a") as f:
+                f.write(json.dumps({
+                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                    "error": error,
+                    "batch_size": len(batch),
+                    "events": [
+                        e.model_dump(mode="json") if hasattr(e, "model_dump")
+                        else e.__dict__
+                        for e in batch
+                    ],
+                }, default=str) + "\n")
+            log.info("dead_letter_written", count=len(batch), file=str(dead_letter_file))
+        except Exception as write_error:
+            log.error("dead_letter_write_failed", error=str(write_error))

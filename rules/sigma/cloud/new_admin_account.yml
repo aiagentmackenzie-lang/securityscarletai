@@ -1,0 +1,20 @@
+title: New Admin Account Creation
+id: scarlet-cloud-005
+status: stable
+description: Detects creation of new accounts with administrative privileges
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: authentication
+detection:
+    selection:
+        event_type: start
+        event_action|contains: user_created
+    filter_legitimate:
+        user_name: admin
+    condition: selection and not filter_legitimate
+level: high
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1136

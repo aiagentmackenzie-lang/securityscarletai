@@ -63,3 +63,10 @@ alembic/versions/*.pyc
 tmp/
 temp/
 *.tmp
+
+# Trained ML models (gitignored — regenerated, never committed)
+models/*.joblib
+models/*.sha256
+
+# Dead letter queue (failed writes, retried later)
+data/dead_letter/

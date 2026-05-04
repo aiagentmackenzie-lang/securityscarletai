@@ -1,0 +1,18 @@
+title: TCC Database Modification
+id: scarlet-mac-003
+status: stable
+description: Detects modification of the macOS TCC (Transparency, Consent, and Control) database, which controls app permissions
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: file
+detection:
+    selection:
+        event_type: start
+        file_path|contains: Library/Application Support/com.apple.TCC/TCC.db
+    condition: selection
+level: critical
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1562

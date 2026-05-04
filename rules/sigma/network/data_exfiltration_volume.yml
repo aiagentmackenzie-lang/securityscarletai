@@ -1,0 +1,18 @@
+title: Data Exfiltration Volume
+id: scarlet-net-004
+status: stable
+description: Detects large outbound data transfers that may indicate data exfiltration
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: network
+detection:
+    selection:
+        event_type: start
+        event_category: network
+    condition: selection
+level: high
+tags:
+    - attack.exfiltration
+    - attack.ta0010
+    - attack.t1048

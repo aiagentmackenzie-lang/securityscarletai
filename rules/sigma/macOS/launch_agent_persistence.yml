@@ -1,9 +1,9 @@
-title: New Launch Agent Persistence
+title: LaunchAgent Persistence Created
 id: scarlet-002
-status: experimental
-description: Detects creation of LaunchAgent plist files for persistence
+status: stable
+description: Detects creation of macOS LaunchAgent plist files for persistence
 author: SecurityScarletAI
-date: 2026/03/21
+date: 2026/05/03
 logsource:
     category: file
 detection:
@@ -14,4 +14,5 @@ detection:
 level: high
 tags:
     - attack.persistence
+    - attack.ta0003
     - attack.t1547

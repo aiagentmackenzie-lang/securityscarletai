@@ -1,0 +1,19 @@
+title: Multiple Account Lockouts
+id: scarlet-auth-003
+status: stable
+description: Detects multiple account lockouts from the same source IP, indicating systematic password guessing
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: authentication
+detection:
+    selection:
+        event_type: start
+        event_action|contains: locked
+    condition: selection | count(user_name) by source_ip > 3
+timeframe: 10m
+level: high
+tags:
+    - attack.credential_access
+    - attack.ta0006
+    - attack.t1110

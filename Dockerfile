@@ -24,7 +24,12 @@ RUN poetry install --no-dev --no-interaction --no-ansi
 # Copy application code
 COPY src/ ./src/
 COPY rules/ ./rules/
+COPY alembic/ ./alembic/
+COPY alembic.ini ./alembic.ini*
 COPY config/ ./config/
+
+# Create data and models directories
+RUN mkdir -p /app/data/dead_letter /app/models
 
 # Expose API port
 EXPOSE 8000

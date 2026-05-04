@@ -1,0 +1,19 @@
+title: Failed Login Spike
+id: scarlet-auth-001
+status: stable
+description: Detects a spike of failed login attempts across multiple accounts from the same source
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: authentication
+detection:
+    selection:
+        event_type: start
+        event_action|contains: failed
+    condition: selection | count() by source_ip > 10
+timeframe: 5m
+level: high
+tags:
+    - attack.credential_access
+    - attack.ta0006
+    - attack.t1110

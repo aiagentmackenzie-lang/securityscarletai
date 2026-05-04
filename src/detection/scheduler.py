@@ -21,7 +21,7 @@ scheduler = AsyncIOScheduler()
 async def run_rule(rule_id: int) -> None:
     """
     Execute a single detection rule against recent logs.
-    
+
     Steps:
     1. Load rule from database
     2. Generate SQL from Sigma YAML
@@ -81,16 +81,10 @@ async def run_rule(rule_id: int) -> None:
 
                 # Update rule stats
                 await conn.execute(
-                    "UPDATE rules SET last_match = NOW(), match_count = match_count + $1 WHERE id = $2",
+                    "UPDATE rules SET last_match = NOW(), match_count = match_count + $1, "
+                    "last_run = NOW() WHERE id = $2",
                     len(rows),
                     rule_id,
-                )
-
-                # Update rule stats
-                await conn.execute(
-                    "UPDATE rules SET last_match = NOW(), match_count = match_count + $1 WHERE id = $2",
-                    len(rows),
-                    rule_id
                 )
 
             # Update last_run timestamp

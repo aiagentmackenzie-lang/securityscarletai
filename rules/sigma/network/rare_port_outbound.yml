@@ -1,9 +1,9 @@
-title: Outbound Connection to Rare Port
+title: Outbound Connection to Rare/C2 Port
 id: scarlet-003
-status: experimental
-description: Detects outbound connections to non-standard ports associated with C2 and malware
+status: stable
+description: Detects outbound connections to non-standard ports commonly associated with C2 and malware
 author: SecurityScarletAI
-date: 2026/03/21
+date: 2026/05/03
 logsource:
     category: network
 detection:
@@ -15,8 +15,15 @@ detection:
             - 6667
             - 6666
             - 1234
+            - 5555
+            - 4443
+            - 6668
+            - 6669
+            - 6697
+            - 9999
     condition: selection
-level: medium
+level: high
 tags:
     - attack.command_and_control
+    - attack.ta0011
     - attack.t1071

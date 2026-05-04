@@ -1,0 +1,25 @@
+title: Internal Lateral Movement
+id: scarlet-net-006
+status: stable
+description: Detects internal host-to-host connections on management ports that may indicate lateral movement
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: network
+detection:
+    selection_ssh:
+        destination_port: 22
+    selection_rdp:
+        destination_port: 3389
+    selection_smb:
+        destination_port: 445
+    selection_rsh:
+        destination_port: 514
+    selection_vnc:
+        destination_port: 5900
+    condition: selection_ssh or selection_rdp or selection_smb or selection_rsh or selection_vnc
+level: medium
+tags:
+    - attack.lateral_movement
+    - attack.ta0008
+    - attack.t1021

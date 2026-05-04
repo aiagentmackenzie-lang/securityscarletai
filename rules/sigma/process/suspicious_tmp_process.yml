@@ -1,9 +1,9 @@
 title: Suspicious Process from /tmp
 id: scarlet-006
-status: experimental
-description: Detects process execution from temporary directories
+status: stable
+description: Detects process execution from temporary directories, common for malware staging
 author: SecurityScarletAI
-date: 2026/03/21
+date: 2026/05/03
 logsource:
     category: process
 detection:
@@ -14,4 +14,5 @@ detection:
 level: medium
 tags:
     - attack.execution
+    - attack.ta0002
     - attack.t1059

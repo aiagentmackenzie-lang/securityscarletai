@@ -14,11 +14,11 @@ log = get_logger("response.notifications")
 async def send_slack_notification(message: str, channel: Optional[str] = None) -> bool:
     """
     Send notification to Slack webhook.
-    
+
     Args:
         message: Message text to send
         channel: Optional override channel
-    
+
     Returns:
         True if sent successfully
     """
@@ -53,7 +53,7 @@ async def send_slack_notification(message: str, channel: Optional[str] = None) -
 async def send_alert_notification(alert: dict) -> bool:
     """
     Send formatted alert notification to Slack.
-    
+
     Args:
         alert: Alert dictionary with severity, rule_name, etc.
     """
@@ -84,12 +84,12 @@ async def send_email_notification(
 ) -> bool:
     """
     Send email notification via SMTP.
-    
+
     Args:
         subject: Email subject
         body: Email body (plain text)
         to_email: Override recipient (default uses settings.alert_email_to)
-    
+
     Returns:
         True if sent successfully
     """

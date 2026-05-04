@@ -1,0 +1,27 @@
+title: Hidden File Creation in User Directories
+id: scarlet-mac-010
+status: stable
+description: Detects creation of hidden files (dot-prefix) in user home directories, commonly used for stealth
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: file
+detection:
+    selection:
+        event_type: start
+        event_action|contains: creation
+        file_path|contains: /Users/
+    filter_legitimate:
+        file_path|contains:
+            - .bash_profile
+            - .bashrc
+            - .zshrc
+            - .gitconfig
+            - .ssh
+            - .Trash
+    condition: selection and not filter_legitimate
+level: low
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1564

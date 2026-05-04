@@ -48,10 +48,10 @@ class SOARPlaybook:
     async def execute(self, dry_run: bool = True) -> List[ResponseAction]:
         """
         Execute the playbook.
-        
+
         Args:
             dry_run: If True, only log what would be done without executing
-        
+
         Returns:
             List of actions with results
         """
@@ -164,10 +164,10 @@ class MalwarePlaybook(SOARPlaybook):
 def get_playbook_for_alert(alert: dict) -> Optional[SOARPlaybook]:
     """
     Get appropriate playbook for an alert.
-    
+
     Args:
         alert: Alert dictionary with rule_name, host_name, etc.
-    
+
     Returns:
         Playbook instance or None
     """

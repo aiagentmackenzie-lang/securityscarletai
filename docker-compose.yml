@@ -10,7 +10,8 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-scarletai_secure_2026}
       POSTGRES_DB: scarletai
     ports:
-      - "5432:5432"
+      # Port 5433 to avoid conflict with Homebrew PostgreSQL on macOS
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./src/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
@@ -18,6 +19,29 @@ services:
       test: ["CMD-SHELL", "pg_isready -U scarletai -d scarletai"]
       interval: 5s
       timeout: 3s
+      retries: 5
+
+  api:
+    build: .
+    container_name: scarletai-api
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: scarletai
+      DB_USER: scarletai
+      DB_PASSWORD: ${DB_PASSWORD:-scarletai_secure_2026}
+      API_SECRET_KEY: ${API_SECRET_KEY}
+      API_BEARER_TOKEN: ${API_BEARER_TOKEN}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 10s
+      timeout: 5s
       retries: 5
 
   redis:

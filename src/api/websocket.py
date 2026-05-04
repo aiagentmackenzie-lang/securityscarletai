@@ -29,7 +29,7 @@ async def websocket_logs(
     severity_filter: Optional[str] = Query(None, description="Filter by severity"),
 ):
     """WebSocket endpoint for real-time log streaming.
-    
+
     Connect with: ws://localhost:8000/api/v1/ws/logs?token=YOUR_TOKEN
     Optional filters: ?host_filter=hostname&category_filter=process
     """
@@ -74,7 +74,7 @@ async def websocket_logs(
 
 async def broadcast_event(event: NormalizedEvent) -> None:
     """Broadcast a log event to all connected WebSocket clients.
-    
+
     Called by the ingestion pipeline after writing to DB.
     """
     if not _connected_clients:

@@ -1,0 +1,23 @@
+title: Ransomware File Encryption Pattern
+id: scarlet-file-002
+status: stable
+description: Detects rapid file encryption patterns consistent with ransomware activity
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: process
+detection:
+    selection_openssl:
+        process_name: openssl
+        process_cmdline|contains: enc
+    selection_gpg_encrypt:
+        process_name: gpg
+        process_cmdline|contains: symmetric
+    selection_encryption_ext:
+        file_path|endswith: .encrypted
+    condition: selection_openssl or selection_gpg_encrypt or selection_encryption_ext
+level: critical
+tags:
+    - attack.impact
+    - attack.ta0040
+    - attack.t1486

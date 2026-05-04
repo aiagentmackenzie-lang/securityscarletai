@@ -1,0 +1,23 @@
+title: System Integrity Protection Modification
+id: scarlet-mac-008
+status: stable
+description: Detects attempts to disable macOS System Integrity Protection (SIP), which protects system integrity
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: process
+detection:
+    selection_csrutil:
+        event_type: start
+        process_name: csrutil
+        process_cmdline|contains: disable
+    selection_nvram:
+        event_type: start
+        process_name: nvram
+        process_cmdline|contains: boot-args
+    condition: selection_csrutil or selection_nvram
+level: critical
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1562

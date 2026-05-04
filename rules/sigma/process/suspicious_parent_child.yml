@@ -1,0 +1,19 @@
+title: Suspicious Parent-Child Process Chain
+id: scarlet-proc-005
+status: experimental
+description: Detects unusual parent-child process relationships often seen in attack chains
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: process
+detection:
+    selection:
+        event_type: start
+        process_name: bash
+        process_cmdline|contains: curl
+    condition: selection
+level: medium
+tags:
+    - attack.execution
+    - attack.ta0002
+    - attack.t1059

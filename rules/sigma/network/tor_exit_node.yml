@@ -1,0 +1,22 @@
+title: Tor Exit Node Connection
+id: scarlet-net-005
+status: stable
+description: Detects connections to known Tor exit node ports indicating potential Tor usage or C2 via Tor
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: network
+detection:
+    selection:
+        event_type: start
+        destination_port:
+            - 9001
+            - 9050
+            - 9051
+            - 9030
+    condition: selection
+level: medium
+tags:
+    - attack.command_and_control
+    - attack.ta0011
+    - attack.t1090

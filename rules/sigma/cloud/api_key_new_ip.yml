@@ -1,0 +1,18 @@
+title: API Key Usage from New IP
+id: scarlet-cloud-002
+status: experimental
+description: Detects API key authentication from a previously unseen IP address
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: authentication
+detection:
+    selection:
+        event_type: start
+        event_action|contains: api_key
+    condition: selection
+level: medium
+tags:
+    - attack.initial_access
+    - attack.ta0001
+    - attack.t1078

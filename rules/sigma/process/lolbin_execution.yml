@@ -1,0 +1,37 @@
+title: Living-off-the-Land Binary Execution
+id: scarlet-proc-003
+status: stable
+description: Detects execution of LOLBins (living-off-the-land binaries) commonly abused by attackers for fileless malware
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: process
+detection:
+    selection_curl:
+        process_name: curl
+        process_cmdline|contains:
+            - -o /tmp/
+            - --output /tmp/
+            - -o /var/tmp/
+    selection_wget:
+        process_name: wget
+        process_cmdline|contains:
+            - -O /tmp/
+            - -O /var/tmp/
+    selection_base64_decode:
+        process_name: base64
+        process_cmdline|contains: -d
+    selection_xattr:
+        process_name: xattr
+    selection_launchctl:
+        process_name: launchctl
+        process_cmdline|contains: load
+    selection_defaults:
+        process_name: defaults
+        process_cmdline|contains: write
+    condition: selection_curl or selection_wget or selection_base64_decode or selection_xattr or selection_launchctl or selection_defaults
+level: medium
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1218

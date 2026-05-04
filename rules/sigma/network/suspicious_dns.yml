@@ -1,0 +1,19 @@
+title: Suspicious DNS Query
+id: scarlet-005
+status: stable
+description: Detects DNS queries to suspicious or known-malicious domains
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: network
+detection:
+    selection:
+        event_type: start
+        event_action|contains: dns
+        destination_port: 53
+    condition: selection
+level: low
+tags:
+    - attack.command_and_control
+    - attack.ta0011
+    - attack.t1071

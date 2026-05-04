@@ -40,7 +40,7 @@ def setup_logging() -> None:
 
 def get_logger(component: str) -> structlog.BoundLogger:
     """Get a logger bound to a specific component name.
-    
+
     Usage:
         log = get_logger("shipper")
         log.info("started tailing", path="/var/log/osquery/results.log")

@@ -27,7 +27,7 @@ log = get_logger("ingestion.parser")
 
 def parse_osquery_line(raw_line: str) -> Optional[NormalizedEvent]:
     """Parse a single line from osquery's result log.
-    
+
     Returns None if the line is malformed or from an unmapped table.
     Never raises — log errors and move on. A stuck parser kills the pipeline.
     """

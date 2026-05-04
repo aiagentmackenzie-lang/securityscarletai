@@ -1,0 +1,18 @@
+title: SaaS Permission Escalation
+id: scarlet-cloud-004
+status: experimental
+description: Detects permission or role changes in SaaS applications indicating privilege escalation
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: authentication
+detection:
+    selection:
+        event_type: start
+        event_action|contains: role_change
+    condition: selection
+level: high
+tags:
+    - attack.privilege_escalation
+    - attack.ta0004
+    - attack.t1078

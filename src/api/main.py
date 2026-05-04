@@ -7,10 +7,20 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.api.ai import router as ai_router
 from src.api.alerts import router as alerts_router
+from src.api.auth_login import router as auth_login_router
+from src.api.audit import router as audit_router
+from src.api.cases import router as cases_router
+from src.api.chat import router as chat_router
+from src.api.correlation import router as correlation_router
 from src.api.health import router as health_router
+from src.api.hunt import router as hunt_router
 from src.api.ingest import router as ingest_router
+from src.api.middleware import AuditLogMiddleware, RequestValidationMiddleware, limiter
+from src.api.query import router as query_router
 from src.api.rules import router as rules_router
+from src.api.threat_intel import router as threat_intel_router
 from src.api.websocket import router as websocket_router
 from src.config.logging import get_logger, setup_logging
 from src.config.settings import settings
@@ -22,12 +32,14 @@ log = get_logger("api")
 # Shared writer instance
 writer = LogWriter()
 
-RULES_DIR = Path("/Users/main/Security Apps/SecurityScarletAI/rules/sigma")
+RULES_DIR = Path(__file__).parent.parent.parent / "rules" / "sigma"
 
 
 async def load_sigma_rules():
     """Load Sigma YAML rules from disk into the database if not already present."""
     import yaml
+
+    from src.detection.sigma import _extract_mitre_tags
     pool = await get_pool()
     async with pool.acquire() as conn:
         existing = await conn.fetchval("SELECT COUNT(*) FROM rules")
@@ -36,15 +48,14 @@ async def load_sigma_rules():
             return
 
         loaded = 0
-        for rule_file in sorted(RULES_DIR.glob("*.yml")):
+        for rule_file in sorted(RULES_DIR.rglob("*.yml")):
             try:
                 yaml_content = rule_file.read_text()
                 data = yaml.safe_load(yaml_content)
 
-                # Extract MITRE tags
+                # Extract MITRE tags (tactics vs techniques properly)
                 tags = data.get("tags", [])
-                mitre_tactics = [t.replace("attack.", "") for t in tags if t.startswith("attack.t") and len(t) == 8]
-                mitre_techniques = [t.replace("attack.", "") for t in tags if t.startswith("attack.t") and len(t) > 8]
+                mitre_tactics, mitre_techniques = _extract_mitre_tags(tags)
 
                 from datetime import timedelta
 
@@ -89,11 +100,19 @@ async def lifespan(app: FastAPI):
     from src.detection.scheduler import schedule_rules
     await schedule_rules()
 
+    # Start threat intel refresh scheduler
+    from src.intel.threat_intel import start_threat_intel_scheduler
+    await start_threat_intel_scheduler()
+
     yield
 
     # Stop scheduler
     from src.detection.scheduler import stop_scheduler
     await stop_scheduler()
+
+    # Stop threat intel scheduler
+    from src.intel.threat_intel import stop_threat_intel_scheduler
+    await stop_threat_intel_scheduler()
 
     await writer.stop()
     await close_pool()
@@ -121,4 +140,20 @@ app.include_router(ingest_router, prefix="/api/v1")
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(rules_router, prefix="/api/v1")
 app.include_router(alerts_router, prefix="/api/v1")
+app.include_router(correlation_router, prefix="/api/v1")
+app.include_router(threat_intel_router, prefix="/api/v1")
 app.include_router(websocket_router, prefix="/api/v1")
+app.include_router(ai_router, prefix="/api/v1")
+app.include_router(audit_router, prefix="/api/v1")
+app.include_router(chat_router, prefix="/api/v1")
+app.include_router(hunt_router, prefix="/api/v1")
+app.include_router(auth_login_router, prefix="/api/v1")
+app.include_router(cases_router, prefix="/api/v1")
+app.include_router(query_router, prefix="/api/v1")
+
+# Add middleware for request validation and audit logging
+app.add_middleware(RequestValidationMiddleware)
+app.add_middleware(AuditLogMiddleware)
+
+# Rate limiting state
+app.state.limiter = limiter

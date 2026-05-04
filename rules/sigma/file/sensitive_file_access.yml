@@ -1,0 +1,26 @@
+title: Sensitive File Access
+id: scarlet-file-001
+status: stable
+description: Detects access to sensitive system files like /etc/shadow, .ssh directories, and private keys
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: process
+detection:
+    selection_shadow:
+        file_path|contains: /etc/shadow
+    selection_ssh:
+        file_path|contains: .ssh/id_rsa
+    selection_ssh_keys:
+        file_path|contains: .ssh/authorized_keys
+    selection_kerberos:
+        file_path|contains: /etc/krb5.keytab
+    selection_hosts:
+        file_path|contains: /etc/hosts
+        event_action|contains: modification
+    condition: selection_shadow or selection_ssh or selection_ssh_keys or selection_kerberos
+level: high
+tags:
+    - attack.credential_access
+    - attack.ta0006
+    - attack.t1003

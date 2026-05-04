@@ -1,0 +1,24 @@
+title: Process Injection Indicator
+id: scarlet-proc-008
+status: experimental
+description: Detects potential process injection indicators through unusual debugging or tracing activity
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: process
+detection:
+    selection_ptrace:
+        process_name: ptrace
+    selection_lldb:
+        process_name: lldb
+        process_cmdline|contains: -p
+    selection_dtrace:
+        process_name: dtrace
+    selection_inject:
+        process_cmdline|contains: LD_PRELOAD
+    condition: selection_ptrace or selection_lldb or selection_dtrace or selection_inject
+level: high
+tags:
+    - attack.privilege_escalation
+    - attack.ta0004
+    - attack.t1055

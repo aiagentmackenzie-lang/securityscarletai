@@ -74,7 +74,7 @@ async def create_rule(
             parsed.mitre_techniques,
         )
 
-        log.info("rule_created", rule_id=rule_id, name=rule.name, user=user.get("sub"))
+        log.info("rule_created", rule_id=rule_id, name=rule.name, user=str(user))
 
         # Reload scheduler to pick up new rule
         await reload_rules()
@@ -149,7 +149,7 @@ async def update_rule(
             rule_id,
         )
 
-        log.info("rule_updated", rule_id=rule_id, user=user.get("sub"))
+        log.info("rule_updated", rule_id=rule_id, user=str(user))
 
         # Reload scheduler
         await reload_rules()
@@ -169,7 +169,7 @@ async def delete_rule(
         if result == "DELETE 0":
             raise HTTPException(status_code=404, detail="Rule not found")
 
-        log.info("rule_deleted", rule_id=rule_id, user=user.get("sub"))
+        log.info("rule_deleted", rule_id=rule_id, user=str(user))
 
         # Reload scheduler
         await reload_rules()

@@ -1,0 +1,23 @@
+title: Webshell Creation
+id: scarlet-file-004
+status: stable
+description: Detects creation of files with webshell signatures in web-served directories
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: file
+detection:
+    selection_web_dir:
+        file_path|contains:
+            - /var/www/
+            - /htdocs/
+            - /public_html/
+            - /httpdocs/
+    selection_shell_content:
+        file_path|endswith: .php
+    condition: selection_web_dir and selection_shell_content
+level: critical
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1505

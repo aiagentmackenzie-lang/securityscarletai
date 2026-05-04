@@ -1,0 +1,19 @@
+title: Authorization Database Modification
+id: scarlet-mac-009
+status: stable
+description: Detects modification of the macOS authorization database, which controls privilege escalation policies
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: process
+detection:
+    selection:
+        event_type: start
+        process_name: security
+        process_cmdline|contains: authorizationdb
+    condition: selection
+level: high
+tags:
+    - attack.privilege_escalation
+    - attack.ta0004
+    - attack.t1548

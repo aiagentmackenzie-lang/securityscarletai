@@ -1,0 +1,22 @@
+title: Binary Replacement or Hijacking
+id: scarlet-file-006
+status: experimental
+description: Detects modification of system binaries or libraries, indicating potential DLL side-loading or binary replacement
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: file
+detection:
+    selection:
+        event_type: start
+        file_path|contains:
+            - /usr/bin/
+            - /usr/sbin/
+            - /usr/lib/
+        event_action|contains: modification
+    condition: selection
+level: high
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1574

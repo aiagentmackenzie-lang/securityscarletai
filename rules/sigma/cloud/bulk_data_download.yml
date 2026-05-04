@@ -1,0 +1,19 @@
+title: Bulk Data Download
+id: scarlet-cloud-003
+status: stable
+description: Detects unusually large data downloads that may indicate data exfiltration from cloud services
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: network
+detection:
+    selection:
+        event_type: start
+        event_action|contains: download
+    condition: selection | count() by user_name > 5
+timeframe: 10m
+level: medium
+tags:
+    - attack.exfiltration
+    - attack.ta0010
+    - attack.t1567

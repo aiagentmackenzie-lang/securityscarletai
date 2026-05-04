@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # --- Database ---
     db_host: str = "localhost"
-    db_port: int = 5432
+    db_port: int = 5433  # Port 5433 to avoid Homebrew PostgreSQL conflict
     db_name: str = "scarletai"
     db_user: str = "scarletai"
     db_password: str = Field(..., description="Database password — required, no default")
@@ -40,7 +40,9 @@ class Settings(BaseSettings):
     # --- API ---
     api_host: str = "127.0.0.1"
     api_port: int = 8000
-    api_secret_key: str = Field(..., min_length=32, description="JWT signing key — generate with: openssl rand -hex 64")
+    api_secret_key: str = Field(
+        ..., min_length=32, description="JWT signing key — generate with: openssl rand -hex 64"
+    )
     api_bearer_token: str = Field(..., min_length=16, description="Ingestion API auth token")
     api_cors_origins: list[str] = ["http://localhost:8501"]
 

@@ -42,7 +42,11 @@ class FileShipper:
 
                 # Detect log rotation (file got smaller)
                 if current_size < self._offset:
-                    log.info("log_rotation_detected", old_offset=self._offset, new_size=current_size)
+                    log.info(
+                        "log_rotation_detected",
+                        old_offset=self._offset,
+                        new_size=current_size,
+                    )
                     self._offset = 0
 
                 if current_size > self._offset:

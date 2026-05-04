@@ -58,7 +58,7 @@ async def ingest_events(
     _token: Annotated[str, Depends(verify_bearer_token)],
 ):
     """Ingest one or more security events.
-    
+
     Requires: Bearer token in Authorization header.
     """
     if len(events) > 1000:

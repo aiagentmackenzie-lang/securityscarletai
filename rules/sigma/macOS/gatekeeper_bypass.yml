@@ -1,0 +1,26 @@
+title: Gatekeeper Bypass Attempt
+id: scarlet-mac-004
+status: stable
+description: Detects attempts to bypass macOS Gatekeeper by removing quarantine attributes or using spctl to disable assessment
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: process
+detection:
+    selection_spctl:
+        event_type: start
+        process_name: spctl
+    selection_xattr:
+        event_type: start
+        process_name: xattr
+        process_cmdline|contains: com.apple.quarantine
+    selection_codesign:
+        event_type: start
+        process_name: codesign
+        process_cmdline|contains: remove-signature
+    condition: selection_spctl or selection_xattr or selection_codesign
+level: high
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1553

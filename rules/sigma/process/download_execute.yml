@@ -1,0 +1,26 @@
+title: Download and Execute Pattern
+id: scarlet-proc-006
+status: stable
+description: Detects download-then-execute patterns commonly used by malware droppers
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: process
+detection:
+    selection_curl_exec:
+        process_name: bash
+        process_cmdline|contains: curl
+        process_cmdline|contains: sh
+    selection_wget_exec:
+        process_name: bash
+        process_cmdline|contains: wget
+    selection_powershell_download:
+        process_name: python
+        process_cmdline|contains: urllib
+        process_cmdline|contains: exec
+    condition: selection_curl_exec or selection_wget_exec or selection_powershell_download
+level: high
+tags:
+    - attack.execution
+    - attack.ta0002
+    - attack.t1059

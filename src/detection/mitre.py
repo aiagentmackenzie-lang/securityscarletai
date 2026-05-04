@@ -39,7 +39,11 @@ class MitreAttackData:
                     self._tactics = data.get("tactics", {})
                     self._techniques = data.get("techniques", {})
                     self._loaded = True
-                    log.info("mitre_loaded_from_cache", tactics=len(self._tactics), techniques=len(self._techniques))
+                    log.info(
+                        "mitre_loaded_from_cache",
+                        tactics=len(self._tactics),
+                        techniques=len(self._techniques),
+                    )
                     return
             except Exception:
                 log.warning("mitre_cache_load_failed")

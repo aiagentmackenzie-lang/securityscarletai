@@ -1,9 +1,9 @@
-title: Suspicious DNS Query
-id: scarlet-005
-status: experimental
-description: Detects DNS queries to suspicious or known-malicious domains
+title: DNS Tunneling Indicators
+id: scarlet-net-002
+status: stable
+description: Detects DNS queries with suspicious patterns that may indicate DNS tunneling for data exfiltration
 author: SecurityScarletAI
-date: 2026/03/21
+date: 2026/05/03
 logsource:
     category: network
 detection:
@@ -12,7 +12,8 @@ detection:
         event_action|contains: dns
         destination_port: 53
     condition: selection
-level: low
+level: medium
 tags:
     - attack.command_and_control
+    - attack.ta0011
     - attack.t1071

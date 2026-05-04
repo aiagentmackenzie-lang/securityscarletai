@@ -1,0 +1,35 @@
+title: Reverse Shell Pattern Detected
+id: scarlet-proc-002
+status: stable
+description: Detects common reverse shell patterns in command lines indicating a compromised host calling back to attacker
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: process
+detection:
+    selection_bash_tcp:
+        process_cmdline|contains: /dev/tcp
+    selection_socat:
+        process_name: socat
+    selection_nc_reverse:
+        process_name: nc
+        process_cmdline|contains: -e
+    selection_bash_i:
+        process_cmdline|contains: bash -i
+    selection_python_shell:
+        process_name: python
+        process_cmdline|contains: socket
+        process_cmdline|contains: connect
+    selection_perl_socket:
+        process_name: perl
+        process_cmdline|contains: Socket
+        process_cmdline|contains: connect
+    selection_ruby_reverse:
+        process_name: ruby
+        process_cmdline|contains: IO.pipe
+    condition: selection_bash_tcp or selection_socat or selection_nc_reverse or selection_bash_i or selection_python_shell or selection_perl_socket or selection_ruby_reverse
+level: critical
+tags:
+    - attack.execution
+    - attack.ta0002
+    - attack.t1059

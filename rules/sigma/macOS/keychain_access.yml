@@ -1,0 +1,19 @@
+title: Keychain Access by Unusual Process
+id: scarlet-mac-007
+status: stable
+description: Detects access to macOS Keychain by unusual processes, which may indicate credential theft
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: process
+detection:
+    selection:
+        event_type: start
+        process_name: security
+        process_cmdline|contains: find-generic-password
+    condition: selection
+level: high
+tags:
+    - attack.credential_access
+    - attack.ta0006
+    - attack.t1555

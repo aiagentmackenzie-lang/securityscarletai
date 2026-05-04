@@ -1,0 +1,18 @@
+title: Safari Extension Installation
+id: scarlet-mac-006
+status: stable
+description: Detects installation of browser extensions in Safari, which can be used for persistence and data theft
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: file
+detection:
+    selection:
+        event_type: start
+        file_path|contains: Safari/Extensions
+    condition: selection
+level: medium
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1176

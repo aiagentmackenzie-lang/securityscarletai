@@ -56,7 +56,7 @@ class RiskScorer:
     ) -> float:
         """
         Calculate risk score for an individual alert.
-        
+
         Returns:
             Risk score 0-100
         """
@@ -78,23 +78,23 @@ class RiskScorer:
     ) -> Dict[str, Any]:
         """
         Calculate risk score for an asset/host.
-        
+
         Returns:
             Dict with score, factors, and top risks
         """
         pool = await get_pool()
         async with pool.acquire() as conn:
-            # Alert stats
+            # Alert stats — parameterized interval via multiplication (safe)
             alert_stats = await conn.fetchrow(
                 """
-                SELECT 
+                SELECT
                     COUNT(*) FILTER (WHERE severity = 'critical') as critical,
                     COUNT(*) FILTER (WHERE severity = 'high') as high,
                     COUNT(*) FILTER (WHERE severity = 'medium') as medium,
                     COUNT(*) as total
                 FROM alerts
                 WHERE host_name = $1
-                  AND time > NOW() - INTERVAL '$2 hours'
+                  AND time > NOW() - INTERVAL '1 hour' * $2
                 """,
                 hostname,
                 hours,
@@ -112,14 +112,14 @@ class RiskScorer:
                 hostname,
             )
 
-            # Threat intel hits
+            # Threat intel hits — parameterized interval
             ti_hits = await conn.fetchval(
                 """
                 SELECT COUNT(*)
                 FROM logs
                 WHERE host_name = $1
                   AND enrichment @> '{"threat_intel": {"match": true}}'
-                  AND time > NOW() - INTERVAL '$2 hours'
+                  AND time > NOW() - INTERVAL '1 hour' * $2
                 """,
                 hostname,
                 hours,
@@ -172,35 +172,38 @@ class RiskScorer:
     ) -> Dict[str, Any]:
         """
         Calculate risk score for a user.
-        
+
         Returns:
             Dict with score and risk factors
         """
         pool = await get_pool()
         async with pool.acquire() as conn:
-            # Alerts involving user
+            # Alerts involving user — parameterized interval
             user_alerts = await conn.fetchrow(
                 """
-                SELECT 
+                SELECT
                     COUNT(*) FILTER (WHERE severity = 'critical') as critical,
                     COUNT(*) FILTER (WHERE severity = 'high') as high,
                     COUNT(*) FILTER (WHERE a.status = 'new') as open_count
                 FROM alerts a
                 JOIN logs l ON l.user_name = $1
-                WHERE l.time > NOW() - INTERVAL '$2 hours'
+                WHERE l.time > NOW() - INTERVAL '1 hour' * $2
                 """,
                 username,
                 hours,
             )
 
-            # Privileged activity
+            # Privileged activity — use normalized JSONB for process_cmdline
             sudo_count = await conn.fetchval(
                 """
                 SELECT COUNT(*)
                 FROM logs
                 WHERE user_name = $1
-                  AND (process_cmdline ILIKE '%sudo%' OR process_name = 'sudo')
-                  AND time > NOW() - INTERVAL '$2 hours'
+                  AND (
+                    normalized->>'process_cmdline' ILIKE '%sudo%'
+                    OR process_name = 'sudo'
+                  )
+                  AND time > NOW() - INTERVAL '1 hour' * $2
                 """,
                 username,
                 hours,
@@ -295,7 +298,7 @@ class RiskScorer:
 async def update_asset_risk_scores() -> None:
     """
     Batch update risk scores for all assets.
-    
+
     Called periodically to refresh risk assessments.
     """
     pool = await get_pool()
@@ -310,7 +313,7 @@ async def update_asset_risk_scores() -> None:
             # Update asset record
             await conn.execute(
                 """
-                UPDATE assets 
+                UPDATE assets
                 SET risk_score = $1, updated_at = NOW()
                 WHERE hostname = $2
                 """,

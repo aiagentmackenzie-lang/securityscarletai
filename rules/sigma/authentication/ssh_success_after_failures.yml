@@ -1,0 +1,18 @@
+title: SSH Successful Login After Multiple Failures
+id: scarlet-auth-008
+status: stable
+description: Detects a successful SSH login following multiple failed attempts from the same source — likely a brute force success
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: authentication
+detection:
+    selection:
+        event_type: start
+        event_action|contains: success
+    condition: selection
+level: critical
+tags:
+    - attack.credential_access
+    - attack.ta0006
+    - attack.t1110

@@ -1,0 +1,26 @@
+title: Log File Deletion
+id: scarlet-file-005
+status: stable
+description: Detects deletion of log files, which may indicate an attacker trying to cover their tracks
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: process
+detection:
+    selection:
+        process_name:
+            - rm
+            - shred
+            - srm
+        process_cmdline|contains:
+            - /var/log
+            - /var/log/syslog
+            - /var/log/auth.log
+            - /var/log/secure
+            - /var/log/audit
+    condition: selection
+level: critical
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1070

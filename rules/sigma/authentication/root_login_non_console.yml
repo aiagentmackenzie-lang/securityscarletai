@@ -1,0 +1,19 @@
+title: Root Login from Non-Console
+id: scarlet-auth-004
+status: stable
+description: Detects root user login from a remote or non-console session, which is unusual and potentially malicious
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: authentication
+detection:
+    selection:
+        event_type: start
+        event_action|contains: login
+        user_name: root
+    condition: selection
+level: high
+tags:
+    - attack.privilege_escalation
+    - attack.ta0004
+    - attack.t1078

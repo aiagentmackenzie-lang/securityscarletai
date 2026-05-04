@@ -1,9 +1,9 @@
 title: Privilege Escalation via Sudo
 id: scarlet-004
-status: experimental
+status: stable
 description: Detects privilege escalation attempts using sudo
 author: SecurityScarletAI
-date: 2026/03/21
+date: 2026/05/03
 logsource:
     category: authentication
 detection:
@@ -15,4 +15,5 @@ detection:
 level: medium
 tags:
     - attack.privilege_escalation
+    - attack.ta0004
     - attack.t1548

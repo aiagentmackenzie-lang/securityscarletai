@@ -1,0 +1,18 @@
+title: LaunchDaemon Persistence Created
+id: scarlet-mac-002
+status: stable
+description: Detects creation of macOS LaunchDaemon plist files, often used for privilege persistence
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: file
+detection:
+    selection:
+        event_type: start
+        file_path|contains: LaunchDaemons
+    condition: selection
+level: critical
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1547

@@ -2,7 +2,10 @@
 """Manually run AI analysis on alerts that don't have ai_summary yet."""
 import asyncio
 import sys
-sys.path.insert(0, "/Users/main/Security Apps/SecurityScarletAI")
+import os
+
+# Security: Use relative import path instead of hardcoded absolute path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.db.connection import get_pool
 from src.detection.ai_analyzer import analyze_alert, enrich_alert

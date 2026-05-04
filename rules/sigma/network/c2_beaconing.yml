@@ -1,0 +1,19 @@
+title: C2 Beaconing Pattern
+id: scarlet-net-003
+status: experimental
+description: Detects potential C2 beaconing through regular interval outbound connections to the same IP
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: network
+detection:
+    selection:
+        event_type: start
+        event_category: network
+    condition: selection | count(destination_ip) by source_ip > 20
+timeframe: 1h
+level: medium
+tags:
+    - attack.command_and_control
+    - attack.ta0011
+    - attack.t1071

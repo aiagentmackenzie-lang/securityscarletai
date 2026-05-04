@@ -1,0 +1,25 @@
+title: Encoded Command Execution
+id: scarlet-proc-004
+status: stable
+description: Detects execution of base64-encoded commands, commonly used by attackers to obfuscate malicious payloads
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: process
+detection:
+    selection_base64:
+        process_cmdline|contains: base64
+        process_cmdline|contains: -d
+    selection_bash_c:
+        process_name: bash
+        process_cmdline|contains: -c
+    selection_python_encode:
+        process_name: python
+        process_cmdline|contains: exec
+        process_cmdline|contains: decode
+    condition: selection_base64 or selection_bash_c or selection_python_encode
+level: high
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1027

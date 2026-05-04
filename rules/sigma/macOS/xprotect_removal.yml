@@ -1,0 +1,18 @@
+title: XProtect Removal or Modification
+id: scarlet-mac-005
+status: stable
+description: Detects modification or deletion of macOS XProtect malware scanning files
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: file
+detection:
+    selection:
+        event_type: start
+        file_path|contains: XProtect
+    condition: selection
+level: critical
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1562

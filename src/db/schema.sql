@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS logs (
     user_name      TEXT,
     process_name   TEXT,
     process_pid    INTEGER,
+    process_cmdline TEXT,                   -- full command line
+    process_path   TEXT,                    -- binary path (e.g., /usr/bin/curl)
     source_ip      INET,
     destination_ip INET,
     destination_port INTEGER,
@@ -42,6 +44,8 @@ CREATE INDEX IF NOT EXISTS idx_logs_source_ip ON logs (source_ip, time DESC) WHE
 CREATE INDEX IF NOT EXISTS idx_logs_process ON logs (process_name, time DESC) WHERE process_name IS NOT NULL;
 -- GIN index for JSONB full-text search on raw data
 CREATE INDEX IF NOT EXISTS idx_logs_raw_gin ON logs USING GIN (raw_data jsonb_path_ops);
+-- GIN index for normalized JSONB column (supports process_cmdline, process_path, etc.)
+CREATE INDEX IF NOT EXISTS idx_logs_normalized_gin ON logs USING GIN (normalized jsonb_path_ops);
 
 
 -- ============================================================
@@ -94,6 +98,10 @@ CREATE TABLE IF NOT EXISTS alerts (
 
 CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts (status, severity, time DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_host ON alerts (host_name, time DESC);
+
+-- Notes column for alert timeline (added by v2)
+-- JSONB array of {author, text, timestamp} objects
+-- Added via migration: ALTER TABLE alerts ADD COLUMN IF NOT EXISTS notes JSONB DEFAULT '[]'::jsonb;
 
 
 -- ============================================================
@@ -155,6 +163,26 @@ CREATE TABLE IF NOT EXISTS siem_users (
     last_login     TIMESTAMPTZ,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+
+-- ============================================================
+-- AUDIT LOG — every state-changing action is recorded
+-- ============================================================
+CREATE TABLE IF NOT EXISTS audit_log (
+    id             SERIAL PRIMARY KEY,
+    actor          TEXT NOT NULL,               -- username or 'system'
+    action         TEXT NOT NULL,               -- 'rule.create', 'alert.update', 'case.create', 'user.login'
+    target_type    TEXT,                        -- 'rule', 'alert', 'case', 'user'
+    target_id      INTEGER,
+    old_values     JSONB,                       -- state before change
+    new_values     JSONB,                       -- state after change
+    ip_address     TEXT,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log (actor, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log (action, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_target ON audit_log (target_type, target_id);
 
 
 -- ============================================================

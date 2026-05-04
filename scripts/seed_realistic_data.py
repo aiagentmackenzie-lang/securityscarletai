@@ -2,13 +2,22 @@
 """
 Seed SecurityScarletAI with realistic test data.
 Generates logs that match the DB schema and trigger detection rules.
+
+SECURITY: Reads API token from environment variable, never hardcoded.
 """
+import os
 import httpx
 import json
 from datetime import datetime, timedelta, timezone
 
-TOKEN = "bedd3171c0cf5a095e5ab6acc28c202257688340a7ff5874e0bf97d61cc624d1"
-API = "http://localhost:8000/api/v1/ingest"
+API_BASE = os.environ.get("SCARLET_API_URL", "http://localhost:8000/api/v1/ingest")
+TOKEN = os.environ.get("SCARLET_API_TOKEN", "")
+
+if not TOKEN:
+    print("ERROR: SCARLET_API_TOKEN environment variable not set.")
+    print("Set it via: export SCARLET_API_TOKEN=$(grep API_BEARER_TOKEN .env | cut -d= -f2)")
+    print("Or: source .env && export SCARLET_API_TOKEN=$API_BEARER_TOKEN")
+    exit(1)
 
 def make_event(ts, host_name, source, event_category, event_type, event_action=None,
                user_name=None, process_name=None, process_pid=None,

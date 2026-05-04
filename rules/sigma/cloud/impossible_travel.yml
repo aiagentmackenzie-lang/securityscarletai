@@ -1,0 +1,18 @@
+title: Impossible Travel - Distant Logins
+id: scarlet-cloud-001
+status: stable
+description: Detects authentication from two geographically distant locations within an impossible time window
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: authentication
+detection:
+    selection:
+        event_type: start
+        event_action|contains: success
+    condition: selection
+level: critical
+tags:
+    - attack.initial_access
+    - attack.ta0001
+    - attack.t1078

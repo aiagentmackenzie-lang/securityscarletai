@@ -1,0 +1,18 @@
+title: Cron Job Modification
+id: scarlet-file-003
+status: stable
+description: Detects modification of cron jobs, a common persistence mechanism
+author: SecurityScarletAI
+date: 2026/05/03
+logsource:
+    category: file
+detection:
+    selection:
+        event_type: start
+        file_path|contains: /crontab
+    condition: selection
+level: medium
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1053

@@ -1,7 +1,7 @@
 title: SSH Brute Force Detected
 id: scarlet-001
-status: experimental
-description: Detects multiple failed SSH login attempts from the same source
+status: stable
+description: Detects multiple failed SSH login attempts from the same source IP, indicating a brute force attack
 author: SecurityScarletAI
 date: 2026/03/21
 logsource:
@@ -10,8 +10,10 @@ detection:
     selection:
         event_type: start
         event_action|contains: failed
-    condition: selection
+    condition: selection | count(source_ip) by host_name > 5
+timeframe: 5m
 level: high
 tags:
     - attack.credential_access
+    - attack.ta0006
     - attack.t1110
