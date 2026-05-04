@@ -41,7 +41,8 @@ class TestSeverityEscalation:
         """Below threshold fires should not escalate severity."""
         # Mock a connection that returns count below threshold
         mock_conn = AsyncMock()
-        mock_conn.fetchval.return_value = 2  # Below threshold of 3
+        # Code does recent_count + 1 >= 3, so fetchval=1 means 1+1=2 < 3 (no escalation)
+        mock_conn.fetchval.return_value = 1  # Below threshold of 3
         result = await _check_severity_escalation(mock_conn, 1, "host1", "medium")
         assert result == "medium"
 

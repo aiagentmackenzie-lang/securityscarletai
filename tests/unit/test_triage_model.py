@@ -572,6 +572,10 @@ class TestCheckAutoTrain:
     @pytest.mark.asyncio
     async def test_above_threshold_triggers_train(self):
         """Should trigger training when above threshold."""
+        import src.ai.alert_triage as at_module
+        # Reset cooldown so test isn't blocked by a previous call
+        at_module._last_auto_train_time = 0
+
         mock_conn = AsyncMock()
         mock_conn.fetchval = AsyncMock(return_value=150)  # Above 100
 

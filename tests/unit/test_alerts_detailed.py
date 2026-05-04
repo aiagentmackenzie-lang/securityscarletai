@@ -74,7 +74,7 @@ class TestCheckSeverityEscalation:
     async def test_no_escalation_below_threshold(self):
         """Should not escalate when recent count is below threshold."""
         mock_conn = AsyncMock()
-        mock_conn.fetchval = AsyncMock(return_value=2)  # Below threshold of 3
+        mock_conn.fetchval = AsyncMock(return_value=1)  # 1+1=2 < 3, below threshold
 
         result = await _check_severity_escalation(mock_conn, rule_id=1, host_name="ws-01", current_severity="medium")
         assert result == "medium"
@@ -179,7 +179,7 @@ class TestCreateAlert:
                 description="Test description",
             )
 
-        assert result == 42  # Existing alert ID
+        assert result == -1  # Dedup hit — returns -1 per bugfix
 
     @pytest.mark.asyncio
     async def test_create_alert_suppressed(self):
@@ -221,7 +221,7 @@ class TestCreateAlert:
                 description="Suppress me",
             )
 
-        assert result == 0
+        assert result == -1  # Suppressed — returns -1 per bugfix
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -553,7 +553,7 @@ class TestExportAlerts:
 
         assert result["type"] == "bundle"
         assert len(result["objects"]) == 1
-        assert result["objects"][0]["pattern"] == "[host_name = 'ws-01']"
+        assert result["objects"][0]["pattern"] == f"[network-traffic:dst_ref.type = 'hostname' AND network-traffic:dst_ref.value = 'ws-01']"
         assert result["objects"][0]["confidence"] == 80  # High severity = 80
 
     @pytest.mark.asyncio

@@ -195,7 +195,7 @@ class TestWebSocketEndpoint:
         mock_ws = AsyncMock()
         mock_ws.close = AsyncMock()
 
-        with patch("src.api.websocket.verify_bearer_token", side_effect=Exception("Invalid token")):
+        with patch("src.api.websocket.verify_jwt", side_effect=Exception("Invalid token")):
             await websocket_logs(
                 websocket=mock_ws,
                 token="invalid_token",
@@ -279,7 +279,8 @@ class TestEnrichPipelineRemaining:
              patch("src.intel.threat_intel.enrich_ip_with_threat_intel", AsyncMock(return_value={})):
             result = await enrich_event(mock_event)
 
-        assert "geo" in result
+        assert "destination" in result
+        assert "geo" in result["destination"]
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

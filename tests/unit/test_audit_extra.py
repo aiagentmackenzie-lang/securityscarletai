@@ -88,7 +88,7 @@ class TestLogAuditAction:
 
     @pytest.mark.asyncio
     async def test_log_audit_db_error(self):
-        """Should return None on database error."""
+        """Should raise RuntimeError on database error (per C-07 fix)."""
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.fetchval = AsyncMock(side_effect=Exception("DB error"))
@@ -99,11 +99,11 @@ class TestLogAuditAction:
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
         with patch("src.api.audit.get_pool", return_value=mock_pool):
-            result = await log_audit_action(
-                actor="admin",
-                action="test",
-            )
-            assert result is None
+            with pytest.raises(RuntimeError, match="Audit log write failed"):
+                await log_audit_action(
+                    actor="admin",
+                    action="test",
+                )
 
 
 class TestAuditQueryEndpoint:

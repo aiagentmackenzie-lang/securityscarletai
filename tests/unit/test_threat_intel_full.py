@@ -44,10 +44,10 @@ class TestMapIocType:
         assert _map_ioc_type("IPv6") == "ip"
 
     def test_domain(self):
-        assert _map_ioc_type("domain") == "ip"
+        assert _map_ioc_type("domain") == "domain"
 
     def test_hostname(self):
-        assert _map_ioc_type("hostname") == "ip"
+        assert _map_ioc_type("hostname") == "domain"
 
     def test_url(self):
         assert _map_ioc_type("URL") == "url"
@@ -62,7 +62,7 @@ class TestMapIocType:
         assert _map_ioc_type("FileHash-SHA256") == "hash_sha256"
 
     def test_email(self):
-        assert _map_ioc_type("email") == "ip"
+        assert _map_ioc_type("email") == "email"
 
     def test_unknown_type(self):
         assert _map_ioc_type("unknown_type") == ""

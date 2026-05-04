@@ -364,10 +364,10 @@ class TestGetTopRisk:
     def mock_pool_asset(self):
         pool = AsyncMock()
         conn = AsyncMock()
-        # First call: get distinct hosts
+        # Match the actual SQL query columns: host_name, base_risk, crit_alerts, high_alerts, total_alerts, outbound_conns
         conn.fetch = AsyncMock(return_value=[
-            {"host_name": "server1"},
-            {"host_name": "server2"},
+            {"host_name": "server1", "base_risk": 70.0, "crit_alerts": 1, "high_alerts": 2, "total_alerts": 5, "outbound_conns": 0},
+            {"host_name": "server2", "base_risk": 30.0, "crit_alerts": 0, "high_alerts": 0, "total_alerts": 1, "outbound_conns": 0},
         ])
         acquirer = MagicMock()
         acquirer.__aenter__ = AsyncMock(return_value=conn)
@@ -379,27 +379,16 @@ class TestGetTopRisk:
     async def test_get_top_risk_assets_limit(self, mock_pool_asset):
         """Should respect the limit parameter."""
         with patch("src.ai.risk_scoring.get_pool", return_value=mock_pool_asset):
-            # Mock calculate_asset_risk to avoid nested pool calls
-            with patch.object(RiskScorer, "calculate_asset_risk", new_callable=AsyncMock) as mock_calc:
-                mock_calc.side_effect = [
-                    {"hostname": "server1", "risk_score": 80},
-                    {"hostname": "server2", "risk_score": 30},
-                ]
-                result = await RiskScorer.get_top_risk_assets(limit=2)
-                assert len(result) <= 2
+            result = await RiskScorer.get_top_risk_assets(limit=2)
+            assert len(result) <= 2
 
     @pytest.mark.asyncio
     async def test_get_top_risk_assets_sorted(self, mock_pool_asset):
         """Results should be sorted by risk_score descending."""
         with patch("src.ai.risk_scoring.get_pool", return_value=mock_pool_asset):
-            with patch.object(RiskScorer, "calculate_asset_risk", new_callable=AsyncMock) as mock_calc:
-                mock_calc.side_effect = [
-                    {"hostname": "server1", "risk_score": 30},
-                    {"hostname": "server2", "risk_score": 80},
-                ]
-                result = await RiskScorer.get_top_risk_assets(limit=10)
-                scores = [r["risk_score"] for r in result]
-                assert scores == sorted(scores, reverse=True)
+            result = await RiskScorer.get_top_risk_assets(limit=10)
+            scores = [r["risk_score"] for r in result]
+            assert scores == sorted(scores, reverse=True)
 
     @pytest.mark.asyncio
     async def test_get_top_risk_users(self):

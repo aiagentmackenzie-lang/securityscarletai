@@ -449,8 +449,21 @@ class TestHuntHistory:
     @pytest.mark.asyncio
     async def test_save_hunt_history(self):
         """Should log hunt execution."""
-        # save_hunt_history just logs, shouldn't raise
-        await save_hunt_history("test_hunt", "Test Hunt", 5)
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value=None)
+
+        class AsyncCtx:
+            async def __aenter__(self):
+                return mock_conn
+            async def __aexit__(self, *args):
+                pass
+
+        mock_pool = AsyncMock()
+        mock_pool.acquire = MagicMock(return_value=AsyncCtx())
+
+        with patch("src.ai.hunting_assistant.get_pool", AsyncMock(return_value=mock_pool)):
+            await save_hunt_history("test_hunt", "Test Hunt", 5)
+        mock_conn.execute.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_hunt_history_empty(self):

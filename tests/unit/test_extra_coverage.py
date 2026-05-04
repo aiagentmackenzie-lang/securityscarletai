@@ -9,6 +9,15 @@ from datetime import datetime, timezone
 from src.ingestion.schemas import NormalizedEvent
 
 
+def _can_import(module_name: str) -> bool:
+    """Check if a module can be imported without actually importing it."""
+    try:
+        __import__(module_name)
+        return True
+    except ImportError:
+        return False
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Ingestion Shipper Tests
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -55,12 +64,20 @@ class TestFileShipper:
 class TestPostgreSQLBackend:
     """Test PostgreSQL detection backend."""
 
+    @pytest.mark.skipif(
+        not _can_import("sigma"),
+        reason="pysigma package not installed",
+    )
     def test_backend_importable(self):
         """PostgreSQL backend module should be importable."""
         from src.detection.backends.postgresql import PostgreSQLBackend
         backend = PostgreSQLBackend()
         assert backend is not None
 
+    @pytest.mark.skipif(
+        not _can_import("sigma"),
+        reason="pysigma package not installed",
+    )
     def test_backend_is_pysigma_backend(self):
         """Backend should be a pySigma backend that can convert Sigma rules."""
         from src.detection.backends.postgresql import PostgreSQLBackend

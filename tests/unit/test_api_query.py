@@ -106,12 +106,13 @@ class TestSQLInjectionPrevention:
     """
 
     def test_drop_table_injection(self):
-        """DROP TABLE should be blocked by add_safety_limits or sanitize."""
+        """DROP TABLE should be blocked by validate_sql_structure."""
         malicious = "SELECT * FROM alerts; DROP TABLE alerts; --"
-        safe = add_safety_limits(malicious)
-        # The result should add LIMIT but must NOT contain DROP
-        assert "DROP" not in safe.upper().split("LIMIT")[0], \
-            "DROP TABLE injection should be stripped or blocked"
+        # The real defense is validate_sql_structure which rejects forbidden patterns
+        from src.ai.nl2sql import validate_sql_structure
+        is_valid, reason = validate_sql_structure(malicious)
+        assert not is_valid
+        assert "DROP" in reason or "forbidden" in reason.lower() or "semicolon" in reason.lower() or "comment" in reason.lower()
 
     def test_union_select_injection(self):
         """UNION SELECT to extract other tables should be blocked."""

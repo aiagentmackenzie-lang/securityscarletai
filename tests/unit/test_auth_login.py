@@ -189,7 +189,10 @@ class TestSeedAdmin:
         """Test that seed-admin rejects when users already exist."""
         pool = AsyncMock()
         conn = AsyncMock()
-        conn.fetchval = AsyncMock(return_value=3)  # 3 users exist
+        # Code uses fetchrow (INSERT ... ON CONFLICT DO NOTHING RETURNING username)
+        # When users exist, ON CONFLICT DO NOTHING returns None
+        conn.fetchrow = AsyncMock(return_value=None)
+        conn.execute = AsyncMock(return_value=None)  # advisory lock/unlock
 
         acquirer = MagicMock()
         acquirer.__aenter__ = AsyncMock(return_value=conn)

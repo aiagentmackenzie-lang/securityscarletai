@@ -11,7 +11,7 @@ Covers:
 - Approval and dry-run logic
 """
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.response.soar import (
     ActionType,
@@ -173,15 +173,24 @@ class TestSOARPlaybook:
 
     @pytest.mark.asyncio
     async def test_unknown_action_type(self):
-        """Unknown action types should report not implemented."""
+        """Unknown action types should fall through to 'not implemented' in _execute_action."""
         pb = SOARPlaybook("test", "Test")
-        pb.add_action(ResponseAction(
-            action_type=ActionType.KILL_PROCESS,
-            target="malware.exe",
-            reason="Malware detected",
+        # Create a valid action and mock _execute_action to hit the else branch
+        action = ResponseAction(
+            action_type=ActionType.BLOCK_IP,
+            target="1.2.3.4",
+            reason="Testing unknown path",
             approved=True,
-        ))
+        )
+        # Override action_type with an unexpected enum member to hit the else branch
+        # Use MagicMock to simulate an ActionType that doesn't match any branch
+        mock_type = MagicMock()
+        mock_type.value = "custom_action"
+        mock_type.__eq__ = lambda self, other: False  # Never equals any ActionType
+        action.action_type = mock_type
+        pb.add_action(action)
         results = await pb.execute(dry_run=False)
+        assert len(results) == 1
         assert "not implemented" in results[0].result.lower()
 
 
