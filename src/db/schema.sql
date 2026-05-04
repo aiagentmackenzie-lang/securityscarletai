@@ -161,6 +161,8 @@ CREATE TABLE IF NOT EXISTS siem_users (
     role                  TEXT NOT NULL DEFAULT 'analyst' CHECK (role IN ('admin', 'analyst', 'viewer')),
     is_active             BOOLEAN NOT NULL DEFAULT true,
     must_change_password  BOOLEAN NOT NULL DEFAULT false,  -- M-10 migration: force reset on first login
+    failed_login_attempts  INTEGER NOT NULL DEFAULT 0,   -- C-02: brute-force lockout counter
+    locked_until          TIMESTAMPTZ,                -- C-02: account lock timeout
     last_login            TIMESTAMPTZ,
     created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

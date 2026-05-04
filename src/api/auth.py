@@ -49,7 +49,8 @@ def verify_jwt(
             credentials.credentials, settings.api_secret_key, algorithms=[JWT_ALGORITHM]
         )
         return payload
-    except JWTError:
+    except JWTError as e:
+        log.warning("jwt_verify_failed", error=str(e), token_preview=credentials.credentials[:20])
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",

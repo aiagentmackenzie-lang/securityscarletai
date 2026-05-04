@@ -547,7 +547,9 @@ THREAT_INTEL_ENTRIES = [
 
 async def seed() -> None:
     """Seed demo data into the database. Idempotent — checks first."""
-    conn = await asyncpg.connect(settings.database_url)
+    # asyncpg needs plain postgresql:// — strip the +asyncpg suffix
+    dsn = settings.database_url.replace("+asyncpg", "")
+    conn = await asyncpg.connect(dsn)
     try:
         # Check if demo data already exists
         existing = await conn.fetchval("SELECT COUNT(*) FROM alerts")
