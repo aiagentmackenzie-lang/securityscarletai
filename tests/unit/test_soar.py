@@ -280,7 +280,6 @@ class TestGetPlaybookForAlert:
 
     def test_no_rule_name_key(self):
         alert = {"host_name": "server01"}
-        pb = get_playbook_for_alert(alert)
-        # Missing rule_name should default to ""
-        # empty string.lower() doesn't contain brute/ssh/malware/suspicious
-        assert pb is None or pb is not None  # Function handles gracefully
+        result = get_playbook_for_alert(alert)
+        # Missing rule_name should default to empty string, which doesn't match any playbook
+        assert result is None, f"Expected None for missing rule_name, got {type(result)}"

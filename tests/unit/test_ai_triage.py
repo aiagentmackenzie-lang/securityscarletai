@@ -198,8 +198,10 @@ class TestAutoTrain:
                 mock_get_model.return_value = mock_model
 
                 result = await check_auto_train()
-                # Should attempt training
-                assert mock_model.train.called or result is True
+                # Training should have been called (the primary assertion)
+                assert mock_model.train.called, "Auto-train should call model.train() when threshold is met"
+                # Result should also be True when training succeeds
+                assert result is True, "check_auto_train should return True when training succeeds"
 
 
 # ---------------------------------------------------------------------------

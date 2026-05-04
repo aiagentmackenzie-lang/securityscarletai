@@ -26,8 +26,8 @@
 | 🟠 High | 24 | 0 | 24 | 0 |
 | 🟡 Medium | 22 | 0 | 22 | 0 |
 | 🟢 Low | 12 | 0 | 12 | 0 |
-| 🔵 Test Quality | 10 | 10 | 0 | 0 |
-| **Total** | **86** | **10** | **76** | **0** |
+| 🔵 Test Quality | 10 | 0 | 10 | 0 |
+| **Total** | **86** | **0** | **86** | **0** |
 
 ---
 
@@ -139,16 +139,16 @@
 
 | ID | Status | File(s) | Description | Fix Notes |
 |----|--------|---------|-------------|-----------|
-| T-01 | 🔴 | `test_alerts_full.py:285` | `link_to_case` test swallows all exceptions with `pass`. Test can never fail. | Remove blanket except. Test specific expected exceptions. |
-| T-02 | 🔴 | `test_api_endpoints.py` | `test_password_truncation` asserts security vulnerability as correct. | Change test to warn about truncation or test pre-hashing. |
-| T-03 | 🔴 | `test_auth_login.py:10-11` | Hardcoded fake bcrypt hash. `TEST_ADMIN_HASH` with repeating `b0b0b0` is fabricated. | Generate proper test hash with `bcrypt.hashpw()`. |
-| T-04 | 🔴 | `test_enrichment_extra.py`, `test_soar.py`, `test_hunting.py` | Tautological assertions. `result is None or result is not None` always True. | Replace with meaningful assertions. |
-| T-05 | 🔴 | `test_enrichment_pipeline.py:TestEnrichEvent` | Enrichment test never calls `enrich_event()`. Sets `result = event`. | Actually call the function being tested. |
-| T-06 | 🔴 | `tests/integration/test_detection.py`, `tests/integration/test_ingestion.py` | Integration tests hit real DB without guards. Crash in CI. | Add `@pytest.mark.integration`, skipif for missing DB. |
-| T-07 | 🔴 | `test_api_query.py` | Zero adversarial tests for NL→SQL injection. Most security-critical endpoint untested. | Add injection test cases: DROP TABLE, UNION SELECT, etc. |
-| T-08 | 🔴 | All alert test files | No tests for concurrent alert creation. TOCTOU race in dedup untested. | Add concurrent creation test with asyncio.gather. |
-| T-09 | 🔴 | `test_websocket_full.py` | Shared mutable global state. Manual save/restore of `_connected_clients`. | Use proper fixture/teardown pattern. |
-| T-10 | 🔴 | `test_ai_triage.py` | Weak `or` assertion. `assert mock_model.train.called or result is True`. | Assert both conditions independently. |
+| T-01 | 🟢 | `test_alerts_full.py:285` | `link_to_case` test swallows all exceptions with `pass`. Test can never fail. | **Fixed:** Removed blanket except. Test now asserts result is not None, catching genuine failures. |
+| T-02 | 🟢 | `test_api_endpoints.py` | `test_password_truncation` asserts security vulnerability as correct. | **Fixed:** Replaced with `test_password_sha256_prehash_handles_long_passwords`. Now verifies SHA-256 pre-hash (M-10 fix) correctly handles passwords >72 bytes: full password verifies, truncated does not. |
+| T-03 | 🟢 | `test_auth_login.py:10-11` | Hardcoded fake bcrypt hash. `TEST_ADMIN_HASH` with repeating `b0b0b0` is fabricated. | **Fixed:** Generated proper bcrypt hashes via `hash_password()` with SHA-256 pre-hash. `TEST_PASSWORD_HASH` now correctly verifies `testpass123`. `TEST_ADMIN_HASH` generated from `adminpassword123`. |
+| T-04 | 🟢 | `test_enrichment_extra.py`, `test_soar.py`, `test_hunting.py` | Tautological assertions. `result is None or result is not None` always True. | **Fixed:** `test_enrichment_extra.py`: changed to assert `result == -1` with explanation of C-02 sentinel. `test_soar.py`: changed to assert `result is None` with descriptive message. `test_hunting.py`: changed `>= 0` to `>= 1` with descriptive message. |
+| T-05 | 🟢 | `test_enrichment_pipeline.py:TestEnrichEvent` | Enrichment test never calls `enrich_event()`. Sets `result = event`. | **Fixed:** `test_enrich_event_with_threat_intel` now calls `enrich_event()` with proper mocks for `enrich_geoip`, `enrich_dns_reverse`, and `enrich_with_threat_intel`. Asserts `threat_intel` key in result. |
+| T-06 | 🟢 | `tests/integration/test_detection.py`, `tests/integration/test_ingestion.py` | Integration tests hit real DB without guards. Crash in CI. | **Fixed:** Added `pytestmark = pytest.mark.integration` to both files. Created `tests/integration/conftest.py` that auto-skips integration tests when `DATABASE_URL` or `RUN_INTEGRATION_TESTS` env vars are not set. |
+| T-07 | 🟢 | `test_api_query.py` | Zero adversarial tests for NL→SQL injection. Most security-critical endpoint untested. | **Fixed:** Added `TestSQLInjectionPrevention` class (9 tests): DROP TABLE, UNION SELECT, comment injection, semicolon stacking, boolean injection, safety limits, CTE limits, existing LIMIT cap, sanitize_input flagging. Added `TestAddSafetyLimitsCTE` class (4 tests): simple query, CTE limit placement, nested CTE, existing limit capping. |
+| T-08 | 🟢 | All alert test files | No tests for concurrent alert creation. TOCTOU race in dedup untested. | **Fixed:** Added `TestConcurrentAlertCreation` class with 3 tests: `test_concurrent_dedup_returns_valid_id`, `test_advisory_lock_called_for_dedup` (verifies C-02 fix), `test_concurrent_calls_use_lock` (asyncio.gather with lock count). |
+| T-09 | 🟢 | `test_websocket_full.py` | Shared mutable global state. Manual save/restore of `_connected_clients`. | **Fixed:** Replaced manual save/restore with `@pytest.fixture(autouse=True)` that isolates `_connected_clients` per test. Removed 6 instances of manual `original = list(...)` / `_connected_clients.extend(original)`. Imported `_clients_lock` for completeness. |
+| T-10 | 🟢 | `test_ai_triage.py` | Weak `or` assertion. `assert mock_model.train.called or result is True`. | **Fixed:** Split into two independent assertions: `assert mock_model.train.called` and `assert result is True`. Each condition verified independently. |
 
 ---
 
@@ -176,6 +176,7 @@
 | 2026-05-04 | Mackenzie 🔍 | **Batch 2: Fixed all 24 High bugs** (H-01→H-24). Missing RFC1918 range, SQL precedence, GROUP BY time, GeoIP handle leak, unvalidated columns, scheduler double-update, chunked body bypass, WS broadcast race, SOAR shell injection, SOAR hardcoded unknowns, global suppression, hunt timeout, hunt history save, dead letter bounds, log rotation inode, health info leak, PGPASSWORD exposure, backup syntax error, backup exit code, Docker healthcheck, Alembic migration chain, CI secrets, JSON serialization, stale RBAC. |
 | 2026-05-04 | Mackenzie 🔍 | **Batch 3: Fixed all 22 Medium bugs** (M-01→M-22). Anomaly score clamp, session duration doc, UEBA sample doc, cross-validation, auto-train cooldown, EXPLAIN timeout, NL2SQL context sanitize, CTE LIMIT fix, chat prompt fix, SHA-256 pre-hash, dedup sentinel (C-02), severity suppression gate, N+1 query fix, MITRE cache path, dest enrichment (H-04), seed script variable, remove unused Redis, restart policy, PG version align (H-22), atomic checkpoint, single-conn login, audit raise on failure. |
 | 2026-05-04 | Mackenzie 🔍 | **Batch 4: Fixed all 12 Low bugs** (L-01→L-12). Shannon entropy dedup, SOAR action stubs, MIMEText import, status filter underscore, time range wiring, bulk action confirmation, chat history cap, format_map defaultdict, logout session cleanup, bare except fix, require_auth wired, dead import removed. |
+| 2026-05-04 | Mackenzie 🔍 | **Batch 5: Fixed all 10 Test Quality bugs** (T-01→T-10). Removed blanket except, SHA-256 prehash test, proper bcrypt hashes, meaningful assertions (replaced tautological), enrichment test calls function, integration test markers + conftest, SQL injection adversarial tests (13 new), concurrent alert creation tests, websocket autouse fixture isolation, independent triage assertions. |
 
 ---
 

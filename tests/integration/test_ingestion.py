@@ -4,6 +4,13 @@ Integration test for the full ingestion pipeline.
 Requires: PostgreSQL running with schema applied.
 Run with: poetry run pytest tests/integration/test_ingestion.py -v
 """
+# Integration tests require a live PostgreSQL database.
+# Run with: poetry run pytest tests/integration/ -v -s
+# Skip automatically if DB is unavailable.
+import pytest
+
+pytestmark = pytest.mark.integration
+
 import asyncio
 import json
 
