@@ -13,22 +13,21 @@ import time
 import streamlit as st
 
 from dashboard.api_client import ApiClient, ApiError
+from dashboard.ui_utils import BG_SURFACE, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY, ACCENT
 
-# H-24 fix: Re-verify token every N seconds instead of once per session
-ROLE_REVERIFY_INTERVAL = 300  # 5 minutes
+ROLE_REVERIFY_INTERVAL = 300
 
-# Role definitions
 ROLES = {
     "admin": {
-        "description": "Full access — can manage rules, users, and cases",
+        "description": "Full access — manage rules, users, and cases",
         "permissions": ["read", "write", "delete", "manage_users", "manage_rules"],
     },
     "analyst": {
-        "description": "Standard access — can view logs, manage alerts and cases",
+        "description": "Standard access — view logs, manage alerts and cases",
         "permissions": ["read", "write", "manage_alerts", "manage_cases"],
     },
     "viewer": {
-        "description": "Read-only access — can view dashboards and logs",
+        "description": "Read-only access — view dashboards and logs",
         "permissions": ["read"],
     },
 }
@@ -63,20 +62,31 @@ def is_admin() -> bool:
 
 
 def render_login_page():
-    """Render the login form. Returns True if user just logged in."""
-    st.markdown("""
-    <div style="display: flex; justify-content: center; padding-top: 10vh;">
-        <div style="max-width: 400px; width: 100%;">
-            <h1 style="text-align: center;">🛡️ SecurityScarletAI</h1>
-            <p style="text-align: center; color: #888;">AI-Native SIEM Dashboard</p>
+    """Render the login form."""
+    st.markdown(f"""
+    <div style="display:flex;justify-content:center;padding-top:12vh;">
+        <div style="
+            max-width:400px;
+            width:100%;
+            background:{BG_SURFACE};
+            border:1px solid {BORDER_SUBTLE};
+            border-radius:0.75rem;
+            padding:2rem;
+        ">
+            <h1 style="text-align:center;color:#e8ecf1;margin:0 0 0.25rem 0;">
+                SecurityScarletAI
+            </h1>
+            <p style="text-align:center;color:#8b95a5;margin:0 0 1.5rem 0;font-size:0.9rem;">
+                AI-Native SIEM Dashboard
+            </p>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
     with st.form("login_form"):
-        username = st.text_input("👤 Username", placeholder="admin")
-        password = st.text_input("🔑 Password", type="password", placeholder="Enter password")
-        submitted = st.form_submit_button("🚀 Sign In", use_container_width=True)
+        username = st.text_input("Username", placeholder="admin")
+        password = st.text_input("Password", type="password", placeholder="Enter password")
+        submitted = st.form_submit_button("Sign In", use_container_width=True)
 
         if submitted and username and password:
             with st.spinner("Authenticating...", show_time=True):
@@ -87,20 +97,19 @@ def render_login_page():
                     st.session_state.username = result["username"]
                     st.session_state.role = result["role"]
                     st.session_state.access_token = result["access_token"]
-                    st.toast(f"✅ Welcome, {result['username']}!", icon="✅")
+                    st.toast(f"Welcome, {result['username']}!")
                     st.success(f"Welcome, {result['username']}!")
                     st.rerun()
                 except ApiError as e:
                     if e.status_code == 401:
-                        st.error("❌ Invalid username or password")
+                        st.error("Invalid username or password")
                     else:
-                        st.error(f"❌ Login failed: {e.detail}")
+                        st.error(f"Login failed: {e.detail}")
                 except Exception as e:
-                    st.error(f"❌ Connection error: {e}")
+                    st.error(f"Connection error: {e}")
 
-    # Option to seed admin if no users exist
     st.divider()
-    with st.expander("🔧 Initial Setup"):
+    with st.expander("Initial Setup"):
         st.markdown("""
         If this is a fresh install, you need to create an admin user first.
 
@@ -113,17 +122,17 @@ def render_login_page():
         - Username: `admin`
         - Password: `admin`
 
-        ⚠️ **Change the password immediately after first login!**
+        **Change the password immediately after first login!**
         """)
         if st.button("Seed Admin User", type="secondary"):
             with st.spinner("Creating admin user...", show_time=True):
                 api = get_api_client()
                 try:
                     result = api._post("/auth/seed-admin")
-                    st.toast("✅ Admin user created", icon="✅")
-                    st.success(f"✅ {result.get('message', 'Admin user created!')}")
+                    st.toast("Admin user created")
+                    st.success(f"{result.get('message', 'Admin user created!')}")
                 except ApiError as e:
-                    st.error(f"❌ {e.detail}")
+                    st.error(f"{e.detail}")
 
     return False
 
@@ -136,30 +145,38 @@ def render_sidebar_user_info():
     username = st.session_state.get("username", "Unknown")
     role = st.session_state.get("role", "viewer")
 
-    role_icons = {"admin": "👑", "analyst": "🔍", "viewer": "👁️"}
+    role_label = role.upper()
 
-    st.sidebar.divider()
-    st.sidebar.markdown(f"**{role_icons.get(role, '👤')} {username}**")
-    st.sidebar.caption(f"Role: {role}")
+    st.sidebar.markdown("<hr style='margin:0.5rem 0;border-color:#1e2636;'/>", unsafe_allow_html=True)
+    st.sidebar.markdown(
+        f"""
+        <div style="
+            background:{BG_SURFACE};
+            border:1px solid {BORDER_SUBTLE};
+            border-radius:0.5rem;
+            padding:0.75rem;
+            margin-bottom:0.5rem;
+        ">
+            <p style="margin:0;color:#e8ecf1;font-weight:600;font-size:0.9rem;">{username}</p>
+            <p style="margin:0.15rem 0 0 0;color:#8b95a5;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;">{role_label}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    if st.sidebar.button("🚪 Logout"):
+    if st.sidebar.button("Logout", use_container_width=True):
         ApiClient.logout()
         st.session_state.authenticated = False
         st.rerun()
 
 
 def require_auth():
-    """Check if user is authenticated. Returns True if authenticated, shows login if not.
-
-    H-24 fix: Re-verify token periodically (every ROLE_REVERIFY_INTERVAL seconds)
-    instead of once per session, so server-side role changes are picked up.
-    """
+    """Check if user is authenticated. Re-verify token periodically."""
     if st.session_state.get("authenticated") and st.session_state.get("access_token"):
         api = get_api_client()
         last_verified = st.session_state.get("last_role_verify", 0)
         now = time.time()
 
-        # Re-verify token if never verified or interval elapsed
         if now - last_verified > ROLE_REVERIFY_INTERVAL:
             try:
                 me = api.get_me()
@@ -167,7 +184,6 @@ def require_auth():
                 st.session_state.role = me.get("role", st.session_state.role)
                 st.session_state.username = me.get("username", st.session_state.username)
             except ApiError:
-                # Token expired or invalid — force re-login
                 ApiClient.logout()
                 st.session_state.authenticated = False
                 return False

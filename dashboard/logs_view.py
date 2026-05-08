@@ -10,20 +10,21 @@ import pandas as pd
 
 from dashboard.api_client import ApiError
 from dashboard.auth import get_api_client
+from dashboard.ui_utils import SEVERITY_COLORS, TEXT_SECONDARY, BG_SURFACE, BORDER_SUBTLE, TEXT_PRIMARY
 
 
 def render_log_viewer():
     """Render the log viewer page."""
     api = get_api_client()
 
-    st.header("📡 Log Viewer")
+    st.header("Log Viewer")
 
     # ─── Filters ───
-    with st.expander("🔍 Filters", expanded=True):
+    with st.expander("Filters", expanded=True):
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-            time_range = st.selectbox(  # noqa: F841
+            time_range = st.selectbox(
                 "Time Range",
                 ["Last 15 minutes", "Last 1 hour", "Last 6 hours", "Last 24 hours"],
                 index=1,
@@ -33,28 +34,33 @@ def render_log_viewer():
         with col2:
             category_filter = st.selectbox(
                 "Category",
-                ["All", "process", "network", "file", "authentication", "configuration", "security"],  # noqa: E501
+                ["All", "process", "network", "file", "authentication", "configuration", "security"],
                 key="log_category_filter",
             )
 
         with col3:
-            host_filter = st.text_input("Host Filter", placeholder="e.g., macbook-pro", key="log_host_filter")  # noqa: E501
+            host_filter = st.text_input(
+                "Host Filter",
+                placeholder="e.g., macbook-pro",
+                key="log_host_filter",
+            )
 
         with col4:
-            limit = st.number_input("Rows", min_value=10, max_value=500, value=100, key="log_limit")
+            limit = st.number_input(
+                "Rows", min_value=10, max_value=500, value=100, key="log_limit"
+            )
 
     # ─── Fetch Logs ───
     category = None if category_filter == "All" else category_filter
     host = host_filter if host_filter else None
 
-    # L-05 fix: Wire time_range into API call
     time_map = {
         "Last 15 minutes": 15,
         "Last 1 hour": 60,
         "Last 6 hours": 360,
         "Last 24 hours": 1440,
     }
-    time_minutes = time_map.get(time_range, 60)  # default 1h
+    time_minutes = time_map.get(time_range, 60)
 
     with st.spinner("Loading log entries...", show_time=True):
         try:
@@ -78,35 +84,46 @@ def render_log_viewer():
     col1, col2, col3, col4 = st.columns(4)
 
     total_count = len(logs)
-    col1.metric("📊 Total Events", total_count)
+    col1.metric("Total Events", total_count)
 
-    if "host_name" in df.columns:
-        col2.metric("🖥️ Hosts", df["host_name"].nunique())
-    else:
-        col2.metric("🖥️ Hosts", "N/A")
+    host_n = df["host_name"].nunique() if "host_name" in df.columns else 0
+    col2.metric("Hosts", host_n)
 
-    if "event_category" in df.columns:
-        col3.metric("📁 Categories", df["event_category"].nunique())
-    else:
-        col3.metric("📁 Categories", "N/A")
+    cat_n = df["event_category"].nunique() if "event_category" in df.columns else 0
+    col3.metric("Categories", cat_n)
 
-    if "severity" in df.columns:
-        critical = sum(1 for r in logs if r.get("severity") == "critical")
-        col4.metric("🔴 Critical", critical)
-    else:
-        col4.metric("🔴 Critical", "N/A")
+    crit_n = sum(1 for r in logs if r.get("severity") == "critical") if "severity" in df.columns else 0
+    col4.metric("Critical", crit_n)
 
-    st.divider()
-
-    # ─── Severity Distribution (inline mini-bar) ───
+    # ─── Inline severity bar (styled badges instead of emoji) ───
     if "severity" in df.columns:
         sev_counts = df["severity"].value_counts()
-        severity_icons = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵", "info": "⚪"}
-        bar_parts = []
-        for sev, count in sev_counts.items():
-            icon = severity_icons.get(sev, "⚪")
-            bar_parts.append(f"{icon}{sev}: {count}")
-        st.caption("  |  ".join(bar_parts))
+        parts = []
+        order = ["critical", "high", "medium", "low", "info"]
+        for sev in order:
+            if sev in sev_counts:
+                color = SEVERITY_COLORS.get(sev, "#78909c")
+                count = sev_counts[sev]
+                parts.append(
+                    f'\u003cspan style="'
+                    f'background:{color}22;'
+                    f'color:{color};'
+                    f'border:1px solid {color}44;'
+                    f'padding:0.15rem 0.4rem;'
+                    f'border-radius:0.25rem;'
+                    f'font-size:0.7rem;'
+                    f'font-weight:600;'
+                    f'text-transform:uppercase;'
+                    f'letter-spacing:0.04em;'
+                    f'">{sev}: {count}\u003c/span\u003e'
+                )
+        if parts:
+            st.markdown(
+                "\u003cdiv style='display:flex;gap:0.5rem;margin-bottom:0.75rem;'\u003e"
+                + " ".join(parts)
+                + "\u003c/div\u003e",
+                unsafe_allow_html=True,
+            )
 
     # ─── Display Table ───
     display_cols = [
@@ -115,15 +132,11 @@ def render_log_viewer():
         "process_name", "process_cmdline", "severity",
     ]
 
-    # Filter to available columns
     available_cols = [c for c in display_cols if c in df.columns]
-
     display_df = df[available_cols].copy()
-    # Format time
     if "time" in display_df.columns:
         display_df["time"] = display_df["time"].astype(str).str[:19]
 
-    # Truncate long fields for display
     for col in ["process_cmdline", "event_action"]:
         if col in display_df.columns:
             display_df[col] = display_df[col].astype(str).str[:60]
@@ -138,5 +151,5 @@ def render_log_viewer():
     st.caption(f"Showing {len(logs)} most recent log entries")
 
     # ─── Raw JSON view ───
-    with st.expander("🔍 Raw JSON (first 5 entries)"):
+    with st.expander("Raw JSON (first 5 entries)"):
         st.json(logs[:5])

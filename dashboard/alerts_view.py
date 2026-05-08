@@ -16,22 +16,7 @@ Loading states: st.spinner() on fetches, st.toast() on actions, st.status() for 
 import streamlit as st
 from dashboard.api_client import ApiClient, ApiError
 from dashboard.auth import can_write, get_api_client
-
-SEVERITY_BADGES = {
-    "critical": "🔴",
-    "high": "🟠",
-    "medium": "🟡",
-    "low": "🔵",
-    "info": "⚪",
-}
-
-STATUS_BADGES = {
-    "new": "🆕",
-    "investigating": "🔍",
-    "resolved": "✅",
-    "false_positive": "🚫",
-    "closed": "📁",
-}
+from dashboard.ui_utils import sev_badge, status_badge
 
 
 def render_alert_list():
@@ -39,7 +24,7 @@ def render_alert_list():
     api = get_api_client()
 
     # ─── Filters ───
-    with st.expander("🔍 Filters", expanded=True):
+    with st.expander("Filters", expanded=True):
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
@@ -55,34 +40,40 @@ def render_alert_list():
                 key="alert_severity_filter",
             )
         with col3:
-            limit = st.number_input("Max alerts", min_value=10, max_value=500, value=100, key="alert_limit")  # noqa: E501
+            limit = st.number_input(
+                "Max alerts", min_value=10, max_value=500, value=100, key="alert_limit"
+            )
         with col4:
             st.write("")
             st.write("")
-            if st.button("🔄 Refresh"):
+            if st.button("Refresh", key="alert_refresh_btn"):
                 st.rerun()
 
     # ─── Bulk Actions ───
     if can_write():
-        st.markdown("### ⚡ Bulk Actions")
+        st.markdown(
+            "<p style='color:#e8ecf1;font-weight:600;font-size:1rem;margin:0.75rem 0 0.5rem 0;'>"
+            "Bulk Actions"
+            "</p>",
+            unsafe_allow_html=True,
+        )
         bc1, bc2, bc3, bc4 = st.columns(4)
         with bc1:
-            if st.button("✅ Acknowledge All New", key="bulk_ack"):
-                # L-06 fix: Add confirmation for destructive bulk action
+            if st.button("Acknowledge All New", key="bulk_ack"):
                 st.session_state.confirm_bulk_ack = True
 
             if st.session_state.get("confirm_bulk_ack"):
-                st.warning("⚠️ This will acknowledge ALL new alerts. Are you sure?")
+                st.warning("This will acknowledge ALL new alerts. Are you sure?")
                 c1, c2 = st.columns(2)
                 with c1:
-                    if st.button("✅ Confirm", key="confirm_bulk_ack_yes"):
+                    if st.button("Confirm", key="confirm_bulk_ack_yes"):
                         with st.spinner("Acknowledging alerts..."):
                             alerts = api.get_alerts(status="new", limit=500)
                             if alerts:
                                 ids = [a["id"] for a in alerts]
                                 try:
                                     api.bulk_acknowledge(ids)
-                                    st.toast(f"✅ Acknowledged {len(ids)} alerts", icon="✅")
+                                    st.toast(f"Acknowledged {len(ids)} alerts")
                                     st.success(f"Acknowledged {len(ids)} alerts")
                                     st.session_state.confirm_bulk_ack = False
                                     st.rerun()
@@ -92,17 +83,17 @@ def render_alert_list():
                                 st.info("No new alerts to acknowledge")
                                 st.session_state.confirm_bulk_ack = False
                 with c2:
-                    if st.button("❌ Cancel", key="confirm_bulk_ack_no"):
+                    if st.button("Cancel", key="confirm_bulk_ack_no"):
                         st.session_state.confirm_bulk_ack = False
 
         with bc2:
-            if st.button("🔚 Resolve Selected", key="bulk_resolve"):
+            if st.button("Resolve Selected", key="bulk_resolve"):
                 selected = st.session_state.get("selected_alerts", [])
                 if selected:
                     with st.spinner(f"Resolving {len(selected)} alerts..."):
                         try:
                             api.bulk_resolve(selected)
-                            st.toast(f"✅ Resolved {len(selected)} alerts", icon="✅")
+                            st.toast(f"Resolved {len(selected)} alerts")
                             st.session_state.selected_alerts = []
                             st.rerun()
                         except ApiError as e:
@@ -111,13 +102,13 @@ def render_alert_list():
                     st.info("No alerts selected. Use the checkboxes below.")
 
         with bc3:
-            if st.button("🚫 Mark FP", key="bulk_fp"):
+            if st.button("Mark FP", key="bulk_fp"):
                 selected = st.session_state.get("selected_alerts", [])
                 if selected:
                     with st.spinner(f"Marking {len(selected)} alerts as false positive..."):
                         try:
                             api.bulk_false_positive(selected)
-                            st.toast(f"🚫 Marked {len(selected)} alerts as FP", icon="🚫")
+                            st.toast(f"Marked {len(selected)} alerts as FP")
                             st.session_state.selected_alerts = []
                             st.rerun()
                         except ApiError as e:
@@ -126,7 +117,7 @@ def render_alert_list():
                     st.info("No alerts selected.")
 
         with bc4:
-            if st.button("📥 Export CSV", key="export_csv"):
+            if st.button("Export CSV", key="export_csv"):
                 with st.spinner("Exporting alerts..."):
                     try:
                         csv_data = api.export_alerts_csv(
@@ -139,11 +130,9 @@ def render_alert_list():
                             file_name="alerts_export.csv",
                             mime="text/csv",
                         )
-                        st.toast("📥 CSV export ready", icon="📥")
+                        st.toast("CSV export ready")
                     except ApiError as e:
                         st.error(f"Export failed: {e.detail}")
-
-    st.divider()
 
     # ─── Fetch Alerts ───
     status_param = None if status_filter == "All" else status_filter.lower().replace(" ", "_")
@@ -176,8 +165,9 @@ def render_alert_list():
     # ─── Alert Table ───
     for a in alerts:
         sev = a.get("severity", "info")
-        status_icon = STATUS_BADGES.get(a.get("status", "new"), "❓")
-        sev_icon = SEVERITY_BADGES.get(sev, "⚪")
+        status = a.get("status", "new")
+        sev_html = sev_badge(sev)
+        status_html = status_badge(status)
 
         # Selection checkbox
         if can_write():
@@ -192,10 +182,16 @@ def render_alert_list():
             elif not selected and a["id"] in st.session_state.selected_alerts:
                 st.session_state.selected_alerts.remove(a["id"])
 
-        with st.expander(
-            f"{sev_icon} [{sev.upper()}] {a.get('rule_name', 'Unknown')} — "
-            f"{a.get('host_name', '')} {status_icon}",
-        ):
+        expander_title = (
+            f"<span style='font-weight:600;color:#e8ecf1;'>"
+            f"{a.get('rule_name', 'Unknown')}"
+            f"</span>"
+        )
+        expander_title += f" &nbsp; {sev_html} &nbsp; {status_html}"
+        if a.get("host_name"):
+            expander_title += f" <span style='color:#5a6578;'>| {a['host_name']}</span>"
+
+        with st.expander(expander_title, expanded=False):
             render_alert_detail(a, api)
 
 
@@ -206,43 +202,71 @@ def render_alert_detail(alert: dict, api: ApiClient):
     col1, col2 = st.columns([2, 1])
 
     with col1:
-        # ─── Core Info ───
-        st.markdown(f"**Description:** {alert.get('description', 'N/A')}")
+        st.markdown(
+            f"**Description:** <span style='color:#8b95a5;'>"
+            f"{alert.get('description', 'N/A')}"
+            f"</span>",
+            unsafe_allow_html=True,
+        )
 
         ai_summary = alert.get("ai_summary")
         if ai_summary:
-            st.markdown(f"**🤖 AI Summary:** {ai_summary}")
+            st.markdown(
+                f"""
+                <div style="background:#0f1420;border:1px solid #1e2636;border-radius:0.5rem;padding:0.75rem;margin:0.5rem 0;">
+                    <p style="margin:0;color:#00bcd4;font-weight:600;font-size:0.8rem;">AI Summary</p>
+                    <p style="margin:0.25rem 0 0 0;color:#8b95a5;font-size:0.85rem;">{ai_summary}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
         else:
-            if st.button("🤖 Generate AI Explanation", key=f"explain_{alert_id}"):
-                with st.status("🤖 Generating AI explanation...", expanded=True) as status:
+            if st.button("Generate AI Explanation", key=f"explain_{alert_id}"):
+                with st.status("Generating AI explanation...", expanded=True) as status:
                     try:
                         result = api.ai_explain(alert_id)
-                        explanation = result.get("explanation", result.get("ai_summary", "No explanation available"))  # noqa: E501
-                        status.update(label="✅ AI explanation generated", state="complete")
-                        st.markdown(f"**🤖 AI Explanation:** {explanation}")
+                        explanation = result.get("explanation", result.get("ai_summary", "No explanation available"))
+                        status.update(label="AI explanation generated", state="complete")
+                        st.markdown(
+                            f"""
+                            <div style="background:#0f1420;border:1px solid #1e2636;border-radius:0.5rem;padding:0.75rem;margin:0.5rem 0;">
+                                <p style="margin:0;color:#00bcd4;font-weight:600;font-size:0.8rem;">AI Explanation</p>
+                                <p style="margin:0.25rem 0 0 0;color:#8b95a5;font-size:0.85rem;">{explanation}</p>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
                     except ApiError as e:
-                        status.update(label="❌ AI explanation failed", state="error")
+                        status.update(label="AI explanation failed", state="error")
                         st.warning(f"AI explanation unavailable: {e.detail}")
 
-        st.markdown(f"**Time:** {alert.get('time', '')}")
+        st.markdown(
+            f"**Time:** <span style='color:#8b95a5;'>{alert.get('time', '')}</span>",
+            unsafe_allow_html=True,
+        )
         risk = alert.get("risk_score")
         if risk:
+            color = "#ff3860" if risk >= 70 else "#ff8f00" if risk >= 40 else "#00e676"
             st.progress(min(risk / 100, 1.0), text=f"Risk Score: {risk:.0f}/100")
 
-        # ─── MITRE ATT&CK ───
+        # MITRE mapping
         tactics = alert.get("mitre_tactics", []) or []
         techniques = alert.get("mitre_techniques", []) or []
         if tactics or techniques:
-            st.markdown("**MITRE ATT&CK:**")
+            mitre_html = "<div style='margin:0.5rem 0;'>"
             if tactics:
-                st.markdown("  - Tactics: " + ", ".join(f"`{t}`" for t in tactics))
+                mitre_html += f"Tactics: {', '.join(f'`{t}`' for t in tactics)}"
             if techniques:
-                st.markdown("  - Techniques: " + ", ".join(f"`{t}`" for t in techniques))
+                if tactics:
+                    mitre_html += " &nbsp; | &nbsp;"
+                mitre_html += f"Techniques: {', '.join(f'`{t}`' for t in techniques)}"
+            mitre_html += "</div>"
+            st.markdown(mitre_html, unsafe_allow_html=True)
 
-        # ─── Evidence ───
+        # Evidence
         evidence = alert.get("evidence")
         if evidence:
-            with st.expander("📋 Evidence"):
+            with st.expander("Evidence"):
                 if isinstance(evidence, list):
                     for i, ev in enumerate(evidence[:10]):
                         st.json(ev, expanded=False)
@@ -252,15 +276,20 @@ def render_alert_detail(alert: dict, api: ApiClient):
                     st.json(evidence)
 
     with col2:
-        # ─── Status Update ───
+        # Status Update
         if can_write():
-            st.markdown("**Update Status**")
+            st.markdown(
+                "<p style='color:#e8ecf1;font-weight:600;font-size:0.9rem;margin:0 0 0.5rem 0;'>"
+                "Update Status"
+                "</p>",
+                unsafe_allow_html=True,
+            )
             current_status = alert.get("status", "new")
             status_options = ["new", "investigating", "resolved", "false_positive", "closed"]
             new_status = st.selectbox(
                 "Status",
                 status_options,
-                index=status_options.index(current_status) if current_status in status_options else 0,  # noqa: E501
+                index=status_options.index(current_status) if current_status in status_options else 0,
                 key=f"status_{alert_id}",
                 label_visibility="collapsed",
             )
@@ -272,7 +301,7 @@ def render_alert_detail(alert: dict, api: ApiClient):
                 placeholder="analyst name",
             )
 
-            if st.button("💾 Save", key=f"save_{alert_id}"):
+            if st.button("Save", key=f"save_{alert_id}"):
                 update_data = {}
                 if new_status != current_status:
                     update_data["status"] = new_status
@@ -283,7 +312,7 @@ def render_alert_detail(alert: dict, api: ApiClient):
                     with st.spinner("Updating alert..."):
                         try:
                             api.update_alert(alert_id, **update_data)
-                            st.toast(f"✅ Alert #{alert_id} updated", icon="✅")
+                            st.toast(f"Alert #{alert_id} updated")
                             st.success("Alert updated!")
                             st.rerun()
                         except ApiError as e:
@@ -291,43 +320,55 @@ def render_alert_detail(alert: dict, api: ApiClient):
                 else:
                     st.info("No changes to save")
 
-            # ─── Quick Actions ───
-            st.divider()
-            st.markdown("**Quick Actions**")
+            # Quick Actions
+            st.markdown(
+                "<p style='color:#e8ecf1;font-weight:600;font-size:0.9rem;margin:0.75rem 0 0.5rem 0;'>"
+                "Quick Actions"
+                "</p>",
+                unsafe_allow_html=True,
+            )
 
-            if st.button("🔍 Hunt from Alert", key=f"hunt_{alert_id}"):
-                with st.status("🔍 Analyzing alert for hunt suggestions...", expanded=True) as status:  # noqa: E501
+            if st.button("Hunt from Alert", key=f"hunt_{alert_id}"):
+                with st.status("Analyzing alert for hunt suggestions...", expanded=True) as status:
                     try:
                         result = api.hunt_from_alert(alert_id)
                         hunts = result.get("suggested_hunts", [])
                         if hunts:
-                            status.update(label=f"✅ Found {len(hunts)} hunt suggestions", state="complete")  # noqa: E501
+                            status.update(label=f"Found {len(hunts)} hunt suggestions", state="complete")
                             for hunt in hunts[:5]:
-                                st.markdown(f"- **{hunt.get('name', 'Unknown')}**: {hunt.get('description', '')}")  # noqa: E501
+                                st.markdown(
+                                    f"- **{hunt.get('name', 'Unknown')}**: {hunt.get('description', '')}"
+                                )
                         else:
-                            status.update(label="ℹ️ No specific hunt suggestions", state="complete")  # noqa: E501
+                            status.update(label="No specific hunt suggestions", state="complete")
                             st.info("No specific hunt suggestions for this alert")
                     except ApiError as e:
-                        status.update(label="❌ Hunt suggestion failed", state="error")
+                        status.update(label="Hunt suggestion failed", state="error")
                         st.warning(f"Hunt suggestion unavailable: {e.detail}")
 
-            if st.button("🤖 AI Triage", key=f"triage_{alert_id}"):
-                with st.status("🤖 Running AI triage...", expanded=True) as status:
+            if st.button("AI Triage", key=f"triage_{alert_id}"):
+                with st.status("Running AI triage...", expanded=True) as status:
                     try:
                         result = api.ai_triage(alert_id)
                         prediction = result.get("prediction", {})
                         reasoning = result.get("reasoning", "N/A")
-                        status.update(label="✅ AI triage complete", state="complete")
-                        st.markdown(f"**Prediction:** {prediction.get('label', 'N/A')} "
-                                    f"(confidence: {prediction.get('confidence', 0):.1%})")
+                        status.update(label="AI triage complete", state="complete")
+                        st.markdown(
+                            f"**Prediction:** {prediction.get('label', 'N/A')} "
+                            f"(confidence: {prediction.get('confidence', 0):.1%})"
+                        )
                         st.markdown(f"**Reasoning:** {reasoning}")
                     except ApiError as e:
-                        status.update(label="❌ AI triage failed", state="error")
+                        status.update(label="AI triage failed", state="error")
                         st.warning(f"AI triage unavailable: {e.detail}")
 
-        # ─── Alert Notes ───
-        st.divider()
-        st.markdown("**📝 Notes**")
+        # Alert Notes
+        st.markdown(
+            "<p style='color:#e8ecf1;font-weight:600;font-size:0.9rem;margin:0.75rem 0 0.5rem 0;'>"
+            "Notes"
+            "</p>",
+            unsafe_allow_html=True,
+        )
 
         with st.spinner("Loading notes...", show_time=True):
             try:
@@ -335,13 +376,32 @@ def render_alert_detail(alert: dict, api: ApiClient):
             except ApiError:
                 notes = []
 
-        for note in notes[:10]:
-            author = note.get("author", "Unknown")
-            text = note.get("text", "")
-            ts = note.get("timestamp", "")
-            if ts and len(ts) > 19:
-                ts = ts[:19]
-            st.caption(f"*{author} ({ts}):* {text}")
+        if notes:
+            for note in notes[:10]:
+                author = note.get("author", "Unknown")
+                text = note.get("text", "")
+                ts = note.get("timestamp", "")
+                if ts and len(ts) > 19:
+                    ts = ts[:19]
+                st.markdown(
+                    f"""
+                    <div style="
+                        background:#0f1420;
+                        border:1px solid #1e2636;
+                        border-radius:0.375rem;
+                        padding:0.5rem 0.75rem;
+                        margin-bottom:0.25rem;
+                    ">
+                        <p style="margin:0;color:#8b95a5;font-size:0.7rem;font-weight:600;">
+                            {author} <span style="color:#5a6578;font-weight:400;">| {ts}</span>
+                        </p>
+                        <p style="margin:0.25rem 0 0 0;color:#e8ecf1;font-size:0.8rem;">{text}</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.caption("No notes yet.")
 
         if can_write():
             with st.form(f"note_form_{alert_id}"):
@@ -350,7 +410,7 @@ def render_alert_detail(alert: dict, api: ApiClient):
                     with st.spinner("Adding note..."):
                         try:
                             api.add_alert_note(alert_id, note_text)
-                            st.toast("📝 Note added", icon="📝")
+                            st.toast("Note added")
                             st.success("Note added!")
                             st.rerun()
                         except ApiError as e:

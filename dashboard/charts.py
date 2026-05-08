@@ -14,59 +14,146 @@ from dashboard.api_client import ApiError
 from dashboard.auth import get_api_client
 
 # ───────────────────────────────────────────────────────────────
-# Dark theme configuration for Altair charts
+# Design Tokens (mirror from main.py)
 # ───────────────────────────────────────────────────────────────
 
-DARK_THEME = {
-    "background": "#0e1117",
-    "title": {"color": "#fafafa", "fontSize": 14},
-    "axis": {
-        "labelColor": "#a0a0a0",
-        "titleColor": "#fafafa",
-        "gridColor": "#262730",
-        "domainColor": "#505050",
-    },
-    "legend": {
-        "labelColor": "#a0a0a0",
-        "titleColor": "#fafafa",
-    },
-    "view": {"stroke": "transparent"},
-}
+BG_APP = "#090c14"
+BG_SURFACE = "#0f1420"
+BG_ELEVATED = "#161d2e"
+ACCENT = "#00bcd4"
+TEXT_PRIMARY = "#e8ecf1"
+TEXT_SECONDARY = "#8b95a5"
+TEXT_MUTED = "#5a6578"
+BORDER_SUBTLE = "#1e2636"
+BORDER_FOCUS = "#00bcd4"
 
 SEVERITY_COLORS = {
-    "critical": "#ff4444",
-    "high": "#ff8c00",
-    "medium": "#ffd700",
-    "low": "#4488ff",
-    "info": "#888888",
+    "critical": "#ff3860",
+    "high": "#ff8f00",
+    "medium": "#ffc107",
+    "low": "#2979ff",
+    "info": "#78909c",
 }
 
 SEVERITY_ORDER = ["critical", "high", "medium", "low", "info"]
 
 
+def _chart_container(chart, title: str, height: int | None = None):
+    """Wrap an Altair chart in a styled card container."""
+    with st.container():
+        st.markdown(
+            f"""
+            <div style="
+                background:{BG_SURFACE};
+                border:1px solid {BORDER_SUBTLE};
+                border-radius:0.5rem;
+                padding:0.75rem 1rem;
+                margin-bottom:1rem;
+            ">
+                <p style="
+                    color:{TEXT_PRIMARY};
+                    font-weight:600;
+                    font-size:0.9rem;
+                    margin:0 0 0.5rem 0;
+                ">{title}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        props = {}
+        if height:
+            props["height"] = height
+        st.altair_chart(chart, use_container_width=True)
+
+
 def _altair_theme():
-    """Register a dark theme for Altair charts."""
+    """Return a dark theme dict for Altair."""
     return {
         "config": {
-            "background": "#0e1117",
-            "title": {"color": "#fafafa", "fontSize": 14, "fontWeight": "bold"},
+            "background": BG_SURFACE,
+            "title": {
+                "color": TEXT_PRIMARY,
+                "fontSize": 13,
+                "fontWeight": "bold",
+                "anchor": "start",
+            },
             "axis": {
-                "labelColor": "#a0a0a0",
-                "titleColor": "#fafafa",
-                "gridColor": "#262730",
-                "domainColor": "#505050",
+                "labelColor": TEXT_SECONDARY,
+                "titleColor": TEXT_PRIMARY,
+                "gridColor": BORDER_SUBTLE,
+                "domainColor": BORDER_SUBTLE,
+                "tickColor": BORDER_SUBTLE,
             },
             "legend": {
-                "labelColor": "#a0a0a0",
-                "titleColor": "#fafafa",
+                "labelColor": TEXT_SECONDARY,
+                "titleColor": TEXT_PRIMARY,
             },
-            "view": {"stroke": "transparent"},
+            "view": {"stroke": BORDER_SUBTLE},
         }
     }
 
 
+# Register theme (new altair 5.5+ API)
+try:
+    @alt.theme.register("scarlet_dark", enable=True)
+    def _altair_theme():
+        return alt.theme.ThemeConfig(
+            {
+                "background": BG_SURFACE,
+                "title": {
+                    "color": TEXT_PRIMARY,
+                    "fontSize": 13,
+                    "fontWeight": "bold",
+                    "anchor": "start",
+                },
+                "axis": {
+                    "labelColor": TEXT_SECONDARY,
+                    "titleColor": TEXT_PRIMARY,
+                    "gridColor": BORDER_SUBTLE,
+                    "domainColor": BORDER_SUBTLE,
+                    "tickColor": BORDER_SUBTLE,
+                },
+                "legend": {
+                    "labelColor": TEXT_SECONDARY,
+                    "titleColor": TEXT_PRIMARY,
+                },
+                "view": {"stroke": BORDER_SUBTLE},
+            }
+        )
+except Exception:
+    # Fallback for older altair
+    alt.themes.register("scarlet_dark", lambda: _altair_theme())
+    alt.themes.enable("scarlet_dark")
+
+
+# ───────────────────────────────────────────────────────────────
+# Helpers
+# ───────────────────────────────────────────────────────────────
+
+def _colored_metric(label: str, value, delta=None, color=None):
+    """Render a metric where the value is optionally colored."""
+    style = ""
+    if color:
+        style = f' style="color:{color}"'
+    label_html = f'<p style="color:{TEXT_SECONDARY};font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:0;{style}">{label}</p>'
+    value_html = f'<p style="color:{TEXT_PRIMARY};font-size:1.6rem;font-weight:700;margin:0;{style}">{value}</p>'
+    if delta:
+        value_html += f'<p style="color:#00e676;font-size:0.75rem;margin:0.25rem 0 0 0;{style}">{delta}</p>'
+    st.markdown(
+        f'<div style="background:{BG_SURFACE};border:1px solid {BORDER_SUBTLE};'
+        f'border-radius:0.5rem;padding:0.75rem 1rem;margin-bottom:0.5rem;">'
+        f'{label_html}{value_html}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+# ───────────────────────────────────────────────────────────────
+# Charts
+# ───────────────────────────────────────────────────────────────
+
 def render_severity_distribution():
-    """Render alert severity distribution as a donut chart."""
+    """Render alert severity distribution as a donut chart inside a card."""
     api = get_api_client()
 
     with st.spinner("Loading severity distribution...", show_time=True):
@@ -76,7 +163,6 @@ def render_severity_distribution():
                 st.info("No alerts to display")
                 return
 
-            # Count by severity
             severity_counts = {}
             for a in alerts:
                 sev = a.get("severity", "info")
@@ -86,38 +172,54 @@ def render_severity_distribution():
                 st.info("No alert data available")
                 return
 
-            # Build dataframe
             df = pd.DataFrame([
-                {"Severity": k, "Count": v, "Color": SEVERITY_COLORS.get(k, "#888888")}
+                {"Severity": k, "Count": v, "Color": SEVERITY_COLORS.get(k, "#78909c")}
                 for k, v in severity_counts.items()
             ])
 
-            # Sort by severity order
             severity_rank = {s: i for i, s in enumerate(SEVERITY_ORDER)}
             df["Order"] = df["Severity"].map(severity_rank).fillna(99)
             df = df.sort_values("Order")
 
-            # Create chart
             chart = (
                 alt.Chart(df)
                 .encode(
                     theta=alt.Theta("Count:Q"),
-                    color=alt.Color("Severity:N", scale=alt.Scale(
-                        domain=list(df["Severity"]),
-                        range=list(df["Color"]),
-                    )),
+                    color=alt.Color(
+                        "Severity:N",
+                        scale=alt.Scale(
+                            domain=list(df["Severity"]),
+                            range=list(df["Color"]),
+                        ),
+                        legend=alt.Legend(
+                            orient="bottom",
+                            title=None,
+                            labelColor=TEXT_SECONDARY,
+                        ),
+                    ),
                     tooltip=["Severity", "Count"],
                 )
             )
 
-            pie = chart.mark_arc(innerRadius=50, outerRadius=100, stroke="#0e1117", strokeWidth=2)
-            text = chart.mark_text(radius=75, size=12, fill="#fafafa").encode(text="Count:Q")
+            pie = chart.mark_arc(
+                innerRadius=55,
+                outerRadius=100,
+                stroke=BG_SURFACE,
+                strokeWidth=3,
+            )
+            text = chart.mark_text(
+                radius=78,
+                size=12,
+                fill=TEXT_PRIMARY,
+                fontWeight="bold",
+            ).encode(text="Count:Q")
 
-            st.altair_chart((pie + text).properties(
-                title="Alert Severity Distribution",
-                width=300,
-                height=300,
-            ), use_container_width=True)
+            full_chart = (
+                (pie + text)
+                .properties(title="Severity Distribution", width=300, height=300)
+                .configure_legend(labelFontSize=12)
+            )
+            _chart_container(full_chart, "Alert Severity Distribution")
 
         except ApiError as e:
             st.error(f"Failed to load severity data: {e.detail}")
@@ -126,7 +228,7 @@ def render_severity_distribution():
 
 
 def render_alert_trend():
-    """Render alert volume trend over time as a line chart."""
+    """Render alert volume trend over time as a line chart inside a card."""
     api = get_api_client()
 
     with st.spinner("Loading alert trend...", show_time=True):
@@ -136,7 +238,6 @@ def render_alert_trend():
                 st.info("No alerts to display")
                 return
 
-            # Group by date
             df = pd.DataFrame(alerts)
             if "time" not in df.columns:
                 st.info("No time data in alerts")
@@ -145,30 +246,51 @@ def render_alert_trend():
             df["time"] = pd.to_datetime(df["time"], utc=True)
             df["date"] = df["time"].dt.date
 
-            # Count by date and severity
             trend = df.groupby(["date", "severity"]).size().reset_index(name="count")
 
-            # Sort severities
             severity_rank = {s: i for i, s in enumerate(SEVERITY_ORDER)}
             trend["order"] = trend["severity"].map(severity_rank).fillna(99)
             trend = trend.sort_values(["date", "order"])
 
             chart = (
                 alt.Chart(trend)
-                .mark_line(point=True)
+                .mark_line(point=True, strokeWidth=2)
                 .encode(
-                    x=alt.X("date:T", title="Date"),
-                    y=alt.Y("count:Q", title="Alerts"),
-                    color=alt.Color("severity:N", scale=alt.Scale(
-                        domain=SEVERITY_ORDER,
-                        range=[SEVERITY_COLORS.get(s, "#888") for s in SEVERITY_ORDER],
-                    ), title="Severity"),
+                    x=alt.X(
+                        "date:T",
+                        title="Date",
+                        axis=alt.Axis(grid=True, tickCount=6),
+                    ),
+                    y=alt.Y(
+                        "count:Q",
+                        title="Alerts",
+                        axis=alt.Axis(grid=True),
+                    ),
+                    color=alt.Color(
+                        "severity:N",
+                        scale=alt.Scale(
+                            domain=SEVERITY_ORDER,
+                            range=[
+                                SEVERITY_COLORS.get(s, "#78909c")
+                                for s in SEVERITY_ORDER
+                            ],
+                        ),
+                        legend=alt.Legend(
+                            orient="bottom",
+                            title=None,
+                            labelColor=TEXT_SECONDARY,
+                        ),
+                    ),
                     tooltip=["date", "severity", "count"],
                 )
-                .properties(title="Alert Trend (Last 1000)", width=600, height=300)
+                .properties(
+                    title="Alert Trend (Last 1000)",
+                    width=600,
+                    height=300,
+                )
+                .configure_legend(labelFontSize=12)
             )
-
-            st.altair_chart(chart, use_container_width=True)
+            _chart_container(chart, "Alert Volume Trend")
 
         except ApiError as e:
             st.error(f"Failed to load alert trend: {e.detail}")
@@ -177,7 +299,7 @@ def render_alert_trend():
 
 
 def render_top_hosts():
-    """Render top hosts by alert count."""
+    """Render top hosts by alert count inside a card."""
     api = get_api_client()
 
     with st.spinner("Loading host data...", show_time=True):
@@ -187,7 +309,6 @@ def render_top_hosts():
                 st.info("No alerts to display")
                 return
 
-            # Count by host
             host_counts = {}
             for a in alerts:
                 host = a.get("host_name", "unknown")
@@ -204,29 +325,39 @@ def render_top_hosts():
 
             chart = (
                 alt.Chart(df)
-                .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+                .mark_bar(
+                    cornerRadiusTopLeft=3,
+                    cornerRadiusTopRight=3,
+                    color=ACCENT,
+                )
                 .encode(
-                    y=alt.Y("Host:N", sort="-x", title="Host"),
-                    x=alt.X("Alerts:Q", title="Number of Alerts"),
-                    color=alt.value("#ff6b6b"),
+                    y=alt.Y(
+                        "Host:N",
+                        sort="-x",
+                        title=None,
+                        axis=alt.Axis(labelColor=TEXT_SECONDARY),
+                    ),
+                    x=alt.X(
+                        "Alerts:Q",
+                        title="Alerts",
+                        axis=alt.Axis(grid=True, tickMinStep=1),
+                    ),
                     tooltip=["Host", "Alerts"],
                 )
-                .properties(title="🖥️ Top Hosts by Alert Count", height=300)
+                .properties(title="Top Hosts by Alert Count", height=300)
             )
-
-            st.altair_chart(chart, use_container_width=True)
+            _chart_container(chart, "Top Hosts")
 
         except ApiError as e:
             st.error(f"Failed to load host data: {e.detail}")
 
 
 def render_mitre_heatmap(rules: list[dict]):
-    """Render MITRE ATT&CK technique coverage heatmap."""
+    """Render MITRE ATT&CK technique coverage as metric cards + detail table."""
     if not rules:
         st.info("No rules loaded — MITRE coverage will show once rules are loaded.")
         return
 
-    # Collect all technique → tactic mappings from rules
     technique_data = []
     for rule in rules:
         techniques = rule.get("mitre_techniques", []) or []
@@ -249,16 +380,6 @@ def render_mitre_heatmap(rules: list[dict]):
 
     df = pd.DataFrame(technique_data)
 
-    # Count rules per technique
-    df.groupby("Technique").agg(
-        Rule_Count=("Rule", "count"),
-        Tactic=("Tactics", "first"),
-    ).reset_index()
-
-    # Display as a table with heatmap colors
-    st.subheader("🎯 MITRE ATT&CK Coverage")
-
-    # Simplified tactic categories
     TACTIC_TITLES = {
         "TA0001": "Initial Access", "TA0002": "Execution", "TA0003": "Persistence",
         "TA0004": "Privilege Escalation", "TA0005": "Defense Evasion",
@@ -267,22 +388,18 @@ def render_mitre_heatmap(rules: list[dict]):
         "TA0010": "Exfiltration", "TA0040": "Impact",
     }
 
-    # Build per-tactic columns
-    tactic_data = {}
-    for tactic_id, tactic_name in TACTIC_TITLES.items():
-        rules_in_tactic = df[df["Tactics"].str.contains(tactic_id, na=False)]
-        if not rules_in_tactic.empty:
-            technique_list = rules_in_tactic.groupby("Technique")["Rule"].apply(
-                lambda x: "<br>".join(x)
-            ).to_dict()
-            tactic_data[tactic_name] = technique_list
-
-    # Count per tactic
     tactic_counts = {}
     for tactic_id, tactic_name in TACTIC_TITLES.items():
         count = len(df[df["Tactics"].str.contains(tactic_id, na=False)]["Technique"].unique())
         if count > 0:
             tactic_counts[tactic_name] = count
+
+    st.markdown(
+        f'<p style="color:{TEXT_PRIMARY};font-weight:700;font-size:1.05rem;margin:0 0 0.75rem 0;">'
+        f'MITRE ATT&CK Coverage'
+        f'</p>',
+        unsafe_allow_html=True,
+    )
 
     if tactic_counts:
         cols = st.columns(min(len(tactic_counts), 4))
@@ -290,17 +407,18 @@ def render_mitre_heatmap(rules: list[dict]):
             sorted(tactic_counts.items(), key=lambda x: x[1], reverse=True)
         ):
             with cols[i % 4]:
-                # Color based on coverage
                 if count >= 3:
-                    color = "🟢"
+                    color = "#00e676"
+                    label = "Strong"
                 elif count >= 2:
-                    color = "🟡"
+                    color = "#ffc107"
+                    label = "Moderate"
                 else:
-                    color = "🔴"
-                st.metric(f"{color} {tactic}", f"{count} techniques")
+                    color = "#ff3860"
+                    label = "Weak"
+                _colored_metric(tactic, f"{count}", color=color)
 
-    # Full technique table
-    with st.expander("📋 Detailed Technique Coverage"):
+    with st.expander("Detailed Technique Coverage"):
         st.dataframe(
             df[["Technique", "Tactics", "Severity", "Rule"]],
             use_container_width=True,
@@ -309,14 +427,13 @@ def render_mitre_heatmap(rules: list[dict]):
 
 
 def render_dashboard_metrics():
-    """Render top-level dashboard metrics cards."""
+    """Render top-level dashboard metrics cards without emoji."""
     api = get_api_client()
 
     with st.spinner("Loading dashboard metrics...", show_time=True):
         try:
             alerts = api.get_alerts(limit=1000) or []
 
-            # Compute metrics from the data
             total = len(alerts)
             critical = sum(1 for a in alerts if a.get("severity") == "critical")
             high = sum(1 for a in alerts if a.get("severity") == "high")
@@ -324,11 +441,16 @@ def render_dashboard_metrics():
             investigating = sum(1 for a in alerts if a.get("status") == "investigating")
 
             col1, col2, col3, col4, col5 = st.columns(5)
-            col1.metric("🚨 Total Alerts", total)
-            col2.metric("🔴 Critical", critical)
-            col3.metric("🟠 High", high)
-            col4.metric("🆕 New", new)
-            col5.metric("🔍 Investigating", investigating)
+            with col1:
+                _colored_metric("Total Alerts", total)
+            with col2:
+                _colored_metric("Critical", critical, color=SEVERITY_COLORS["critical"])
+            with col3:
+                _colored_metric("High", high, color=SEVERITY_COLORS["high"])
+            with col4:
+                _colored_metric("New", new, color="#00e676")
+            with col5:
+                _colored_metric("Investigating", investigating, color=SEVERITY_COLORS["high"])
 
             return alerts
 
@@ -362,26 +484,58 @@ def render_severity_sparklines():
                 sev_df = df[df["severity"] == sev]
                 daily = sev_df.groupby("date").size().reset_index(name="count")
 
+                color = SEVERITY_COLORS.get(sev, "#78909c")
+                label = sev.upper()
+                count = len(sev_df)
+
                 if len(daily) > 1:
                     chart = (
-                        alt.Chart(daily)
-                        .mark_line(color=SEVERITY_COLORS.get(sev, "#888"))
+                        alt.Chart(daily, title=f"{label}")
+                        .mark_line(color=color, strokeWidth=2)
                         .encode(
-                            x=alt.X("date:T", axis=alt.Axis(labels=False, ticks=False)),
-                            y=alt.Y("count:Q", axis=alt.Axis(labels=False, ticks=False)),
+                            x=alt.X(
+                                "date:T",
+                                axis=alt.Axis(labels=False, ticks=False),
+                            ),
+                            y=alt.Y(
+                                "count:Q",
+                                axis=alt.Axis(labels=False, ticks=False),
+                            ),
                         )
-                        .properties(height=60, title=f"{sev.upper()}: {len(sev_df)}")
+                        .properties(height=60)
                     )
-                    cols[i].altair_chart(chart, use_container_width=True)
+                    with cols[i]:
+                        st.markdown(
+                            f"""
+                            <div style="text-align:center;margin-bottom:0.25rem;">
+                                <p style="margin:0;color:{TEXT_SECONDARY};font-size:0.7rem;font-weight:600;text-transform:uppercase;">
+                                    {label}
+                                </p>
+                                <p style="margin:0;color:{TEXT_PRIMARY};font-size:1.1rem;font-weight:700;">
+                                    {count}
+                                </p>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                        st.altair_chart(chart, use_container_width=True)
+                        st.markdown(
+                            f"""
+                            <div style="background:{BG_SURFACE};border:1px solid {BORDER_SUBTLE};border-radius:0.375rem;padding:0.5rem;margin-top:0.25rem;">
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
                 else:
-                    cols[i].metric(sev.upper(), len(sev_df))
+                    with cols[i]:
+                        _colored_metric(label, count, color=color)
 
-        except Exception:  # noqa: S110
-            pass  # Non-critical sparkline, fail silently
+        except Exception:
+            pass
 
 
 def render_host_risk_scores():
-    """Render risk score gauges for top hosts."""
+    """Render risk score cards for top hosts without emoji."""
     api = get_api_client()
 
     with st.spinner("Loading host risk scores...", show_time=True):
@@ -390,7 +544,6 @@ def render_host_risk_scores():
             if not alerts:
                 return
 
-            # Calculate per-host risk from alert severity
             host_risk = {}
             severity_weights = {"critical": 10, "high": 7, "medium": 4, "low": 2, "info": 1}
 
@@ -400,21 +553,29 @@ def render_host_risk_scores():
                 weight = severity_weights.get(sev, 1)
                 host_risk[host] = host_risk.get(host, 0) + weight
 
-            # Cap at 100 and take top 5
             top_hosts = sorted(host_risk.items(), key=lambda x: x[1], reverse=True)[:5]
 
             if top_hosts:
+                st.markdown(
+                    f'<p style="color:{TEXT_PRIMARY};font-weight:700;font-size:1.05rem;margin:0.75rem 0;">'
+                    f'Host Risk Scores'
+                    f'</p>',
+                    unsafe_allow_html=True,
+                )
                 cols = st.columns(min(len(top_hosts), 5))
                 for i, (host, score) in enumerate(top_hosts):
                     score = min(score, 100)
-                    # Color based on risk
                     if score >= 70:
-                        color = "🔴"
+                        color = "#ff3860"
+                        label = "Critical"
                     elif score >= 40:
-                        color = "🟠"
+                        color = "#ff8f00"
+                        label = "High"
                     else:
-                        color = "🟢"
-                    cols[i].metric(f"{color} {host}", f"{score}/100")
+                        color = "#00e676"
+                        label = "Normal"
+                    with cols[i]:
+                        _colored_metric(host, f"{score}", color=color)
 
-        except Exception:  # noqa: S110
-            pass  # Non-critical gauge, fail silently
+        except Exception:
+            pass

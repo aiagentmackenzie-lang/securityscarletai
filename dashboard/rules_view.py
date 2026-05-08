@@ -9,6 +9,7 @@ import streamlit as st
 
 from dashboard.api_client import ApiError
 from dashboard.auth import can_manage_rules, get_api_client
+from dashboard.ui_utils import sev_badge, status_badge
 
 # Sample rule templates
 RULE_TEMPLATES = {
@@ -66,9 +67,9 @@ def render_rules_view():
     """Render the rules management page."""
     api = get_api_client()
 
-    st.header("📋 Detection Rules")
+    st.header("Detection Rules")
 
-    tab1, tab2 = st.tabs(["📜 Rule Library", "➕ Create Rule"])
+    tab1, tab2 = st.tabs(["Rule Library", "Create Rule"])
 
     # ─── Rule Library ───
     with tab1:
@@ -98,20 +99,20 @@ def render_rules_view():
         col2.metric("Enabled", enabled)
         col3.metric("Total Matches", total_matches)
 
-        st.divider()
-
         # Filter
-        severity_filter = st.selectbox(
-            "Filter by Severity",
-            ["All", "critical", "high", "medium", "low", "info"],
-            key="rule_severity_filter",
-        )
-
-        enabled_filter = st.selectbox(
-            "Filter by Status",
-            ["All", "Enabled", "Disabled"],
-            key="rule_enabled_filter",
-        )
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            severity_filter = st.selectbox(
+                "Filter by Severity",
+                ["All", "critical", "high", "medium", "low", "info"],
+                key="rule_severity_filter",
+            )
+        with col_f2:
+            enabled_filter = st.selectbox(
+                "Filter by Status",
+                ["All", "Enabled", "Disabled"],
+                key="rule_enabled_filter",
+            )
 
         filtered_rules = rules
         if severity_filter != "All":
@@ -129,8 +130,8 @@ def render_rules_view():
             table_data.append({
                 "ID": r.get("id", ""),
                 "Name": r.get("name", ""),
-                "Severity": r.get("severity", ""),
-                "Enabled": "✅" if r.get("enabled") else "❌",
+                "Severity": r.get("severity", "").upper(),
+                "Enabled": "Enabled" if r.get("enabled") else "Disabled",
                 "Last Run": str(r.get("last_run", ""))[:19] if r.get("last_run") else "Never",
                 "Matches": r.get("match_count", 0),
             })
@@ -139,9 +140,13 @@ def render_rules_view():
             st.dataframe(table_data, use_container_width=True, hide_index=True)
 
         # Rule details
-        st.divider()
-        for r in filtered_rules[:20]:  # Limit to avoid performance issues
-            with st.expander(f"📌 {r.get('name', 'Unknown')} — {r.get('severity', 'N/A')}"):
+        for r in filtered_rules[:20]:
+            sev = r.get("severity", "info")
+            sev_html = sev_badge(sev)
+            with st.expander(
+                f"{r.get('name', 'Unknown')} — {sev_html}",
+                expanded=False,
+            ):
                 col1, col2 = st.columns([2, 1])
 
                 with col1:
@@ -158,15 +163,13 @@ def render_rules_view():
                     if techniques:
                         st.write(f"**MITRE Techniques:** {', '.join(techniques)}")
 
-                    # Show Sigma YAML
                     sigma = r.get("sigma_yaml", "")
                     if sigma:
-                        with st.expander("📝 Sigma YAML"):
+                        with st.expander("Sigma YAML"):
                             st.code(sigma, language="yaml")
 
                 with col2:
                     if can_manage_rules():
-                        # Toggle enabled/disabled
                         is_enabled = r.get("enabled", False)
                         if st.button(
                             "Disable" if is_enabled else "Enable",
@@ -176,18 +179,17 @@ def render_rules_view():
                                 try:
                                     api.update_rule(r["id"], {"enabled": not is_enabled})
                                     action = 'enabled' if not is_enabled else 'disabled'
-                                    st.toast(f"✅ Rule {action}", icon="✅")
+                                    st.toast(f"Rule {action}")
                                     st.success(f"Rule {action}")
                                     st.rerun()
                                 except ApiError as e:
                                     st.error(f"Update failed: {e.detail}")
 
-                        # Delete rule
-                        if st.button("🗑️ Delete", key=f"del_{r.get('id', 0)}"):
+                        if st.button("Delete", key=f"del_{r.get('id', 0)}"):
                             with st.spinner("Deleting rule..."):
                                 try:
                                     api.delete_rule(r["id"])
-                                    st.toast("🗑️ Rule deleted", icon="🗑️")
+                                    st.toast("Rule deleted")
                                     st.success("Rule deleted")
                                     st.rerun()
                                 except ApiError as e:
@@ -211,14 +213,11 @@ def render_rules_view():
             with col2:
                 run_interval = st.number_input("Check Interval (seconds)", min_value=60, value=300)
 
-            # Template selector
             template = st.selectbox(
                 "Start from template",
                 list(RULE_TEMPLATES.keys()),
             )
 
-            # Sigma YAML editor
-            # L-08 fix: Use format_map with a defaultdict to avoid KeyError on user braces
             from collections import defaultdict
             template_vars = defaultdict(str, {
                 "name": name or "Rule Name",
@@ -231,12 +230,10 @@ def render_rules_view():
             default_yaml = RULE_TEMPLATES[template].format_map(template_vars)
             sigma_yaml = st.text_area("Sigma Rule (YAML)", value=default_yaml, height=300)
 
-            # Preview
             if st.form_submit_button("Preview"):
                 st.subheader("Preview")
                 st.code(sigma_yaml, language="yaml")
 
-            # Submit
             submitted = st.form_submit_button("Create Rule")
             if submitted:
                 if not name or not sigma_yaml:
@@ -251,7 +248,7 @@ def render_rules_view():
                                 "severity": severity,
                                 "run_interval": run_interval,
                             })
-                            st.toast(f"✅ Rule '{name}' created", icon="✅")
+                            st.toast(f"Rule '{name}' created")
                             st.success(f"Rule '{name}' created successfully!")
                             st.rerun()
                         except ApiError as e:

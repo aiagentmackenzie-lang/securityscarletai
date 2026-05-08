@@ -42,136 +42,315 @@ except ImportError:
     HAS_AUTOREFRESH = False
 
 # ───────────────────────────────────────────────────────────
+# Design Tokens
+# ───────────────────────────────────────────────────────────
+
+# Elevation layers (darker = deeper in the stack)
+BG_APP = "#090c14"          # Deepest background
+BG_SURFACE = "#0f1420"      # Cards, forms, expanders
+BG_ELEVATED = "#161d2e"     # Hover states, active items
+BG_INPUT = "#1a2236"        # Inputs, textareas
+
+# Accent
+ACCENT = "#00bcd4"          # Cyan primary
+ACCENT_HOVER = "#00acc1"
+ACCENT_GLOW = "rgba(0,188,212,0.18)"
+
+# Text
+TEXT_PRIMARY = "#e8ecf1"
+TEXT_SECONDARY = "#8b95a5"
+TEXT_MUTED = "#5a6578"
+
+# Borders
+BORDER_SUBTLE = "#1e2636"
+BORDER_FOCUS = "#00bcd4"
+
+# Severity (harmonized for dark UI)
+SEV_CRITICAL = "#ff3860"
+SEV_HIGH = "#ff8f00"
+SEV_MEDIUM = "#ffc107"
+SEV_LOW = "#2979ff"
+SEV_INFO = "#78909c"
+
+# Status
+STATUS_NEW = "#ff3860"
+STATUS_INVESTIGATING = "#ff8f00"
+STATUS_RESOLVED = "#00e676"
+STATUS_FALSE_POSITIVE = "#78909c"
+STATUS_CLOSED = "#5a6578"
+
+# ───────────────────────────────────────────────────────────
 # Dark Theme Configuration
 # ───────────────────────────────────────────────────────────
 
-DARK_THEME_CSS = """
+DARK_THEME_CSS = f"""
 <style>
-    /* Global dark theme */
-    .stApp {
-        background-color: #0e1117;
-        color: #fafafa;
-    }
+    /* ─── Global ─── */
+    .stApp {{
+        background-color: {BG_APP};
+        color: {TEXT_PRIMARY};
+    }}
+    .block-container {{
+        padding-top: 1.5rem;
+        padding-bottom: 2rem;
+    }}
 
-    /* Sidebar */
-    section[data-testid="stSidebar"] {
-        background-color: #1a1d23;
-    }
+    /* ─── Sidebar ─── */
+    section[data-testid="stSidebar"] {{
+        background-color: {BG_SURFACE};
+        border-right: 1px solid {BORDER_SUBTLE};
+    }}
+    section[data-testid="stSidebar"] .stRadio > div {{
+        gap: 0.25rem;
+    }}
+    section[data-testid="stSidebar"] .stRadio label {{
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.5rem;
+        color: {TEXT_SECONDARY};
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }}
+    section[data-testid="stSidebar"] .stRadio label:hover {{
+        background-color: {BG_ELEVATED};
+        color: {TEXT_PRIMARY};
+    }}
+    section[data-testid="stSidebar"] .stRadio input:checked + div {{
+        background-color: {BG_ELEVATED};
+        color: {ACCENT};
+        box-shadow: inset 2px 0 0 {ACCENT};
+        font-weight: 600;
+    }}
 
-    /* Cards and containers */
-    .stContainer, .stForm, .stExpander {
-        background-color: #1a1d23;
-        border-color: #2d2d3d;
-    }
+    /* ─── Cards / Containers ─── */
+    .stContainer, .stForm {{
+        background-color: {BG_SURFACE};
+        border: 1px solid {BORDER_SUBTLE};
+        border-radius: 0.75rem;
+        padding: 1rem;
+    }}
+    .stExpander {{
+        background-color: {BG_SURFACE};
+        border: 1px solid {BORDER_SUBTLE};
+        border-radius: 0.5rem;
+    }}
 
-    /* Input fields */
+    /* ─── Input fields ─── */
     .stTextInput > div > div > input,
     .stTextArea > div > div > textarea,
-    .stSelectbox > div > div > select {
-        background-color: #262730;
-        color: #fafafa;
-    }
+    .stSelectbox > div > div > select {{
+        background-color: {BG_INPUT};
+        color: {TEXT_PRIMARY};
+        border: 1px solid {BORDER_SUBTLE};
+        border-radius: 0.5rem;
+        padding: 0.5rem 0.75rem;
+    }}
+    .stTextInput > div > div > input:focus,
+    .stTextArea > div > div > textarea:focus,
+    .stSelectbox > div > div > select:focus {{
+        border-color: {BORDER_FOCUS};
+        box-shadow: 0 0 0 2px {ACCENT_GLOW};
+        outline: none;
+    }}
+    .stNumberInput input {{
+        background-color: {BG_INPUT};
+        color: {TEXT_PRIMARY};
+        border: 1px solid {BORDER_SUBTLE};
+    }}
 
-    /* Dataframe */
-    .stDataFrame {
-        background-color: #1a1d23;
-    }
-
-    /* Metrics — animate value changes */
-    [data-testid="stMetricValue"] {
-        color: #fafafa;
-        animation: fadeInValue 0.4s ease-out;
-    }
-
-    /* Buttons */
-    .stButton > button {
-        background-color: #262730;
-        color: #fafafa;
-        border-color: #3d3d5c;
-        transition: all 0.2s ease;
-    }
-    .stButton > button:hover {
-        background-color: #3d3d5c;
-        border-color: #5a5a8c;
+    /* ─── Buttons ─── */
+    .stButton > button {{
+        background-color: {BG_ELEVATED};
+        color: {TEXT_PRIMARY};
+        border: 1px solid {BORDER_SUBTLE};
+        border-radius: 0.5rem;
+        font-weight: 500;
+        transition: all 0.15s ease;
+    }}
+    .stButton > button:hover {{
+        background-color: {BG_INPUT};
+        border-color: {ACCENT};
         transform: translateY(-1px);
-    }
-    .stButton > button:active {
+    }}
+    .stButton > button:active {{
         transform: translateY(0);
-    }
+    }}
+    /* Primary accent variant (use st.markdown to inject class later) */
+    button[kind="primary"] {{
+        background-color: {ACCENT} !important;
+        color: #000 !important;
+        border-color: {ACCENT} !important;
+        font-weight: 600;
+    }}
+    button[kind="primary"]:hover {{
+        background-color: {ACCENT_HOVER} !important;
+    }}
+    button[kind="secondary"] {{
+        background-color: transparent !important;
+        color: {ACCENT} !important;
+        border: 1px solid {ACCENT} !important;
+    }}
 
-    /* Chat messages */
-    .stChatMessage {
-        background-color: #1a1d23;
-    }
+    /* ─── DataFrames ─── */
+    .stDataFrame {{
+        background-color: {BG_SURFACE};
+        border: 1px solid {BORDER_SUBTLE};
+        border-radius: 0.5rem;
+    }}
+    .stDataFrame thead th {{
+        background-color: {BG_ELEVATED};
+        color: {TEXT_PRIMARY};
+        font-weight: 600;
+        border-bottom: 1px solid {BORDER_SUBTLE};
+    }}
+    .stDataFrame tbody td {{
+        color: {TEXT_SECONDARY};
+        border-bottom: 1px solid {BORDER_SUBTLE};
+    }}
+    .stDataFrame tbody tr:hover td {{
+        background-color: {BG_ELEVATED};
+        color: {TEXT_PRIMARY};
+    }}
 
-    /* Progress bars */
-    .stProgress > div > div > div {
-        background-color: #ff6b6b;
-    }
+    /* ─── Metrics ─── */
+    [data-testid="stMetricValue"] {{
+        color: {TEXT_PRIMARY};
+        font-weight: 700;
+        font-size: 1.75rem;
+    }}
+    [data-testid="stMetricLabel"] {{
+        color: {TEXT_SECONDARY};
+        font-weight: 500;
+        font-size: 0.85rem;
+    }}
+    [data-testid="stMetricDelta"] svg {{
+        color: #00e676;
+    }}
+    [data-testid="stMetricDelta"] {{
+        color: #00e676;
+    }}
 
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 2rem;
-    }
-    .stTabs [data-baseweb="tab-panel"] {
-        background-color: #1a1d23;
-    }
+    /* ─── Chat messages ─── */
+    .stChatMessage {{
+        background-color: {BG_SURFACE};
+        border: 1px solid {BORDER_SUBTLE};
+        border-radius: 0.75rem;
+    }}
 
-    /* Severity colors */
-    .severity-critical { color: #ff4444; font-weight: bold; }
-    .severity-high { color: #ff8c00; font-weight: bold; }
-    .severity-medium { color: #ffd700; }
-    .severity-low { color: #4488ff; }
-    .severity-info { color: #888888; }
+    /* ─── Progress bars ─── */
+    .stProgress > div > div > div {{
+        background-color: {ACCENT};
+    }}
 
-    /* Keyboard shortcuts hint */
-    .shortcut-hint {
-        position: fixed;
-        bottom: 10px;
-        right: 10px;
-        background: #262730;
-        color: #888;
-        padding: 8px 12px;
-        border-radius: 6px;
-        font-size: 12px;
-        z-index: 1000;
-    }
+    /* ─── Tabs ─── */
+    .stTabs [data-baseweb="tab-list"] {{
+        gap: 0;
+        border-bottom: 1px solid {BORDER_SUBTLE};
+    }}
+    .stTabs [data-baseweb="tab"] {{
+        color: {TEXT_SECONDARY};
+        font-weight: 500;
+        padding: 0.5rem 1rem;
+        border-bottom: 2px solid transparent;
+    }}
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {{
+        color: {ACCENT};
+        border-bottom-color: {ACCENT};
+        font-weight: 600;
+    }}
+    .stTabs [data-baseweb="tab-panel"] {{
+        background-color: transparent;
+        padding-top: 1rem;
+    }}
 
-    /* Content fade-in animation */
-    .stMain .block-container {
-        animation: fadeInContent 0.3s ease-out;
-    }
+    /* ─── Severity / status badge helpers (injected via html) ─── */
+    .badge {{
+        display: inline-block;
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        padding: 0.15rem 0.5rem;
+        border-radius: 0.25rem;
+        line-height: 1.2;
+    }}
+    .badge-critical  {{ background: {SEV_CRITICAL}22; color: {SEV_CRITICAL}; border: 1px solid {SEV_CRITICAL}44; }}
+    .badge-high      {{ background: {SEV_HIGH}22; color: {SEV_HIGH}; border: 1px solid {SEV_HIGH}44; }}
+    .badge-medium    {{ background: {SEV_MEDIUM}22; color: {SEV_MEDIUM}; border: 1px solid {SEV_MEDIUM}44; }}
+    .badge-low       {{ background: {SEV_LOW}22; color: {SEV_LOW}; border: 1px solid {SEV_LOW}44; }}
+    .badge-info      {{ background: {SEV_INFO}22; color: {SEV_INFO}; border: 1px solid {SEV_INFO}44; }}
+    .badge-new       {{ background: {STATUS_NEW}22; color: {STATUS_NEW}; border: 1px solid {STATUS_NEW}44; }}
+    .badge-investigating {{ background: {STATUS_INVESTIGATING}22; color: {STATUS_INVESTIGATING}; border: 1px solid {STATUS_INVESTIGATING}44; }}
+    .badge-resolved  {{ background: {STATUS_RESOLVED}22; color: {STATUS_RESOLVED}; border: 1px solid {STATUS_RESOLVED}44; }}
+    .badge-false_positive {{ background: {STATUS_FALSE_POSITIVE}22; color: {STATUS_FALSE_POSITIVE}; border: 1px solid {STATUS_FALSE_POSITIVE}44; }}
+    .badge-closed    {{ background: {STATUS_CLOSED}22; color: {STATUS_CLOSED}; border: 1px solid {STATUS_CLOSED}44; }}
 
-    /* Toast notification styling */
-    .stToast {
-        animation: slideInRight 0.3s ease-out;
-    }
+    /* ─── Spinner / status ─── */
+    .stSpinner > div > div {{
+        color: {ACCENT};
+    }}
 
-    /* Spinner text color */
-    .stSpinner > div > div {
-        color: #a0a0a0;
-    }
+    /* ─── Horizontal rule ─── */
+    hr {{
+        border-color: {BORDER_SUBTLE};
+        margin: 1rem 0;
+    }}
 
-    /* Keyframes */
-    @keyframes fadeInContent {
-        from { opacity: 0.7; }
-        to { opacity: 1.0; }
-    }
-    @keyframes fadeInValue {
-        from { opacity: 0; transform: translateY(-4px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes slideInRight {
-        from { opacity: 0; transform: translateX(100px); }
-        to { opacity: 1; transform: translateX(0); }
-    }
+    /* ─── Headers ─── */
+    h1, h2, h3 {{
+        color: {TEXT_PRIMARY};
+        font-weight: 700;
+    }}
+    h1 {{ font-size: 1.6rem; letter-spacing: -0.02em; }}
+    h2 {{ font-size: 1.3rem; letter-spacing: -0.01em; }}
+    h3 {{ font-size: 1.05rem; }}
+    p, li {{ color: {TEXT_SECONDARY}; }}
 
-    /* Inline status message styling */
-    .stAlert {
-        animation: fadeInContent 0.3s ease-out;
-    }
+    /* ─── Animations ─── */
+    .stMain .block-container {{
+        animation: fadeInContent 0.35s ease-out;
+    }}
+    @keyframes fadeInContent {{
+        from {{ opacity: 0; transform: translateY(6px); }}
+        to   {{ opacity: 1; transform: translateY(0); }}
+    }}
 </style>
 """
+
+# ───────────────────────────────────────────────────────────
+# Severity / Status → badge helper
+# ───────────────────────────────────────────────────────────
+
+SEV_CSS_MAP = {
+    "critical": "badge-critical",
+    "high": "badge-high",
+    "medium": "badge-medium",
+    "low": "badge-low",
+    "info": "badge-info",
+}
+
+STATUS_CSS_MAP = {
+    "new": "badge-new",
+    "investigating": "badge-investigating",
+    "resolved": "badge-resolved",
+    "false_positive": "badge-false_positive",
+    "closed": "badge-closed",
+}
+
+
+def badge(label: str, css_class: str) -> str:
+    """Return HTML for a styled badge."""
+    return f'<span class="badge {css_class}">{label}</span>'
+
+
+def sev_badge(severity: str) -> str:
+    css = SEV_CSS_MAP.get(severity.lower(), "badge-info")
+    return badge(severity.upper(), css)
+
+
+def status_badge(status: str) -> str:
+    css = STATUS_CSS_MAP.get(status.lower().replace(" ", "_"), "badge-closed")
+    return badge(status.replace("_", " ").upper(), css)
 
 # ───────────────────────────────────────────────────────────
 # Page Configuration
@@ -216,17 +395,17 @@ def check_auth():
 # ───────────────────────────────────────────────────────────
 
 PAGES = {
-    "📊 Overview": "overview",
-    "📡 Live Logs": "logs",
-    "🚨 Alerts": "alerts",
-    "📋 Rules": "rules",
-    "📁 Cases": "cases",
-    "🤖 AI Chat": "ai_chat",
-    "🎯 Hunting": "hunting",
+    "Overview": "overview",
+    "Live Logs": "logs",
+    "Alerts": "alerts",
+    "Rules": "rules",
+    "Cases": "cases",
+    "AI Chat": "ai_chat",
+    "Hunting": "hunting",
 }
 
 ADMIN_PAGES = {
-    "🔐 Audit Log": "audit",
+    "Audit Log": "audit",
 }
 
 # Default refresh intervals (ms) per page type
@@ -244,11 +423,12 @@ PAGE_REFRESH_MS = {
 
 def render_sidebar():
     """Render the sidebar with navigation and status info."""
-    st.sidebar.title("🛡️ SecurityScarletAI")
+    st.sidebar.title("SecurityScarletAI")
     st.sidebar.caption("AI-Native SIEM")
+    st.sidebar.markdown("<hr style='margin:0.5rem 0;border-color:#1e2636;'/>", unsafe_allow_html=True)
 
     # Page navigation
-    st.sidebar.subheader("Navigation")
+    st.sidebar.markdown(f"<p style='color:#8b95a5;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;'>Navigation</p>", unsafe_allow_html=True)
 
     # Regular pages
     page_labels = list(PAGES.keys())
@@ -265,8 +445,8 @@ def render_sidebar():
     st.session_state.current_page = page_key
 
     # Health check
-    st.sidebar.divider()
-    st.sidebar.subheader("System Status")
+    st.sidebar.markdown("<hr style='margin:0.5rem 0;border-color:#1e2636;'/>", unsafe_allow_html=True)
+    st.sidebar.markdown(f"<p style='color:#8b95a5;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;'>System Status</p>", unsafe_allow_html=True)
     try:
         api = get_api_client()
         health = api.health()
@@ -275,24 +455,24 @@ def render_sidebar():
             db_status = checks.get("database", "unknown")
             ollama_status = checks.get("ollama", "unknown")
 
-            db_icon = "🟢" if db_status == "ok" else "🔴"
-            ollama_icon = "🟢" if ollama_status == "ok" else "🟡"
+            db_icon = "<span style='color:#00e676'>&#9679;</span>" if db_status == "ok" else "<span style='color:#ff3860'>&#9679;</span>"
+            ollama_icon = "<span style='color:#00e676'>&#9679;</span>" if ollama_status == "ok" else "<span style='color:#ffc107'>&#9679;</span>"
 
-            st.sidebar.markdown(f"{db_icon} Database: {db_status}")
-            st.sidebar.markdown(f"{ollama_icon} Ollama: {ollama_status}")
+            st.sidebar.markdown(f"{db_icon}&nbsp;&nbsp;Database: <span style='color:#e8ecf1'>{db_status}</span>", unsafe_allow_html=True)
+            st.sidebar.markdown(f"{ollama_icon}&nbsp;&nbsp;Ollama: <span style='color:#e8ecf1'>{ollama_status}</span>", unsafe_allow_html=True)
 
             if health.get("status") == "healthy":
-                st.sidebar.success("✅ System Healthy")
+                st.sidebar.markdown("<p style='color:#00e676;font-size:0.85rem;font-weight:500;'>&#10003; System Healthy</p>", unsafe_allow_html=True)
             else:
-                st.sidebar.warning("⚠️ System Degraded")
+                st.sidebar.markdown("<p style='color:#ffc107;font-size:0.85rem;font-weight:500;'>&#9888; System Degraded</p>", unsafe_allow_html=True)
         else:
-            st.sidebar.error("❌ System Down")
+            st.sidebar.markdown("<p style='color:#ff3860;font-size:0.85rem;font-weight:500;'>&#10007; System Down</p>", unsafe_allow_html=True)
     except Exception:
-        st.sidebar.error("❌ API Unreachable")
+        st.sidebar.markdown("<p style='color:#ff3860;font-size:0.85rem;font-weight:500;'>&#10007; API Unreachable</p>", unsafe_allow_html=True)
 
     # Auto-refresh toggle with interval selector
-    st.sidebar.divider()
-    auto_refresh = st.sidebar.toggle("🔄 Auto-refresh", value=False, key="auto_refresh_toggle")
+    st.sidebar.markdown("<hr style='margin:0.5rem 0;border-color:#1e2636;'/>", unsafe_allow_html=True)
+    auto_refresh = st.sidebar.toggle("Auto-refresh", value=False, key="auto_refresh_toggle")
 
     if auto_refresh:
         if HAS_AUTOREFRESH:
@@ -311,34 +491,34 @@ def render_sidebar():
                 limit=None,
                 key=f"autorefresh_{page_key}",
             )
-            st.sidebar.caption(f"🔄 Auto-refreshing every {refresh_interval}s")
+            st.sidebar.caption(f"Auto-refreshing every {refresh_interval}s")
         else:
-            st.sidebar.warning("⚠️ Install `streamlit-autorefresh` for auto-refresh.")
-            if st.sidebar.button("🔄 Refresh Now"):
+            st.sidebar.warning("Install `streamlit-autorefresh` for auto-refresh.")
+            if st.sidebar.button("Refresh Now"):
                 st.rerun()
 
     # AI Status
-    st.sidebar.divider()
-    st.sidebar.subheader("AI Status")
+    st.sidebar.markdown("<hr style='margin:0.5rem 0;border-color:#1e2636;'/>", unsafe_allow_html=True)
+    st.sidebar.markdown(f"<p style='color:#8b95a5;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;'>AI Status</p>", unsafe_allow_html=True)
     try:
         status = api.ai_status()
         triage = status.get("triage", {})
         model_status = triage.get("status", "unknown")
         if model_status == "trained":
-            st.sidebar.markdown("🟢 AI Triage: Trained")
+            st.sidebar.markdown("<p style='color:#00e676;font-size:0.85rem;'>&#9679; AI Triage: Trained</p>", unsafe_allow_html=True)
         elif model_status == "no_data":
-            st.sidebar.markdown("🟡 AI Triage: No training data")
+            st.sidebar.markdown("<p style='color:#ffc107;font-size:0.85rem;'>&#9679; AI Triage: No data</p>", unsafe_allow_html=True)
         else:
-            st.sidebar.markdown(f"⚪ AI Triage: {model_status}")
+            st.sidebar.markdown(f"<p style='color:#78909c;font-size:0.85rem;'>&#9679; AI Triage: {model_status}</p>", unsafe_allow_html=True)
     except Exception:
-        st.sidebar.markdown("⚪ AI Status: Unavailable")
+        st.sidebar.markdown("<p style='color:#78909c;font-size:0.85rem;'>&#9679; AI Status: Unavailable</p>", unsafe_allow_html=True)
 
     # User info and logout
     render_sidebar_user_info()
 
     # Keyboard shortcuts hint
-    st.sidebar.divider()
-    st.sidebar.caption("⌨️ Press 1-7 for quick navigation")
+    st.sidebar.markdown("<hr style='margin:0.5rem 0;border-color:#1e2636;'/>", unsafe_allow_html=True)
+    st.sidebar.caption("Press 1-7 for quick nav")
 
     return page_key
 
@@ -358,7 +538,7 @@ def render_overview():
         render_severity_sparklines,
     )
 
-    st.header("📊 Security Overview")
+    st.header("Security Overview")
 
     # Top-level metrics with loading state
     alerts = render_dashboard_metrics()
@@ -391,21 +571,20 @@ def render_overview():
             render_mitre_heatmap(rules)
         except ApiError:
             st.info(
-                "Rule information unavailable "
-                "— MITRE coverage will show when rules are loaded."
+                "Rule information unavailable — MITRE coverage will show when rules are loaded."
             )
 
     # Recent alerts table
     st.divider()
-    st.subheader("🚨 Recent Alerts")
+    st.subheader("Recent Alerts")
     if alerts:
         table_data = []
         for a in alerts[:20]:
             table_data.append({
                 "Time": a.get("time", "")[:19] if a.get("time") else "",
                 "Rule": a.get("rule_name", ""),
-                "Severity": a.get("severity", ""),
-                "Status": a.get("status", ""),
+                "Severity": a.get("severity", "").upper(),
+                "Status": a.get("status", "").replace("_", " ").upper(),
                 "Host": a.get("host_name", ""),
             })
         st.dataframe(table_data, use_container_width=True, hide_index=True)
@@ -415,11 +594,9 @@ def render_overview():
 
 def render_audit():
     """Audit log page — admin only."""
-    # L-12 fix: removed unused import of render_alert_list
-
     api = get_api_client()
 
-    st.header("🔐 Audit Log")
+    st.header("Audit Log")
 
     if not is_admin():
         st.error("You need admin permissions to view the audit log.")
@@ -439,9 +616,9 @@ def render_audit():
                         "Action": e.get("action", ""),
                         "Target": f"{e.get('target_type', '')} #{e.get('target_id', '')}",
                         "Details": (
-                        str(e.get("new_values", ""))[:100]
-                        if e.get("new_values") else ""
-                    ),
+                            str(e.get("new_values", ""))[:100]
+                            if e.get("new_values") else ""
+                        ),
                     })
                 st.dataframe(table_data, use_container_width=True, hide_index=True)
             else:
@@ -494,26 +671,22 @@ def main():
     st.divider()
     st.caption(
         "SecurityScarletAI v0.4.1 — AI-Native SIEM | "
-        "🛡️ All data via authenticated API — No direct DB access"
+        "All data via authenticated API — No direct DB access"
     )
 
 
 # ───────────────────────────────────────────────────────────
-# JavaScript for keyboard shortcuts
+# Keyboard shortcuts
 # ───────────────────────────────────────────────────────────
 
 KEYBOARD_SHORTCUTS_JS = """
 <script>
 document.addEventListener('keydown', function(e) {
-    // Don't trigger shortcuts when typing in inputs
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-
-    const pages = ['📊 Overview', '📡 Live Logs', '🚨 Alerts', '📋 Rules',
-                   '📁 Cases', '🤖 AI Chat', '🎯 Hunting'];
-
+    const pages = ['Overview', 'Live Logs', 'Alerts', 'Rules',
+                   'Cases', 'AI Chat', 'Hunting'];
     const num = parseInt(e.key);
     if (num >= 1 && num <= 7) {
-        // Click the corresponding radio button
         const radios = document.querySelectorAll('label[data-baseweb="radio"]');
         if (radios[num - 1]) {
             radios[num - 1].click();

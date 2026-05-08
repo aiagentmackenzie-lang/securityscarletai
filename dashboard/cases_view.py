@@ -9,21 +9,15 @@ import streamlit as st
 
 from dashboard.api_client import ApiError
 from dashboard.auth import can_write, get_api_client, is_admin
+from dashboard.ui_utils import sev_badge, status_badge, BG_SURFACE, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY
 
 # Status flow: open → in_progress → resolved → closed
 STATUS_FLOW = ["open", "in_progress", "resolved", "closed"]
 STATUS_BADGES = {
-    "open": "📂",
-    "in_progress": "🔍",
-    "resolved": "✅",
-    "closed": "📁",
-}
-SEVERITY_COLORS = {
-    "critical": "🔴",
-    "high": "🟠",
-    "medium": "🟡",
-    "low": "🔵",
-    "info": "⚪",
+    "open": "badge-new",
+    "in_progress": "badge-investigating",
+    "resolved": "badge-resolved",
+    "closed": "badge-closed",
 }
 
 
@@ -31,20 +25,17 @@ def render_cases_view():
     """Render the cases management page."""
     api = get_api_client()
 
-    tab1, tab2 = st.tabs(["📋 Case List", "➕ Create Case"])
+    tab1, tab2 = st.tabs(["Case List", "Create Case"])
 
-    # ─── Case List ───
     with tab1:
         _render_case_list(api)
 
-    # ─── Create Case ───
     with tab2:
         _render_create_case(api)
 
 
 def _render_case_list(api):
     """Render the case list with filters and detailed expansion."""
-    # Filter controls
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         status_filter = st.selectbox(
@@ -59,19 +50,17 @@ def _render_case_list(api):
             key="case_severity_filter",
         )
     with col3:
-        st.write("")  # spacer
+        st.write("")
     with col4:
-        if st.button("🔄 Refresh", key="refresh_cases_btn"):
+        if st.button("Refresh", key="refresh_cases_btn"):
             st.rerun()
 
-    # Build API query params
     params: dict = {}
     if status_filter != "All":
-        params["status_filter"] = status_filter.lower().replace(" ", "_")  # L-04 fix
+        params["status_filter"] = status_filter.lower().replace(" ", "_")
     if severity_filter != "All":
         params["severity"] = severity_filter.lower()
 
-    # Fetch cases with loading state
     with st.spinner("Loading cases...", show_time=True):
         try:
             cases = api.get_cases(**params) or []
@@ -85,14 +74,12 @@ def _render_case_list(api):
             st.error(f"Unexpected error: {e}")
             return
 
-    st.divider()
-
     if not cases:
         st.info("""
         No investigation cases found.
 
         **To create a case:**
-        1. Go to the **➕ Create Case** tab
+        1. Go to the **Create Case** tab
         2. Fill in the title, description, and severity
         3. Optionally link alerts to the case
 
@@ -112,17 +99,18 @@ def _render_case_card(case: dict, api):
     case_status = case.get("status", "open")
     case_severity = case.get("severity", "medium")
     case_title = case.get("title", "Untitled")
-    status_icon = STATUS_BADGES.get(case_status, "❓")
-    sev_icon = SEVERITY_COLORS.get(case_severity, "⚪")
+    sev_html = sev_badge(case_severity)
+    status_html = status_badge(case_status)
     assigned = case.get("assigned_to") or "Unassigned"
     alert_count = len(case.get("alert_ids") or [])
 
-    with st.expander(
-        f"{status_icon} **#{case_id}** — {case_title} "
-        f"{sev_icon} [{case_severity.upper()}] ({alert_count} alerts) "
-        f"— *{assigned}*"
-    ):
-        # Fetch full case detail (including linked alerts) with spinner
+    expander_title = (
+        f'<span style="font-weight:600;color:#e8ecf1;">#{case_id} — {case_title}</span>'
+        + f' \u0026nbsp; {sev_html} \u0026nbsp; {status_html}'
+        + f' \u003cspan style="color:#5a6578;"\u003e| {alert_count} alerts \u003c/span\u003e'
+    )
+
+    with st.expander(expander_title, expanded=False):
         with st.spinner("Loading case details...", show_time=True):
             try:
                 case_detail = api.get_case(case_id)
@@ -132,71 +120,79 @@ def _render_case_card(case: dict, api):
                 linked_alerts = []
                 case_detail = case
 
-        # ─── Case Info ───
+        # Case Info
         col_info1, col_info2 = st.columns([2, 1])
         with col_info1:
-            st.markdown(f"**Description:** {case_detail.get('description') or 'No description'}")
+            desc = case_detail.get('description') or 'No description'
+            st.markdown(
+                f"**Description:** <span style='color:#8b95a5;'>{desc}</span>",
+                unsafe_allow_html=True,
+            )
             if case_detail.get("lessons_learned"):
-                st.markdown(f"**📝 Lessons Learned:** {case_detail['lessons_learned']}")
+                st.markdown(
+                    f"**Lessons Learned:** {case_detail['lessons_learned']}"
+                )
             if case_detail.get("resolution_note"):
-                st.markdown(f"**✏️ Resolution Note:** {case_detail['resolution_note']}")
+                st.markdown(
+                    f"**Resolution Note:** {case_detail['resolution_note']}"
+                )
 
         with col_info2:
-            # Status badge
-            st.markdown(f"{status_icon} **Status:** {case_status}")
-            st.markdown(f"{sev_icon} **Severity:** {case_severity}")
-            st.markdown(f"👤 **Assigned:** {assigned}")
+            st.markdown(
+                f"{status_html} <span style=\"color:#8b95a5;\">Status:</span> "
+                f"<span style=\"color:#e8ecf1;\">{case_status}</span>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"{sev_html} <span style=\"color:#8b95a5;\">Severity:</span> "
+                f"<span style=\"color:#e8ecf1;\">{case_severity}</span>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<span style=\"color:#8b95a5;\">Assigned:</span> "
+                f"<span style=\"color:#e8ecf1;\">{assigned}</span>",
+                unsafe_allow_html=True,
+            )
 
-            created = (
-                case_detail.get("created_at", "")[:19]
-                if case_detail.get("created_at") else ""
-            )
-            updated = (
-                case_detail.get("updated_at", "")[:19]
-                if case_detail.get("updated_at") else ""
-            )
+            created = case_detail.get("created_at", "")[:19] if case_detail.get("created_at") else ""
+            updated = case_detail.get("updated_at", "")[:19] if case_detail.get("updated_at") else ""
             st.caption(f"Created: {created}")
             st.caption(f"Updated: {updated}")
 
-        st.divider()
-
-        # ─── Status Management ───
+        # Status Management
         if can_write():
             _render_status_management(case_id, case_status, case_detail, api)
 
-        st.divider()
-
-        # ─── Linked Alerts ───
-        st.markdown("**📋 Linked Alerts**")
+        # Linked Alerts
+        st.markdown(
+            f"**Linked Alerts**<span style='color:#5a6578;font-weight:400;'> ({len(linked_alerts)})</span>",
+            unsafe_allow_html=True,
+        )
         if linked_alerts:
             for a in linked_alerts:
                 a_sev = a.get("severity", "info")
-                a_icon = SEVERITY_COLORS.get(a_sev, "⚪")
+                a_icon = sev_badge(a_sev)
                 a_status = a.get("status", "new")
                 st.markdown(
-                    f"{a_icon} **Alert #{a['id']}** [{a_sev.upper()}] "
-                    f"— {a.get('rule_name', 'Unknown')} "
+                    f"{a_icon} **Alert #{a['id']}** — {a.get('rule_name', 'Unknown')} "
                     f"— {a.get('host_name', '')} — *{a_status}*"
                 )
         else:
             st.info("No alerts linked to this case yet.")
 
-        # ─── Link/Unlink Alerts ───
+        # Link/Unlink
         if can_write():
             _render_alert_linking(case_id, case_detail, linked_alerts, api)
 
-        st.divider()
-
-        # ─── Case Notes ───
+        # Case Notes
         _render_case_notes(case_id, api)
 
-        # ─── Case Deletion (admin only) ───
+        # Case Deletion (admin only)
         if is_admin() and case_status != "closed":
-            st.divider()
-            if st.button("🗑️ Close & Archive Case", key=f"delete_case_{case_id}", type="secondary"):
+            if st.button("Close & Archive Case", key=f"delete_case_{case_id}", type="secondary"):
                 try:
                     api.delete_case(case_id)
-                    st.toast("📁 Case archived", icon="📁")
+                    st.toast("Case archived")
                     st.success("Case has been closed and archived.")
                     st.rerun()
                 except ApiError as e:
@@ -207,9 +203,13 @@ def _render_status_management(case_id: int, case_status: str, case_detail: dict,
     """Render the status management dropdown and lessons learned prompt."""
     current_idx = STATUS_FLOW.index(case_status) if case_status in STATUS_FLOW else 0
 
-    st.markdown("**🔄 Change Status**")
+    st.markdown(
+        "<p style='color:#e8ecf1;font-weight:600;font-size:0.9rem;margin:0.75rem 0 0.5rem 0;'>"
+        "Change Status"
+        "</p>",
+        unsafe_allow_html=True,
+    )
 
-    # If transitioning to resolved, prompt for lessons_learned
     col_status1, col_status2 = st.columns([2, 1])
     with col_status1:
         new_status = st.selectbox(
@@ -217,15 +217,16 @@ def _render_status_management(case_id: int, case_status: str, case_detail: dict,
             STATUS_FLOW,
             index=current_idx,
             key=f"status_select_{case_id}",
+            label_visibility="collapsed",
         )
     with col_status2:
-        st.write("")  # spacer for alignment
+        st.write("")
 
-    # Lessons learned textarea (only shown when resolving)
     lessons_learned = None
+    resolution_note = None
     if new_status in ("resolved", "closed") and case_status not in ("resolved", "closed"):
         lessons_learned = st.text_area(
-            "📝 Lessons Learned (required)",
+            "Lessons Learned (required)",
             placeholder=(
                 "What did we learn from this investigation? "
                 "How can we prevent similar incidents?"
@@ -233,7 +234,7 @@ def _render_status_management(case_id: int, case_status: str, case_detail: dict,
             key=f"lessons_{case_id}",
         )
         resolution_note = st.text_input(
-            "✏️ Resolution Note (optional)",
+            "Resolution Note (optional)",
             placeholder="Brief summary of the resolution",
             key=f"resolution_{case_id}",
         )
@@ -243,22 +244,20 @@ def _render_status_management(case_id: int, case_status: str, case_detail: dict,
             st.warning("Status unchanged.")
             return
 
-        # Validate lessons_learned for resolve/close
         if new_status in ("resolved", "closed") and case_status not in ("resolved", "closed"):
             if not lessons_learned or not lessons_learned.strip():
-                st.error("❌ Lessons learned is required when resolving or closing a case.")
+                st.error("Lessons learned is required when resolving or closing a case.")
                 return
 
         try:
             kwargs = {"status": new_status}
             if lessons_learned:
                 kwargs["lessons_learned"] = lessons_learned.strip()
-            if resolution_note if new_status in ("resolved", "closed") else False:
+            if new_status in ("resolved", "closed") and resolution_note:
                 kwargs["resolution_note"] = resolution_note.strip()
 
             api.update_case(case_id, **kwargs)
-            status_icon = STATUS_BADGES.get(new_status, "✅")
-            st.toast(f"{status_icon} Case status updated to {new_status}", icon=status_icon)
+            st.toast(f"Case status updated to {new_status}")
             st.success(f"Case status updated to {new_status}.")
             st.rerun()
         except ApiError as e:
@@ -267,8 +266,7 @@ def _render_status_management(case_id: int, case_status: str, case_detail: dict,
 
 def _render_alert_linking(case_id: int, case_detail: dict, linked_alerts: list, api):
     """Render the link/unlink alert controls."""
-    with st.expander("🔗 Link / Unlink Alerts"):
-        # Link a new alert
+    with st.expander("Link / Unlink Alerts"):
         col_link1, col_link2 = st.columns([3, 1])
         with col_link1:
             link_alert_id = st.number_input(
@@ -279,26 +277,25 @@ def _render_alert_linking(case_id: int, case_detail: dict, linked_alerts: list, 
                 key=f"link_alert_{case_id}",
             )
         with col_link2:
-            st.write("")  # alignment spacer
+            st.write("")
 
-        if st.button("➕ Link Alert", key=f"link_btn_{case_id}"):
+        if st.button("Link Alert", key=f"link_btn_{case_id}"):
             try:
                 api.link_alert_to_case(case_id, link_alert_id)
-                st.toast("✅ Alert linked to case", icon="✅")
+                st.toast("Alert linked to case")
                 st.success(f"Alert #{link_alert_id} linked to case #{case_id}.")
                 st.rerun()
             except ApiError as e:
                 st.error(f"Failed to link alert: {e.detail}")
 
-        # Unlink existing alerts
         if linked_alerts:
             st.markdown("**Unlink alerts:**")
             for a in linked_alerts:
                 aid = a.get("id", 0)
-                if st.button(f"✂️ Unlink Alert #{aid}", key=f"unlink_{case_id}_{aid}"):
+                if st.button(f"Unlink Alert #{aid}", key=f"unlink_{case_id}_{aid}"):
                     try:
                         api.unlink_alert_from_case(case_id, aid)
-                        st.toast("✂️ Alert unlinked", icon="✂️")
+                        st.toast("Alert unlinked")
                         st.rerun()
                     except ApiError as e:
                         st.error(f"Failed to unlink alert: {e.detail}")
@@ -306,7 +303,12 @@ def _render_alert_linking(case_id: int, case_detail: dict, linked_alerts: list, 
 
 def _render_case_notes(case_id: int, api):
     """Render the case notes timeline and add note form."""
-    st.markdown("**📝 Case Notes**")
+    st.markdown(
+        "<p style='color:#e8ecf1;font-weight:600;font-size:0.9rem;margin:0.75rem 0 0.5rem 0;'>"
+        "Case Notes"
+        "</p>",
+        unsafe_allow_html=True,
+    )
 
     with st.spinner("Loading notes...", show_time=True):
         try:
@@ -319,11 +321,26 @@ def _render_case_notes(case_id: int, api):
             author = note.get("author", "Unknown")
             text = note.get("text", "")
             timestamp = note.get("timestamp", "")[:19] if note.get("timestamp") else ""
-            st.markdown(f"**{author}** ({timestamp}): {text}")
+            st.markdown(
+                f"""
+                <div style="
+                    background:{BG_SURFACE};
+                    border:1px solid {BORDER_SUBTLE};
+                    border-radius:0.375rem;
+                    padding:0.5rem 0.75rem;
+                    margin-bottom:0.25rem;
+                ">
+                    <p style="margin:0;color:#8b95a5;font-size:0.7rem;font-weight:600;">
+                        {author} <span style="color:#5a6578;font-weight:400;">| {timestamp}</span>
+                    </p>
+                    <p style="margin:0.25rem 0 0 0;color:#e8ecf1;font-size:0.85rem;">{text}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
     else:
         st.caption("No notes yet.")
 
-    # Add note
     if can_write():
         with st.form(f"add_note_form_{case_id}"):
             new_note = st.text_input(
@@ -331,11 +348,11 @@ def _render_case_notes(case_id: int, api):
                 placeholder="E.g., Investigating suspicious SSH brute-force...",
                 key=f"new_note_{case_id}",
             )
-            if st.form_submit_button("📝 Add Note"):
+            if st.form_submit_button("Add Note"):
                 if new_note and new_note.strip():
                     try:
                         api.add_case_note(case_id, new_note.strip())
-                        st.toast("📝 Note added", icon="📝")
+                        st.toast("Note added")
                         st.rerun()
                     except ApiError as e:
                         st.error(f"Failed to add note: {e.detail}")
@@ -363,10 +380,9 @@ def _render_create_case(api):
         severity = st.selectbox(
             "Severity",
             ["info", "low", "medium", "high", "critical"],
-            index=2,  # medium default
+            index=2,
         )
 
-        # Optional alert linking
         st.markdown("**Optional:** Link alerts to this case (comma-separated alert IDs)")
         alert_ids_str = st.text_input(
             "Alert IDs",
@@ -374,19 +390,17 @@ def _render_create_case(api):
             key="create_case_alert_ids",
         )
 
-        # Optional assignment
         assigned_to = st.text_input(
             "Assign To",
             placeholder="E.g., analyst1 (leave empty to auto-assign)",
             key="create_case_assigned_to",
         )
 
-        if st.form_submit_button("📝 Create Case"):
+        if st.form_submit_button("Create Case"):
             if not title or not title.strip():
-                st.error("❌ Case title is required.")
+                st.error("Case title is required.")
                 return
 
-            # Parse alert IDs
             alert_ids = []
             if alert_ids_str and alert_ids_str.strip():
                 try:
@@ -412,7 +426,7 @@ def _render_create_case(api):
                         alert_ids=alert_ids if alert_ids else None,
                         **kwargs,
                     )
-                    st.toast("✅ Case created", icon="✅")
+                    st.toast("Case created")
                     st.success("Case created successfully!")
                     st.rerun()
                 except ApiError as e:
