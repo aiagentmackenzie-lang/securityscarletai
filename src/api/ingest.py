@@ -13,7 +13,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
-from src.api.auth import verify_bearer_token
+from src.api.auth import get_current_user
 from src.ingestion.schemas import NormalizedEvent
 
 router = APIRouter(tags=["ingestion"])
@@ -55,7 +55,7 @@ class IngestResponse(BaseModel):
 @router.post("/ingest", response_model=IngestResponse, status_code=status.HTTP_202_ACCEPTED)
 async def ingest_events(
     events: list[IngestEvent],
-    _token: Annotated[str, Depends(verify_bearer_token)],
+    _token: Annotated[dict, Depends(get_current_user)],
 ):
     """Ingest one or more security events.
 

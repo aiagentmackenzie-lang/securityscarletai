@@ -99,6 +99,8 @@ class LogWriter:
                         e.event_action,
                         e.user_name,
                         e.process_name,
+                        e.process_cmdline,
+                        e.process_path,
                         e.process_pid,
                         e.source_ip,
                         e.destination_ip,
@@ -122,13 +124,15 @@ class LogWriter:
                     INSERT INTO logs (
                         time, host_name, host_ip, source,
                         event_category, event_type, event_action,
-                        user_name, process_name, process_pid,
+                        user_name, process_name, process_cmdline, process_path,
+                        process_pid,
                         source_ip, destination_ip, destination_port,
                         file_path, file_hash, raw_data, normalized,
                         enrichment, ingested_at
                     ) VALUES (
                         $1, $2, $3, $4, $5, $6, $7, $8, $9,
-                        $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+                        $10, $11, $12, $13, $14, $15, $16, $17, $18,
+                        $19, $20, $21
                     )
                     """,
                     rows,

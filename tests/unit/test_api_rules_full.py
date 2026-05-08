@@ -141,7 +141,7 @@ class TestListRules:
         from src.api.rules import list_rules
 
         mock_rows = [
-            {"id": 1, "name": "Enabled Rule", "enabled": True},
+            {"id": 1, "name": "Enabled Rule", "description": "Test", "severity": "high", "enabled": True, "last_run": None, "last_match": None, "match_count": 0},
         ]
         mock_conn = AsyncMock()
         mock_conn.fetch = AsyncMock(return_value=mock_rows)

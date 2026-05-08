@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS logs (
     event_action   TEXT,                    -- ECS: specific action like 'process_started'
     user_name      TEXT,
     process_name   TEXT,
+    process_cmdline TEXT,
+    process_path    TEXT,
     process_pid    INTEGER,
     process_cmdline TEXT,                   -- full command line
     process_path   TEXT,                    -- binary path (e.g., /usr/bin/curl)
@@ -91,6 +93,7 @@ CREATE TABLE IF NOT EXISTS alerts (
     risk_score     FLOAT,
     assigned_to    TEXT,
     resolved_at    TIMESTAMPTZ,
+    resolution_note TEXT,                   -- free-text note when resolving
     case_id        INTEGER,                -- FK added after cases table exists
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -134,6 +137,9 @@ CREATE TABLE IF NOT EXISTS cases (
     assigned_to    TEXT,
     alert_ids      INTEGER[],
     notes          JSONB DEFAULT '[]'::jsonb,  -- array of {author, text, timestamp}
+    lessons_learned TEXT,                    -- post-incident lessons
+    resolution_note TEXT,                    -- resolution summary
+    resolved_at    TIMESTAMPTZ,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

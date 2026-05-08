@@ -8,7 +8,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from src.api.auth import verify_bearer_token
+from src.api.auth import get_current_user
 from src.config.logging import get_logger
 from src.db.connection import get_pool
 from src.detection.scheduler import reload_rules
@@ -35,15 +35,27 @@ class RuleResponse(BaseModel):
     description: str
     severity: str
     enabled: bool
-    last_run: Optional[str]
-    last_match: Optional[str]
-    match_count: int
+    last_run: Optional[str] = None
+    last_match: Optional[str] = None
+    match_count: int = 0
+
+    model_config = {"from_attributes": True}
+
+    @classmethod
+    def from_row(cls, row: dict) -> "RuleResponse":
+        """Convert a DB row to RuleResponse, serializing datetimes."""
+        row["last_run"] = row.get("last_run").isoformat() if row.get("last_run") else None
+        row["last_match"] = row.get("last_match").isoformat() if row.get("last_match") else None
+        # Only pass fields that the model accepts
+        fields = set(cls.model_fields.keys())
+        filtered = {k: v for k, v in row.items() if k in fields}
+        return cls(**filtered)
 
 
 @router.post("", response_model=RuleResponse, status_code=status.HTTP_201_CREATED)
 async def create_rule(
     rule: RuleCreate,
-    user: str = Depends(verify_bearer_token),
+    user: dict = Depends(get_current_user),
 ):
     """Create a new detection rule."""
     # Validate Sigma YAML
@@ -85,7 +97,7 @@ async def create_rule(
 @router.get("", response_model=List[RuleResponse])
 async def list_rules(
     enabled_only: bool = False,
-    user: str = Depends(verify_bearer_token),
+    user: dict = Depends(get_current_user),
 ):
     """List all detection rules."""
     pool = await get_pool()
@@ -95,13 +107,13 @@ async def list_rules(
         else:
             rows = await conn.fetch("SELECT * FROM rules ORDER BY id")
 
-        return [dict(r) for r in rows]
+        return [RuleResponse.from_row(dict(r)) for r in rows]
 
 
 @router.get("/{rule_id}", response_model=RuleResponse)
 async def get_rule(
     rule_id: int,
-    user: str = Depends(verify_bearer_token),
+    user: dict = Depends(get_current_user),
 ):
     """Get a specific rule by ID."""
     rule = await get_rule_by_id(rule_id)
@@ -114,7 +126,7 @@ async def get_rule(
 async def update_rule(
     rule_id: int,
     updates: RuleCreate,
-    user: str = Depends(verify_bearer_token),
+    user: dict = Depends(get_current_user),
 ):
     """Update a detection rule."""
     pool = await get_pool()
@@ -160,7 +172,7 @@ async def update_rule(
 @router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_rule(
     rule_id: int,
-    user: str = Depends(verify_bearer_token),
+    user: dict = Depends(get_current_user),
 ):
     """Delete a detection rule."""
     pool = await get_pool()
@@ -176,8 +188,14 @@ async def delete_rule(
 
 
 async def get_rule_by_id(rule_id: int) -> Optional[dict]:
-    """Helper to fetch rule by ID."""
+    """Helper to fetch rule by ID, serializing datetimes."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT * FROM rules WHERE id = $1", rule_id)
-        return dict(row) if row else None
+        if not row:
+            return None
+        d = dict(row)
+        for dt_field in ("last_run", "last_match", "created_at", "updated_at"):
+            if d.get(dt_field):
+                d[dt_field] = d[dt_field].isoformat() if hasattr(d[dt_field], "isoformat") else str(d[dt_field])
+        return d

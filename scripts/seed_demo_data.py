@@ -625,7 +625,7 @@ async def seed() -> None:
                 case_tmpl["severity"],
                 status_map.get(i, "open"),
                 case_tmpl.get("assigned_to"),
-                str(notes_json),
+                json.dumps(notes_json),
                 case_alert_ids,
                 case_time,
                 now,
@@ -645,8 +645,6 @@ async def seed() -> None:
                 existing_notes = await conn.fetchval(
                     "SELECT notes FROM cases WHERE id = $1", case_row["id"]
                 )
-                import json
-
                 notes_list = json.loads(existing_notes) if existing_notes else []
                 notes_list.append(
                     {
@@ -684,7 +682,6 @@ async def seed() -> None:
         # --- Insert demo user ---
         # Demo credentials for portfolio demonstration only — NOT for production.
         # In production, always use bcrypt with 12+ rounds via src.api.auth.hash_password().
-        import json
         from src.api.auth import hash_password
 
         password_hash = hash_password("demo_analyst_2026")

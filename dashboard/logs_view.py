@@ -92,44 +92,13 @@ def render_log_viewer():
     cat_n = df["event_category"].nunique() if "event_category" in df.columns else 0
     col3.metric("Categories", cat_n)
 
-    crit_n = sum(1 for r in logs if r.get("severity") == "critical") if "severity" in df.columns else 0
-    col4.metric("Critical", crit_n)
-
-    # ─── Inline severity bar (styled badges instead of emoji) ───
-    if "severity" in df.columns:
-        sev_counts = df["severity"].value_counts()
-        parts = []
-        order = ["critical", "high", "medium", "low", "info"]
-        for sev in order:
-            if sev in sev_counts:
-                color = SEVERITY_COLORS.get(sev, "#78909c")
-                count = sev_counts[sev]
-                parts.append(
-                    f'\u003cspan style="'
-                    f'background:{color}22;'
-                    f'color:{color};'
-                    f'border:1px solid {color}44;'
-                    f'padding:0.15rem 0.4rem;'
-                    f'border-radius:0.25rem;'
-                    f'font-size:0.7rem;'
-                    f'font-weight:600;'
-                    f'text-transform:uppercase;'
-                    f'letter-spacing:0.04em;'
-                    f'">{sev}: {count}\u003c/span\u003e'
-                )
-        if parts:
-            st.markdown(
-                "\u003cdiv style='display:flex;gap:0.5rem;margin-bottom:0.75rem;'\u003e"
-                + " ".join(parts)
-                + "\u003c/div\u003e",
-                unsafe_allow_html=True,
-            )
+    col4.metric("Recent", total_count)
 
     # ─── Display Table ───
     display_cols = [
         "time", "host_name", "event_category", "event_type", "event_action",
         "source_ip", "destination_ip", "destination_port", "user_name",
-        "process_name", "process_cmdline", "severity",
+        "process_name", "process_cmdline",
     ]
 
     available_cols = [c for c in display_cols if c in df.columns]

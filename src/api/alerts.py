@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from src.api.auth import require_role, verify_bearer_token
+from src.api.auth import require_role, get_current_user
 from src.config.logging import get_logger
 from src.db.connection import get_pool
 from src.detection.alerts import (
@@ -84,7 +84,7 @@ async def list_alerts(
     assigned_to: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
-    user: str = Depends(verify_bearer_token),
+    user: dict = Depends(get_current_user),
 ):
     """List alerts with optional filtering. All filters are parameterized."""
     pool = await get_pool()
@@ -124,7 +124,7 @@ async def list_alerts(
 @router.get("/stats")
 async def alert_statistics(
     hours: int = 24,
-    user: str = Depends(verify_bearer_token),
+    user: dict = Depends(get_current_user),
 ):
     """Get alert statistics for dashboard."""
     return await get_alert_stats(hours)
@@ -137,7 +137,7 @@ async def alert_statistics(
 @router.get("/{alert_id}", response_model=AlertResponse)
 async def get_alert(
     alert_id: int,
-    user: str = Depends(verify_bearer_token),
+    user: dict = Depends(get_current_user),
 ):
     """Get a specific alert by ID."""
     pool = await get_pool()
@@ -190,7 +190,7 @@ async def add_note(
 @router.get("/{alert_id}/notes")
 async def get_notes(
     alert_id: int,
-    user: str = Depends(verify_bearer_token),
+    user: dict = Depends(get_current_user),
 ):
     """Get all notes/timeline entries for an alert."""
     pool = await get_pool()

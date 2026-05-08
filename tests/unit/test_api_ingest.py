@@ -164,14 +164,14 @@ class TestIngestEndpoint:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from src.api.auth import verify_bearer_token
+        from src.api.auth import get_current_user
         from src.api.ingest import router
 
         app = FastAPI()
         app.include_router(router, prefix="/api/v1")
 
         # Override auth dependency
-        app.dependency_overrides[verify_bearer_token] = lambda: "test-token"
+        app.dependency_overrides[get_current_user] = lambda: "test-token"
         return TestClient(app)
 
     def test_ingest_requires_auth(self):

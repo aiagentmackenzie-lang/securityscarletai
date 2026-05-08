@@ -6,7 +6,7 @@ Run and manage sequence-based correlation rules.
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from src.api.auth import require_role, verify_bearer_token
+from src.api.auth import require_role, get_current_user
 from src.config.logging import get_logger
 from src.detection.correlation import (
     get_correlation_rule_info,
@@ -29,13 +29,13 @@ class CorrelationResult(BaseModel):
 
 
 @router.get("/rules")
-async def list_rules(user: str = Depends(verify_bearer_token)):
+async def list_rules(user: dict = Depends(get_current_user)):
     """List all available correlation rules."""
     return list_correlation_rules()
 
 
 @router.get("/rules/{rule_name}")
-async def get_rule(rule_name: str, user: str = Depends(verify_bearer_token)):
+async def get_rule(rule_name: str, user: dict = Depends(get_current_user)):
     """Get details of a specific correlation rule."""
     info = get_correlation_rule_info(rule_name)
     if not info:

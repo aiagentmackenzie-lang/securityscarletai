@@ -31,6 +31,8 @@ class NormalizedEvent(BaseModel):
 
     # Process context (when applicable)
     process_name: Optional[str] = None
+    process_cmdline: Optional[str] = None
+    process_path: Optional[str] = None
     process_pid: Optional[int] = None
     process_cmdline: Optional[str] = None
     process_path: Optional[str] = None

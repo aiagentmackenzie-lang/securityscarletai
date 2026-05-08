@@ -177,7 +177,7 @@ class TestListAlertsLogic:
 
         with (
             patch("src.api.alerts.get_pool", AsyncMock(return_value=mock_pool)),
-            patch("src.api.alerts.verify_bearer_token", return_value="analyst1"),
+            patch("src.api.alerts.get_current_user", return_value="analyst1"),
         ):
             result = await list_alerts(
                 status=None,

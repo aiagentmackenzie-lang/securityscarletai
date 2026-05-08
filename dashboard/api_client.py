@@ -304,13 +304,15 @@ class ApiClient:
     # ───────────────────────────────────────────────────────────
 
     def get_logs(self, limit: int = 100, category: str | None = None,
-                 host: str | None = None) -> list[dict]:
+                 host: str | None = None, time_minutes: int | None = None) -> list[dict]:
         """Fetch recent logs with optional filtering."""
         params: dict[str, Any] = {"limit": limit}
         if category:
             params["category"] = category
         if host:
             params["host"] = host
+        if time_minutes:
+            params["time_minutes"] = time_minutes
         return self._get("/logs", params) or []
 
     # ───────────────────────────────────────────────────────────

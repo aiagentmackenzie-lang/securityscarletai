@@ -21,6 +21,7 @@ from src.api.middleware import AuditLogMiddleware, RequestValidationMiddleware, 
 from src.api.query import router as query_router
 from src.api.rules import router as rules_router
 from src.api.threat_intel import router as threat_intel_router
+from src.api.logs import router as logs_router
 from src.api.websocket import router as websocket_router
 from src.config.logging import get_logger, setup_logging
 from src.config.settings import settings
@@ -150,6 +151,7 @@ app.include_router(hunt_router, prefix="/api/v1")
 app.include_router(auth_login_router, prefix="/api/v1")
 app.include_router(cases_router, prefix="/api/v1")
 app.include_router(query_router, prefix="/api/v1")
+app.include_router(logs_router, prefix="/api/v1")
 
 # Add middleware for request validation and audit logging
 app.add_middleware(RequestValidationMiddleware)

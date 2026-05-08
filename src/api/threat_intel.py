@@ -6,7 +6,7 @@ Statistics, manual refresh, and IOC queries.
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from src.api.auth import require_role, verify_bearer_token
+from src.api.auth import require_role, get_current_user
 from src.config.logging import get_logger
 from src.intel.threat_intel import (
     check_ioc_match,
@@ -20,7 +20,7 @@ log = get_logger("api.threat_intel")
 
 @router.get("/stats")
 async def threat_intel_stats(
-    user: str = Depends(verify_bearer_token),
+    user: dict = Depends(get_current_user),
 ):
     """Get threat intelligence statistics."""
     return await get_threat_intel_stats()
@@ -44,7 +44,7 @@ async def refresh_threat_intel(
 @router.get("/lookup/ip/{ip_address}")
 async def lookup_ip(
     ip_address: str,
-    user: str = Depends(verify_bearer_token),
+    user: dict = Depends(get_current_user),
 ):
     """Look up an IP address in cached threat intel data."""
     result = await check_ioc_match("ip", ip_address)
@@ -56,7 +56,7 @@ async def lookup_ip(
 @router.get("/lookup/url")
 async def lookup_url(
     url: str = Query(..., description="URL to check"),
-    user: str = Depends(verify_bearer_token),
+    user: dict = Depends(get_current_user),
 ):
     """Look up a URL in cached threat intel data."""
     result = await check_ioc_match("url", url)
@@ -68,7 +68,7 @@ async def lookup_url(
 @router.get("/lookup/hash/{hash_value}")
 async def lookup_hash(
     hash_value: str,
-    user: str = Depends(verify_bearer_token),
+    user: dict = Depends(get_current_user),
 ):
     """Look up a file hash in cached threat intel data."""
     # Determine hash type by length

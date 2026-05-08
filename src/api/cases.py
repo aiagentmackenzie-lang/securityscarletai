@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from src.api.audit import log_audit_action
-from src.api.auth import require_role, verify_bearer_token
+from src.api.auth import require_role, get_current_user
 from src.config.logging import get_logger
 from src.db.connection import get_pool
 
@@ -83,7 +83,7 @@ async def list_cases(
     assigned_to: str | None = None,
     limit: int = 100,
     offset: int = 0,
-    user: str = Depends(verify_bearer_token),
+    user: dict = Depends(get_current_user),
 ):
     """List cases with optional filters (status, severity, assigned_to)."""
     pool = await get_pool()
@@ -172,7 +172,7 @@ async def create_case(
 @router.get("/{case_id}")
 async def get_case(
     case_id: int,
-    user: str = Depends(verify_bearer_token),
+    user: dict = Depends(get_current_user),
 ):
     """Get case detail including linked alerts."""
     pool = await get_pool()
@@ -475,7 +475,7 @@ async def add_case_note(
 @router.get("/{case_id}/notes")
 async def get_case_notes(
     case_id: int,
-    user: str = Depends(verify_bearer_token),
+    user: dict = Depends(get_current_user),
 ):
     """Get all notes for a case."""
     pool = await get_pool()
