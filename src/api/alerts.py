@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from src.api.auth import require_role, get_current_user
+from src.api.auth import get_current_user, require_role
 from src.config.logging import get_logger
 from src.db.connection import get_pool
 from src.detection.alerts import (

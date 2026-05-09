@@ -1,5 +1,5 @@
 title: Suspicious DNS Query
-id: scarlet-005
+id: ce4166ef-5180-551a-ac2a-2389f2b96b89
 status: stable
 description: Detects DNS queries to suspicious or known-malicious domains
 author: SecurityScarletAI

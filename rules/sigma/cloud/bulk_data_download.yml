@@ -1,5 +1,5 @@
 title: Bulk Data Download
-id: scarlet-cloud-003
+id: b4b4d4b1-3499-5f44-aaa6-542c05d16fb5
 status: stable
 description: Detects unusually large data downloads that may indicate data exfiltration from cloud services
 author: SecurityScarletAI

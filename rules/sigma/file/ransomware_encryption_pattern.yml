@@ -1,5 +1,5 @@
 title: Ransomware File Encryption Pattern
-id: scarlet-file-002
+id: 87697eca-dc33-51c9-9be7-bed9e731221a
 status: stable
 description: Detects rapid file encryption patterns consistent with ransomware activity
 author: SecurityScarletAI

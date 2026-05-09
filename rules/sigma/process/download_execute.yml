@@ -1,5 +1,5 @@
 title: Download and Execute Pattern
-id: scarlet-proc-006
+id: eadadef7-7384-51f3-821e-e08167884a29
 status: stable
 description: Detects download-then-execute patterns commonly used by malware droppers
 author: SecurityScarletAI

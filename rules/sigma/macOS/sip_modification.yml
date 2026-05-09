@@ -1,5 +1,5 @@
 title: System Integrity Protection Modification
-id: scarlet-mac-008
+id: 2f3df084-3a0a-55e4-923f-74fce97a0b58
 status: stable
 description: Detects attempts to disable macOS System Integrity Protection (SIP), which protects system integrity
 author: SecurityScarletAI

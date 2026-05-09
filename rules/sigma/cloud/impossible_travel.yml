@@ -1,5 +1,5 @@
 title: Impossible Travel - Distant Logins
-id: scarlet-cloud-001
+id: a015f417-c79e-52c1-a411-dd65cdbd46b6
 status: stable
 description: Detects authentication from two geographically distant locations within an impossible time window (correlation-based detection)
 author: SecurityScarletAI

@@ -168,7 +168,7 @@ class TestIndividualRulesParse:
         return None, None
 
     def test_ssh_brute_force_parses(self):
-        rule, content = self._load_rule_by_id("scarlet-001")
+        rule, content = self._load_rule_by_id("86d7b047-4d49-5dbd-9aeb-d92cd4b0e64c")
         assert rule is not None, "SSH brute force rule not found"
         assert rule.level == "high"
         assert "T1110" in rule.mitre_techniques
@@ -176,46 +176,47 @@ class TestIndividualRulesParse:
         assert "logs" in sql
 
     def test_launch_agent_persistence_parses(self):
-        rule, content = self._load_rule_by_id("scarlet-002")
+        rule, content = self._load_rule_by_id("03574d52-0001-5070-bb2e-5c998f480a76")
         assert rule is not None, "LaunchAgent rule not found"
         assert "T1547" in rule.mitre_techniques
         sql, params = sigma_to_sql(content)
-        assert "LIKE" in sql  # contains modifier
+        # contains modifier produces parameterized values with % wildcards
+        assert any("LaunchAgents" in str(p) for p in params), f"LaunchAgents not in params: {params}"
 
     def test_rare_port_outbound_parses(self):
-        rule, content = self._load_rule_by_id("scarlet-003")
+        rule, content = self._load_rule_by_id("20760a42-7d59-512e-bbb9-64ebbe1806e3")
         assert rule is not None, "Rare port rule not found"
         assert "T1071" in rule.mitre_techniques
         sql, params = sigma_to_sql(content)
         assert "IN" in sql  # list values
 
     def test_reverse_shell_parses(self):
-        rule, content = self._load_rule_by_id("scarlet-proc-002")
+        rule, content = self._load_rule_by_id("4592067e-d714-5173-84d0-db3066c2f801")
         assert rule is not None, "Reverse shell rule not found"
         assert rule.level == "critical"
         sql, params = sigma_to_sql(content)
         assert "OR" in sql  # OR conditions from multiple selections
 
     def test_gatekeeper_bypass_parses(self):
-        rule, content = self._load_rule_by_id("scarlet-mac-004")
+        rule, content = self._load_rule_by_id("e3c73389-52f8-5599-b166-bb082269a7d5")
         assert rule is not None, "Gatekeeper bypass rule not found"
 
     def test_credential_dumping_parses(self):
-        rule, content = self._load_rule_by_id("scarlet-auth-005")
+        rule, content = self._load_rule_by_id("7ea98e18-469e-56fb-af5e-fbad9f72e4df")
         assert rule is not None, "Credential dumping rule not found"
         assert rule.level == "critical"
 
     def test_lolbin_execution_parses(self):
-        rule, content = self._load_rule_by_id("scarlet-proc-003")
+        rule, content = self._load_rule_by_id("82bb6365-f1b7-5f9f-9acd-a63c4f7c3ce8")
         assert rule is not None, "LOLBIN rule not found"
 
     def test_ransomware_encryption_parses(self):
-        rule, content = self._load_rule_by_id("scarlet-file-002")
+        rule, content = self._load_rule_by_id("87697eca-dc33-51c9-9be7-bed9e731221a")
         assert rule is not None, "Ransomware rule not found"
         assert rule.level == "critical"
 
     def test_log_file_deletion_parses(self):
-        rule, content = self._load_rule_by_id("scarlet-file-005")
+        rule, content = self._load_rule_by_id("7782d1c8-dde9-5b7d-921f-e4cecdd6b03f")
         assert rule is not None, "Log deletion rule not found"
         assert rule.level == "critical"
 
@@ -233,7 +234,7 @@ class TestNewColumnsInRules:
 
     def test_process_cmdline_in_rules(self):
         """Rules using process_cmdline should parse with the new ALLOWED_COLUMNS."""
-        rule, content = self._load_rule_by_id("scarlet-proc-002")
+        rule, content = self._load_rule_by_id("4592067e-d714-5173-84d0-db3066c2f801")
         assert rule is not None
         sql, params = sigma_to_sql(content)
         # process_cmdline should be recognized
@@ -241,7 +242,7 @@ class TestNewColumnsInRules:
 
     def test_process_path_in_rules(self):
         """Rules using process_path should parse with the new ALLOWED_COLUMNS."""
-        rule, content = self._load_rule_by_id("scarlet-proc-007")
+        rule, content = self._load_rule_by_id("9f6cab87-d65a-5987-b9ef-734c8197ba1b")
         assert rule is not None
         # process_path should be in the allowed columns
         from src.detection.sigma import ALLOWED_COLUMNS

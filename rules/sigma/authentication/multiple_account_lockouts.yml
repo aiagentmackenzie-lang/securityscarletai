@@ -1,5 +1,5 @@
 title: Multiple Account Lockouts
-id: scarlet-auth-003
+id: 9bbd8d85-1e8d-5581-a7e5-06eda468e316
 status: stable
 description: Detects multiple account lockouts from the same source IP, indicating systematic password guessing
 author: SecurityScarletAI

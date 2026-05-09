@@ -1,5 +1,5 @@
 title: Suspicious Parent-Child Process Chain
-id: scarlet-proc-005
+id: 60cf084e-db85-57f8-8dad-342bf37627c1
 status: experimental
 description: Detects unusual parent-child process relationships often seen in attack chains
 author: SecurityScarletAI

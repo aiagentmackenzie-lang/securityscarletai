@@ -6,7 +6,7 @@ Run and manage sequence-based correlation rules.
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from src.api.auth import require_role, get_current_user
+from src.api.auth import get_current_user, require_role
 from src.config.logging import get_logger
 from src.detection.correlation import (
     get_correlation_rule_info,

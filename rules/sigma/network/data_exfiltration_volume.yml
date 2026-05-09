@@ -1,5 +1,5 @@
 title: Data Exfiltration Volume
-id: scarlet-net-004
+id: bdf00a5d-e640-5e0c-8e17-7f8c5812f352
 status: stable
 description: Detects large outbound data transfers that may indicate data exfiltration
 author: SecurityScarletAI

@@ -1,5 +1,5 @@
 title: DNS Tunneling Indicators
-id: scarlet-net-002
+id: 2217693f-72cf-5a17-87eb-86674d8fee0c
 status: stable
 description: Detects DNS queries with suspicious patterns that may indicate DNS tunneling for data exfiltration
 author: SecurityScarletAI

@@ -1,5 +1,5 @@
 title: Script Interpreter from Unexpected Location
-id: scarlet-proc-007
+id: 9f6cab87-d65a-5987-b9ef-734c8197ba1b
 status: stable
 description: Detects script interpreters (python, perl, ruby, node) running from unexpected directories like /tmp or /var/tmp
 author: SecurityScarletAI

@@ -1,5 +1,5 @@
 title: Encoded Command Execution
-id: scarlet-proc-004
+id: 4d3ee121-e3a5-5ae7-9b3a-ffcb073e9872
 status: stable
 description: Detects execution of base64-encoded commands, commonly used by attackers to obfuscate malicious payloads
 author: SecurityScarletAI

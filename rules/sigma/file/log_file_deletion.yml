@@ -1,5 +1,5 @@
 title: Log File Deletion
-id: scarlet-file-005
+id: 7782d1c8-dde9-5b7d-921f-e4cecdd6b03f
 status: stable
 description: Detects deletion of log files, which may indicate an attacker trying to cover their tracks
 author: SecurityScarletAI

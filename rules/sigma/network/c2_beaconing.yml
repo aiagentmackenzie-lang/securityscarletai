@@ -1,5 +1,5 @@
 title: C2 Beaconing Pattern
-id: scarlet-net-003
+id: 64aed8d0-66fa-5db5-a43b-16a01fc4bf0f
 status: experimental
 description: Detects potential C2 beaconing through regular interval outbound connections to the same IP
 author: SecurityScarletAI

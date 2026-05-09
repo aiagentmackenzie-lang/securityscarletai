@@ -1,5 +1,5 @@
 title: Tor Exit Node Connection
-id: scarlet-net-005
+id: 575d6f49-b0e9-5b75-b797-0a1a13baa125
 status: stable
 description: Detects connections to known Tor exit node ports indicating potential Tor usage or C2 via Tor
 author: SecurityScarletAI

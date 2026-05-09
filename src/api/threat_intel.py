@@ -6,7 +6,7 @@ Statistics, manual refresh, and IOC queries.
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from src.api.auth import require_role, get_current_user
+from src.api.auth import get_current_user, require_role
 from src.config.logging import get_logger
 from src.intel.threat_intel import (
     check_ioc_match,

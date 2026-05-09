@@ -1,5 +1,5 @@
 title: Internal Lateral Movement
-id: scarlet-net-006
+id: ed266ac2-eacc-515f-894a-bf3b0ba9a37d
 status: stable
 description: Detects internal host-to-host connections on management ports that may indicate lateral movement
 author: SecurityScarletAI

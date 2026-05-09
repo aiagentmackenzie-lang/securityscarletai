@@ -1,5 +1,5 @@
 title: Webshell Creation
-id: scarlet-file-004
+id: 5ee67215-e5f7-55e5-8984-bb9777185473
 status: stable
 description: Detects creation of files with webshell signatures in web-served directories
 author: SecurityScarletAI

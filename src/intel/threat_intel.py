@@ -13,7 +13,7 @@ All external API calls use async httpx with proper timeouts and error handling.
 """
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -404,7 +404,7 @@ async def refresh_all_feeds() -> Dict[str, int]:
     if settings.otx_api_key:
         try:
             # Get pulses modified in last 6 hours
-            since = datetime.utcnow() - timedelta(hours=FEED_REFRESH_INTERVAL_HOURS)
+            since = datetime.now(timezone.utc) - timedelta(hours=FEED_REFRESH_INTERVAL_HOURS)
             pulses = await otx.get_modified_pulses(since=since)
 
             total_indicators = 0

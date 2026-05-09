@@ -1,5 +1,5 @@
 title: API Key Usage from New IP
-id: scarlet-cloud-002
+id: 098c530e-a40b-5c25-8e3c-1523ba29a75a
 status: experimental
 description: Detects API key authentication from a previously unseen IP address
 author: SecurityScarletAI

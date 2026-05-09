@@ -1,5 +1,5 @@
 title: SaaS Permission Escalation
-id: scarlet-cloud-004
+id: 32db2739-4d19-5392-bc44-626ee164ea25
 status: experimental
 description: Detects permission or role changes in SaaS applications indicating privilege escalation
 author: SecurityScarletAI

@@ -17,11 +17,11 @@ from src.api.correlation import router as correlation_router
 from src.api.health import router as health_router
 from src.api.hunt import router as hunt_router
 from src.api.ingest import router as ingest_router
+from src.api.logs import router as logs_router
 from src.api.middleware import AuditLogMiddleware, RequestValidationMiddleware, limiter
 from src.api.query import router as query_router
 from src.api.rules import router as rules_router
 from src.api.threat_intel import router as threat_intel_router
-from src.api.logs import router as logs_router
 from src.api.websocket import router as websocket_router
 from src.config.logging import get_logger, setup_logging
 from src.config.settings import settings

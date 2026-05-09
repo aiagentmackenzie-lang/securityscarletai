@@ -1,5 +1,5 @@
 title: XProtect Removal or Modification
-id: scarlet-mac-005
+id: 258c03be-12bf-5f1c-9042-28fa6c38b946
 status: stable
 description: Detects modification or deletion of macOS XProtect malware scanning files
 author: SecurityScarletAI

@@ -1,5 +1,5 @@
 title: Root Login from Non-Console
-id: scarlet-auth-004
+id: 5ea69c6b-c8d0-53d3-a023-16c49cbca31d
 status: stable
 description: Detects root user login from a remote or non-console session, which is unusual and potentially malicious
 author: SecurityScarletAI

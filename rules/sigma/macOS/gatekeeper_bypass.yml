@@ -1,5 +1,5 @@
 title: Gatekeeper Bypass Attempt
-id: scarlet-mac-004
+id: e3c73389-52f8-5599-b166-bb082269a7d5
 status: stable
 description: Detects attempts to bypass macOS Gatekeeper by removing quarantine attributes or using spctl to disable assessment
 author: SecurityScarletAI

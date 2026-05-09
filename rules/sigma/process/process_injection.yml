@@ -1,5 +1,5 @@
 title: Process Injection Indicator
-id: scarlet-proc-008
+id: 13626cee-641d-58f4-bf4f-ab2a58f28034
 status: experimental
 description: Detects potential process injection indicators through unusual debugging or tracing activity
 author: SecurityScarletAI

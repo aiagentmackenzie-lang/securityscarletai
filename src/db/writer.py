@@ -22,7 +22,7 @@ from src.ingestion.schemas import NormalizedEvent
 log = get_logger("db.writer")
 
 BATCH_SIZE = 100
-FLUSH_INTERVAL = 5.0  # seconds — flush even if batch isn't full
+FLUSH_INTERVAL = 2.0  # seconds — flush even if batch isn't full
 DEAD_LETTER_DIR = Path("data/dead_letter")
 DEAD_LETTER_MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB per daily file
 DEAD_LETTER_RETENTION_DAYS = 30

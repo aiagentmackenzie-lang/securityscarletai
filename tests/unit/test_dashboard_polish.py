@@ -21,6 +21,7 @@ class TestAutoRefreshFallback:
         """Importing main module should not crash even without streamlit_autorefresh."""
         with patch.dict("sys.modules", {"streamlit_autorefresh": None}):
             import importlib
+
             import dashboard.main
             importlib.reload(dashboard.main)
 
@@ -131,8 +132,13 @@ class TestDarkThemeCSS:
     def test_design_tokens_defined(self):
         """Theme colour tokens should be defined in main."""
         from dashboard.main import (
-            BG_APP, BG_SURFACE, BG_ELEVATED, ACCENT,
-            TEXT_PRIMARY, TEXT_SECONDARY, BORDER_SUBTLE,
+            ACCENT,
+            BG_APP,
+            BG_ELEVATED,
+            BG_SURFACE,
+            BORDER_SUBTLE,
+            TEXT_PRIMARY,
+            TEXT_SECONDARY,
         )
         assert BG_APP.startswith("#")
         assert BG_SURFACE.startswith("#")
@@ -177,7 +183,10 @@ class TestBadgeSystem:
 
     def test_badge_tokens_present(self):
         from dashboard.ui_utils import (
-            SEV_CSS_MAP, STATUS_CSS_MAP, SEVERITY_COLORS, STATUS_COLORS,
+            SEV_CSS_MAP,
+            SEVERITY_COLORS,
+            STATUS_COLORS,
+            STATUS_CSS_MAP,
         )
         assert set(SEV_CSS_MAP.keys()) == {"critical", "high", "medium", "low", "info"}
         assert set(STATUS_CSS_MAP.keys()) == {
@@ -203,7 +212,7 @@ class TestChartsThemeConfig:
 
     def test_dark_theme_tokens(self):
         """Chart module should mirror the design tokens from main."""
-        from dashboard.charts import BG_SURFACE, ACCENT, TEXT_PRIMARY, TEXT_SECONDARY
+        from dashboard.charts import BG_SURFACE, TEXT_PRIMARY, TEXT_SECONDARY
         assert BG_SURFACE.startswith("#")
         assert TEXT_PRIMARY.startswith("#")
         assert TEXT_SECONDARY.startswith("#")
@@ -304,6 +313,6 @@ class TestLoginPageStyling:
 
     def test_tokens_used_in_auth(self):
         """Auth module should import design tokens for the login card."""
-        from dashboard.auth import BG_SURFACE, BORDER_SUBTLE, TEXT_SECONDARY
+        from dashboard.auth import BG_SURFACE
         assert callable(BG_SURFACE) is False
         assert isinstance(BG_SURFACE, str)

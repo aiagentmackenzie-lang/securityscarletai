@@ -1,5 +1,5 @@
 title: LaunchDaemon Persistence Created
-id: scarlet-mac-002
+id: 07647db1-6c5b-50a4-a82a-b6be38501b5f
 status: stable
 description: Detects creation of macOS LaunchDaemon plist files, often used for privilege persistence
 author: SecurityScarletAI

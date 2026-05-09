@@ -21,8 +21,6 @@ CREATE TABLE IF NOT EXISTS logs (
     event_action   TEXT,                    -- ECS: specific action like 'process_started'
     user_name      TEXT,
     process_name   TEXT,
-    process_cmdline TEXT,
-    process_path    TEXT,
     process_pid    INTEGER,
     process_cmdline TEXT,                   -- full command line
     process_path   TEXT,                    -- binary path (e.g., /usr/bin/curl)

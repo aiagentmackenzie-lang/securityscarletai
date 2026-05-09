@@ -1,5 +1,5 @@
 title: Suspicious Process from /tmp
-id: scarlet-006
+id: bcc0eb02-90ba-5acc-903a-d30aa6722b55
 status: stable
 description: Detects process execution from temporary directories, common for malware staging
 author: SecurityScarletAI

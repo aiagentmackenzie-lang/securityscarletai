@@ -197,5 +197,6 @@ async def get_rule_by_id(rule_id: int) -> Optional[dict]:
         d = dict(row)
         for dt_field in ("last_run", "last_match", "created_at", "updated_at"):
             if d.get(dt_field):
-                d[dt_field] = d[dt_field].isoformat() if hasattr(d[dt_field], "isoformat") else str(d[dt_field])
+                val = d[dt_field]
+                d[dt_field] = val.isoformat() if hasattr(val, "isoformat") else str(val)
         return d

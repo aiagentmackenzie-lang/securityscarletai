@@ -1,5 +1,5 @@
 title: Outbound Connection to Rare/C2 Port
-id: scarlet-003
+id: 20760a42-7d59-512e-bbb9-64ebbe1806e3
 status: stable
 description: Detects outbound connections to non-standard ports commonly associated with C2 and malware
 author: SecurityScarletAI

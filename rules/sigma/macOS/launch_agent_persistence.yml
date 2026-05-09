@@ -1,5 +1,5 @@
 title: LaunchAgent Persistence Created
-id: scarlet-002
+id: 03574d52-0001-5070-bb2e-5c998f480a76
 status: stable
 description: Detects creation of macOS LaunchAgent plist files for persistence
 author: SecurityScarletAI

@@ -1,5 +1,5 @@
 title: Keychain Access by Unusual Process
-id: scarlet-mac-007
+id: 224561ab-c943-5c65-9094-2ee0e6cf70e8
 status: stable
 description: Detects access to macOS Keychain by unusual processes, which may indicate credential theft
 author: SecurityScarletAI

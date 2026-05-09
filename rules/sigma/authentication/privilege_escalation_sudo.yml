@@ -1,5 +1,5 @@
 title: Privilege Escalation via Sudo
-id: scarlet-004
+id: bb62dcef-0842-57f0-8597-b95848b380f2
 status: stable
 description: Detects privilege escalation attempts using sudo
 author: SecurityScarletAI

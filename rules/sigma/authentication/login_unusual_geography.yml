@@ -1,5 +1,5 @@
 title: Login from Unusual Geography
-id: scarlet-auth-002
+id: d0f298b8-4905-5786-a5a0-b5b1d5f54528
 status: experimental
 description: Detects successful authentication from an IP address that does not match expected geographic patterns
 author: SecurityScarletAI

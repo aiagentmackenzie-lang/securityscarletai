@@ -1,5 +1,5 @@
 title: Authorization Database Modification
-id: scarlet-mac-009
+id: 67c9338f-c566-53db-9325-6e2b1feaf4f6
 status: stable
 description: Detects modification of the macOS authorization database, which controls privilege escalation policies
 author: SecurityScarletAI

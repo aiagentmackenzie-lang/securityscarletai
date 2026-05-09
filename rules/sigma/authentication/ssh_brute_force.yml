@@ -1,5 +1,5 @@
 title: SSH Brute Force Detected
-id: scarlet-001
+id: 86d7b047-4d49-5dbd-9aeb-d92cd4b0e64c
 status: stable
 description: Detects multiple failed SSH login attempts from the same source IP, indicating a brute force attack
 author: SecurityScarletAI

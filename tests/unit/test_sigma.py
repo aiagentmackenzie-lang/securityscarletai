@@ -10,7 +10,7 @@ from src.detection.sigma import ALLOWED_COLUMNS, _validate_column, parse_sigma_r
 
 SAMPLE_BRUTE_FORCE = """
 title: SSH Brute Force Detected
-id: scarlet-001
+id: 86d7b047-4d49-5dbd-9aeb-d92cd4b0e64c
 status: experimental
 description: Test rule
 logsource:
@@ -29,7 +29,7 @@ tags:
 
 def test_parse_sigma_rule():
     rule = parse_sigma_rule(SAMPLE_BRUTE_FORCE)
-    assert rule.id == "scarlet-001"
+    assert rule.id == "86d7b047-4d49-5dbd-9aeb-d92cd4b0e64c"
     assert rule.title == "SSH Brute Force Detected"
     assert rule.logsource_category == "authentication"
 
@@ -40,8 +40,8 @@ def test_sigma_to_sql_basic():
     assert "GROUP BY host_name" in sql
     assert "HAVING COUNT(source_ip)" in sql
     assert len(params) > 0
-    # Check parameter values
-    assert "start" in params or any("start" == str(p) for p in params)
+    # Check parameter values — authentication category and threshold
+    assert "authentication" in params or any("authentication" == str(p) for p in params)
 
 
 def test_contains_modifier():

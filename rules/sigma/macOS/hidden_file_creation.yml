@@ -1,5 +1,5 @@
 title: Hidden File Creation in User Directories
-id: scarlet-mac-010
+id: b149e4bf-b429-5588-b26e-121fc29dd3c4
 status: stable
 description: Detects creation of hidden files (dot-prefix) in user home directories, commonly used for stealth
 author: SecurityScarletAI

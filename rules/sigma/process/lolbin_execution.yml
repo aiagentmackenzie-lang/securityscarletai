@@ -1,5 +1,5 @@
 title: Living-off-the-Land Binary Execution
-id: scarlet-proc-003
+id: 82bb6365-f1b7-5f9f-9acd-a63c4f7c3ce8
 status: stable
 description: Detects execution of LOLBins (living-off-the-land binaries) commonly abused by attackers for fileless malware
 author: SecurityScarletAI

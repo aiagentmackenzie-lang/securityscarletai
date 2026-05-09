@@ -1,5 +1,5 @@
 title: Cron Job Modification
-id: scarlet-file-003
+id: babfdc91-ac90-539e-90ae-e30e143f8824
 status: stable
 description: Detects modification of cron jobs, a common persistence mechanism
 author: SecurityScarletAI

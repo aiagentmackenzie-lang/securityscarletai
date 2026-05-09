@@ -5,7 +5,7 @@ Tests deduplication, severity escalation, bulk operations,
 export, and suppression rules.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -149,7 +149,7 @@ class TestAlertExport:
         mock_conn.fetch.return_value = [
             {
                 "id": 1,
-                "time": datetime.utcnow(),
+                "time": datetime.now(timezone.utc),
                 "rule_name": "Test Rule",
                 "severity": "high",
                 "status": "new",
@@ -176,7 +176,7 @@ class TestAlertExport:
         mock_conn.fetch.return_value = [
             {
                 "id": 1,
-                "time": datetime.utcnow(),
+                "time": datetime.now(timezone.utc),
                 "rule_name": "Test Rule",
                 "severity": "high",
                 "status": "new",

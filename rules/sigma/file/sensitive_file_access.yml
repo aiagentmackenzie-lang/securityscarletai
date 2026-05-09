@@ -1,5 +1,5 @@
 title: Sensitive File Access
-id: scarlet-file-001
+id: 89097fa4-defb-5d5d-b794-0c3e218f9e6b
 status: stable
 description: Detects access to sensitive system files like /etc/shadow, .ssh directories, and private keys
 author: SecurityScarletAI

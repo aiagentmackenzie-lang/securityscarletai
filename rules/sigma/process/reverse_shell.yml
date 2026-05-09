@@ -1,5 +1,5 @@
 title: Reverse Shell Pattern Detected
-id: scarlet-proc-002
+id: 4592067e-d714-5173-84d0-db3066c2f801
 status: stable
 description: Detects common reverse shell patterns in command lines indicating a compromised host calling back to attacker
 author: SecurityScarletAI

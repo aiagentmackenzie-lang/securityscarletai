@@ -1,5 +1,5 @@
 title: Binary Replacement or Hijacking
-id: scarlet-file-006
+id: 8b0f36ee-baca-566c-afcb-93a7cb74c980
 status: experimental
 description: Detects modification of system binaries or libraries, indicating potential DLL side-loading or binary replacement
 author: SecurityScarletAI
