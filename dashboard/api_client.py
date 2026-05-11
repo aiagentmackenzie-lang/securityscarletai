@@ -22,7 +22,8 @@ import streamlit as st
 # ───────────────────────────────────────────────────────────────
 
 API_BASE_URL = os.environ.get("SCARLET_API_URL", "http://localhost:8000/api/v1")
-REQUEST_TIMEOUT = 15.0  # seconds
+REQUEST_TIMEOUT = 15.0  # seconds (default)
+AI_TIMEOUT = 60.0  # seconds (AI chat/explain/hunt — longer for LLM inference)
 
 
 class ApiError(Exception):
@@ -73,14 +74,14 @@ class ApiClient:
         except httpx.TimeoutException:
             raise ApiError(0, "API request timed out")
 
-    def _post(self, path: str, json_data: dict | None = None) -> Any:
-        """POST request with error handling."""
+    def _post(self, path: str, json_data: dict | None = None, timeout: float | None = None) -> Any:
+        """POST request with error handling. timeout overrides default."""
         try:
             r = httpx.post(
                 f"{self.base_url}{path}",
                 headers=self._headers,
                 json=json_data,
-                timeout=REQUEST_TIMEOUT,
+                timeout=timeout or REQUEST_TIMEOUT,
             )
             return self._handle_response(r)
         except httpx.ConnectError:
@@ -369,7 +370,7 @@ class ApiClient:
 
     def ai_triage(self, alert_id: int) -> dict:
         """Get AI triage prediction for an alert."""
-        return self._post(f"/ai/triage/{alert_id}") or {}
+        return self._post(f"/ai/triage/{alert_id}", timeout=AI_TIMEOUT) or {}
 
     def ai_ueba(self, username: str) -> dict:
         """Get UEBA anomaly score for a user."""
@@ -377,7 +378,7 @@ class ApiClient:
 
     def ai_explain(self, alert_id: int) -> dict:
         """Generate AI explanation for an alert."""
-        return self._post(f"/ai/explain/{alert_id}") or {}
+        return self._post(f"/ai/explain/{alert_id}", timeout=AI_TIMEOUT) or {}
 
     # ───────────────────────────────────────────────────────────
     # AI Chat
@@ -385,7 +386,7 @@ class ApiClient:
 
     def ai_chat(self, message: str) -> dict:
         """Send a message to the AI chat."""
-        return self._post("/ai/chat", {"message": message}) or {}
+        return self._post("/ai/chat", {"message": message}, timeout=AI_TIMEOUT) or {}
 
     # ───────────────────────────────────────────────────────────
     # NL→SQL Query
@@ -393,7 +394,7 @@ class ApiClient:
 
     def query(self, question: str) -> dict:
         """Convert a natural language question to SQL and execute."""
-        return self._post("/query", {"question": question}) or {}
+        return self._post("/query", {"question": question}, timeout=AI_TIMEOUT) or {}
 
     def get_query_templates(self) -> list[dict]:
         """Get available NL→SQL query templates."""
@@ -409,7 +410,7 @@ class ApiClient:
 
     def execute_hunt(self, hunt_id: str) -> dict:
         """Execute a hunt template."""
-        return self._post(f"/hunt/{hunt_id}/execute") or {}
+        return self._post(f"/hunt/{hunt_id}/execute", timeout=AI_TIMEOUT) or {}
 
     def get_mitre_gaps(self) -> dict:
         """Get MITRE ATT&CK gap analysis."""
