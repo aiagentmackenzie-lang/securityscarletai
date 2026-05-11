@@ -16,7 +16,7 @@ Loading states: st.spinner() on fetches, st.toast() on actions, st.status() for 
 import streamlit as st
 from dashboard.api_client import ApiClient, ApiError
 from dashboard.auth import can_write, get_api_client
-from dashboard.ui_utils import sev_badge, status_badge
+from dashboard.ui_utils import sev_badge, status_badge, esc
 
 
 def render_alert_list():
@@ -204,7 +204,7 @@ def render_alert_detail(alert: dict, api: ApiClient):
     with col1:
         st.markdown(
             f"**Description:** <span style='color:#8b95a5;'>"
-            f"{alert.get('description', 'N/A')}"
+            f"{esc(alert.get('description', 'N/A'))}"
             f"</span>",
             unsafe_allow_html=True,
         )
@@ -215,7 +215,7 @@ def render_alert_detail(alert: dict, api: ApiClient):
                 f"""
                 <div style="background:#0f1420;border:1px solid #1e2636;border-radius:0.5rem;padding:0.75rem;margin:0.5rem 0;">
                     <p style="margin:0;color:#00bcd4;font-weight:600;font-size:0.8rem;">AI Summary</p>
-                    <p style="margin:0.25rem 0 0 0;color:#8b95a5;font-size:0.85rem;">{ai_summary}</p>
+                    <p style="margin:0.25rem 0 0 0;color:#8b95a5;font-size:0.85rem;">{esc(ai_summary)}</p>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -231,7 +231,7 @@ def render_alert_detail(alert: dict, api: ApiClient):
                             f"""
                             <div style="background:#0f1420;border:1px solid #1e2636;border-radius:0.5rem;padding:0.75rem;margin:0.5rem 0;">
                                 <p style="margin:0;color:#00bcd4;font-weight:600;font-size:0.8rem;">AI Explanation</p>
-                                <p style="margin:0.25rem 0 0 0;color:#8b95a5;font-size:0.85rem;">{explanation}</p>
+                                <p style="margin:0.25rem 0 0 0;color:#8b95a5;font-size:0.85rem;">{esc(explanation)}</p>
                             </div>
                             """,
                             unsafe_allow_html=True,
@@ -241,7 +241,7 @@ def render_alert_detail(alert: dict, api: ApiClient):
                         st.warning(f"AI explanation unavailable: {e.detail}")
 
         st.markdown(
-            f"**Time:** <span style='color:#8b95a5;'>{alert.get('time', '')}</span>",
+            f"**Time:** <span style='color:#8b95a5;'>{esc(alert.get('time', ''))}</span>",
             unsafe_allow_html=True,
         )
         risk = alert.get("risk_score")

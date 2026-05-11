@@ -8,6 +8,8 @@ The CSS classes (badge-*) are defined in dashboard.main.DARK_THEME_CSS and
 injected once at app startup.
 """
 
+import html as html_module
+
 # ─── Design Tokens ────────────────────────────────────────────
 
 BG_APP = "#090c14"
@@ -70,6 +72,13 @@ def sev_badge(severity: str) -> str:
 def status_badge(status: str) -> str:
     css = STATUS_CSS_MAP.get(status.lower().replace(" ", "_"), "badge-closed")
     return badge(status.replace("_", " ").upper(), css)
+
+
+def esc(text: str) -> str:
+    """Escape HTML special characters to prevent stored XSS."""
+    if text is None:
+        return ""
+    return html_module.escape(str(text))
 
 
 def colored_metric(label: str, value, color: str | None = None):

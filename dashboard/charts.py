@@ -41,6 +41,7 @@ SEVERITY_ORDER = ["critical", "high", "medium", "low", "info"]
 def _chart_container(chart, title: str, height: int | None = None):
     """Wrap an Altair chart in a styled card container."""
     with st.container():
+        # Title only in the container header — chart must NOT have its own title
         st.markdown(
             f"""
             <div style="
@@ -93,7 +94,7 @@ def _altair_theme():
     }
 
 
-# Register theme (new altair 5.5+ API)
+# Register theme — use the modern Altair 6 API
 try:
     @alt.theme.register("scarlet_dark", enable=True)
     def _altair_theme():
@@ -121,9 +122,12 @@ try:
             }
         )
 except Exception:
-    # Fallback for older altair
-    alt.themes.register("scarlet_dark", lambda: _altair_theme())
-    alt.themes.enable("scarlet_dark")
+    # Fallback for older altair versions
+    try:
+        alt.themes.register("scarlet_dark", _altair_theme)
+        alt.themes.enable("scarlet_dark")
+    except Exception:
+        pass  # Theme registration failed — charts will use default theme
 
 
 # ───────────────────────────────────────────────────────────────
@@ -158,7 +162,7 @@ def render_severity_distribution():
 
     with st.spinner("Loading severity distribution...", show_time=True):
         try:
-            alerts = api.get_alerts(limit=1000)
+            alerts = api.get_alerts(limit=500)
             if not alerts:
                 st.info("No alerts to display")
                 return
@@ -216,7 +220,7 @@ def render_severity_distribution():
 
             full_chart = (
                 (pie + text)
-                .properties(title="Severity Distribution", width=300, height=300)
+                .properties(width=300, height=300)
                 .configure_legend(labelFontSize=12)
             )
             _chart_container(full_chart, "Alert Severity Distribution")
@@ -233,7 +237,7 @@ def render_alert_trend():
 
     with st.spinner("Loading alert trend...", show_time=True):
         try:
-            alerts = api.get_alerts(limit=1000)
+            alerts = api.get_alerts(limit=500)
             if not alerts:
                 st.info("No alerts to display")
                 return
@@ -284,7 +288,6 @@ def render_alert_trend():
                     tooltip=["date", "severity", "count"],
                 )
                 .properties(
-                    title="Alert Trend (Last 1000)",
                     width=600,
                     height=300,
                 )
@@ -304,7 +307,7 @@ def render_top_hosts():
 
     with st.spinner("Loading host data...", show_time=True):
         try:
-            alerts = api.get_alerts(limit=1000)
+            alerts = api.get_alerts(limit=500)
             if not alerts:
                 st.info("No alerts to display")
                 return
@@ -427,18 +430,22 @@ def render_mitre_heatmap(rules: list[dict]):
 
 
 def render_dashboard_metrics():
-    """Render top-level dashboard metrics cards without emoji."""
+    """Render top-level dashboard metrics cards without emoji.
+
+    Uses the /alerts/stats API for accurate counts (no time filter).
+    """
     api = get_api_client()
 
     with st.spinner("Loading dashboard metrics...", show_time=True):
         try:
-            alerts = api.get_alerts(limit=1000) or []
+            # Use the stats API for accurate counts (all time)
+            stats = api.get_alert_stats() or {}
 
-            total = len(alerts)
-            critical = sum(1 for a in alerts if a.get("severity") == "critical")
-            high = sum(1 for a in alerts if a.get("severity") == "high")
-            new = sum(1 for a in alerts if a.get("status") == "new")
-            investigating = sum(1 for a in alerts if a.get("status") == "investigating")
+            total = stats.get("total_count", 0)
+            critical = stats.get("critical_count", 0)
+            high = stats.get("high_count", 0)
+            new = stats.get("new_count", 0)
+            investigating = stats.get("investigating_count", 0)
 
             col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
@@ -452,6 +459,8 @@ def render_dashboard_metrics():
             with col5:
                 _colored_metric("Investigating", investigating, color=SEVERITY_COLORS["high"])
 
+            # Also fetch alerts for the table below
+            alerts = api.get_alerts(limit=500) or []
             return alerts
 
         except ApiError as e:
@@ -495,11 +504,11 @@ def render_severity_sparklines():
                         .encode(
                             x=alt.X(
                                 "date:T",
-                                axis=alt.Axis(labels=False, ticks=False),
+                                axis=alt.Axis(labels=False, ticks=False, title=None),
                             ),
                             y=alt.Y(
                                 "count:Q",
-                                axis=alt.Axis(labels=False, ticks=False),
+                                axis=alt.Axis(labels=False, ticks=False, title=None),
                             ),
                         )
                         .properties(height=60)
@@ -519,14 +528,8 @@ def render_severity_sparklines():
                             unsafe_allow_html=True,
                         )
                         st.altair_chart(chart, use_container_width=True)
-                        st.markdown(
-                            f"""
-                            <div style="background:{BG_SURFACE};border:1px solid {BORDER_SUBTLE};border-radius:0.375rem;padding:0.5rem;margin-top:0.25rem;">
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
                 else:
+                    # Single or no data point — just show the metric card
                     with cols[i]:
                         _colored_metric(label, count, color=color)
 
@@ -540,7 +543,7 @@ def render_host_risk_scores():
 
     with st.spinner("Loading host risk scores...", show_time=True):
         try:
-            alerts = api.get_alerts(limit=1000) or []
+            alerts = api.get_alerts(limit=500) or []
             if not alerts:
                 return
 
@@ -556,6 +559,9 @@ def render_host_risk_scores():
             top_hosts = sorted(host_risk.items(), key=lambda x: x[1], reverse=True)[:5]
 
             if top_hosts:
+                # Normalize scores to 0-100 scale based on highest-scoring host
+                max_score = top_hosts[0][1] if top_hosts[0][1] > 0 else 1
+
                 st.markdown(
                     f'<p style="color:{TEXT_PRIMARY};font-weight:700;font-size:1.05rem;margin:0.75rem 0;">'
                     f'Host Risk Scores'
@@ -563,8 +569,9 @@ def render_host_risk_scores():
                     unsafe_allow_html=True,
                 )
                 cols = st.columns(min(len(top_hosts), 5))
-                for i, (host, score) in enumerate(top_hosts):
-                    score = min(score, 100)
+                for i, (host, raw_score) in enumerate(top_hosts):
+                    # Scale to 0-100 proportionally
+                    score = round(raw_score / max_score * 100) if max_score > 0 else 0
                     if score >= 70:
                         color = "#ff3860"
                         label = "Critical"

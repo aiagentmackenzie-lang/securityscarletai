@@ -220,9 +220,16 @@ class ApiClient:
             data["resolution_note"] = resolution_note
         return self._patch(f"/alerts/{alert_id}", data)
 
-    def get_alert_stats(self) -> dict:
-        """Fetch alert statistics (severity counts, status counts, etc.)."""
-        return self._get("/alerts/stats") or {}
+    def get_alert_stats(self, hours: int | None = None) -> dict:
+        """Fetch alert statistics (severity counts, status counts, etc.).
+
+        If hours is None, returns stats for ALL alerts (no time filter).
+        If hours is provided, filters to the last N hours.
+        """
+        params = {}
+        if hours is not None:
+            params["hours"] = hours
+        return self._get("/alerts/stats", params) or {}
 
     def add_alert_note(self, alert_id: int, text: str) -> dict:
         """Add a note/timeline entry to an alert."""

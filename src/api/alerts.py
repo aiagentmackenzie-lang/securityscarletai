@@ -123,10 +123,14 @@ async def list_alerts(
 
 @router.get("/stats")
 async def alert_statistics(
-    hours: int = 24,
+    hours: int | None = None,
     user: dict = Depends(get_current_user),
 ):
-    """Get alert statistics for dashboard."""
+    """Get alert statistics for dashboard.
+
+    If hours is None, returns stats for ALL alerts (no time filter).
+    If hours is provided, filters to the last N hours.
+    """
     return await get_alert_stats(hours)
 
 

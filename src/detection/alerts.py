@@ -415,27 +415,49 @@ async def add_alert_note(alert_id: int, author: str, text: str) -> None:
 # Alert statistics
 # ───────────────────────────────────────────────────────────────
 
-async def get_alert_stats(hours: int = 24) -> dict:
-    """Get alert statistics for dashboard."""
+async def get_alert_stats(hours: int | None = None) -> dict:
+    """Get alert statistics for dashboard.
+
+    If hours is None, returns stats for ALL alerts (no time filter).
+    If hours is provided, filters to the last N hours.
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
-        stats = await conn.fetchrow(
-            """
-            SELECT
-                COUNT(*) FILTER (WHERE status = 'new') as new_count,
-                COUNT(*) FILTER (WHERE status = 'investigating') as investigating_count,
-                COUNT(*) FILTER (WHERE status IN ('resolved', 'closed')) as resolved_count,
-                COUNT(*) FILTER (WHERE status = 'false_positive') as false_positive_count,
-                COUNT(*) FILTER (WHERE severity = 'critical') as critical_count,
-                COUNT(*) FILTER (WHERE severity = 'high') as high_count,
-                COUNT(*) FILTER (WHERE severity = 'medium') as medium_count,
-                COUNT(*) FILTER (WHERE severity = 'low') as low_count,
-                COUNT(*) as total_count
-            FROM alerts
-            WHERE time > NOW() - INTERVAL '1 hour' * $1
-            """,
-            hours,
-        )
+        if hours is not None:
+            stats = await conn.fetchrow(
+                """
+                SELECT
+                    COUNT(*) FILTER (WHERE status = 'new') as new_count,
+                    COUNT(*) FILTER (WHERE status = 'investigating') as investigating_count,
+                    COUNT(*) FILTER (WHERE status IN ('resolved', 'closed')) as resolved_count,
+                    COUNT(*) FILTER (WHERE status = 'false_positive') as false_positive_count,
+                    COUNT(*) FILTER (WHERE severity = 'critical') as critical_count,
+                    COUNT(*) FILTER (WHERE severity = 'high') as high_count,
+                    COUNT(*) FILTER (WHERE severity = 'medium') as medium_count,
+                    COUNT(*) FILTER (WHERE severity = 'low') as low_count,
+                    COUNT(*) as total_count
+                FROM alerts
+                WHERE time > NOW() - INTERVAL '1 hour' * $1
+                """,
+                hours,
+            )
+        else:
+            # No time filter — return stats for ALL alerts
+            stats = await conn.fetchrow(
+                """
+                SELECT
+                    COUNT(*) FILTER (WHERE status = 'new') as new_count,
+                    COUNT(*) FILTER (WHERE status = 'investigating') as investigating_count,
+                    COUNT(*) FILTER (WHERE status IN ('resolved', 'closed')) as resolved_count,
+                    COUNT(*) FILTER (WHERE status = 'false_positive') as false_positive_count,
+                    COUNT(*) FILTER (WHERE severity = 'critical') as critical_count,
+                    COUNT(*) FILTER (WHERE severity = 'high') as high_count,
+                    COUNT(*) FILTER (WHERE severity = 'medium') as medium_count,
+                    COUNT(*) FILTER (WHERE severity = 'low') as low_count,
+                    COUNT(*) as total_count
+                FROM alerts
+                """
+            )
         return dict(stats)
 
 

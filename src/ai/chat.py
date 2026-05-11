@@ -86,11 +86,12 @@ async def build_security_context() -> str:
     Build a real-time security context from the database.
 
     Includes: alert summary, top threats, recent critical alerts.
+    Uses a 7-day window for context to ensure demo/stale data is visible.
     """
     try:
         pool = await get_pool()
         async with pool.acquire() as conn:
-            # Alert summary (last 24h)
+            # Alert summary (last 7 days — wider window for real data)
             summary = await conn.fetchrow(
                 """
                 SELECT
@@ -101,36 +102,36 @@ async def build_security_context() -> str:
                     COUNT(*) FILTER (WHERE status = 'new') as new_count,
                     COUNT(*) as total
                 FROM alerts
-                WHERE time > NOW() - INTERVAL '24 hours'
+                WHERE time > NOW() - INTERVAL '7 days'
                 """
             )
 
-            # Recent critical/high alerts
+            # Recent critical/high alerts (last 7 days)
             recent_alerts = await conn.fetch(
                 """
                 SELECT id, rule_name, severity, host_name, time, status
                 FROM alerts
                 WHERE severity IN ('critical', 'high')
-                  AND time > NOW() - INTERVAL '4 hours'
+                  AND time > NOW() - INTERVAL '7 days'
                 ORDER BY time DESC
                 LIMIT $1
                 """,
                 MAX_CONTEXT_ALERTS,
             )
 
-            # Top affected hosts
+            # Top affected hosts (last 7 days)
             top_hosts = await conn.fetch(
                 """
                 SELECT host_name, COUNT(*) as alert_count
                 FROM alerts
-                WHERE time > NOW() - INTERVAL '24 hours'
+                WHERE time > NOW() - INTERVAL '7 days'
                 GROUP BY host_name
                 ORDER BY alert_count DESC
                 LIMIT 5
                 """
             )
 
-            # Unresolved alerts count
+            # Unresolved alerts count (ALL time — these still need attention)
             unresolved = await conn.fetchval(
                 """
                 SELECT COUNT(*)
@@ -144,17 +145,17 @@ async def build_security_context() -> str:
         return "Security context unavailable (database connection issue)."
 
     # Format context
-    lines = ["Current Security Environment:"]
+    lines = ["Current Security Environment (last 7 days):"]
 
-    if summary:
+    if summary and summary['total'] > 0:
         lines.append(
-            f"- Alerts (24h): {summary['total']} total "
+            f"- Alerts (7d): {summary['total']} total "
             f"({summary['critical']} critical, {summary['high']} high, "
             f"{summary['medium']} medium, {summary['low']} low)"
         )
         lines.append(f"- New/Investigating: {unresolved or 0}")
     else:
-        lines.append("- No alerts in last 24 hours")
+        lines.append("- No alerts in last 7 days")
 
     if top_hosts:
         host_list = ", ".join(
