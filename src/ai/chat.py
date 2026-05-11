@@ -49,7 +49,7 @@ SYSTEM_PROMPT = (
     "identify threats, and summarize security posture.\n\n"
     "Guidelines:\n"
     "- Be concise and actionable (2-3 short paragraphs max unless asked for detail)\n"
-    "- Reference specific alerts by their numeric ID (e.g., Alert #80) when available\n"
+    "- Reference specific alerts, hosts, and IPs when available\n"
     "- Suggest concrete next steps (which alerts to investigate, what to check)\n"
     "- Prioritize critical and high severity issues\n"
     "- When unsure, say so and suggest the analyst verify\n"
@@ -166,9 +166,14 @@ async def build_security_context() -> str:
     if recent_alerts:
         lines.append("- Recent critical/high alerts:")
         for alert in recent_alerts[:5]:
+            alert_time = (
+                alert["time"].isoformat()[:19]
+                if hasattr(alert["time"], "isoformat")
+                else str(alert["time"])[:19]
+            )
             lines.append(
-                f"  * #{alert['id']} [{alert['severity'].upper()}] {alert['rule_name']} "
-                f"on {alert['host_name']} (status: {alert['status']})"
+                f"  * [{alert['severity'].upper()}] {alert['rule_name']} "
+                f"on {alert['host_name']} ({alert_time})"
             )
 
     return "\n".join(lines)
