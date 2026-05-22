@@ -13,6 +13,7 @@ from src.detection.correlation import (
     list_correlation_rules,
     run_all_correlations,
 )
+from src.detection.sequences import list_sequences
 
 router = APIRouter(tags=["correlation"], prefix="/correlation")
 log = get_logger("api.correlation")
@@ -42,6 +43,12 @@ async def get_rule(rule_name: str, user: dict = Depends(get_current_user)):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"Correlation rule '{rule_name}' not found")
     return {"name": rule_name, **info}
+
+
+@router.get("/sequences")
+async def list_sequence_rules(user: dict = Depends(get_current_user)):
+    """List all available event sequence definitions."""
+    return list_sequences()
 
 
 @router.post("/run")
@@ -85,7 +92,9 @@ async def run_single_correlation(
 
     from src.detection.correlation import (
         detect_brute_force_then_success,
+        detect_credential_theft_exfil,
         detect_data_exfiltration,
+        detect_defense_evasion_cleanup,
         detect_payload_callback,
         detect_persistence_activated,
         detect_privilege_escalation_chain,
@@ -97,6 +106,8 @@ async def run_single_correlation(
         "persistence_activated": detect_persistence_activated,
         "data_exfiltration": detect_data_exfiltration,
         "privilege_escalation_chain": detect_privilege_escalation_chain,
+        "credential_theft_exfil": detect_credential_theft_exfil,
+        "defense_evasion_cleanup": detect_defense_evasion_cleanup,
     }
 
     if rule_name not in rule_funcs:

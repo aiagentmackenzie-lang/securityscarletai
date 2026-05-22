@@ -12,6 +12,7 @@ from typing import Optional
 
 from src.config.logging import get_logger
 from src.db.connection import get_pool
+from src.detection.sequences import list_sequences
 
 log = get_logger("detection.correlation")
 
@@ -66,6 +67,22 @@ CORRELATION_RULES = {
         "mitre_tactics": ["TA0004"],
         "mitre_techniques": ["T1548"],
         "confidence_base": 70,
+    },
+    "credential_theft_exfil": {
+        "title": "Credential Access → External Connection",
+        "description": "Access to sensitive credential files followed by outbound network connection",
+        "severity": "critical",
+        "mitre_tactics": ["TA0006", "TA0010"],
+        "mitre_techniques": ["T1555", "T1048"],
+        "confidence_base": 80,
+    },
+    "defense_evasion_cleanup": {
+        "title": "Suspicious Activity → Log Deletion",
+        "description": "High-severity process execution followed by log file deletion",
+        "severity": "high",
+        "mitre_tactics": ["TA0005"],
+        "mitre_techniques": ["T1070"],
+        "confidence_base": 75,
     },
 }
 
@@ -399,6 +416,147 @@ async def detect_privilege_escalation_chain(
         return results
 
 
+
+async def detect_credential_theft_exfil(
+    time_window_minutes: int = 15,
+    lookback_hours: int = 24,
+) -> list[dict]:
+    """
+    Detect: SSH credential access → Outbound connection (credential theft + exfil).
+
+    Finds processes accessing SSH keys followed by an outbound network
+    connection from the same host — a common data theft pattern.
+    """
+    sql = """
+    WITH cred_access AS (
+        SELECT
+            host_name,
+            user_name,
+            process_name,
+            file_path,
+            time AS access_time
+        FROM logs
+        WHERE event_category = 'file'
+          AND file_path LIKE $1
+          AND time > NOW() - INTERVAL '1 hour' * $2
+    ),
+    outbound_connections AS (
+        SELECT
+            host_name,
+            destination_ip,
+            destination_port,
+            time AS conn_time
+        FROM logs
+        WHERE event_category = 'network'
+          AND event_type = 'connection'
+          AND destination_ip IS NOT NULL
+          AND NOT destination_ip <<= $3::inet
+          AND NOT destination_ip <<= $4::inet
+          AND NOT destination_ip <<= $5::inet
+          AND time > NOW() - INTERVAL '1 hour' * $2
+    )
+    SELECT
+        c.host_name,
+        c.user_name,
+        c.file_path,
+        c.access_time,
+        o.destination_ip,
+        o.conn_time
+    FROM cred_access c
+    JOIN outbound_connections o
+        ON c.host_name = o.host_name
+        AND o.conn_time > c.access_time
+        AND o.conn_time < c.access_time + INTERVAL '1 minute' * $6
+    ORDER BY c.access_time DESC
+    """
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            sql,
+            "%.ssh%",            # $1 - SSH key access pattern
+            lookback_hours,       # $2
+            "10.0.0.0/8",        # $3 - RFC1918 range 1
+            "192.168.0.0/16",    # $4 - RFC1918 range 2
+            "172.16.0.0/12",     # $5 - RFC1918 range 3
+            time_window_minutes,  # $6
+        )
+        results = []
+        for row in rows:
+            d = dict(row)
+            d["correlation_rule"] = "credential_theft_exfil"
+            d["confidence"] = CORRELATION_RULES["credential_theft_exfil"]["confidence_base"]
+            results.append(d)
+        return results
+
+
+async def detect_defense_evasion_cleanup(
+    time_window_minutes: int = 30,
+    lookback_hours: int = 24,
+) -> list[dict]:
+    """
+    Detect: High-severity process execution → Log file deletion (cover-up).
+
+    Finds suspicious process starts followed by rm commands targeting
+    /var/log on the same host within the time window.
+    """
+    sql = """
+    WITH suspicious_procs AS (
+        SELECT
+            host_name,
+            user_name,
+            process_name,
+            process_cmdline,
+            time AS proc_time
+        FROM logs
+        WHERE event_category = 'process'
+          AND event_type = 'start'
+          AND severity = 'high'
+          AND time > NOW() - INTERVAL '1 hour' * $1
+    ),
+    log_deletions AS (
+        SELECT
+            host_name,
+            process_cmdline AS deletion_cmd,
+            time AS deletion_time
+        FROM logs
+        WHERE event_category = 'process'
+          AND process_name = 'rm'
+          AND process_cmdline ILIKE $2
+          AND time > NOW() - INTERVAL '1 hour' * $1
+    )
+    SELECT
+        s.host_name,
+        s.user_name,
+        s.process_name AS suspicious_process,
+        s.proc_time,
+        l.deletion_cmd,
+        l.deletion_time
+    FROM suspicious_procs s
+    JOIN log_deletions l
+        ON s.host_name = l.host_name
+        AND l.deletion_time > s.proc_time
+        AND l.deletion_time < s.proc_time + INTERVAL '1 minute' * $3
+    ORDER BY s.proc_time DESC
+    """
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            sql,
+            lookback_hours,       # $1
+            "%var/log%",          # $2 - log deletion pattern
+            time_window_minutes,  # $3
+        )
+        results = []
+        for row in rows:
+            d = dict(row)
+            d["correlation_rule"] = "defense_evasion_cleanup"
+            d["confidence"] = CORRELATION_RULES["defense_evasion_cleanup"]["confidence_base"]
+            results.append(d)
+        return results
+
+
 # ───────────────────────────────────────────────────────────────
 # Sessionization — group events by host+user into sessions
 # ───────────────────────────────────────────────────────────────
@@ -496,6 +654,8 @@ async def run_all_correlations() -> dict[str, list[dict]]:
         "persistence_activated": detect_persistence_activated,
         "data_exfiltration": detect_data_exfiltration,
         "privilege_escalation_chain": detect_privilege_escalation_chain,
+        "credential_theft_exfil": detect_credential_theft_exfil,
+        "defense_evasion_cleanup": detect_defense_evasion_cleanup,
     }
 
     for rule_name, func in correlation_funcs.items():
