@@ -5,6 +5,8 @@ ALL data is fetched through the API client — NO direct database access.
 Uses Altair for rich visualizations and Streamlit native charts for simplicity.
 
 Loading states: Every data fetch is wrapped in st.spinner() for UX polish.
+Performance: All alert data is fetched once via cached_alerts() then passed
+  to chart functions — eliminates N+1 redundant API calls per page load.
 """
 import streamlit as st
 import pandas as pd
@@ -131,6 +133,25 @@ except Exception:
 
 
 # ───────────────────────────────────────────────────────────────
+# Cached alerts fetch — single API call shared by all chart functions
+# ───────────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=60)
+def cached_alerts(limit: int = 500) -> list:
+    """Fetch alerts once per page load, cached for 60 seconds.
+
+    All chart functions accept an optional `alerts` parameter —
+    if provided, they skip their own API call and reuse this data.
+    This eliminates 6 redundant API calls per dashboard page load.
+    """
+    api = get_api_client()
+    try:
+        return api.get_alerts(limit=limit) or []
+    except Exception:
+        return []
+
+
+# ───────────────────────────────────────────────────────────────
 # Helpers
 # ───────────────────────────────────────────────────────────────
 
@@ -156,13 +177,14 @@ def _colored_metric(label: str, value, delta=None, color=None):
 # Charts
 # ───────────────────────────────────────────────────────────────
 
-def render_severity_distribution():
+def render_severity_distribution(alerts: list | None = None):
     """Render alert severity distribution as a donut chart inside a card."""
     api = get_api_client()
 
     with st.spinner("Loading severity distribution...", show_time=True):
         try:
-            alerts = api.get_alerts(limit=500)
+            if alerts is None:
+                alerts = api.get_alerts(limit=500)
             if not alerts:
                 st.info("No alerts to display")
                 return
@@ -231,13 +253,14 @@ def render_severity_distribution():
             st.error(f"Unexpected error: {e}")
 
 
-def render_alert_trend():
+def render_alert_trend(alerts: list | None = None):
     """Render alert volume trend over time as a line chart inside a card."""
     api = get_api_client()
 
     with st.spinner("Loading alert trend...", show_time=True):
         try:
-            alerts = api.get_alerts(limit=500)
+            if alerts is None:
+                alerts = api.get_alerts(limit=500)
             if not alerts:
                 st.info("No alerts to display")
                 return
@@ -301,13 +324,14 @@ def render_alert_trend():
             st.error(f"Unexpected error: {e}")
 
 
-def render_top_hosts():
+def render_top_hosts(alerts: list | None = None):
     """Render top hosts by alert count inside a card."""
     api = get_api_client()
 
     with st.spinner("Loading host data...", show_time=True):
         try:
-            alerts = api.get_alerts(limit=500)
+            if alerts is None:
+                alerts = api.get_alerts(limit=500)
             if not alerts:
                 st.info("No alerts to display")
                 return
@@ -429,10 +453,11 @@ def render_mitre_heatmap(rules: list[dict]):
         )
 
 
-def render_dashboard_metrics():
+def render_dashboard_metrics(alerts: list | None = None):
     """Render top-level dashboard metrics cards without emoji.
 
     Uses the /alerts/stats API for accurate counts (no time filter).
+    Accepts optional pre-fetched alerts to avoid redundant API call.
     """
     api = get_api_client()
 
@@ -459,8 +484,9 @@ def render_dashboard_metrics():
             with col5:
                 _colored_metric("Investigating", investigating, color=SEVERITY_COLORS["high"])
 
-            # Also fetch alerts for the table below
-            alerts = api.get_alerts(limit=500) or []
+            # Reuse pre-fetched alerts or fetch fresh
+            if alerts is None:
+                alerts = api.get_alerts(limit=500) or []
             return alerts
 
         except ApiError as e:
@@ -471,13 +497,24 @@ def render_dashboard_metrics():
             return []
 
 
-def render_severity_sparklines():
+@st.cache_data(ttl=60)
+def _cached_rules() -> list:
+    """Cached fetch for rules."""
+    api = get_api_client()
+    try:
+        return api.get_rules() or []
+    except Exception:
+        return []
+
+
+def render_severity_sparklines(alerts: list | None = None):
     """Render mini sparkline charts for alert severity over time."""
     api = get_api_client()
 
     with st.spinner("Loading severity trends...", show_time=True):
         try:
-            alerts = api.get_alerts(limit=500) or []
+            if alerts is None:
+                alerts = api.get_alerts(limit=500) or []
             if not alerts:
                 return
 
@@ -537,13 +574,14 @@ def render_severity_sparklines():
             pass
 
 
-def render_host_risk_scores():
+def render_host_risk_scores(alerts: list | None = None):
     """Render risk score cards for top hosts without emoji."""
     api = get_api_client()
 
     with st.spinner("Loading host risk scores...", show_time=True):
         try:
-            alerts = api.get_alerts(limit=500) or []
+            if alerts is None:
+                alerts = api.get_alerts(limit=500) or []
             if not alerts:
                 return
 

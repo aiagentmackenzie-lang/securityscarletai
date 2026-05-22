@@ -540,13 +540,17 @@ def render_overview():
 
     st.header("Security Overview")
 
+    # Fetch alerts once — all chart functions reuse this single fetch
+    from dashboard.charts import cached_alerts
+    alerts = cached_alerts()
+
     # Top-level metrics with loading state
-    alerts = render_dashboard_metrics()
+    render_dashboard_metrics(alerts)
 
     st.divider()
 
     # Severity sparklines
-    render_severity_sparklines()
+    render_severity_sparklines(alerts)
 
     st.divider()
 
@@ -554,13 +558,13 @@ def render_overview():
     col1, col2 = st.columns(2)
 
     with col1:
-        render_severity_distribution()
+        render_severity_distribution(alerts)
 
     with col2:
-        render_alert_trend()
+        render_alert_trend(alerts)
 
     # Host risk scores
-    render_host_risk_scores()
+    render_host_risk_scores(alerts)
 
     st.divider()
 
