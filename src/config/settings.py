@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # --- Database ---
     db_host: str = "localhost"
-    db_port: int = 5433  # Port 5433 to avoid Homebrew PostgreSQL conflict
+    db_port: int = 5432
     db_name: str = "scarletai"
     db_user: str = "scarletai"
     db_password: str = Field(..., description="Database password — required, no default")
