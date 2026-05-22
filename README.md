@@ -2,8 +2,8 @@
 
 **AI-Native SIEM for macOS** — Real-time log ingestion, Sigma-based detection, ML-powered alert triage, and LLM-driven investigation assistance.
 
-[![Tests](https://img.shields.io/badge/tests-1022%20passing-brightgreen)]()
-[![Coverage](https://img.shields.io/badge/coverage-85%25-green)]()
+[![Tests](https://img.shields.io/badge/tests-1045%20passing-brightgreen)]()
+[![Coverage](https://img.shields.io/badge/coverage-82%25-green)]()
 [![Rules](https://img.shields.io/badge/Sigma%20rules-45-blue)]()
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow)]()
