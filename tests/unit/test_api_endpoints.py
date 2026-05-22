@@ -25,11 +25,11 @@ class TestCorrelationRules:
     """Test correlation rule definitions and metadata."""
 
     def test_list_correlation_rules(self):
-        """list_correlation_rules should return all 5 rules."""
+        """list_correlation_rules should return all 7 rules."""
         from src.detection.correlation import list_correlation_rules
 
         rules = list_correlation_rules()
-        assert len(rules) == 5
+        assert len(rules) == 7
         for rule in rules:
             assert "name" in rule
             assert "title" in rule
@@ -55,7 +55,9 @@ class TestCorrelationRules:
         from src.detection.correlation import (
             CORRELATION_RULES,
             detect_brute_force_then_success,
+            detect_credential_theft_exfil,
             detect_data_exfiltration,
+            detect_defense_evasion_cleanup,
             detect_payload_callback,
             detect_persistence_activated,
             detect_privilege_escalation_chain,
@@ -67,6 +69,8 @@ class TestCorrelationRules:
             "persistence_activated": detect_persistence_activated,
             "data_exfiltration": detect_data_exfiltration,
             "privilege_escalation_chain": detect_privilege_escalation_chain,
+            "credential_theft_exfil": detect_credential_theft_exfil,
+            "defense_evasion_cleanup": detect_defense_evasion_cleanup,
         }
         for rule_name in CORRELATION_RULES:
             assert rule_name in func_map, f"Rule {rule_name} has no detection function"

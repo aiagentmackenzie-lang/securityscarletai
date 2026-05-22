@@ -26,8 +26,8 @@ class TestCorrelationRuleDefinitions:
     """Test correlation rule definitions."""
 
     def test_rule_count(self):
-        """Should have 5 correlation rules."""
-        assert len(CORRELATION_RULES) == 5
+        """Should have 7 correlation rules."""
+        assert len(CORRELATION_RULES) == 7
 
     def test_all_rule_names(self):
         """Should have expected rule names."""
@@ -37,6 +37,8 @@ class TestCorrelationRuleDefinitions:
             "persistence_activated",
             "data_exfiltration",
             "privilege_escalation_chain",
+            "credential_theft_exfil",
+            "defense_evasion_cleanup",
         }
         assert set(CORRELATION_RULES.keys()) == expected
 
@@ -95,7 +97,7 @@ class TestListCorrelationRules:
     def test_returns_list(self):
         rules = list_correlation_rules()
         assert isinstance(rules, list)
-        assert len(rules) == 5
+        assert len(rules) == 7
 
     def test_each_rule_has_required_fields(self):
         rules = list_correlation_rules()
@@ -166,7 +168,7 @@ class TestRunAllCorrelations:
 
     @pytest.mark.asyncio
     async def test_run_all_returns_results(self):
-        """Should run all 5 correlation rules and return results."""
+        """Should run all 7 correlation rules and return results."""
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.fetch = AsyncMock(return_value=[])
@@ -179,7 +181,7 @@ class TestRunAllCorrelations:
         with patch("src.detection.correlation.get_pool", return_value=mock_pool):
             result = await run_all_correlations()
             assert isinstance(result, dict)
-            assert len(result) == 5  # All 5 rules should be present
+            assert len(result) == 7  # All 7 rules should be present
             for rule_name in CORRELATION_RULES:
                 assert rule_name in result
 
