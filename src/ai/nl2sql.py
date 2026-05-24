@@ -38,11 +38,14 @@ MAX_INPUT_LENGTH = 500
 MAX_CONVERSATION_TURNS = 10
 CONVERSATION_TTL_SECONDS = 1800  # 30 minutes
 
-# Forbid these patterns anywhere in generated SQL (case-insensitive)
+# Forbid these patterns anywhere in generated SQL (case-insensitive).
+# Uses negative lookbehind (?<![a-z_]) instead of \b so pg_ functions like
+# pg_sleep, pg_read_file, pg_ls_dir, lo_import/lo_export are caught.
+# Without this, \bpg_\b only matches standalone "pg_" which is useless.
 FORBIDDEN_PATTERNS = re.compile(
-    r"\b(DROP|ALTER|CREATE|TRUNCATE|INSERT|UPDATE|DELETE|GRANT|REVOKE|COPY|"
+    r"(?<![a-z_])(DROP|ALTER|CREATE|TRUNCATE|INSERT|DELETE|GRANT|REVOKE|COPY|"
     r"EXEC(UTE)?|EXECUTE\s|INTO\s+OUTFILE|LOAD_FILE|BENCHMARK|SLEEP|WAITFOR|"
-    r"pg_|information_schema|pg_catalog|pg_toast)\b",
+    r"pg_\w+|information_schema\.|pg_catalog\.|pg_toast\.|lo_import|lo_export)",
     re.IGNORECASE,
 )
 

@@ -18,23 +18,25 @@ from src.db.connection import get_pool
 
 log = get_logger("ai.chat")
 
-# Prompt injection defense (same patterns as nl2sql.py)
+# Prompt injection defense (matches nl2sql.py patterns)
 INJECTION_PATTERNS = re.compile(
-    r"(ignore\s+(previous|above|all)\s+instructions|"
-    r"you\s+are\s+now|"
-    r"new\s+instructions?|"
-    r"system\s*:|"
-    r"forget\s+(everything|all)|"
-    r"disregard|"
-    r"jailbreak|"
-    r"prompt\s+inject|"
-    r"pretend\s+you|"
-    r"act\s+as|"
-    r"roleplay|"
-    r"output\s+the\s+secret|"
+    r"(\bignore\s+(previous|above|all)\s+instructions\b|"
+    r"\byou\s+are\s+now\b|"
+    r"\bnew\s+instructions?\b|"
+    r"\bsystem\s*:|"
+    r"\bforget\s+(everything|all)\b|"
+    r"\bdisregard\b|"
+    r"\bjailbreak\b|"
+    r"\bprompt\s+inject\b|"
+    r"\bpretend\s+you\b|"
+    r"\bact\s+as\b|"
+    r"\broleplay\b|"
+    r"\boutput\s+the\s+secret\b|"
     r";\s*--|"
     r";\s*DROP\b|"
-    r"UNION\s+SELECT|"
+    r"\bUNION\s+SELECT\b|"
+    r"\bOR\s+1\s*=\s*1\b|"
+    r"'\s*OR\s+'|"
     r"/\*.*\*/)",
     re.IGNORECASE,
 )

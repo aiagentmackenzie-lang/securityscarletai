@@ -6,20 +6,24 @@ Analyzes alert evidence and generates:
 - Risk score (0-100) based on context
 - Recommended response actions
 - False positive likelihood assessment
+
+Uses shared ollama_client for consistent timeout/error handling/fallback
+instead of a separate raw httpx client.
 """
 import json
 from typing import Optional
 
-import httpx
-
+from src.ai.ollama_client import query_llm
 from src.config.logging import get_logger
-from src.config.settings import settings
 from src.db.connection import get_pool
 
 log = get_logger("detection.ai")
 
-OLLAMA_URL = settings.ollama_base_url
-MODEL = settings.ollama_model  # Configurable via OLLAMA_MODEL env var
+SYSTEM_PROMPT = (
+    "You are a cybersecurity analyst AI. "
+    "Analyze security alerts and provide structured assessments. "
+    "Always respond with valid JSON (no markdown, no extra text)."
+)
 
 
 def build_prompt(rule_name: str, severity: str, host_name: str, evidence: dict) -> str:
@@ -28,7 +32,6 @@ def build_prompt(rule_name: str, severity: str, host_name: str, evidence: dict) 
     evidence_str = json.dumps(evidence, default=str, indent=2)[:2000]
 
     return (
-        f"You are a cybersecurity analyst AI. "
         f"Analyze this security alert and provide a structured assessment.\n\n"
         f"ALERT DETAILS:\n"
         f"- Rule: {rule_name}\n"
@@ -50,6 +53,23 @@ def build_prompt(rule_name: str, severity: str, host_name: str, evidence: dict) 
     )
 
 
+def _parse_json_response(raw_response: str) -> Optional[dict]:
+    """Parse structured JSON from LLM response, handling markdown wrapping."""
+    if not raw_response or not raw_response.strip():
+        return None
+
+    json_str = raw_response.strip()
+    if "```json" in json_str:
+        json_str = json_str.split("```json")[1].split("```")[0]
+    elif "```" in json_str:
+        json_str = json_str.split("```")[1].split("```")[0]
+
+    try:
+        return json.loads(json_str.strip())
+    except json.JSONDecodeError:
+        return None
+
+
 async def analyze_alert(
     alert_id: int,
     rule_name: str,
@@ -58,61 +78,44 @@ async def analyze_alert(
     evidence: dict,
 ) -> Optional[dict]:
     """
-    Send alert to Ollama for AI analysis.
+    Send alert to Ollama for AI analysis via shared ollama_client.
+
     Returns parsed analysis dict or None on failure.
+    Uses consistent timeout from settings (OLLAMA_TIMEOUT) and
+    returns None (not FALLBACK_MESSAGE) so callers can skip enrichment.
     """
     prompt = build_prompt(rule_name, severity, host_name, evidence)
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                f"{OLLAMA_URL}/api/generate",
-                json={
-                    "model": MODEL,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {"temperature": 0.3, "num_predict": 500},
-                },
-            )
-
-            if resp.status_code != 200:
-                log.warning("ollama_error", status=resp.status_code, alert_id=alert_id)
-                return None
-
-            raw_response = resp.json().get("response", "").strip()
-
-            # Parse JSON from response (handle markdown code blocks)
-            json_str = raw_response
-            if "```json" in json_str:
-                json_str = json_str.split("```json")[1].split("```")[0]
-            elif "```" in json_str:
-                json_str = json_str.split("```")[1].split("```")[0]
-
-            analysis = json.loads(json_str)
-
-            log.info(
-                "ai_analysis_complete",
-                alert_id=alert_id,
-                verdict=analysis.get("verdict"),
-                risk_score=analysis.get("risk_score"),
-            )
-
-            return analysis
-
-    except json.JSONDecodeError as e:
-        log.warning("ai_parse_failed", alert_id=alert_id, error=str(e), raw=raw_response[:200])
-        return None
-    except httpx.ConnectError:
-        log.warning("ollama_unavailable", alert_id=alert_id)
-        return None
-    except Exception as e:
-        log.warning(
-            "ai_analysis_failed",
-            alert_id=alert_id,
-            error=str(e),
-            error_type=type(e).__name__,
+        raw_response = await query_llm(
+            prompt=prompt,
+            system_prompt=SYSTEM_PROMPT,
+            temperature=0.3,
+            max_tokens=500,
         )
+    except Exception:
+        log.warning("ai_analyzer_query_failed", alert_id=alert_id)
         return None
+
+    # Fallback means Ollama is down — return None so enrichment is skipped
+    from src.ai.ollama_client import FALLBACK_MESSAGE
+    if raw_response == FALLBACK_MESSAGE:
+        log.warning("ai_analyzer_ollama_unavailable", alert_id=alert_id)
+        return None
+
+    # Parse structured JSON from response
+    analysis = _parse_json_response(raw_response)
+    if analysis is None:
+        log.warning("ai_parse_failed", alert_id=alert_id, raw=raw_response[:200])
+        return None
+
+    log.info(
+        "ai_analysis_complete",
+        alert_id=alert_id,
+        verdict=analysis.get("verdict"),
+        risk_score=analysis.get("risk_score"),
+    )
+    return analysis
 
 
 async def enrich_alert(alert_id: int, analysis: dict) -> None:

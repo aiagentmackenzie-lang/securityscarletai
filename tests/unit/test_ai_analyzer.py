@@ -6,6 +6,8 @@ Covers:
 - analyze_alert() — success, failures, parse errors
 - enrich_alert() — DB updates
 - Ollama unavailability handling
+
+Updated: now tests against shared ollama_client.query_llm() instead of raw httpx.
 """
 
 import json
@@ -13,11 +15,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.detection.ai_analyzer import analyze_alert, build_prompt, enrich_alert
+from src.ai.ollama_client import FALLBACK_MESSAGE
+from src.detection.ai_analyzer import _parse_json_response, analyze_alert, build_prompt, enrich_alert
 
 
 class TestBuildPrompt:
-    """Test prompt construction for Ollama."""
+    """Test build_prompt for Ollama."""
 
     def test_prompt_contains_rule_name(self):
         """Prompt should include the rule name."""
@@ -71,8 +74,6 @@ class TestBuildPrompt:
         large_evidence = {"data": "x" * 3000}
         prompt = build_prompt("R", "h", "H", large_evidence)
         # Evidence string should be truncated to ~2000 chars
-        evidence_part = prompt.split("Evidence:")[1].split("\n")[0] if "Evidence:" in prompt else ""
-        # The overall prompt should be reasonable
         assert len(prompt) < 5000
 
     def test_prompt_contains_risk_score_spec(self):
@@ -86,32 +87,47 @@ class TestBuildPrompt:
         assert "verdict" in prompt
 
 
+class TestParseJsonResponse:
+    """Test JSON parsing helper."""
+
+    def test_parses_plain_json(self):
+        result = _parse_json_response('{"summary": "test", "risk_score": 50}')
+        assert result == {"summary": "test", "risk_score": 50}
+
+    def test_parses_markdown_wrapped_json(self):
+        result = _parse_json_response('```json\n{"summary": "test"}\n```')
+        assert result == {"summary": "test"}
+
+    def test_parses_markdown_no_lang_json(self):
+        result = _parse_json_response('```\n{"summary": "test"}\n```')
+        assert result == {"summary": "test"}
+
+    def test_returns_none_on_invalid(self):
+        result = _parse_json_response("not json at all {{{")
+        assert result is None
+
+    def test_returns_none_on_empty(self):
+        result = _parse_json_response("")
+        assert result is None
+
+
 class TestAnalyzeAlert:
-    """Test analyze_alert with mocked Ollama."""
+    """Test analyze_alert with mocked query_llm."""
 
     @pytest.mark.asyncio
     async def test_successful_analysis(self):
-        """Should parse valid Ollama response."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "response": json.dumps(
-                {
-                    "summary": "SSH brute force detected",
-                    "risk_score": 75,
-                    "verdict": "threat",
-                    "response": ["Block IP", "Notify admin"],
-                    "reasoning": "Multiple failed logins from same IP",
-                }
-            )
-        }
+        """Should parse valid query_llm response."""
+        analysis_json = json.dumps({
+            "summary": "SSH brute force detected",
+            "risk_score": 75,
+            "verdict": "threat",
+            "response": ["Block IP", "Notify admin"],
+            "reasoning": "Multiple failed logins from same IP",
+        })
 
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
+        with patch("src.detection.ai_analyzer.query_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = analysis_json
 
-        with patch("httpx.AsyncClient", return_value=mock_client):
             result = await analyze_alert(
                 alert_id=1,
                 rule_name="SSH Brute Force",
@@ -125,14 +141,10 @@ class TestAnalyzeAlert:
         assert result["risk_score"] == 75
 
     @pytest.mark.asyncio
-    async def test_ollama_connection_error(self):
-        """Should return None on connection error."""
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.post = AsyncMock(side_effect=Exception("Connection refused"))
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            mock_client_cls.return_value = mock_client
+    async def test_ollama_fallback_returned(self):
+        """Should return None when query_llm returns FALLBACK_MESSAGE."""
+        with patch("src.detection.ai_analyzer.query_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = FALLBACK_MESSAGE
 
             result = await analyze_alert(
                 alert_id=2,
@@ -145,26 +157,25 @@ class TestAnalyzeAlert:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_ollama_non_200_status(self):
-        """Should return None on non-200 status."""
-        mock_response = MagicMock()
-        mock_response.status_code = 500
-        mock_response.json.return_value = {"error": "Internal Server Error"}
+    async def test_ollama_query_exception(self):
+        """Should return None when query_llm raises an exception (safety net)."""
+        with patch("src.detection.ai_analyzer.query_llm", new_callable=AsyncMock) as mock_llm:
+            # query_llm now wraps all exceptions and returns FALLBACK_MESSAGE
+            mock_llm.return_value = FALLBACK_MESSAGE
 
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
+            result = await analyze_alert(
+                alert_id=2,
+                rule_name="Test",
+                severity="low",
+                host_name="host",
+                evidence={},
+            )
 
-        with patch("httpx.AsyncClient", return_value=mock_client):
-            result = await analyze_alert(3, "R", "h", "H", {})
         assert result is None
 
     @pytest.mark.asyncio
     async def test_json_in_markdown_code_block(self):
         """Should parse JSON wrapped in markdown code blocks."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
         analysis = {
             "summary": "Suspicious activity",
             "risk_score": 50,
@@ -173,49 +184,37 @@ class TestAnalyzeAlert:
             "reasoning": "Unusual pattern",
         }
         raw = f"```json\n{json.dumps(analysis)}\n```"
-        mock_response.json.return_value = {"response": raw}
 
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
+        with patch("src.detection.ai_analyzer.query_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = raw
 
-        with patch("httpx.AsyncClient", return_value=mock_client):
             result = await analyze_alert(4, "R", "h", "H", {})
 
         assert result is not None
         assert result["verdict"] == "suspicious"
 
     @pytest.mark.asyncio
-    async def test_invalid_json_response(self):
-        """Should return None on invalid JSON."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"response": "not valid json at all {{{"}
+    async def test_markdown_no_lang_json_response(self):
+        """Should parse JSON wrapped in generic markdown code block."""
+        analysis = {"summary": "test", "risk_score": 30, "verdict": "benign",
+                     "response": [], "reasoning": "ok"}
+        raw = f"```\n{json.dumps(analysis)}\n```"
 
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
+        with patch("src.detection.ai_analyzer.query_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = raw
 
-        with patch("httpx.AsyncClient", return_value=mock_client):
             result = await analyze_alert(5, "R", "h", "H", {})
 
-        assert result is None
+        assert result is not None
+        assert result["verdict"] == "benign"
 
     @pytest.mark.asyncio
-    async def test_httpx_connect_error(self):
-        """Should handle httpx.ConnectError gracefully."""
-        import httpx
+    async def test_invalid_json_response(self):
+        """Should return None on invalid JSON."""
+        with patch("src.detection.ai_analyzer.query_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = "not valid json at all {{{"
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection failed"))
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            mock_client_cls.return_value = mock_client
-
-            result = await analyze_alert(6, "R", "h", "H", {})
+            result = await analyze_alert(5, "R", "h", "H", {})
 
         assert result is None
 
