@@ -34,8 +34,6 @@ class NormalizedEvent(BaseModel):
     process_cmdline: Optional[str] = None
     process_path: Optional[str] = None
     process_pid: Optional[int] = None
-    process_cmdline: Optional[str] = None
-    process_path: Optional[str] = None
 
     # Network context (when applicable)
     source_ip: Optional[str] = None

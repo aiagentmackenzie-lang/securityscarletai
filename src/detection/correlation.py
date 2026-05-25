@@ -116,7 +116,7 @@ async def detect_brute_force_then_success(
                 OVER (
                     PARTITION BY host_name, source_ip
                     ORDER BY time
-                    RANGE BETWEEN '$2 minutes'::interval PRECEDING AND CURRENT ROW
+                    RANGE BETWEEN INTERVAL '1 minute' * $2 PRECEDING AND CURRENT ROW
                 ) AS failed_count
         FROM logs
         WHERE event_category = 'authentication'

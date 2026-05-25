@@ -26,12 +26,26 @@ _clients_lock = asyncio.Lock()
 # Key: token string, Value: {"username": ..., "role": ..., "expires": float}
 _ws_tokens: dict[str, dict] = {}
 
+# H-05 fix: Periodic cleanup for expired WS tokens that were created but never used
+async def _cleanup_expired_ws_tokens():
+    """Remove expired WS tokens to prevent memory leak."""
+    import time
+    now = time.time()
+    expired = [k for k, v in _ws_tokens.items() if now > v["expires"] + 300]
+    for k in expired:
+        _ws_tokens.pop(k, None)
+    if expired:
+        log.debug("ws_tokens_cleaned", removed=len(expired), remaining=len(_ws_tokens))
+
 
 @router.post("/auth/ws-token", dependencies=[Depends(require_role("viewer"))])
 async def create_ws_token(payload: dict = Depends(verify_jwt)):
     """Generate a short-lived single-use WebSocket token (5 min TTL)."""
     import secrets
     import time
+
+    # H-05 fix: Cleanup expired tokens on every new token request
+    await _cleanup_expired_ws_tokens()
 
     token = secrets.token_urlsafe(32)
     _ws_tokens[token] = {
