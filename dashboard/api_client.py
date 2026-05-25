@@ -4,6 +4,12 @@ Synchronous API client for the SecurityScarletAI dashboard.
 ALL dashboard code must use this client — NO direct database access.
 This module handles auth, retries, error handling, and response formatting.
 
+M-04 note: This client uses synchronous httpx (not async) because Streamlit
+doesn't support async natively. Every API call blocks the Streamlit thread.
+This is acceptable for single-user dashboards but may cause sluggishness
+under concurrent access (>50 simultaneous users). For v2, consider
+st.connection or an async bridge.
+
 Usage in Streamlit views:
     from dashboard.api_client import ApiClient
     api = ApiClient()

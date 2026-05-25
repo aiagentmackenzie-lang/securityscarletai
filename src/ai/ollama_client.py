@@ -61,3 +61,37 @@ async def is_ollama_available() -> bool:
             return resp.status_code == 200
     except Exception:
         return False
+
+
+# M-01 fix: Validate that the configured model exists in Ollama at startup
+async def validate_ollama_model() -> bool:
+    """Check if the configured Ollama model is available.
+
+    Logs a warning if the model name in settings doesn't match what Ollama has.
+    This catches the common misconfiguration where .env has 'mistral:7b'
+    but settings.py defaults to 'llama3.2:8b'.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(f"{settings.ollama_base_url}/api/tags")
+            if resp.status_code != 200:
+                log.warning("ollama_model_check_failed", status=resp.status_code)
+                return False
+
+            data = resp.json()
+            available = [m.get("name", "") for m in data.get("models", [])]
+
+            if settings.ollama_model not in available:
+                log.warning(
+                    "ollama_model_not_found",
+                    configured=settings.ollama_model,
+                    available=available[:10],
+                    hint="Set OLLAMA_MODEL in .env to match an installed model",
+                )
+                return False
+
+            log.info("ollama_model_validated", model=settings.ollama_model)
+            return True
+    except Exception as e:
+        log.warning("ollama_model_check_error", error=str(e))
+        return False

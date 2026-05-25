@@ -118,21 +118,22 @@ class SOARPlaybook:
         except Exception as e:
             return f"Notification failed: {str(e)}"
 
-    # L-02: Stub implementations for ISOLATE_HOST, DISABLE_USER, KILL_PROCESS
+    # M-03 fix: Stub implementations clearly marked as NOT_IMPLEMENTED
+    # so API consumers know these actions are not live
     async def _isolate_host(self, host_name: str) -> str:
-        """Isolate a host from the network. Stub — requires endpoint agent integration."""
-        log.warning("soar_isolate_host_stub", host_name=host_name)
-        return f"Host isolation prepared for {host_name} — requires endpoint agent integration"
+        """Isolate a host from the network. NOT IMPLEMENTED — requires endpoint agent integration."""
+        log.warning("soar_isolate_host_not_implemented", host_name=host_name)
+        return f"NOT_IMPLEMENTED: Host isolation for {host_name} requires endpoint agent integration"
 
     async def _disable_user(self, username: str) -> str:
-        """Disable a user account. Stub — requires AD/LDAP integration."""
-        log.warning("soar_disable_user_stub", username=username)
-        return f"User disable prepared for {username} — requires AD/LDAP integration"
+        """Disable a user account. NOT IMPLEMENTED — requires AD/LDAP integration."""
+        log.warning("soar_disable_user_not_implemented", username=username)
+        return f"NOT_IMPLEMENTED: User disable for {username} requires AD/LDAP integration"
 
     async def _kill_process(self, target: str) -> str:
-        """Kill a process on a host. Stub — requires endpoint agent integration."""
-        log.warning("soar_kill_process_stub", target=target)
-        return f"Process kill prepared for {target} — requires endpoint agent integration"
+        """Kill a process on a host. NOT IMPLEMENTED — requires endpoint agent integration."""
+        log.warning("soar_kill_process_not_implemented", target=target)
+        return f"NOT_IMPLEMENTED: Process kill for {target} requires endpoint agent integration"
 
 
 class BruteForcePlaybook(SOARPlaybook):

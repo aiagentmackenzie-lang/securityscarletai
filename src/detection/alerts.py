@@ -480,19 +480,7 @@ async def create_suppression_rule(
         raise ValueError("Suppression rule must specify at least rule_name or host_name")
     pool = await get_pool()
     async with pool.acquire() as conn:
-        # Create table if not exists (lazy migration)
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS alert_suppressions (
-                id SERIAL PRIMARY KEY,
-                rule_name TEXT,
-                host_name TEXT,
-                reason TEXT NOT NULL,
-                enabled BOOLEAN NOT NULL DEFAULT TRUE,
-                created_by TEXT NOT NULL DEFAULT 'admin',
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-        """)
-
+        # M-02 fix: Table now in schema.sql — no lazy creation needed
         suppression_id = await conn.fetchval(
             """
             INSERT INTO alert_suppressions (rule_name, host_name, reason, created_by)

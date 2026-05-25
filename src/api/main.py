@@ -105,6 +105,10 @@ async def lifespan(app: FastAPI):
     from src.intel.threat_intel import start_threat_intel_scheduler
     await start_threat_intel_scheduler()
 
+    # M-01 fix: Validate configured Ollama model exists
+    from src.ai.ollama_client import validate_ollama_model
+    await validate_ollama_model()
+
     yield
 
     # Stop scheduler

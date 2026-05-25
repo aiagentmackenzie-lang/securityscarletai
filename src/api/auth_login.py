@@ -7,7 +7,7 @@ GET  /api/v1/auth/me      - Get current user info (requires JWT)
 
 Users are stored in the siem_users table with bcrypt-hashed passwords.
 """
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -93,7 +93,26 @@ async def login(request: LoginRequest):
                 detail="Account is disabled",
             )
 
+        # M-06 fix: Check account lockout from too many failed attempts
+        if row.get("locked_until") and row["locked_until"] > datetime.now(tz=timezone.utc):
+            raise HTTPException(
+                status_code=status.HTTP_423_LOCKED,
+                detail="Account temporarily locked due to too many failed login attempts. Try again later.",
+            )
+
         if not verify_password(request.password, row["password_hash"]):
+            # M-06 fix: Increment failed login attempts, lock after 5 failures for 15 min
+            new_attempts = (row.get("failed_login_attempts", 0) or 0) + 1
+            lock_until = None
+            if new_attempts >= 5:
+                lock_until = datetime.now(tz=timezone.utc) + timedelta(minutes=15)
+                log.warning("account_locked", username=row["username"], attempts=new_attempts)
+            await conn.execute(
+                "UPDATE siem_users SET failed_login_attempts = $1, locked_until = $2 WHERE id = $3",
+                new_attempts,
+                lock_until,
+                row["id"],
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid username or password",
@@ -122,7 +141,7 @@ async def login(request: LoginRequest):
 
         # M-21 fix: Update last_login in same connection/transaction
         await conn.execute(
-            "UPDATE siem_users SET last_login = NOW() WHERE id = $1",
+            "UPDATE siem_users SET last_login = NOW(), failed_login_attempts = 0, locked_until = NULL WHERE id = $1",
             row["id"],
         )
 

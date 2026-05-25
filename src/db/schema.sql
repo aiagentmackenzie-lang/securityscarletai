@@ -93,6 +93,7 @@ CREATE TABLE IF NOT EXISTS alerts (
     resolved_at    TIMESTAMPTZ,
     resolution_note TEXT,                   -- free-text note when resolving
     case_id        INTEGER,                -- FK added after cases table exists
+    notes          JSONB DEFAULT '[]'::jsonb, -- M-07 fix: notes column for alert timeline
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -102,8 +103,20 @@ CREATE INDEX IF NOT EXISTS idx_alerts_host ON alerts (host_name, time DESC);
 
 -- Notes column for alert timeline (added by v2)
 -- JSONB array of {author, text, timestamp} objects
--- Added via migration: ALTER TABLE alerts ADD COLUMN IF NOT EXISTS notes JSONB DEFAULT '[]'::jsonb;
+-- M-07 fix: notes column added directly to alerts table definition
 
+-- ============================================================
+-- ALERT SUPPRESSIONS — whitelist known false positives
+-- ============================================================
+CREATE TABLE IF NOT EXISTS alert_suppressions (
+    id             SERIAL PRIMARY KEY,
+    rule_name      TEXT,
+    host_name      TEXT,
+    reason         TEXT NOT NULL,
+    enabled        BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by     TEXT NOT NULL DEFAULT 'admin',
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 -- ============================================================
 -- ASSETS — discovered endpoints
