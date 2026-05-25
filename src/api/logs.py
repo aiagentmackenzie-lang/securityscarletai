@@ -51,11 +51,10 @@ async def list_logs(
         idx += 1
 
     if time_minutes:
-        conditions.append(f"time > NOW() - INTERVAL '${time_minutes} minutes'")
-        # Use parameterized interval for safety
-        # Actually PostgreSQL doesn't support parameterized intervals easily
-        # So we validate the input and inline it
-        conditions[-1] = f"time > NOW() - INTERVAL '{int(time_minutes)} minutes'"
+        # C-01 fix: Validate and inline safely — int() cast prevents injection;
+        # PostgreSQL doesn't support parameterized INTERVAL literals.
+        safe_minutes = int(time_minutes)
+        conditions.append(f"time > NOW() - INTERVAL '{safe_minutes} minutes'")
 
     where = ""
     if conditions:
@@ -76,7 +75,9 @@ async def list_logs(
     """
     params.extend([limit, offset])
 
-    rows = await pool.fetch(query, *params)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(query, *params)
     results = []
     for r in rows:
         d = dict(r)

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from src.api.auth import (
     create_jwt,
     hash_password,
+    require_role,
     verify_jwt,
     verify_password,
 )
@@ -229,8 +230,10 @@ async def force_change_password(
     log.info("force_password_changed", username=payload["sub"])
     return {"message": "Password changed successfully. You can now log in normally."}
 
-@router.post("/seed-admin")
-async def seed_admin_user():
+@router.post("/seed-admin", dependencies=[Depends(require_role("admin"))])
+async def seed_admin_user(
+    _user: dict = Depends(require_role("admin")),
+):
     """
     Create an initial admin user if no users exist.
 

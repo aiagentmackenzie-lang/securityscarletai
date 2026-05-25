@@ -583,6 +583,8 @@ async def export_alerts_stix(hours: int = 24) -> dict:
     for row in rows:
         d = dict(row)
         # Generate STIX Indicator object with valid UUID and STIX pattern
+        # C-02 fix: Escape single quotes in host_name to prevent STIX pattern injection
+        safe_hostname = d['host_name'].replace("'", "\\'")
         indicator = {
             "type": "indicator",
             "spec_version": "2.1",
@@ -601,7 +603,7 @@ async def export_alerts_stix(hours: int = 24) -> dict:
             "description": d["description"],
             "pattern": (
                 f"[network-traffic:dst_ref.type = 'hostname' "
-                f"AND network-traffic:dst_ref.value = '{d['host_name']}']"
+                f"AND network-traffic:dst_ref.value = '{safe_hostname}']"
             ),
             "pattern_type": "stix",
             "valid_from": (
