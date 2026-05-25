@@ -37,7 +37,7 @@
 ## Features
 
 - **45 Sigma Detection Rules** — Authentication, process, network, file, macOS, and cloud categories with MITRE ATT&CK mapping
-- **Correlation Engine** — 5 SQL-based and 7 sequence-based correlation rules detecting multi-step attack chains
+- **Correlation Engine** — 7 correlation rules detecting multi-step attack chains (brute force, payload/C2, persistence, exfiltration, privilege escalation, credential theft, defense evasion)
 - **ML Alert Triage** — Random Forest classifier with 11 features, auto-trains at 100+ resolved alerts
 - **Natural Language → SQL** — Ask questions in plain English, get safe parameterized SQL with 7-layer injection defense
 - **UEBA Behavioral Baselines** — Isolation Forest anomaly detection with per-user behavioral fingerprinting
@@ -135,7 +135,7 @@ Key endpoints:
 
 ## Detection Rules
 
-See [docs/RULES.md](docs/RULES.md) for the complete reference of all 45 Sigma rules and 12 correlation rules, organized by category with MITRE ATT&CK mappings.
+See [docs/RULES.md](docs/RULES.md) for the complete reference of all 45 Sigma rules and 7 correlation rules, organized by category with MITRE ATT&CK mappings.
 
 ---
 
@@ -205,7 +205,7 @@ SecurityScarletAI/
 │   │   └── ollama_client.py # Ollama LLM integration
 │   ├── detection/           # Detection engine
 │   │   ├── sigma.py         # pySigma parser + PostgreSQL backend
-│   │   ├── correlation.py   # 5 SQL correlation rules
+│   │   ├── correlation.py   # 7 correlation rules
 │   │   ├── sequences.py     # 7 event sequence patterns
 │   │   ├── alerts.py        # Alert lifecycle management
 │   │   └── scheduler.py     # Rule scheduler

@@ -6,6 +6,7 @@ enforcement via require_role() dependency for FastAPI endpoints.
 Also provides GET /audit endpoint for querying the audit log.
 """
 from typing import Optional
+import json
 
 from fastapi import APIRouter, Depends, Query
 
@@ -41,8 +42,6 @@ async def log_audit_action(
     Returns:
         The audit log entry ID, or None on failure
     """
-    import json
-
     pool = await get_pool()
     async with pool.acquire() as conn:
         try:

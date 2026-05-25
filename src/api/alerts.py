@@ -9,6 +9,7 @@ Enhanced with:
 - Configurable filtering
 """
 from datetime import datetime
+import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -203,7 +204,6 @@ async def get_notes(
         if not row:
             raise HTTPException(status_code=404, detail="Alert not found")
 
-        import json
         notes = row["notes"]
         if isinstance(notes, str):
             notes = json.loads(notes)

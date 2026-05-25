@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS rules (
     name           TEXT NOT NULL UNIQUE,
     description    TEXT,
     sigma_yaml     TEXT NOT NULL,           -- raw Sigma rule YAML
-    generated_sql  TEXT,                    -- compiled SQL query
+    -- L-01 fix: removed generated_sql column — SQL is generated at runtime by sigma_to_sql()
     severity       alert_severity NOT NULL DEFAULT 'medium',
     mitre_tactics  TEXT[],                  -- e.g., ARRAY['TA0001', 'TA0002']
     mitre_techniques TEXT[],               -- e.g., ARRAY['T1059', 'T1078']
@@ -119,7 +119,7 @@ CREATE TABLE IF NOT EXISTS alert_suppressions (
 );
 
 -- ============================================================
--- ASSETS — discovered endpoints
+-- ASSETS — discovered endpoints (L-07: placeholder, not yet used in code)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS assets (
     id             SERIAL PRIMARY KEY,
@@ -226,7 +226,8 @@ CREATE INDEX IF NOT EXISTS idx_threat_intel_lookup ON threat_intel (ioc_type, io
 
 
 -- ============================================================
--- SIEM HEALTH — self-observability (who watches the watchers?)
+-- SIEM HEALTH — self-observability (L-08: placeholder, not yet written to in code)
+-- Who watches the watchers? This table is for future health metrics collection.
 -- ============================================================
 CREATE TABLE IF NOT EXISTS siem_health (
     time              TIMESTAMPTZ NOT NULL,

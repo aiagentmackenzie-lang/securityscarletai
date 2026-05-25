@@ -13,6 +13,7 @@ Endpoints:
   GET    /cases/{id}/notes             — Get all notes for a case
 """
 from datetime import datetime, timezone
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -441,7 +442,6 @@ async def add_case_note(
         if not row:
             raise HTTPException(status_code=404, detail="Case not found")
 
-        import json
         notes = row["notes"] or []
         if isinstance(notes, str):
             notes = json.loads(notes)
@@ -479,7 +479,6 @@ async def get_case_notes(
 ):
     """Get all notes for a case."""
     pool = await get_pool()
-    import json
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT notes FROM cases WHERE id = $1", case_id)

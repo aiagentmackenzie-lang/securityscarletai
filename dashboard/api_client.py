@@ -197,6 +197,11 @@ class ApiClient:
         """Check API health."""
         return self._get("/health")
 
+    # L-03 fix: Public method instead of calling _post directly
+    def seed_admin(self) -> dict:
+        """Seed initial admin user (requires admin auth)."""
+        return self._post("/auth/seed-admin")
+
     # ───────────────────────────────────────────────────────────
     # Alerts
     # ───────────────────────────────────────────────────────────

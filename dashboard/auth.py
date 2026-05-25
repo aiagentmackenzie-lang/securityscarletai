@@ -128,7 +128,7 @@ def render_login_page():
             with st.spinner("Creating admin user...", show_time=True):
                 api = get_api_client()
                 try:
-                    result = api._post("/auth/seed-admin")
+                    result = api.seed_admin()
                     st.toast("Admin user created")
                     st.success(f"{result.get('message', 'Admin user created!')}")
                 except ApiError as e:
