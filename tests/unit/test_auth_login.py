@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.api.auth import JWT_ALGORITHM, create_jwt
+from tests.unit._test_request import make_test_request
 from src.config.settings import settings
 
 # Pre-computed bcrypt hash for "testpass123" with SHA-256 pre-hash (M-10 fix).
@@ -100,7 +101,7 @@ class TestLoginEndpoint:
                 from src.api.auth_login import LoginRequest, login
 
                 request = LoginRequest(username="testadmin", password="testpass123")
-                result = await login(request)
+                result = await login(make_test_request(), request)
 
                 assert result.access_token is not None
                 assert result.username == "testadmin"
@@ -122,7 +123,7 @@ class TestLoginEndpoint:
                 request = LoginRequest(username="testadmin", password="wrongpassword")
 
                 with pytest.raises(HTTPException) as exc_info:
-                    await login(request)
+                    await login(make_test_request(), request)
                 assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
@@ -146,7 +147,7 @@ class TestLoginEndpoint:
                 request = LoginRequest(username="ghost", password="whatever")
 
                 with pytest.raises(HTTPException) as exc_info:
-                    await login(request)
+                    await login(make_test_request(), request)
                 assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
@@ -163,7 +164,7 @@ class TestLoginEndpoint:
             request = LoginRequest(username="testadmin", password="testpass123")
 
             with pytest.raises(HTTPException) as exc_info:
-                await login(request)
+                await login(make_test_request(), request)
             assert exc_info.value.status_code == 401
             assert "disabled" in exc_info.value.detail.lower()
 

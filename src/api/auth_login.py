@@ -11,7 +11,7 @@ Users are stored in the siem_users table with bcrypt-hashed passwords.
 """
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from src.api.auth import (
@@ -23,6 +23,7 @@ from src.api.auth import (
     verify_jwt,
     verify_password,
 )
+from src.api.rate_limit import LIMIT_LOGIN, LIMIT_INGEST, limiter
 from src.config.logging import get_logger
 from src.db.connection import get_pool
 
@@ -83,13 +84,22 @@ class ForceChangePasswordRequest(BaseModel):
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(request: LoginRequest):
-    """Authenticate a user and return a JWT token."""
+@limiter.limit(LIMIT_LOGIN)
+async def login(
+    request: Request,  # slowapi requires this exact name; it's the connection object
+    login_request: LoginRequest,  # the JSON body
+):  # noqa: ARG001
+    """Authenticate a user and return a JWT token.
+
+    Rate limited to LIMIT_LOGIN (5/minute by IP) to deter brute force.
+    `request` is the slowapi-required Request (used to derive the rate-limit key);
+    `login_request` is the parsed JSON body.
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT id, username, password_hash, role, is_active, locked_until, failed_login_attempts, must_change_password FROM siem_users WHERE username = $1",  # noqa: E501
-            request.username,
+            login_request.username,
         )
 
         if row is None:
@@ -113,7 +123,7 @@ async def login(request: LoginRequest):
                 detail="Account temporarily locked due to too many failed login attempts. Try again later.",
             )
 
-        if not verify_password(request.password, row["password_hash"]):
+        if not verify_password(login_request.password, row["password_hash"]):
             # M-06 fix: Increment failed login attempts, lock after 5 failures for 15 min
             new_attempts = (row.get("failed_login_attempts", 0) or 0) + 1
             lock_until = None

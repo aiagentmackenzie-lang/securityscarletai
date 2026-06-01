@@ -20,6 +20,24 @@ services:
       retries: 5
     restart: unless-stopped
 
+  redis:
+    # Epic 4: Redis service for rate-limit storage and JWT blocklist.
+    # 6379 inside the compose network; not exposed to host by default.
+    image: redis:7-alpine
+    platform: linux/arm64
+    container_name: scarletai-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
   api:
     build: .
     container_name: scarletai-api
@@ -36,13 +54,15 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: 8000
       API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:8501}
-      REDIS_URL: ${REDIS_URL:-redis://localhost:6379/0}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: ${LOG_FORMAT:-json}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-mistral:7b}
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "--max-time", "5", "http://localhost:8000/api/v1/health"]
@@ -53,3 +73,4 @@ services:
 
 volumes:
   pgdata:
+  redisdata:

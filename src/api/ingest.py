@@ -6,14 +6,16 @@ Security:
 - Input validated with Pydantic (rejects malformed events)
 - Field length limits prevent memory exhaustion attacks
 - No raw SQL — everything goes through the writer
+- Rate limited (Epic 4) to LIMIT_INGEST per IP
 """
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
 
 from src.api.auth import get_current_user
+from src.api.rate_limit import LIMIT_INGEST, limiter
 from src.ingestion.schemas import NormalizedEvent
 
 router = APIRouter(tags=["ingestion"])
@@ -53,13 +55,16 @@ class IngestResponse(BaseModel):
 
 
 @router.post("/ingest", response_model=IngestResponse, status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit(LIMIT_INGEST)
 async def ingest_events(
+    request: Request,  # slowapi needs Request to derive the rate-limit key
     events: list[IngestEvent],
     _token: Annotated[dict, Depends(get_current_user)],
 ):
     """Ingest one or more security events.
 
     Requires: Bearer token in Authorization header.
+    Rate limited to LIMIT_INGEST (100/minute by IP).
     """
     if len(events) > 1000:
         raise HTTPException(

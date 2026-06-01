@@ -1,20 +1,20 @@
 """
 API middleware — rate limiting, request size validation, content-type enforcement.
 
-Uses slowapi for rate limiting with in-memory storage (suitable for single-instance).
+Rate limiting is now Redis-backed (via slowapi) with per-endpoint overrides
+configured in src/api/rate_limit.py. The Limiter singleton lives there;
+this module re-exports it for backward compat with existing imports.
 """
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from slowapi import Limiter
+from slowapi import Limiter  # noqa: F401  (re-exported for tests)
 from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from src.api.rate_limit import limiter  # noqa: F401  (re-exported for tests)
 from src.config.logging import get_logger
 
 log = get_logger("api.middleware")
-
-# Rate limiter — uses client IP as the key
-limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
 
 
 class RequestValidationMiddleware(BaseHTTPMiddleware):

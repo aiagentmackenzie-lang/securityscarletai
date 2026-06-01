@@ -6,7 +6,6 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
@@ -21,8 +20,13 @@ from src.api.health import router as health_router
 from src.api.hunt import router as hunt_router
 from src.api.ingest import router as ingest_router
 from src.api.logs import router as logs_router
-from src.api.middleware import AuditLogMiddleware, RequestValidationMiddleware, limiter
+from src.api.middleware import AuditLogMiddleware, RequestValidationMiddleware
 from src.api.query import router as query_router
+from src.api.rate_limit import (
+    RateLimitHeadersMiddleware,
+    limiter,
+    rate_limit_exceeded_handler,
+)
 from src.api.rules import router as rules_router
 from src.api.threat_intel import router as threat_intel_router
 from src.api.websocket import router as websocket_router
@@ -164,7 +168,8 @@ app.include_router(logs_router, prefix="/api/v1")
 app.add_middleware(RequestValidationMiddleware)
 app.add_middleware(AuditLogMiddleware)
 
-# Rate limiting state
+# Rate limiting state — Redis-backed via src.api.rate_limit
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(RateLimitHeadersMiddleware)
