@@ -802,13 +802,13 @@ Return ONLY the SQL query. No explanation, no markdown code blocks, no comments.
         max_tokens=512,
     )
 
-    # Check for fallback
-    if raw_sql == FALLBACK_MESSAGE:
-        log.warning("nl2sql_ollama_unavailable")
+    # Check for fallback or error (LLMResult contract, not bare string)
+    if not raw_sql.ok or raw_sql.source == "template_library":
+        log.warning("nl2sql_ollama_unavailable", source=raw_sql.source)
         return None
 
     # Clean up the SQL (remove markdown, whitespace)
-    sql = raw_sql.strip()
+    sql = raw_sql.text.strip()
     sql = re.sub(r"^```sql\s*", "", sql, flags=re.IGNORECASE)
     sql = re.sub(r"^```\s*", "", sql)
     sql = re.sub(r"\s*```$", "", sql)

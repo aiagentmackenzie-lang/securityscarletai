@@ -246,3 +246,79 @@ CREATE INDEX IF NOT EXISTS idx_health_component ON siem_health (component, time 
 -- CREATE EXTENSION timescaledb;
 -- SELECT create_hypertable('logs', 'time', chunk_time_interval => INTERVAL '1 day');
 -- SELECT create_hypertable('siem_health', 'time', chunk_time_interval => INTERVAL '1 day');
+
+
+-- ============================================================
+-- AI USAGE — per-LLM-call cost and latency tracking (Agent A, Epic 1)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ai_usage (
+    id SERIAL PRIMARY KEY,
+    user_id TEXT,
+    endpoint TEXT NOT NULL,
+    model TEXT NOT NULL,
+    tokens_in INT NOT NULL DEFAULT 0,
+    tokens_out INT NOT NULL DEFAULT 0,
+    latency_ms INT NOT NULL DEFAULT 0,
+    prompt_version TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_usage_user_day ON ai_usage(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_endpoint ON ai_usage(endpoint, created_at DESC);
+
+
+-- ============================================================
+-- TRIAGE MODEL PROVENANCE — ML training audit trail (Agent A, Epic 3)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS triage_model_provenance (
+    id SERIAL PRIMARY KEY,
+    model_hash TEXT NOT NULL,
+    training_samples INT NOT NULL,
+    cv_accuracy FLOAT NOT NULL,
+    cv_std FLOAT,
+    precision_score FLOAT,
+    recall_score FLOAT,
+    f1_score FLOAT,
+    calibrated BOOLEAN DEFAULT FALSE,
+    feature_importances JSONB,
+    features JSONB,
+    trained_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_triage_provenance_trained_at ON triage_model_provenance(trained_at DESC);
+
+
+-- ============================================================
+-- CORRELATION MATCHES — persisted correlation rule hits (Agent A, Epic 2)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS correlation_matches (
+    id SERIAL PRIMARY KEY,
+    correlation_rule TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    match_data JSONB NOT NULL,
+    trigger_event_id INT REFERENCES logs(id),
+    seen BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_correlation_matches_rule ON correlation_matches(correlation_rule);
+CREATE INDEX IF NOT EXISTS idx_correlation_matches_severity ON correlation_matches(severity);
+CREATE INDEX IF NOT EXISTS idx_correlation_matches_created ON correlation_matches(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_correlation_matches_seen ON correlation_matches(seen, created_at DESC);
+
+
+-- ============================================================
+-- ALERT LABELS — analyst-provided ground truth for triage training (Agent A, Epic 3)
+-- Separate from alerts table to respect Agent A's APPEND-ONLY rule on schema.sql
+-- ============================================================
+CREATE TABLE IF NOT EXISTS alert_labels (
+    id SERIAL PRIMARY KEY,
+    alert_id INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
+    label TEXT NOT NULL CHECK (label IN ('true_positive', 'false_positive', 'needs_review')),
+    labeled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    labeled_by TEXT DEFAULT 'training_data_generator',
+    UNIQUE (alert_id, label)
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_labels_label ON alert_labels(label);
+CREATE INDEX IF NOT EXISTS idx_alert_labels_alert_id ON alert_labels(alert_id);

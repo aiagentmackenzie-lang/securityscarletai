@@ -67,6 +67,15 @@ class ExplainResponse(BaseModel):
     """Alert explanation response."""
     alert_id: int
     explanation: str
+    source: str | None = None
+    model: str | None = None
+    fallback_used: bool = False
+    warning: str | None = None
+    tokens_in: int = 0
+    tokens_out: int = 0
+    latency_ms: int = 0
+    prompt_version: str | None = None
+    cost_recorded: bool = False
 
 
 @router.post(
@@ -250,11 +259,21 @@ async def explain_alert_endpoint(
         mitre_techniques=alert["mitre_techniques"] or [],
         evidence=evidence_parsed,
         related_logs_count=related_count or 0,
+        user=_user.get("sub"),
     )
 
     return ExplainResponse(
         alert_id=alert_id,
-        explanation=explanation,
+        explanation=explanation.get("explanation", ""),
+        source=explanation.get("source"),
+        model=explanation.get("model"),
+        fallback_used=explanation.get("fallback_used", False),
+        warning=explanation.get("warning"),
+        tokens_in=explanation.get("tokens_in", 0),
+        tokens_out=explanation.get("tokens_out", 0),
+        latency_ms=explanation.get("latency_ms", 0),
+        prompt_version=explanation.get("prompt_version"),
+        cost_recorded=explanation.get("cost_recorded", False),
     )
 
 
