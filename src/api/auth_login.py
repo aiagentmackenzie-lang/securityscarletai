@@ -1,9 +1,11 @@
 """
 Authentication endpoints for dashboard users.
 
-POST /api/v1/auth/login   - Authenticate and get JWT
+POST /api/v1/auth/login         - Authenticate and get JWT (access + refresh)
+POST /api/v1/auth/refresh       - Exchange refresh token for new access token
+POST /api/v1/auth/logout        - Blacklist current access token's jti
 POST /api/v1/auth/change-password - Change own password (requires JWT)
-GET  /api/v1/auth/me      - Get current user info (requires JWT)
+GET  /api/v1/auth/me            - Get current user info (requires JWT)
 
 Users are stored in the siem_users table with bcrypt-hashed passwords.
 """
@@ -13,7 +15,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from src.api.auth import (
+    JWT_ALGORITHM,
     create_jwt,
+    create_refresh_token,
     hash_password,
     require_role,
     verify_jwt,
@@ -39,10 +43,19 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     access_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"  # noqa: S105
     username: str
     role: str
     expires_in: int  # seconds
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(..., min_length=10)
+
+
+class LogoutResponse(BaseModel):
+    message: str = "Logged out"
 
 
 class ChangePasswordRequest(BaseModel):
@@ -145,9 +158,10 @@ async def login(request: LoginRequest):
             row["id"],
         )
 
-    from src.api.auth import JWT_EXPIRY_HOURS
+    from src.config.settings import settings
 
-    token = create_jwt(row["username"], row["role"])
+    access_token = create_jwt(row["username"], row["role"])
+    refresh_token = create_refresh_token(row["username"], row["role"])
 
     log.info(
         "user_login",
@@ -156,10 +170,11 @@ async def login(request: LoginRequest):
     )
 
     return LoginResponse(
-        access_token=token,
+        access_token=access_token,
+        refresh_token=refresh_token,
         username=row["username"],
         role=row["role"],
-        expires_in=JWT_EXPIRY_HOURS * 3600,
+        expires_in=settings.access_token_ttl_minutes * 60,
     )
 
 
@@ -212,8 +227,16 @@ async def change_password(
             row["id"],
         )
 
+    # Epic 5: invalidate all tokens issued before this point for this user.
+    # Best-effort: if Redis is down, the password is changed in DB but old
+    # tokens remain valid until natural expiry.
+    from src.api.redis_client import set_user_revoke_marker
+    from src.config.settings import settings
+    revoke_ttl = (settings.refresh_token_ttl_days + 1) * 24 * 3600
+    set_user_revoke_marker(payload["sub"], datetime.now(tz=timezone.utc), revoke_ttl)
+
     log.info("password_changed", username=payload["sub"])
-    return {"message": "Password changed successfully"}
+    return {"message": "Password changed successfully. All existing sessions invalidated."}
 
 
 @router.post("/force-change-password")
@@ -293,3 +316,103 @@ async def seed_admin_user():
         "message": "Admin user created. Username: admin, Password: admin - CHANGE PASSWORD IMMEDIATELY",  # noqa: E501
         "username": "admin",
     }
+
+
+@router.post("/refresh", response_model=LoginResponse)
+async def refresh_token(request: RefreshRequest):
+    """Exchange a refresh token for a new access token (+ new refresh token rotation).
+
+    Returns 401 if the refresh token is invalid, expired, blocked, or has
+    type != 'refresh'.
+    """
+    from jose import JWTError, jwt
+
+    from src.config.settings import settings as _settings
+    try:
+        payload = jwt.decode(
+            request.refresh_token,
+            _settings.api_secret_key.get_secret_value(),
+            algorithms=[JWT_ALGORITHM],
+        )
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        ) from None
+
+    if payload.get("type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token is not a refresh token",
+        )
+
+    from src.api.redis_client import get_latest_user_revoke_ts, is_jti_blocked
+
+    jti = payload.get("jti")
+    if jti and is_jti_blocked(jti):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has been revoked",
+        )
+    sub = payload.get("sub")
+    iat = payload.get("iat")
+    if sub and iat is not None:
+        revoke_ts = get_latest_user_revoke_ts(sub)
+        if revoke_ts is not None and float(iat) < revoke_ts:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token issued before password change",
+            )
+
+    # Verify user still exists and is active
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT username, role, is_active FROM siem_users WHERE username = $1",
+            sub,
+        )
+    if row is None or not row["is_active"]:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User no longer active",
+        )
+
+    # Rotate: block old refresh, issue new pair.
+    from src.api.redis_client import blocklist_jti
+    if jti:
+        blocklist_jti(jti, _settings.refresh_token_ttl_days * 24 * 3600)
+
+    new_access = create_jwt(row["username"], row["role"])
+    new_refresh = create_refresh_token(row["username"], row["role"])
+
+    log.info("token_refreshed", username=row["username"])
+    return LoginResponse(
+        access_token=new_access,
+        refresh_token=new_refresh,
+        username=row["username"],
+        role=row["role"],
+        expires_in=_settings.access_token_ttl_minutes * 60,
+    )
+
+
+@router.post("/logout", response_model=LogoutResponse)
+async def logout(payload: dict = Depends(verify_jwt)):
+    """Logout — blacklist the current access token's jti in Redis until natural expiry.
+
+    Subsequent calls with the same token return 401.
+    """
+    jti = payload.get("jti")
+    if not jti:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Token has no jti — please re-login (pre-hardening token)",
+        )
+
+    from src.api.redis_client import blocklist_jti
+    from src.config.settings import settings as _settings
+
+    ttl = _settings.access_token_ttl_minutes * 60
+    blocklist_jti(jti, ttl)
+
+    log.info("user_logout", username=payload.get("sub"))
+    return LogoutResponse()
