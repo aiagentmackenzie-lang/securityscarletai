@@ -41,6 +41,8 @@ services:
   api:
     build: .
     container_name: scarletai-api
+    # Epic 7: run the entrypoint that waits for DB, applies schema, seeds, trains, then execs uvicorn.
+    command: ["/app/scripts/entrypoint.sh"]
     ports:
       - "8000:8000"
     environment:
@@ -59,16 +61,24 @@ services:
       LOG_FORMAT: ${LOG_FORMAT:-json}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-mistral:7b}
+    volumes:
+      # Epic 7: persist model artifacts and runtime data across restarts.
+      - ./models:/app/models
+      - ./data:/app/data
+      - ./logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
+      # Longer start-period: the entrypoint runs schema apply + optional seed + model
+      # training on first launch, which can take 30-60 seconds.
       test: ["CMD", "curl", "-f", "--max-time", "5", "http://localhost:8000/api/v1/health"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 60s
     restart: unless-stopped  # M-18: restart policy added
 
 volumes:
