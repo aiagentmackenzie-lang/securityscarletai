@@ -63,3 +63,18 @@
 - pytest tests/ -q after every epic
 - Notify via cmux notify after each epic
 - No pushes
+
+## Cross-agent notes (added during work)
+
+### 2026-06-01 — Pre-existing test failures (NOT Agent A's work)
+9 tests in `tests/unit/test_auth_revocation.py` are failing with
+`AttributeError: 'str' object has no attribute 'get_secret_value'` when
+calling `settings.api_secret_key.get_secret_value()`.
+
+This file is in Agent B's zone (auth/redis work). The test was added by
+Agent B and references `api_secret_key` as a SecretStr, but
+`src/config/settings.py` declares it as `str` per the original schema.
+
+**FIXME(agent-b):** Either update the test to call `settings.api_secret_key`
+as a plain string, or change the settings field to `SecretStr`. Decision
+rests with Agent B.
