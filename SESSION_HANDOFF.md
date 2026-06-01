@@ -11,9 +11,12 @@
 
 ### Branches & commits since 391e7d1
 
-**`agent-a-ai-data`** (3 commits) — Epics 1 done, Epic 2 in progress
+**`agent-a-ai-data`** (5 commits) — Epics 1, 2 done, Epic 3 not started
 ```
-c6e9f04 test(epic1): update AI tests for LLMResult contract + new module tests
+cda62a7 docs: session handoff (mirror from agent-b worktree)
+78d0a54 test(epic2): event-driven correlation tests + API tests + signature fixes
+72d88ff feat(epic2): event-driven correlation with as_of + persist contract
+c6e9f04 test(epic1): update AI tests for AI tests for LLMResult contract + new module tests
 e13bb5c feat(epic1): LLMResult contract across AI surface, schema additions
 be5782c feat(epic1): add AI cost tracker and prompt template module
 ```
@@ -32,7 +35,7 @@ cb5c9ee wip(epic6): audit middleware + audit_logs table + request audit tests
 | Epic | Status | Branch | Notes |
 |------|--------|--------|-------|
 | 1. Real AI Integration (Ollama contract) | ✅ DONE | agent-a-ai-data | `LLMResult` dataclass, prompts.py, cost tracker, schema appends, 34 new + 27 updated tests |
-| 2. Event-driven correlation | 🟡 IN PROGRESS | agent-a-ai-data | 21 new tests pass, full suite was running when stopped. Correlation rewrite + endpoints + `correlation_matches` table — needs final pytest run + commit |
+| 2. Event-driven correlation | ✅ DONE | agent-a-ai-data | `72d88ff` + `78d0a54` — `as_of`, `persist`, endpoints, tests |
 | 3. Retrain triage model | 🔴 NOT STARTED | agent-a-ai-data | Briefed but untouched |
 | 4. Redis rate limiting | ✅ DONE | agent-b-infra | `4e017ec` |
 | 5. JWT hardening | ✅ DONE | agent-b-infra | `4c096cb` — jti, logout, refresh, user_revoke markers |
@@ -88,18 +91,15 @@ git checkout agent-b-infra
 ```
 The audit middleware WIP (`cb5c9ee`) was never validated. Run the suite — fix any breakage in the audit code (NOT in auth tests, those are independent).
 
-### Step 4: Agent A — finish Epic 2
-Epic 2 was mid-flight. Per the brief:
-- `src/detection/correlation.py` rewrite with `as_of` + `persist`
-- `src/api/correlation.py` new endpoints (run, matches, mark seen)
-- Tests for both
-- Commit when pytest is green
-
-### Step 5: Agent A — Epic 3 (ML retrain)
+### Step 4: Agent A — Epic 3 (ML retrain)
+Epic 1 & 2 are done. Next is Epic 3 per the brief:
 - `scripts/generate_training_data.py` — 1000 synthetic alerts, stratified
 - `src/ai/alert_triage.py` — StratifiedKFold + CalibratedClassifierCV + provenance table
 - `src/api/ai.py` — extend `/ai/status` with `triage` block
 - Target: `cv_accuracy > 0.70`
+
+### Step 5: Agent B — finish Epic 6 validation
+The audit WIP (`cb5c9ee`) was committed but never validated by full pytest. Run the suite, fix any breakage in audit middleware (NOT in auth tests).
 
 ### Step 6: Agent B — Epic 9 (enrichment)
 - `src/enrichment/pipeline.py` — fix GeoIP singleton `_geoip_loaded = True` bug, add periodic retry
