@@ -17,6 +17,7 @@ from src.ai.chat import (
     generate_fallback_response,
     sanitize_chat_input,
 )
+from src.ai.ollama_client import FALLBACK_MESSAGE, LLMResult
 
 # ---------------------------------------------------------------------------
 # Input sanitization tests
@@ -118,7 +119,11 @@ class TestChatIntegration:
         from src.ai.chat import chat
 
         with patch("src.ai.chat.query_llm", new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = FALLBACK_MESSAGE
+            mock_llm.return_value = LLMResult(
+                ok=True, text=FALLBACK_MESSAGE, source="template_library",
+                model_used=None, tokens_in=0, tokens_out=0, latency_ms=0,
+                fallback_used=True, warning="Ollama not responding — using local analysis rules",
+            )
 
             with patch("src.ai.chat.build_security_context", new_callable=AsyncMock) as mock_ctx:
                 mock_ctx.return_value = "No alerts in last 24 hours."
@@ -143,7 +148,11 @@ class TestChatIntegration:
         from src.ai.chat import chat
 
         with patch("src.ai.chat.query_llm", new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = "I can help with security questions."
+            mock_llm.return_value = LLMResult(
+                ok=True, text="I can help with security questions.", source="ollama",
+                model_used="mistral:7b", tokens_in=10, tokens_out=8, latency_ms=200,
+                fallback_used=False,
+            )
 
             with patch("src.ai.chat.build_security_context", new_callable=AsyncMock) as mock_ctx:
                 mock_ctx.return_value = "No alerts."
@@ -159,7 +168,11 @@ class TestChatIntegration:
         from src.ai.chat import chat
 
         with patch("src.ai.chat.query_llm", new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = "Focus on the 2 critical alerts first."
+            mock_llm.return_value = LLMResult(
+                ok=True, text="Focus on the 2 critical alerts first.", source="ollama",
+                model_used="mistral:7b", tokens_in=10, tokens_out=8, latency_ms=200,
+                fallback_used=False,
+            )
 
             with patch("src.ai.chat.build_security_context", new_callable=AsyncMock) as mock_ctx:
                 mock_ctx.return_value = "Critical alerts: 2"
@@ -168,7 +181,3 @@ class TestChatIntegration:
 
                 assert result["response"] == "Focus on the 2 critical alerts first."
                 assert result["context_used"] is True
-
-
-# Need to import FALLBACK_MESSAGE for the test
-from src.ai.ollama_client import FALLBACK_MESSAGE
