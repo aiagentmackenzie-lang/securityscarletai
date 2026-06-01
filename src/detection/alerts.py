@@ -35,11 +35,11 @@ SEVERITY_INDEX = {s: i for i, s in enumerate(SEVERITY_ORDER)}
 
 
 async def create_alert(
-    rule_id: int,
-    rule_name: str,
-    severity: str,
-    host_name: str,
-    description: str,
+    rule_id: Optional[int] = None,
+    rule_name: str = "",
+    severity: str = "medium",
+    host_name: str = "",
+    description: str = "",
     mitre_tactics: Optional[list] = None,
     mitre_techniques: Optional[list] = None,
     evidence: Optional[dict] = None,
@@ -128,7 +128,7 @@ async def create_alert(
             await _add_note(conn, alert_id, "system",
                             f"Severity escalated from {severity} to {escalated_severity}")
 
-        log.info("alert_created", alert_id=alert_id, rule_id=rule_id,
+        log.info("alert_created", alert_id=alert_id, rule_name=rule_name,
                  host_name=host_name, severity=escalated_severity)
 
         # ── Step 5: Trigger notifications ─────────────────────

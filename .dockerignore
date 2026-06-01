@@ -1,0 +1,47 @@
+# Python / Poetry
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+
+# Environment / Secrets
+.env
+.env.*
+!.env.example
+
+# Git
+.git/
+.gitignore
+
+# IDE / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test / CI artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+.hypothesis/
+.ruff_cache/
+.mypy_cache/
+
+# Logs
+logs/
+*.log
+
+# Node (if dashboard builds here)
+node_modules/
+
+# Docker
+docker-compose.override.yml

@@ -51,12 +51,18 @@ async def list_sequence_rules(user: dict = Depends(get_current_user)):
     return list_sequences()
 
 
+class PersistFlags(BaseModel):
+    persist_alerts: bool = False
+
+
 @router.post("/run")
 async def run_correlations(
+    request: PersistFlags = None,
     user: str = Depends(require_role("analyst")),
 ):
     """Run all correlation rules and return results."""
-    results = await run_all_correlations()
+    persist = request.persist_alerts if request else False
+    results = await run_all_correlations(persist_alerts=persist)
 
     # Enrich with rule metadata
     enriched = {}

@@ -26,11 +26,15 @@ RUN poetry install --without dev --no-root --no-interaction --no-ansi
 COPY src/ ./src/
 COPY rules/ ./rules/
 COPY alembic/ ./alembic/
-COPY alembic.ini ./alembic.ini*
+COPY alembic.ini ./alembic.ini
 COPY config/ ./config/
 
 # Create data and models directories
 RUN mkdir -p /app/data/dead_letter /app/models
+
+# Security: run as non-root user
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser && chown -R appuser:appgroup /app
+USER appuser
 
 # Expose API port
 EXPOSE 8000

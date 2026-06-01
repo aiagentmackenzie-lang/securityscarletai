@@ -87,7 +87,7 @@ class TestAlertTriageModelInit:
 
     def test_model_initial_state(self):
         """Model should start untrained."""
-        model = AlertTriageModel()
+        model = AlertTriageModel(load=False)
         assert model.is_trained is False
         assert model.model is None
         assert model.trained_at is None
@@ -96,7 +96,7 @@ class TestAlertTriageModelInit:
 
     def test_model_status_untrained(self):
         """Status should reflect untrained state."""
-        model = AlertTriageModel()
+        model = AlertTriageModel(load=False)
         model.is_trained = False
         status = model.get_status()
         assert status["is_trained"] is False

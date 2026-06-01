@@ -6,6 +6,9 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from src.api.ai import router as ai_router
 from src.api.alerts import router as alerts_router
@@ -26,12 +29,12 @@ from src.api.websocket import router as websocket_router
 from src.config.logging import get_logger, setup_logging
 from src.config.settings import settings
 from src.db.connection import close_pool, get_pool
-from src.db.writer import LogWriter
+from src.services.writer import writer
 
 log = get_logger("api")
 
 # Shared writer instance
-writer = LogWriter()
+from src.services.writer import writer
 
 RULES_DIR = Path(__file__).parent.parent.parent / "rules" / "sigma"
 
@@ -137,7 +140,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.api_cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
     allow_headers=["*"],
 )
 
@@ -163,3 +166,5 @@ app.add_middleware(AuditLogMiddleware)
 
 # Rate limiting state
 app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)

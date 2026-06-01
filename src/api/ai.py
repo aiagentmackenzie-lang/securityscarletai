@@ -10,6 +10,8 @@ POST /api/v1/ai/explain/{id}  — Generate AI explanation for alert
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+import json
+
 from src.ai.alert_explanation import explain_alert
 from src.ai.alert_triage import AlertTriageModel, check_auto_train, get_triage_model
 from src.ai.ueba import get_ueba
@@ -226,13 +228,27 @@ async def explain_alert_endpoint(
             alert["host_name"],
         )
 
+    # Parse evidence JSONB safely — asyncpg may return string, list, or dict
+    raw_ev = alert.get("evidence")
+    evidence_parsed = None
+    if raw_ev is not None:
+        if isinstance(raw_ev, str) and raw_ev.strip():
+            try:
+                evidence_parsed = json.loads(raw_ev)
+            except Exception:
+                evidence_parsed = None
+        elif isinstance(raw_ev, dict):
+            evidence_parsed = raw_ev
+        elif isinstance(raw_ev, list):
+            evidence_parsed = raw_ev
+
     explanation = await explain_alert(
         rule_name=alert["rule_name"],
         rule_description=alert["description"] or "",
         severity=alert["severity"],
         host_name=alert["host_name"],
         mitre_techniques=alert["mitre_techniques"] or [],
-        evidence=dict(alert["evidence"]) if alert["evidence"] else None,
+        evidence=evidence_parsed,
         related_logs_count=related_count or 0,
     )
 

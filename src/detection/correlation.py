@@ -12,6 +12,7 @@ from typing import Optional
 
 from src.config.logging import get_logger
 from src.db.connection import get_pool
+from src.detection.alerts import create_alert
 from src.detection.sequences import list_sequences
 
 log = get_logger("detection.correlation")
@@ -129,7 +130,7 @@ async def detect_brute_force_then_success(
         time AS success_time,
         failed_count
     FROM login_sequence
-    WHERE event_action NOT LIKE $1
+    WHERE event_action LIKE $5
       AND failed_count >= $4
     ORDER BY time DESC
     """
@@ -142,6 +143,7 @@ async def detect_brute_force_then_success(
             time_window_minutes,  # $2 - window minutes
             lookback_hours,       # $3 - lookback hours
             failed_threshold,     # $4 - threshold
+            "%success%",          # $5 - success action pattern
         )
         results = []
         for row in rows:
@@ -644,8 +646,12 @@ async def get_host_sessions(
 # Run all correlations
 # ───────────────────────────────────────────────────────────────
 
-async def run_all_correlations() -> dict[str, list[dict]]:
-    """Run all correlation rules and return results with confidence scores."""
+async def run_all_correlations(persist_alerts: bool = False) -> dict[str, list[dict]]:
+    """Run all correlation rules and return results with confidence scores.
+
+    Args:
+        persist_alerts: If True, create alerts in the database for each match.
+    """
     results: dict[str, list[dict]] = {}
 
     correlation_funcs = {
@@ -663,6 +669,18 @@ async def run_all_correlations() -> dict[str, list[dict]]:
             results[rule_name] = await func()
             count = len(results[rule_name])
             log.info("correlation_complete", rule=rule_name, matches=count)
+            if persist_alerts and results[rule_name]:
+                for match in results[rule_name]:
+                    await create_alert(
+                        rule_id=None,
+                        rule_name=rule_name,
+                        severity=match.get("severity", "medium"),
+                        host_name=match.get("host_name", ""),
+                        description=match.get("title", ""),
+                        mitre_tactics=match.get("mitre_tactics", []),
+                        mitre_techniques=match.get("mitre_techniques", []),
+                        evidence={"match": match},
+                    )
         except Exception as e:
             log.error("correlation_failed", rule=rule_name, error=str(e))
             results[rule_name] = []

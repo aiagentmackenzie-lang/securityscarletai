@@ -123,17 +123,26 @@ class SOARPlaybook:
     async def _isolate_host(self, host_name: str) -> str:
         """Isolate a host from the network. NOT IMPLEMENTED — requires endpoint agent integration."""
         log.warning("soar_isolate_host_not_implemented", host_name=host_name)
-        return f"NOT_IMPLEMENTED: Host isolation for {host_name} requires endpoint agent integration"
+        raise HTTPException(
+            status_code=501,
+            detail=f"Host isolation is not implemented for {host_name}. Endpoint agent integration required.",
+        )
 
     async def _disable_user(self, username: str) -> str:
         """Disable a user account. NOT IMPLEMENTED — requires AD/LDAP integration."""
         log.warning("soar_disable_user_not_implemented", username=username)
-        return f"NOT_IMPLEMENTED: User disable for {username} requires AD/LDAP integration"
+        raise HTTPException(
+            status_code=501,
+            detail=f"User disable is not implemented for {username}. AD/LDAP integration required.",
+        )
 
     async def _kill_process(self, target: str) -> str:
         """Kill a process on a host. NOT IMPLEMENTED — requires endpoint agent integration."""
         log.warning("soar_kill_process_not_implemented", target=target)
-        return f"NOT_IMPLEMENTED: Process kill for {target} requires endpoint agent integration"
+        raise HTTPException(
+            status_code=501,
+            detail=f"Process kill is not implemented for {target}. Endpoint agent integration required.",
+        )
 
 
 class BruteForcePlaybook(SOARPlaybook):

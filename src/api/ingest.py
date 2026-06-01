@@ -68,7 +68,7 @@ async def ingest_events(
         )
 
     # Import here to avoid circular dependency
-    from src.api.main import writer
+    from src.services.writer import writer
 
     count = 0
     for event_data in events:

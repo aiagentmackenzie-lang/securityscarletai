@@ -75,7 +75,7 @@ async def login(request: LoginRequest):
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT id, username, password_hash, role, is_active, must_change_password FROM siem_users WHERE username = $1",  # noqa: E501
+            "SELECT id, username, password_hash, role, is_active, locked_until, failed_login_attempts, must_change_password FROM siem_users WHERE username = $1",  # noqa: E501
             request.username,
         )
 
@@ -249,10 +249,8 @@ async def force_change_password(
     log.info("force_password_changed", username=payload["sub"])
     return {"message": "Password changed successfully. You can now log in normally."}
 
-@router.post("/seed-admin", dependencies=[Depends(require_role("admin"))])
-async def seed_admin_user(
-    _user: dict = Depends(require_role("admin")),
-):
+@router.post("/seed-admin")
+async def seed_admin_user():
     """
     Create an initial admin user if no users exist.
 

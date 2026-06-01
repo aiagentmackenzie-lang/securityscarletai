@@ -60,14 +60,15 @@ class AlertTriageModel:
         "login_hour_deviation",     # Deviation from normal login hour
     ]
 
-    def __init__(self):
+    def __init__(self, load: bool = True):
         self.model: Optional[RandomForestClassifier] = None
         self.is_trained = False
         self.trained_at: Optional[float] = None
         self.training_samples: int = 0
         self.training_accuracy: Optional[float] = None
 
-        self._load_model()
+        if load:
+            self._load_model()
 
     @staticmethod
     def _sha256_file(filepath: Path) -> str:

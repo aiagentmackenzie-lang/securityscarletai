@@ -26,6 +26,18 @@ target_metadata = None
 # ... etc.
 
 
+def _get_database_url() -> str:
+    """Defer import of application settings until actually needed.
+
+    Importing src.config.settings at module level triggers Pydantic
+    validation (DB_PASSWORD, API_SECRET_KEY, etc.) before the .env
+    file might be loaded, causing alembic CLI to crash on fresh
+    machines or CI runners where env vars aren't exported.
+    """
+    from src.config.settings import settings
+    return settings.database_url_sync
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -38,6 +50,9 @@ def run_migrations_offline() -> None:
     script output.
 
     """
+    # Defer until actually needed — avoids triggering Pydantic env-var validation
+    # when the module is merely imported (e.g., by alembic CLI help).
+    config.set_main_option("sqlalchemy.url", _get_database_url())
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
@@ -57,6 +72,9 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    # Defer until actually needed — avoids triggering Pydantic env-var validation
+    # when the module is merely imported (e.g., by alembic CLI help).
+    config.set_main_option("sqlalchemy.url", _get_database_url())
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
