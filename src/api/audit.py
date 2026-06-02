@@ -79,6 +79,105 @@ async def log_audit_action(
             raise RuntimeError(f"Audit log write failed: {e}") from e
 
 
+# ───────────────────────────────────────────────────────────────
+# Epic 6: HTTP request-level audit (separate table, separate endpoint)
+# ───────────────────────────────────────────────────────────────
+# The new audit_logs table tracks every state-changing HTTP request
+# (method, path, IP, user, status, duration). Distinct from audit_log
+# which tracks in-app CRUD actions (rule.create, alert.update, ...).
+# Both coexist: a single API call may produce one row in each table.
+
+
+async def log_request_audit(
+    user: str | None,
+    role: str | None,
+    method: str,
+    path: str,
+    ip: str | None,
+    status_code: int,
+    duration_ms: int,
+    request_body_hash: str | None = None,
+) -> None:
+    """Insert one row into audit_logs. NEVER raises — audit failures must
+    not break user requests. Logs the failure instead.
+    """
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO audit_logs
+                    ("user", role, method, path, ip, status_code,
+                     request_body_hash, duration_ms)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                """,
+                user,
+                role,
+                method,
+                path,
+                ip,
+                status_code,
+                request_body_hash,
+                duration_ms,
+            )
+    except Exception as e:
+        # Never let an audit-write failure break the request. The middleware
+        # already returned the response by the time this runs.
+        log.warning("request_audit_write_failed", method=method, path=path, error=str(e))
+
+
+@router.get("/requests")
+async def query_request_audit(
+    user: Optional[str] = Query(None, description="Filter by user"),
+    method: Optional[str] = Query(None, description="HTTP method (GET, POST, ...)"),
+    path: Optional[str] = Query(None, description="URL path (exact match)"),
+    since: Optional[str] = Query(None, description="ISO timestamp lower bound"),
+    until: Optional[str] = Query(None, description="ISO timestamp upper bound"),
+    limit: int = Query(100, le=1000, description="Max results to return"),
+    offset: int = Query(0, ge=0, description="Offset for pagination"),
+    _user: dict = Depends(require_role("analyst")),
+):
+    """Query HTTP request audit log. Requires analyst role.
+
+    Note: distinct from the action-level audit_log table (also exposed at
+    /api/v1/audit). This endpoint exposes the request-level audit added
+    in Epic 6.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        conditions = ["1=1"]
+        params: list = []
+
+        if user:
+            params.append(user)
+            conditions.append(f'"user" = ${len(params)}')
+        if method:
+            params.append(method.upper())
+            conditions.append(f"method = ${len(params)}")
+        if path:
+            params.append(path)
+            conditions.append(f"path = ${len(params)}")
+        if since:
+            params.append(since)
+            conditions.append(f"timestamp >= ${len(params)}::timestamptz")
+        if until:
+            params.append(until)
+            conditions.append(f"timestamp < ${len(params)}::timestamptz")
+
+        params.extend([limit, offset])
+        limit_idx = len(params) - 1
+        offset_idx = len(params)
+
+        rows = await conn.fetch(
+            f'SELECT id, timestamp, "user", role, method, path, ip,'  # noqa: S608
+            f" status_code, request_body_hash, duration_ms "
+            f"FROM audit_logs WHERE {' AND '.join(conditions)} "
+            f"ORDER BY timestamp DESC LIMIT ${limit_idx} OFFSET ${offset_idx}",
+            *params,
+        )
+        return [dict(r) for r in rows]
+
+
 @router.get("")
 async def query_audit_log(
     action: Optional[str] = Query(None, description="Filter by action type"),

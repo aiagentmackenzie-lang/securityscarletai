@@ -325,7 +325,7 @@ class TestAuthRoleHierarchy:
         from src.config.settings import settings
 
         token = create_jwt("analyst1", "analyst")
-        payload = jwt.decode(token, settings.api_secret_key, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM])
         assert payload["sub"] == "analyst1"
         assert payload["role"] == "analyst"
 
@@ -339,7 +339,7 @@ class TestAuthRoleHierarchy:
         from src.api.auth import JWT_ALGORITHM
         from src.config.settings import settings
 
-        payload = jwt.decode(token, settings.api_secret_key, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM])
         assert "exp" in payload
 
     def test_constant_time_token_comparison(self):

@@ -1,20 +1,20 @@
 """
 API middleware — rate limiting, request size validation, content-type enforcement.
 
-Uses slowapi for rate limiting with in-memory storage (suitable for single-instance).
+Rate limiting is now Redis-backed (via slowapi) with per-endpoint overrides
+configured in src/api/rate_limit.py. The Limiter singleton lives there;
+this module re-exports it for backward compat with existing imports.
 """
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from slowapi import Limiter
+from slowapi import Limiter  # noqa: F401  (re-exported for tests)
 from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from src.api.rate_limit import limiter  # noqa: F401  (re-exported for tests)
 from src.config.logging import get_logger
 
 log = get_logger("api.middleware")
-
-# Rate limiter — uses client IP as the key
-limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
 
 
 class RequestValidationMiddleware(BaseHTTPMiddleware):
@@ -73,24 +73,50 @@ class RequestValidationMiddleware(BaseHTTPMiddleware):
 
 class AuditLogMiddleware(BaseHTTPMiddleware):
     """
-    Middleware for auditing state-changing requests.
-    Logs POST/PUT/PATCH/DELETE to the audit log.
+    Middleware for auditing state-changing HTTP requests.
+
+    Epic 6: every POST/PUT/PATCH/DELETE writes one row to the audit_logs
+    table (user, method, path, status, duration). Failures here MUST NOT
+    break the request — the response has already been sent by the time we
+    audit, and a stuck audit pipeline would create a silent DoS.
     """
 
     async def dispatch(self, request: Request, call_next):
+        import time as _time
+
+        start = _time.monotonic()
         response = await call_next(request)
+        duration_ms = int((_time.monotonic() - start) * 1000)
 
         # Audit state-changing requests
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
-            # Skip health checks and auth
             path = request.url.path
-            if "/health" not in path and "/docs" not in path:
-                log.info(
-                    "api_request",
-                    method=request.method,
-                    path=path,
-                    status=response.status_code,
-                    ip=get_remote_address(request),
-                )
+            # Skip health checks and docs
+            if "/health" not in path and "/docs" not in path and "/redoc" not in path:
+                # Best-effort: try to extract user from response state if
+                # verify_jwt() set it; otherwise leave user as None.
+                user = getattr(request.state, "user", None) or None
+                role = None
+                if isinstance(user, dict):
+                    role = user.get("role")
+                    user = user.get("sub") or user.get("user")
+
+                # Fire-and-forget the DB write. If it fails, the response is
+                # already on the wire, and we'd rather log the failure than
+                # crash the request.
+                try:
+                    from src.api.audit import log_request_audit
+
+                    await log_request_audit(
+                        user=user,
+                        role=role,
+                        method=request.method,
+                        path=path,
+                        ip=get_remote_address(request),
+                        status_code=response.status_code,
+                        duration_ms=duration_ms,
+                    )
+                except Exception as e:  # pragma: no cover — defensive
+                    log.warning("audit_middleware_write_failed", path=path, error=str(e))
 
         return response

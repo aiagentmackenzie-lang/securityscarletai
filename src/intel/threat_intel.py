@@ -28,6 +28,28 @@ log = get_logger("intel.feeds")
 FEED_REFRESH_INTERVAL_HOURS = 6
 
 # ───────────────────────────────────────────────────────────────
+# Feed health tracking (Epic 9: honest stats)
+# ───────────────────────────────────────────────────────────────
+# Tracks the OUTCOME of the most recent refresh attempt per source.
+# Read by get_threat_intel_stats() via _feed_status_for() so the API
+# surfaces real health, not just "is the key set?".
+#
+# Values stored here (one of):
+#   "ok"               — last refresh succeeded
+#   "error"            — last refresh raised an exception
+#   "never_refreshed"  — key IS set, but no successful refresh has run yet
+#   "no_key"           — key is not set in settings
+#
+# The helper _feed_status_for() reconciles this stored outcome with
+# the current settings (key may have been added/removed since the last
+# refresh) and returns the right string to the API.
+_feed_health: Dict[str, str] = {
+    "abuseipdb": "never_refreshed",
+    "otx":       "never_refreshed",
+    "urlhaus":   "ok",   # URLhaus is always-OK (no key, no auth)
+}
+
+# ───────────────────────────────────────────────────────────────
 # AbuseIPDB Client
 # ───────────────────────────────────────────────────────────────
 
@@ -373,9 +395,11 @@ async def refresh_all_feeds() -> Dict[str, int]:
             results["urlhaus"] = count
         else:
             results["urlhaus"] = 0
+        _feed_health["urlhaus"] = "ok"
     except Exception as e:
         log.error("urlhaus_refresh_failed", error=str(e))
         results["urlhaus"] = 0
+        _feed_health["urlhaus"] = "error"
 
     # AbuseIPDB — requires API key
     abuseipdb = AbuseIPDBClient()
@@ -393,11 +417,14 @@ async def refresh_all_feeds() -> Dict[str, int]:
                 results["abuseipdb"] = count
             else:
                 results["abuseipdb"] = 0
+            _feed_health["abuseipdb"] = "ok"
         except Exception as e:
             log.error("abuseipdb_refresh_failed", error=str(e))
             results["abuseipdb"] = 0
+            _feed_health["abuseipdb"] = "error"
     else:
         results["abuseipdb"] = -1  # Not configured
+        _feed_health["abuseipdb"] = "no_key"
 
     # OTX — requires API key
     otx = OTXClient()
@@ -419,11 +446,14 @@ async def refresh_all_feeds() -> Dict[str, int]:
                 await asyncio.sleep(1)
 
             results["otx"] = total_indicators
+            _feed_health["otx"] = "ok"
         except Exception as e:
             log.error("otx_refresh_failed", error=str(e))
             results["otx"] = 0
+            _feed_health["otx"] = "error"
     else:
         results["otx"] = -1  # Not configured
+        _feed_health["otx"] = "no_key"
 
     total = sum(v for v in results.values() if v > 0)
     log.info("threat_intel_refresh_complete", total_cached=total, details=results)
@@ -557,11 +587,42 @@ async def get_threat_intel_stats() -> Dict[str, Any]:
             "by_source": {row["source"]: row["count"] for row in by_source},
             "last_refresh": str(last_refresh) if last_refresh else "never",
             "feed_status": {
-                "abuseipdb": "configured" if settings.abuseipdb_api_key else "not_configured",
-                "otx": "configured" if settings.otx_api_key else "not_configured",
-                "urlhaus": "configured",  # Always available
+                # Epic 9: honest stats. Values:
+                #   "ok"              — last refresh succeeded
+                #   "error"           — last refresh raised
+                #   "no_key"          — API key not configured
+                #   "never_refreshed" — key set but no refresh has run yet
+                "abuseipdb": _feed_status_for("abuseipdb", settings.abuseipdb_api_key),
+                "otx":       _feed_status_for("otx",       settings.otx_api_key),
+                "urlhaus":   _feed_status_for("urlhaus",   "urlhaus"),  # always non-empty
+            },
+            "feed_keys": {  # Operator-facing: was a key ever configured?
+                "abuseipdb": bool(settings.abuseipdb_api_key),
+                "otx":       bool(settings.otx_api_key),
+                "urlhaus":   True,
             },
         }
+
+
+def _feed_status_for(source: str, api_key: str | None) -> str:
+    """Compute the current health string for a feed, reconciling the
+    most recent refresh outcome with the current settings.
+
+    Precedence (most important first):
+      1. If the key is currently missing -> "no_key"
+      2. If the stored state is "no_key" (stale from a refresh run when
+         no key was set) and the key is now set -> "never_refreshed"
+      3. Otherwise return the stored state (ok/error/never_refreshed),
+         defaulting to "never_refreshed" if no refresh has ever run.
+    """
+    if source != "urlhaus" and not api_key:
+        return "no_key"
+    stored = _feed_health.get(source, "never_refreshed")
+    if stored == "no_key":
+        # Refresh ran when no key was set, but a key is now configured.
+        # The stored state is stale; treat as never refreshed.
+        return "never_refreshed"
+    return stored
 
 
 # ───────────────────────────────────────────────────────────────

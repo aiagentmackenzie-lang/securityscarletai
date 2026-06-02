@@ -10,8 +10,10 @@ Enrichments applied (in order):
 Designed to be called from the ingestion pipeline (writer.py)
 for automatic enrichment of every incoming event.
 """
+import asyncio
 import ipaddress
 import socket
+import time
 from typing import Any
 
 from src.config.logging import get_logger
@@ -24,40 +26,84 @@ log = get_logger("enrichment")
 # ───────────────────────────────────────────────────────────────
 _geoip_reader = None
 _geoip_loaded = False
+_geoip_last_attempt: float = 0.0
+_GEOIP_RETRY_INTERVAL_SEC = 60.0  # Re-attempt init at most once per minute
 
 
 def _get_geoip_reader():
-    """Get or initialize the singleton GeoIP reader."""
-    global _geoip_reader, _geoip_loaded
+    """Get or initialize the singleton GeoIP reader.
+
+    Bug fix (Epic 9): the previous implementation set ``_geoip_loaded = True``
+    BEFORE the try/except, so a single init failure (missing DB file, perms,
+    locked FD) would permanently mark the singleton as loaded and we'd never
+    retry for the rest of the process lifetime. We now track the last
+    init attempt timestamp and allow periodic retry, but only after a
+    minimum interval (default 60s) so we don't thrash the FS on every
+    call when the DB is missing.
+    """
+    global _geoip_reader, _geoip_loaded, _geoip_last_attempt
 
     if _geoip_loaded:
         return _geoip_reader
 
-    _geoip_loaded = True  # Mark as attempted (don't retry on every call)
+    # Throttle retry attempts: if we tried recently and failed, skip until
+    # the interval has elapsed.
+    now = time.monotonic()
+    if _geoip_last_attempt and (now - _geoip_last_attempt) < _GEOIP_RETRY_INTERVAL_SEC:
+        return None
+    _geoip_last_attempt = now
+
     try:
         import geoip2.database
         _geoip_reader = geoip2.database.Reader("data/GeoLite2-City.mmdb")
+        _geoip_loaded = True
+        log.info("geoip_db_loaded")
         return _geoip_reader
     except FileNotFoundError:
         log.debug("geoip_db_not_found")
         _geoip_reader = None
+        # Do NOT set _geoip_loaded=True — we want to retry next time
         return None
     except Exception as e:
         log.debug("geoip_init_failed", error=str(e))
         _geoip_reader = None
+        # Do NOT set _geoip_loaded=True — we want to retry next time
         return None
+
+
+async def _geoip_retry_loop():
+    """Background coroutine that periodically attempts to (re)open the
+    GeoIP database. Useful if the operator drops the .mmdb file in after
+    the API has already started — we'll pick it up on the next cycle.
+
+    Runs forever; intended to be cancelled via ``asyncio.CancelledError``
+    on shutdown. Failures are logged at debug and swallowed.
+    """
+    while True:
+        await asyncio.sleep(_GEOIP_RETRY_INTERVAL_SEC)
+        if _geoip_loaded:
+            continue
+        # Throttle: only attempt one init per cycle, and respect the
+        # last-attempt gate in _get_geoip_reader.
+        try:
+            reader = _get_geoip_reader()
+            if reader is not None:
+                log.info("geoip_db_loaded_via_retry_loop")
+        except Exception as e:  # pragma: no cover — defensive
+            log.debug("geoip_retry_loop_error", error=str(e))
 
 
 def close_geoip_reader():
     """Close the singleton GeoIP reader (call on shutdown)."""
-    global _geoip_reader, _geoip_loaded
+    global _geoip_reader, _geoip_loaded, _geoip_last_attempt
     if _geoip_reader:
         try:
             _geoip_reader.close()
         except Exception:
             log.debug("geoip_close_failed")  # Non-critical, best-effort close
-        _geoip_reader = None
-        _geoip_loaded = False
+    _geoip_reader = None
+    _geoip_loaded = False
+    _geoip_last_attempt = 0.0
 
 
 def is_public_ip(ip_str: str | None) -> bool:
