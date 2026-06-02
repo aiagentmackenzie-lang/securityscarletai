@@ -117,6 +117,8 @@ class TestDetectBruteForce:
     @pytest.mark.asyncio
     async def test_detect_brute_force_with_results(self):
         """Should detect brute force patterns."""
+        from datetime import datetime, timezone
+
         from src.detection.correlation import detect_brute_force_then_success
 
         mock_pool = AsyncMock()
@@ -139,14 +141,20 @@ class TestDetectBruteForce:
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
         with patch("src.detection.correlation.get_pool", return_value=mock_pool):
-            result = await detect_brute_force_then_success()
+            result = await detect_brute_force_then_success(
+                mock_conn, datetime(2025, 1, 1, 12, 30, 0, tzinfo=timezone.utc)
+            )
             assert len(result) == 1
             assert result[0]["correlation_rule"] == "brute_force_success"
             assert "confidence" in result[0]
+            assert "correlation_id" in result[0]
+            assert result[0]["severity"] == "critical"
 
     @pytest.mark.asyncio
     async def test_detect_brute_force_no_results(self):
         """Should return empty list when no brute force detected."""
+        from datetime import datetime, timezone
+
         from src.detection.correlation import detect_brute_force_then_success
 
         mock_pool = AsyncMock()
@@ -159,12 +167,14 @@ class TestDetectBruteForce:
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
         with patch("src.detection.correlation.get_pool", return_value=mock_pool):
-            result = await detect_brute_force_then_success()
+            result = await detect_brute_force_then_success(
+                mock_conn, datetime(2025, 1, 1, 12, 30, 0, tzinfo=timezone.utc)
+            )
             assert result == []
 
 
 class TestRunAllCorrelations:
-    """Test run_all_correlations function."""
+    """Test run_all_correlations function (Epic 2 contract)."""
 
     @pytest.mark.asyncio
     async def test_run_all_returns_results(self):
@@ -180,23 +190,25 @@ class TestRunAllCorrelations:
 
         with patch("src.detection.correlation.get_pool", return_value=mock_pool):
             result = await run_all_correlations()
+            # New contract: dict with matches, total_matches, persisted, as_of, per_rule
             assert isinstance(result, dict)
-            assert len(result) == 7  # All 7 rules should be present
+            assert "matches" in result
+            assert "total_matches" in result
+            assert "persisted" in result
+            assert "as_of" in result
+            assert "per_rule" in result
+            # All 7 rules should be present in per_rule
+            assert len(result["per_rule"]) == 7
             for rule_name in CORRELATION_RULES:
-                assert rule_name in result
+                assert rule_name in result["per_rule"]
 
     @pytest.mark.asyncio
     async def test_run_all_with_error(self):
         """Should handle errors in individual rules gracefully."""
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
-        # First call succeeds, rest throw errors
-        mock_conn.fetch = AsyncMock(
-            side_effect=[
-                [],  # brute force
-                Exception("DB error"),
-            ]
-        )
+        # All calls throw errors
+        mock_conn.fetch = AsyncMock(side_effect=Exception("DB error"))
 
         acquirer = MagicMock()
         acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -205,8 +217,10 @@ class TestRunAllCorrelations:
 
         with patch("src.detection.correlation.get_pool", return_value=mock_pool):
             result = await run_all_correlations()
-            # Results should still contain all rule names
+            # Even with errors, the per_rule dict is populated
             assert isinstance(result, dict)
+            assert isinstance(result["per_rule"], dict)
             # Rules that errored should have empty lists
-            for key in result:
-                assert isinstance(result[key], list)
+            for key, val in result["per_rule"].items():
+                assert isinstance(val, list)
+                assert val == []

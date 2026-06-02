@@ -88,6 +88,8 @@ class TestCorrelationDetection:
 
     @pytest.mark.asyncio
     async def test_detect_payload_callback(self):
+        from datetime import datetime, timezone
+
         from src.detection.correlation import detect_payload_callback
 
         mock_pool = AsyncMock()
@@ -99,11 +101,15 @@ class TestCorrelationDetection:
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
         with patch("src.detection.correlation.get_pool", return_value=mock_pool):
-            result = await detect_payload_callback()
+            result = await detect_payload_callback(
+                mock_conn, datetime(2026, 5, 31, 22, 0, 0, tzinfo=timezone.utc)
+            )
             assert isinstance(result, list)
 
     @pytest.mark.asyncio
     async def test_detect_persistence_activated(self):
+        from datetime import datetime, timezone
+
         from src.detection.correlation import detect_persistence_activated
 
         mock_pool = AsyncMock()
@@ -115,11 +121,15 @@ class TestCorrelationDetection:
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
         with patch("src.detection.correlation.get_pool", return_value=mock_pool):
-            result = await detect_persistence_activated()
+            result = await detect_persistence_activated(
+                mock_conn, datetime(2026, 5, 31, 22, 0, 0, tzinfo=timezone.utc)
+            )
             assert isinstance(result, list)
 
     @pytest.mark.asyncio
     async def test_detect_data_exfiltration(self):
+        from datetime import datetime, timezone
+
         from src.detection.correlation import detect_data_exfiltration
 
         mock_pool = AsyncMock()
@@ -131,11 +141,15 @@ class TestCorrelationDetection:
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
         with patch("src.detection.correlation.get_pool", return_value=mock_pool):
-            result = await detect_data_exfiltration()
+            result = await detect_data_exfiltration(
+                mock_conn, datetime(2026, 5, 31, 22, 0, 0, tzinfo=timezone.utc)
+            )
             assert isinstance(result, list)
 
     @pytest.mark.asyncio
     async def test_detect_privilege_escalation_chain(self):
+        from datetime import datetime, timezone
+
         from src.detection.correlation import detect_privilege_escalation_chain
 
         mock_pool = AsyncMock()
@@ -147,7 +161,9 @@ class TestCorrelationDetection:
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
         with patch("src.detection.correlation.get_pool", return_value=mock_pool):
-            result = await detect_privilege_escalation_chain()
+            result = await detect_privilege_escalation_chain(
+                mock_conn, datetime(2026, 5, 31, 22, 0, 0, tzinfo=timezone.utc)
+            )
             assert isinstance(result, list)
 
     @pytest.mark.asyncio
@@ -309,7 +325,7 @@ class TestAuthRoleHierarchy:
         from src.config.settings import settings
 
         token = create_jwt("analyst1", "analyst")
-        payload = jwt.decode(token, settings.api_secret_key, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM])
         assert payload["sub"] == "analyst1"
         assert payload["role"] == "analyst"
 
@@ -323,7 +339,7 @@ class TestAuthRoleHierarchy:
         from src.api.auth import JWT_ALGORITHM
         from src.config.settings import settings
 
-        payload = jwt.decode(token, settings.api_secret_key, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM])
         assert "exp" in payload
 
     def test_constant_time_token_comparison(self):

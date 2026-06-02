@@ -151,6 +151,125 @@ See [docs/AI.md](docs/AI.md) for detailed documentation on:
 
 ---
 
+## Event Enrichment
+
+Every ingested event flows through a fire-and-forget enrichment pipeline
+(added in Epic 9). The HTTP `/ingest` endpoint returns 202 Accepted as
+soon as the batch is queued in the writer; enrichment runs as a
+background `asyncio.create_task` and never blocks ingestion.
+
+Enrichments applied (in order):
+1. **GeoIP** — country, city, lat/lon for public IPs (MaxMind GeoLite2-City).
+2. **DNS reverse** — PTR record for public IPs.
+3. **Threat Intel** — match against the cached IOC database (AbuseIPDB,
+   OTX, URLhaus); hits boost the event severity.
+4. **Severity boost** — high-confidence threat-intel matches upgrade the
+   event to `high` or `critical` automatically.
+
+### GeoIP singleton retry (Epic 9 fix)
+
+The pre-Epic-9 GeoIP reader set its "loaded" flag *before* the
+init try/except, so a single missing `.mmdb` (or any init failure)
+would permanently disable GeoIP for the rest of the process lifetime.
+The fix:
+
+- `_geoip_loaded` is only set to `True` after a successful `Reader()` open.
+- Init attempts are throttled to once per 60s, so a missing file doesn't
+  thrash the FS.
+- Optional `_geoip_retry_loop()` coroutine can be scheduled from
+  `main.py` to periodically re-attempt — useful when an operator drops
+  the `.mmdb` in after the API has already started.
+
+### Correlation trigger
+
+The ingest path also fires `run_all_correlations(persist_alerts=True)`
+as a background task, so a single batch of events can produce new
+alerts without a separate correlation sweep. The call is fire-and-forget:
+correlation errors are logged but never block the HTTP response.
+
+### Honest threat-intel stats
+
+`GET /api/v1/threat-intel/stats` now reports real feed health instead
+of "is the key set?":
+
+```json
+{
+  "feed_status": {
+    "abuseipdb": "ok" | "error" | "no_key" | "never_refreshed",
+    "otx":       "ok" | "error" | "no_key" | "never_refreshed",
+    "urlhaus":   "ok"
+  },
+  "feed_keys": {
+    "abuseipdb": true,
+    "otx":       true,
+    "urlhaus":   true
+  }
+}
+```
+
+`feed_status` reflects the *last refresh attempt's outcome*. `feed_keys`
+is the legacy "do we have a key configured" view, kept for ops who
+only care about config presence.
+
+---
+
+## Dashboard
+
+A Streamlit dashboard is included in the repo (`dashboard/`) and
+shipped as a `dashboard` service in `docker-compose.yml` (Epic 10).
+
+### Running it
+
+```bash
+# With docker-compose (recommended)
+docker compose up -d dashboard
+open http://localhost:8501
+
+# Or directly (for dev)
+poetry run streamlit run dashboard/main.py
+```
+
+The dashboard container depends on the `api` service being healthy
+(uses its healthcheck), so it won't start until the API is reachable
+on `http://api:8000`.
+
+### Auth
+
+The dashboard supports two auth flows:
+
+1. **Interactive JWT login** (default). Visit `http://localhost:8501`,
+   enter username/password (the API's `seed-admin` endpoint creates
+   the first admin). The JWT is stored in `st.session_state`.
+
+2. **Service-to-service bearer** (headless / docker). Set
+   `DASHBOARD_API_TOKEN` in `.env` to a valid API token (typically
+   the same value as `API_BEARER_TOKEN`). The dashboard will use
+   this as a fallback `Authorization: Bearer ...` header on every
+   API call when no user JWT is in the session. Useful for:
+   - Headless / automated dashboard access
+   - Screenshot capture tools
+   - Pre-authenticated demos
+
+The API's unified auth dependency accepts either form, so the
+dashboard works with both.
+
+### Dashboard views
+
+| View | File | Purpose |
+|------|------|---------|
+| Alerts | `dashboard/alerts_view.py` | Triage queue, bulk operations, severity filtering |
+| Cases | `dashboard/cases_view.py` | Case management, alert linking, notes |
+| Logs | `dashboard/logs_view.py` | Recent events, host/category filtering |
+| Hunt | `dashboard/hunt_view.py` | MITRE ATT&CK hunt templates, gap analysis |
+| Rules | `dashboard/rules_view.py` | Detection rule CRUD (admin only) |
+| AI Chat | `dashboard/ai_chat_view.py` | NL threat-hunting assistant |
+| Charts | `dashboard/charts.py` | Time-series visualisations |
+
+All views go through `dashboard/api_client.py` — no direct database
+access from the dashboard.
+
+---
+
 ## Testing
 
 ```bash

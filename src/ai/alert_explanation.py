@@ -1,33 +1,88 @@
 """
-AI-powered alert explanation generator — v2 (Phase 3).
+AI-powered alert explanation — v3 (LLMResult contract).
 
-Generates human-readable explanations of security alerts using LLM.
-Changes from Phase 0:
-- Fallback when Ollama is down (template explanations)
-- Async-friendly with configurable timeout
-- Wired into alert creation flow
+Generates human-readable explanations of security alerts using the
+local Ollama LLM. Returns a structured dict on every call so callers
+can display `fallback_used` and `warning` to the end user.
+
+Contract (returned dict keys):
+  - explanation        (str)  — the text to show
+  - source             (str)  — "ollama" | "template_library"
+  - model              (str)  — model name or None
+  - fallback_used      (bool) — True if served from template library
+  - warning            (str|None) — user-facing warning when fallback fires
+  - tokens_in          (int)
+  - tokens_out         (int)
+  - latency_ms         (int)
+  - prompt_version     (str)  — which prompt template produced this output
+  - cost_recorded      (bool) — True if written to ai_usage table
 """
 import json
 from typing import Any, Dict, List, Optional
 
-from src.ai.ollama_client import FALLBACK_MESSAGE, query_llm
+from src.ai.cost_tracker import record_usage
+from src.ai.ollama_client import LLMResult, query_llm
+from src.ai.prompts import (
+    ALERT_EXPLANATION_SYSTEM,
+    ALERT_EXPLANATION_PROMPT_VERSION,
+    render_alert_explanation,
+    render_alert_summary,
+    render_investigation_steps,
+)
 from src.config.logging import get_logger
 
 log = get_logger("ai.alert_explanation")
 
 
-SYSTEM_PROMPT = (
-    "You are a cybersecurity analyst explaining security alerts to SOC analysts.\n"
-    "Your explanations should be:\n"
-    "- Clear and concise (2-4 sentences)\n"
-    "- Actionable (what to investigate next)\n"
-    "- Technical but accessible\n"
-    "- Include risk assessment\n\n"
-    "Format your response as:\n"
-    "1. **What happened**: Brief description of the detected activity\n"
-    "2. **Why it matters**: Risk/context assessment\n"
-    "3. **Next steps**: Specific investigation recommendations"
-)
+# Backward-compat re-exports — these used to live in this module.
+SYSTEM_PROMPT = ALERT_EXPLANATION_SYSTEM
+PROMPT_VERSION = ALERT_EXPLANATION_PROMPT_VERSION
+# FALLBACK_MESSAGE — also re-exported below for legacy callers
+FALLBACK_MESSAGE = "[AI unavailable — Ollama is not responding. Feature degraded gracefully.]"
+
+
+def _generic_fallback(
+    rule_name: str,
+    rule_description: str,
+    severity: str,
+    host_name: str,
+) -> str:
+    """Generic fallback explanation when no template matches."""
+    return (
+        f"**Alert: {rule_name}** (Severity: {severity.upper()})\n\n"
+        f"This alert was triggered on host **{host_name}**.\n"
+        f"Rule description: {rule_description}\n\n"
+        f"**Next steps**: Review the alert evidence, check related logs, "
+        f"and determine if this is a true positive or false positive."
+    )
+
+
+def _fallback_investigation_steps(alert_type: str, host_name: str) -> List[str]:
+    """Provide fallback investigation steps when LLM is unavailable."""
+    return [
+        f"1. Review all recent alerts on {host_name}",
+        f"2. Check authentication logs for {host_name}",
+        f"3. Review process execution history on {host_name}",
+        f"4. Check network connections from {host_name}",
+        "5. Compare activity against known MITRE ATT&CK techniques",
+        "6. Verify if host has threat intelligence matches",
+    ]
+
+
+async def _record(result: LLMResult, user: Optional[str], endpoint: str) -> bool:
+    """Cost-tracking wrapper. Never raises."""
+    return await record_usage(
+        user=user,
+        endpoint=endpoint,
+        model=result.model_used or "template_library",
+        tokens_in=result.tokens_in,
+        tokens_out=result.tokens_out,
+        latency_ms=result.latency_ms,
+        prompt_version=result.prompt_version,
+        source=result.source,
+        fallback_used=result.fallback_used,
+        warning=result.warning,
+    )
 
 
 async def explain_alert(
@@ -38,83 +93,87 @@ async def explain_alert(
     mitre_techniques: Optional[List[str]] = None,
     evidence: Optional[Dict[str, Any]] = None,
     related_logs_count: int = 0,
-) -> str:
-    """
-    Generate an AI explanation for a security alert.
+    user: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Generate an AI explanation for a security alert.
 
-    Falls back to template explanations when Ollama is unavailable.
+    Returns a dict that ALWAYS includes `fallback_used` and `warning`
+    keys — callers can show these to the end user when Ollama is down.
 
-    Args:
-        rule_name: Name of the detection rule that fired
-        rule_description: Description from the rule
-        severity: Alert severity (critical, high, medium, low)
-        host_name: Affected host
-        mitre_techniques: List of MITRE technique IDs
-        evidence: Alert evidence data
-        related_logs_count: Number of related log entries
-
-    Returns:
-        Human-readable explanation string
+    Never raises. Always returns a dict.
     """
     mitre_techniques = mitre_techniques or []
 
-    # Build context
-    context = (
-        f"Alert Details:\n"
-        f"- Rule: {rule_name}\n"
-        f"- Description: {rule_description}\n"
-        f"- Severity: {severity.upper()}\n"
-        f"- Affected Host: {host_name}\n"
-        f"- MITRE ATT&CK: {', '.join(mitre_techniques) if mitre_techniques else 'N/A'}\n"
-        f"- Related Events: {related_logs_count}\n"
+    # Build the fallback first so we can hand it to query_llm
+    fallback_text = get_template_explanation(rule_name) or _generic_fallback(
+        rule_name, rule_description, severity, host_name
     )
 
+    # Build prompt via Jinja2 (versioned)
+    evidence_str = ""
     if evidence:
         evidence_str = json.dumps(evidence, indent=2, default=str)[:500]
-        context += f"\nEvidence:\n{evidence_str}"
-
-    prompt = (
-        f"Analyze this security alert and provide an explanation:\n\n"
-        f"{context}\n"
-        f"Generate a clear explanation covering what happened, "
-        f"why it matters, and what to investigate."
+    prompt, prompt_version, _version_hash = render_alert_explanation(
+        rule_name=rule_name,
+        rule_description=rule_description,
+        severity=severity,
+        host_name=host_name,
+        mitre_techniques=mitre_techniques,
+        evidence_str=evidence_str,
+        related_logs_count=related_logs_count,
     )
 
     log.info("generating_alert_explanation", rule=rule_name, host=host_name)
 
-    explanation = await query_llm(
+    result: LLMResult = await query_llm(
         prompt=prompt,
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=ALERT_EXPLANATION_SYSTEM,
         temperature=0.2,
         max_tokens=512,
+        prompt_version=prompt_version,
+        fallback_text=fallback_text,
     )
 
-    # Fallback to template if Ollama is down
-    if explanation == FALLBACK_MESSAGE:
+    if result.source == "template_library":
         log.info("alert_explanation_fallback_llm", rule=rule_name)
-        template = get_template_explanation(rule_name)
-        if template:
-            return template
-        # Generic fallback explanation
-        return (
-            f"**Alert: {rule_name}** (Severity: {severity.upper()})\n\n"
-            f"This alert was triggered on host **{host_name}**.\n"
-            f"Rule description: {rule_description}\n\n"
-            f"**Next steps**: Review the alert evidence, check related logs, "
-            f"and determine if this is a true positive or false positive."
-        )
 
-    return explanation
+    cost_recorded = await _record(result, user=user, endpoint="ai.explain")
+
+    return {
+        "explanation": result.text,
+        "source": result.source,
+        "model": result.model_used,
+        "fallback_used": result.fallback_used,
+        "warning": result.warning,
+        "tokens_in": result.tokens_in,
+        "tokens_out": result.tokens_out,
+        "latency_ms": result.latency_ms,
+        "prompt_version": result.prompt_version,
+        "cost_recorded": cost_recorded,
+    }
 
 
-async def summarize_multiple_alerts(alerts: List[dict]) -> str:
-    """
-    Summarize multiple related alerts into a single narrative.
+async def summarize_multiple_alerts(
+    alerts: List[dict],
+    user: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Summarize multiple related alerts into a single narrative.
 
-    Useful for correlating alerts from the same attack campaign.
+    Returns the same dict shape as `explain_alert`.
     """
     if not alerts:
-        return "No alerts to summarize."
+        return {
+            "explanation": "No alerts to summarize.",
+            "source": "template_library",
+            "model": None,
+            "fallback_used": True,
+            "warning": None,
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "latency_ms": 0,
+            "prompt_version": None,
+            "cost_recorded": False,
+        }
 
     alert_summaries = []
     for alert in alerts[:5]:
@@ -123,73 +182,75 @@ async def summarize_multiple_alerts(alerts: List[dict]) -> str:
         host = alert.get("host_name", "unknown")
         time_str = str(alert.get("time", "unknown"))[:19]
         alert_summaries.append(f"- [{severity}] {rule} on {host} at {time_str}")
+    summaries_text = "\n".join(alert_summaries)
+    truncated = max(0, len(alerts) - 5)
 
-    context = "Related Alerts:\n" + "\n".join(alert_summaries)
-    if len(alerts) > 5:
-        context += f"\n... and {len(alerts) - 5} more alerts"
+    prompt, prompt_version, _ = render_alert_summary(
+        alert_summaries=summaries_text,
+        truncated_count=truncated,
+    )
 
-    prompt = (
-        f"Analyze these related security alerts and identify patterns:\n\n"
-        f"{context}\n\n"
-        f"Provide:\n"
-        f"1. Pattern/campaign summary (what's the attack chain?)\n"
-        f"2. Affected scope (which hosts/users?)\n"
-        f"3. Recommended response priority\n"
-        f"4. Suggested containment actions"
+    fallback_text = (
+        f"Cluster of {len(alerts)} related alerts detected. "
+        f"Severity breakdown: " +
+        ", ".join(
+            f"{s}: {sum(1 for a in alerts if a.get('severity') == s)}"
+            for s in ["critical", "high", "medium", "low"]
+        ) +
+        ". Affected hosts: " +
+        ", ".join(set(a.get("host_name", "?") for a in alerts[:5]))
     )
 
     log.info("summarizing_alert_cluster", count=len(alerts))
 
-    summary = await query_llm(
+    result = await query_llm(
         prompt=prompt,
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=ALERT_EXPLANATION_SYSTEM,
         temperature=0.2,
         max_tokens=600,
+        prompt_version=prompt_version,
+        fallback_text=fallback_text,
     )
 
-    if summary == FALLBACK_MESSAGE:
-        return (
-            f"Cluster of {len(alerts)} related alerts detected. "
-            f"Severity breakdown: " +
-            ", ".join(
-                f"{s}: {sum(1 for a in alerts if a.get('severity') == s)}"
-                for s in ["critical", "high", "medium", "low"]
-            ) +
-            ". Affected hosts: " +
-            ", ".join(set(a.get("host_name", "?") for a in alerts[:5]))
-        )
+    cost_recorded = await _record(result, user=user, endpoint="ai.summarize")
 
-    return summary
+    return {
+        "explanation": result.text,
+        "source": result.source,
+        "model": result.model_used,
+        "fallback_used": result.fallback_used,
+        "warning": result.warning,
+        "tokens_in": result.tokens_in,
+        "tokens_out": result.tokens_out,
+        "latency_ms": result.latency_ms,
+        "prompt_version": result.prompt_version,
+        "cost_recorded": cost_recorded,
+    }
 
 
 async def suggest_investigation_steps(
     alert_type: str,
     host_name: str,
     user_name: Optional[str] = None,
-) -> List[str]:
-    """
-    Suggest specific investigation steps for an alert type.
+    user: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Suggest specific investigation steps for an alert type.
 
-    Returns list of actionable investigation tasks.
+    Returns dict with `steps` (list) and the same metadata keys as
+    `explain_alert`.
     """
-    context = f"Alert Type: {alert_type}\nAffected Host: {host_name}\n"
-    if user_name:
-        context += f"User: {user_name}\n"
-
-    prompt = (
-        f"Suggest 5-7 specific investigation steps for this security alert:\n\n"
-        f"{context}\n"
-        f"Format as a numbered list of actionable tasks an analyst should perform.\n"
-        f"Include:\n"
-        f"- What logs to check\n"
-        f"- What artifacts to examine\n"
-        f"- What questions to answer\n"
-        f"- What tools might help"
+    prompt, prompt_version, _ = render_investigation_steps(
+        alert_type=alert_type,
+        host_name=host_name,
+        user_name=user_name,
     )
+
+    fallback_steps = _fallback_investigation_steps(alert_type, host_name)
+    fallback_text = "\n".join(fallback_steps)
 
     log.info("suggesting_investigation", type=alert_type, host=host_name)
 
-    response = await query_llm(
+    result = await query_llm(
         prompt=prompt,
         system_prompt=(
             "You are a SOC analyst. "
@@ -197,31 +258,35 @@ async def suggest_investigation_steps(
         ),
         temperature=0.3,
         max_tokens=400,
+        prompt_version=prompt_version,
+        fallback_text=fallback_text,
     )
 
-    if response == FALLBACK_MESSAGE:
-        return _fallback_investigation_steps(alert_type, host_name)
-
     # Parse into list (simple split on newlines)
-    steps = [
-        s.strip() for s in response.split("\n")
-        if s.strip() and s.strip()[0].isdigit()
-    ]
-    return steps if steps else [response]
+    if result.source == "ollama":
+        steps = [
+            s.strip() for s in result.text.split("\n")
+            if s.strip() and s.strip()[0].isdigit()
+        ]
+        if not steps:
+            steps = [result.text]
+    else:
+        steps = fallback_steps
 
+    cost_recorded = await _record(result, user=user, endpoint="ai.investigate")
 
-def _fallback_investigation_steps(
-    alert_type: str, host_name: str
-) -> List[str]:
-    """Provide fallback investigation steps when LLM is unavailable."""
-    return [
-        f"1. Review all recent alerts on {host_name}",
-        f"2. Check authentication logs for {host_name}",
-        f"3. Review process execution history on {host_name}",
-        f"4. Check network connections from {host_name}",
-        "5. Compare activity against known MITRE ATT&CK techniques",
-        "6. Verify if host has threat intelligence matches",
-    ]
+    return {
+        "steps": steps,
+        "source": result.source,
+        "model": result.model_used,
+        "fallback_used": result.fallback_used,
+        "warning": result.warning,
+        "tokens_in": result.tokens_in,
+        "tokens_out": result.tokens_out,
+        "latency_ms": result.latency_ms,
+        "prompt_version": result.prompt_version,
+        "cost_recorded": cost_recorded,
+    }
 
 
 # Pre-defined explanations for common alert types (LLM fallback)
@@ -302,11 +367,11 @@ TEMPLATE_EXPLANATIONS: Dict[str, str] = {
 
 def get_template_explanation(alert_type: str) -> Optional[str]:
     """Get pre-defined explanation template (LLM fallback)."""
-    # Try exact match first
+    if not alert_type:
+        return None
     key = alert_type.lower().replace(" ", "_").replace("-", "_")
     if key in TEMPLATE_EXPLANATIONS:
         return TEMPLATE_EXPLANATIONS[key]
-    # Try partial match
     for template_key, template_val in TEMPLATE_EXPLANATIONS.items():
         if template_key in key or key in template_key:
             return template_val

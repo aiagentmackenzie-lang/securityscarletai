@@ -23,6 +23,7 @@ from src.ai.alert_explanation import (
     suggest_investigation_steps,
     summarize_multiple_alerts,
 )
+from src.ai.ollama_client import LLMResult
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TEMPLATE_EXPLANATIONS structure
@@ -107,8 +108,13 @@ class TestExplainAlert:
             "2. **Why it matters**: Possible credential compromise\n"
             "3. **Next steps**: Review login history"
         )
+        mock_result = LLMResult(
+            ok=True, text=mock_explanation, source="ollama",
+            model_used="mistral:7b", tokens_in=20, tokens_out=15,
+            latency_ms=300, fallback_used=False, prompt_version="v1.0.0",
+        )
 
-        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_explanation)):
+        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)):
             result = await explain_alert(
                 rule_name="Brute Force SSH",
                 rule_description="Multiple failed SSH login attempts",
@@ -119,14 +125,19 @@ class TestExplainAlert:
                 related_logs_count=50,
             )
 
-        assert "Brute Force SSH" in result or "brute force" in result.lower()
+        assert result["source"] == "ollama"
+        assert "Brute Force SSH" in result["explanation"] or "brute force" in result["explanation"].lower()
 
     @pytest.mark.asyncio
     async def test_explain_fallback_to_template(self):
         """Should fallback to template when LLM is unavailable."""
-        from src.ai.ollama_client import FALLBACK_MESSAGE
-
-        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=FALLBACK_MESSAGE)):
+        template_text = get_template_explanation("brute_force_ssh") or ""
+        mock_result = LLMResult(
+            ok=True, text=template_text, source="template_library", model_used=None,
+            tokens_in=0, tokens_out=0, latency_ms=0, fallback_used=True,
+            warning="Ollama not responding", prompt_version="v1.0.0",
+        )
+        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)):
             result = await explain_alert(
                 rule_name="brute_force_ssh",
                 rule_description="Multiple failed SSH login attempts",
@@ -135,14 +146,25 @@ class TestExplainAlert:
             )
 
         # Should use template for "brute_force_ssh"
-        assert "brute force" in result.lower() or "SSH" in result
+        assert result["fallback_used"] is True
+        assert "brute force" in result["explanation"].lower() or "SSH" in result["explanation"]
 
     @pytest.mark.asyncio
     async def test_explain_fallback_generic(self):
         """Should fallback to generic explanation when no template matches."""
-        from src.ai.ollama_client import FALLBACK_MESSAGE
-
-        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=FALLBACK_MESSAGE)):
+        # No template for "custom_alert_xyz" — explain_alert will use the
+        # _generic_fallback builder. The mock should mirror what query_llm
+        # would return: the fallback_text the caller passed in.
+        from src.ai.alert_explanation import _generic_fallback
+        fallback_text = _generic_fallback(
+            "custom_alert_xyz", "Custom alert description", "medium", "workstation-01"
+        )
+        mock_result = LLMResult(
+            ok=True, text=fallback_text, source="template_library", model_used=None,
+            tokens_in=0, tokens_out=0, latency_ms=0, fallback_used=True,
+            warning="Ollama not responding", prompt_version="v1.0.0",
+        )
+        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)):
             result = await explain_alert(
                 rule_name="custom_alert_xyz",
                 rule_description="Custom alert description",
@@ -150,22 +172,28 @@ class TestExplainAlert:
                 host_name="workstation-01",
             )
 
-        # Generic fallback explanation should have key elements
+        assert result["fallback_used"] is True
+        explanation = result["explanation"]
         assert (
-            "medium" in result.upper()
-            or "Medium" in result
-            or "workstation-01" in result
-            or "Next steps" in result
-            or "custom_alert" in result.lower()
+            "medium" in explanation.upper()
+            or "Medium" in explanation
+            or "workstation-01" in explanation
+            or "Next steps" in explanation
+            or "custom_alert" in explanation.lower()
         )
 
     @pytest.mark.asyncio
     async def test_explain_with_mitre_and_evidence(self):
         """Should include MITRE techniques and evidence in context."""
         mock_explanation = "Analysis of the alert."
+        mock_result = LLMResult(
+            ok=True, text=mock_explanation, source="ollama",
+            model_used="mistral:7b", tokens_in=20, tokens_out=15,
+            latency_ms=300, fallback_used=False, prompt_version="v1.0.0",
+        )
 
         with patch(
-            "src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_explanation)
+            "src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)
         ) as mock_llm:
             await explain_alert(
                 rule_name="C2 Beaconing",
@@ -185,8 +213,12 @@ class TestExplainAlert:
     async def test_explain_no_mitre_no_evidence(self):
         """Should work with no MITRE techniques or evidence."""
         mock_explanation = "Simple explanation."
-
-        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_explanation)):
+        mock_result = LLMResult(
+            ok=True, text=mock_explanation, source="ollama",
+            model_used="mistral:7b", tokens_in=20, tokens_out=15,
+            latency_ms=300, fallback_used=False, prompt_version="v1.0.0",
+        )
+        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)):
             result = await explain_alert(
                 rule_name="Simple Alert",
                 rule_description="A simple alert",
@@ -194,7 +226,8 @@ class TestExplainAlert:
                 host_name="ws-01",
             )
 
-        assert result == "Simple explanation."
+        assert result["explanation"] == "Simple explanation."
+        assert result["source"] == "ollama"
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -207,12 +240,17 @@ class TestSummarizeMultipleAlerts:
     async def test_summarize_empty_list(self):
         """Should return message for empty list."""
         result = await summarize_multiple_alerts([])
-        assert "no" in result.lower() or "No" in result
+        assert "no" in result["explanation"].lower() or "No" in result["explanation"]
 
     @pytest.mark.asyncio
     async def test_summarize_with_llm(self):
         """Should return LLM summary of alerts."""
         mock_summary = "These alerts appear to be part of a coordinated attack campaign."
+        mock_result = LLMResult(
+            ok=True, text=mock_summary, source="ollama",
+            model_used="mistral:7b", tokens_in=20, tokens_out=15,
+            latency_ms=300, fallback_used=False, prompt_version="v1.0.0",
+        )
 
         alerts = [
             {
@@ -229,16 +267,15 @@ class TestSummarizeMultipleAlerts:
             },
         ]
 
-        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_summary)):
+        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)):
             result = await summarize_multiple_alerts(alerts)
 
-        assert "coordinated" in result.lower() or "attack" in result.lower()
+        assert "coordinated" in result["explanation"].lower() or "attack" in result["explanation"].lower()
+        assert result["source"] == "ollama"
 
     @pytest.mark.asyncio
     async def test_summarize_fallback(self):
         """Should return fallback summary when LLM unavailable."""
-        from src.ai.ollama_client import FALLBACK_MESSAGE
-
         alerts = [
             {
                 "severity": "high",
@@ -253,18 +290,33 @@ class TestSummarizeMultipleAlerts:
                 "time": "2024-01-01",
             },
         ]
+        # Replicate what summarize_multiple_alerts builds for fallback_text
+        fallback_text = (
+            f"Cluster of {len(alerts)} related alerts detected. "
+            f"Severity breakdown: " +
+            ", ".join(
+                f"{s}: {sum(1 for a in alerts if a.get('severity') == s)}"
+                for s in ["critical", "high", "medium", "low"]
+            ) +
+            ". Affected hosts: " +
+            ", ".join(set(a.get("host_name", "?") for a in alerts[:5]))
+        )
+        mock_result = LLMResult(
+            ok=True, text=fallback_text, source="template_library", model_used=None,
+            tokens_in=0, tokens_out=0, latency_ms=0, fallback_used=True,
+            warning="Ollama not responding", prompt_version="v1.0.0",
+        )
 
-        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=FALLBACK_MESSAGE)):
+        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)):
             result = await summarize_multiple_alerts(alerts)
 
-        assert "2" in result  # Should mention count
-        assert "ws-01" in result  # Should mention host
+        assert result["fallback_used"] is True
+        assert "2" in result["explanation"]  # Should mention count
+        assert "ws-01" in result["explanation"]  # Should mention host
 
     @pytest.mark.asyncio
     async def test_summarize_many_alerts(self):
         """Should limit to 5 alerts in context when many provided."""
-        from src.ai.ollama_client import FALLBACK_MESSAGE
-
         alerts = [
             {
                 "severity": "high",
@@ -274,12 +326,27 @@ class TestSummarizeMultipleAlerts:
             }
             for i in range(10)
         ]
+        fallback_text = (
+            f"Cluster of {len(alerts)} related alerts detected. "
+            f"Severity breakdown: " +
+            ", ".join(
+                f"{s}: {sum(1 for a in alerts if a.get('severity') == s)}"
+                for s in ["critical", "high", "medium", "low"]
+            ) +
+            ". Affected hosts: " +
+            ", ".join(set(a.get("host_name", "?") for a in alerts[:5]))
+        )
+        mock_result = LLMResult(
+            ok=True, text=fallback_text, source="template_library", model_used=None,
+            tokens_in=0, tokens_out=0, latency_ms=0, fallback_used=True,
+            warning="Ollama not responding", prompt_version="v1.0.0",
+        )
 
-        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=FALLBACK_MESSAGE)):
+        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)):
             result = await summarize_multiple_alerts(alerts)
 
         # Should mention the total count
-        assert "10" in result
+        assert "10" in result["explanation"]
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -298,57 +365,76 @@ class TestSuggestInvestigationSteps:
             "4. Verify threat intelligence matches\n"
             "5. Look for lateral movement patterns"
         )
+        mock_result = LLMResult(
+            ok=True, text=mock_response, source="ollama",
+            model_used="mistral:7b", tokens_in=20, tokens_out=15,
+            latency_ms=300, fallback_used=False, prompt_version="v1.0.0",
+        )
 
-        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_response)):
+        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)):
             result = await suggest_investigation_steps(
                 alert_type="brute_force",
                 host_name="ws-01",
             )
 
-        assert len(result) >= 1
-        assert any(isinstance(s, str) for s in result)
+        assert len(result["steps"]) >= 1
+        assert all(isinstance(s, str) for s in result["steps"])
 
     @pytest.mark.asyncio
     async def test_suggest_with_llm_and_user(self):
         """Should include user context when provided."""
         mock_response = "1. Check recent activity for user admin"
+        mock_result = LLMResult(
+            ok=True, text=mock_response, source="ollama",
+            model_used="mistral:7b", tokens_in=20, tokens_out=15,
+            latency_ms=300, fallback_used=False, prompt_version="v1.0.0",
+        )
 
-        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_response)):
+        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)):
             result = await suggest_investigation_steps(
                 alert_type="credential_access",
                 host_name="server-01",
                 user_name="admin",
             )
 
-        assert len(result) >= 1
+        assert len(result["steps"]) >= 1
 
     @pytest.mark.asyncio
     async def test_suggest_fallback(self):
         """Should return fallback steps when LLM unavailable."""
-        from src.ai.ollama_client import FALLBACK_MESSAGE
+        mock_result = LLMResult(
+            ok=True, text="", source="template_library", model_used=None,
+            tokens_in=0, tokens_out=0, latency_ms=0, fallback_used=True,
+            warning="Ollama not responding", prompt_version="v1.0.0",
+        )
 
-        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=FALLBACK_MESSAGE)):
+        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)):
             result = await suggest_investigation_steps(
                 alert_type="malware",
                 host_name="ws-01",
             )
 
-        assert len(result) >= 1
-        assert "ws-01" in result[0]
+        assert result["fallback_used"] is True
+        assert len(result["steps"]) >= 1
+        assert "ws-01" in result["steps"][0]
 
     @pytest.mark.asyncio
     async def test_suggest_fallback_with_user(self):
         """Fallback should include user context."""
-        from src.ai.ollama_client import FALLBACK_MESSAGE
+        mock_result = LLMResult(
+            ok=True, text="", source="template_library", model_used=None,
+            tokens_in=0, tokens_out=0, latency_ms=0, fallback_used=True,
+            warning="Ollama not responding", prompt_version="v1.0.0",
+        )
 
-        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=FALLBACK_MESSAGE)):
+        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)):
             result = await suggest_investigation_steps(
                 alert_type="brute_force",
                 host_name="server-01",
                 user_name="jsmith",
             )
 
-        assert len(result) >= 1
+        assert len(result["steps"]) >= 1
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

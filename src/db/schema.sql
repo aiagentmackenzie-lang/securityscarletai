@@ -246,3 +246,132 @@ CREATE INDEX IF NOT EXISTS idx_health_component ON siem_health (component, time 
 -- CREATE EXTENSION timescaledb;
 -- SELECT create_hypertable('logs', 'time', chunk_time_interval => INTERVAL '1 day');
 -- SELECT create_hypertable('siem_health', 'time', chunk_time_interval => INTERVAL '1 day');
+
+
+-- ============================================================
+-- AI USAGE — per-LLM-call cost and latency tracking (Agent A, Epic 1)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ai_usage (
+    id SERIAL PRIMARY KEY,
+    user_id TEXT,
+    endpoint TEXT NOT NULL,
+    model TEXT NOT NULL,
+    tokens_in INT NOT NULL DEFAULT 0,
+    tokens_out INT NOT NULL DEFAULT 0,
+    latency_ms INT NOT NULL DEFAULT 0,
+    prompt_version TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_usage_user_day ON ai_usage(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_endpoint ON ai_usage(endpoint, created_at DESC);
+
+
+-- ============================================================
+-- TRIAGE MODEL PROVENANCE — ML training audit trail (Agent A, Epic 3)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS triage_model_provenance (
+    id SERIAL PRIMARY KEY,
+    model_hash TEXT NOT NULL,
+    training_samples INT NOT NULL,
+    cv_accuracy FLOAT NOT NULL,
+    cv_std FLOAT,
+    precision_score FLOAT,
+    recall_score FLOAT,
+    f1_score FLOAT,
+    calibrated BOOLEAN DEFAULT FALSE,
+    feature_importances JSONB,
+    features JSONB,
+    trained_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_triage_provenance_trained_at ON triage_model_provenance(trained_at DESC);
+
+
+-- ============================================================
+-- CORRELATION MATCHES — persisted correlation rule hits (Agent A, Epic 2)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS correlation_matches (
+    id SERIAL PRIMARY KEY,
+    correlation_rule TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    match_data JSONB NOT NULL,
+    trigger_event_id INT REFERENCES logs(id),
+    seen BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_correlation_matches_rule ON correlation_matches(correlation_rule);
+CREATE INDEX IF NOT EXISTS idx_correlation_matches_severity ON correlation_matches(severity);
+CREATE INDEX IF NOT EXISTS idx_correlation_matches_created ON correlation_matches(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_correlation_matches_seen ON correlation_matches(seen, created_at DESC);
+
+
+-- ============================================================
+-- ALERT LABELS — analyst-provided ground truth for triage training (Agent A, Epic 3)
+-- Separate from alerts table to respect Agent A's APPEND-ONLY rule on schema.sql
+-- ============================================================
+CREATE TABLE IF NOT EXISTS alert_labels (
+    id SERIAL PRIMARY KEY,
+    alert_id INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
+    label TEXT NOT NULL CHECK (label IN ('true_positive', 'false_positive', 'needs_review')),
+    labeled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    labeled_by TEXT DEFAULT 'training_data_generator',
+    UNIQUE (alert_id, label)
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_labels_label ON alert_labels(label);
+CREATE INDEX IF NOT EXISTS idx_alert_labels_alert_id ON alert_labels(alert_id);
+
+
+-- ============================================================
+-- TRIAGE_MODEL_PROVENANCE — modern audit columns (Agent A, Epic 3 follow-up)
+-- The original table (created in 391e7d1) has: id, model_hash, training_samples,
+-- cv_accuracy, cv_std, precision_score, recall_score, f1_score, calibrated,
+-- feature_importances, features, trained_at.
+-- Agent A's train_v2() writes a richer provenance row (run_id, model_type,
+-- source_csv, n_samples, accuracy_score, model_path, run_metadata). These
+-- columns are appended nullable so legacy rows keep working and re-running
+-- the schema is idempotent.
+-- ============================================================
+ALTER TABLE triage_model_provenance
+    ADD COLUMN IF NOT EXISTS run_id TEXT,
+    ADD COLUMN IF NOT EXISTS model_version TEXT,
+    ADD COLUMN IF NOT EXISTS model_type TEXT,
+    ADD COLUMN IF NOT EXISTS source_csv TEXT,
+    ADD COLUMN IF NOT EXISTS n_samples INT,
+    ADD COLUMN IF NOT EXISTS n_positive INT,
+    ADD COLUMN IF NOT EXISTS n_negative INT,
+    ADD COLUMN IF NOT EXISTS accuracy_score FLOAT,
+    ADD COLUMN IF NOT EXISTS model_path TEXT,
+    ADD COLUMN IF NOT EXISTS run_metadata JSONB;
+
+
+-- ============================================================
+-- AUDIT LOGS — HTTP request-level audit (Agent B, Epic 6)
+-- Separate table from the action-level audit_log above. This table
+-- captures every state-changing HTTP request (POST/PUT/PATCH/DELETE)
+-- with method, path, IP, user, status code, and request duration.
+-- ============================================================
+-- Permission hardening (run as superuser, NOT as the app role):
+--   REVOKE UPDATE, DELETE, TRUNCATE ON audit_logs FROM scarletai;
+--   GRANT  INSERT, SELECT            ON audit_logs TO   scarletai;
+-- This prevents a compromised app from rewriting or deleting its own
+-- audit trail. Documented here because the table is append-only by design.
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id                BIGSERIAL PRIMARY KEY,
+    timestamp         TIMESTAMPTZ DEFAULT NOW(),
+    "user"            TEXT,
+    role              TEXT,
+    method            TEXT NOT NULL,
+    path              TEXT NOT NULL,
+    ip                TEXT,
+    status_code       INT,
+    request_body_hash TEXT,
+    duration_ms       INT
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs ("user");
+CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs (timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_method_path ON audit_logs (method, path);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_status ON audit_logs (status_code) WHERE status_code >= 400;

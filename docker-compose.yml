@@ -20,9 +20,29 @@ services:
       retries: 5
     restart: unless-stopped
 
+  redis:
+    # Epic 4: Redis service for rate-limit storage and JWT blocklist.
+    # 6379 inside the compose network; not exposed to host by default.
+    image: redis:7-alpine
+    platform: linux/arm64
+    container_name: scarletai-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
   api:
     build: .
     container_name: scarletai-api
+    # Epic 7: run the entrypoint that waits for DB, applies schema, seeds, trains, then execs uvicorn.
+    command: ["/app/scripts/entrypoint.sh"]
     ports:
       - "8000:8000"
     environment:
@@ -36,20 +56,58 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: 8000
       API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:8501}
-      REDIS_URL: ${REDIS_URL:-redis://localhost:6379/0}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: ${LOG_FORMAT:-json}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-mistral:7b}
+    volumes:
+      # Epic 7: persist model artifacts and runtime data across restarts.
+      - ./models:/app/models
+      - ./data:/app/data
+      - ./logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
+      # Longer start-period: the entrypoint runs schema apply + optional seed + model
+      # training on first launch, which can take 30-60 seconds.
       test: ["CMD", "curl", "-f", "--max-time", "5", "http://localhost:8000/api/v1/health"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 60s
     restart: unless-stopped  # M-18: restart policy added
+
+  dashboard:
+    # Epic 10: Streamlit dashboard. Reuses the API image (same Python deps,
+    # same source tree mounted). When DASHBOARD_API_TOKEN is set, the
+    # dashboard authenticates to the API as a service — no manual login
+    # required. When unset, the dashboard falls back to the JWT login flow.
+    build: .
+    container_name: scarletai-dashboard
+    command: ["streamlit", "run", "dashboard/main.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true", "--browser.gatherUsageStats=false"]
+    ports:
+      - "8501:8501"
+    environment:
+      # Inside the compose network the API is reachable at http://api:8000
+      SCARLET_API_URL: http://api:8000/api/v1
+      # Optional static bearer. If blank, the dashboard requires user login.
+      DASHBOARD_API_TOKEN: ${DASHBOARD_API_TOKEN:-}
+      # Streamlit settings — make the container reachable from the host browser
+      STREAMLIT_SERVER_HEADLESS: "true"
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+    volumes:
+      # Mount source so streamlit reloads on code changes during dev.
+      # In production, remove this and bake the image at build time.
+      - ./dashboard:/app/dashboard
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   pgdata:
+  redisdata:

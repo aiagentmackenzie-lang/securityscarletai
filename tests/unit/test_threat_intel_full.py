@@ -1061,9 +1061,15 @@ class TestGetThreatIntelStats:
         assert "by_type" in result
         assert "by_source" in result
         assert "feed_status" in result
-        assert result["feed_status"]["abuseipdb"] == "configured"
-        assert result["feed_status"]["otx"] == "configured"
-        assert result["feed_status"]["urlhaus"] == "configured"
+        # Epic 9: honest stats. With keys set but no refresh run yet, status
+        # is "never_refreshed" (NOT "ok" or "configured"). urlhaus is always "ok".
+        assert result["feed_status"]["abuseipdb"] == "never_refreshed"
+        assert result["feed_status"]["otx"] == "never_refreshed"
+        assert result["feed_status"]["urlhaus"] == "ok"
+        # feed_keys surfaces the legacy "do we have a key" answer for ops.
+        assert result["feed_keys"]["abuseipdb"] is True
+        assert result["feed_keys"]["otx"] is True
+        assert result["feed_keys"]["urlhaus"] is True
 
     @pytest.mark.asyncio
     async def test_stats_no_data(self):
@@ -1110,7 +1116,11 @@ class TestGetThreatIntelStats:
             result = await get_threat_intel_stats()
 
         assert result["total_indicators"] == 0
-        assert result["feed_status"]["abuseipdb"] == "not_configured"
+        assert result["feed_status"]["abuseipdb"] == "no_key"
+        assert result["feed_status"]["otx"] == "no_key"
+        assert result["feed_status"]["urlhaus"] == "ok"
+        assert result["feed_keys"]["abuseipdb"] is False
+        assert result["feed_keys"]["otx"] is False
         assert result["last_refresh"] == "never"
 
 

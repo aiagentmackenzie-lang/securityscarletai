@@ -5,7 +5,7 @@ with a clear error message — not a silent None that blows up later.
 """
 from typing import Optional
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -40,10 +40,10 @@ class Settings(BaseSettings):
     # --- API ---
     api_host: str = "127.0.0.1"
     api_port: int = 8000
-    api_secret_key: str = Field(
+    api_secret_key: SecretStr = Field(
         ..., min_length=32, description="JWT signing key — generate with: openssl rand -hex 64"
     )
-    api_bearer_token: str = Field(..., min_length=16, description="Ingestion API auth token")
+    api_bearer_token: SecretStr = Field(..., min_length=16, description="Ingestion API auth token")
     api_cors_origins: list[str] = ["http://localhost:8501"]
 
     # --- Ollama ---
@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     # --- Logging ---
     log_level: str = "INFO"
     log_format: str = "json"  # "json" for production, "console" for dev
+
+    # --- JWT lifetimes (Epic 5) ---
+    access_token_ttl_minutes: int = 15
+    refresh_token_ttl_days: int = 7
 
     @field_validator("db_password")
     @classmethod
