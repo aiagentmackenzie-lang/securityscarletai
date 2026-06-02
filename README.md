@@ -2,7 +2,7 @@
 
 **AI-Native SIEM for macOS** — Real-time log ingestion, Sigma-based detection, ML-powered alert triage, and LLM-driven investigation assistance.
 
-[![Tests](https://img.shields.io/badge/tests-1050%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1237%20passing-brightgreen)]()
 [![Coverage](https://img.shields.io/badge/coverage-82%25-green)]()
 [![Rules](https://img.shields.io/badge/Sigma%20rules-45-blue)]()
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python)]()
@@ -24,31 +24,37 @@
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Ingestion** | FastAPI + asyncpg | High-throughput log collection (osquery, syslog, API) |
-| **Storage** | PostgreSQL 17 | Time-series logs, alerts, cases with indexed JSONB |
-| **Detection** | pySigma + custom backend | 45 Sigma rules → parameterized SQL, correlation engine |
-| **Enrichment** | GeoIP2 + DNS + Threat Intel | MaxMind GeoIP, AbuseIPDB, OTX, URLhaus enrichment |
-| **AI / ML** | Ollama + sklearn | NL→SQL, Random Forest triage, Isolation Forest UEBA, hunting |
-| **Dashboard** | Streamlit + WebSocket | Real-time alerts, cases, hunting, AI chat |
+| **Ingestion** | FastAPI + asyncpg | High-throughput log collection (osquery, syslog, API), fire-and-forget enrichment, rate-limited per IP |
+| **Storage** | PostgreSQL 17 + Redis 7 | Time-series logs, alerts, cases, correlation matches, AI usage + cost tracking; Redis for rate-limit state and JWT blocklist |
+| **Detection** | pySigma + custom backend | 45 Sigma rules → parameterized SQL, 7-rule correlation engine with event-driven `as_of` semantics, 7 sequence patterns |
+| **Enrichment** | GeoIP2 + DNS + Threat Intel | MaxMind GeoIP (with periodic retry), AbuseIPDB, OTX, URLhaus, severity boost on TI match |
+| **AI / ML** | Ollama + sklearn | NL→SQL (7-layer safety), calibrated Random Forest triage with provenance, Isolation Forest UEBA, hunting assistant, versioned prompt templates, per-call cost tracking |
+| **Dashboard** | Streamlit + WebSocket | Real-time alerts, cases, hunting, AI chat; JWT or service-to-service bearer auth |
 | **Response** | SOAR Lite | Slack/email notifications, pf firewall, case management |
+| **Audit** | DB-backed middleware | Every state-changing HTTP request written to `audit_logs`; permission-hardened table |
 
 ---
 
 ## Features
 
 - **45 Sigma Detection Rules** — Authentication, process, network, file, macOS, and cloud categories with MITRE ATT&CK mapping
-- **Correlation Engine** — 7 correlation rules detecting multi-step attack chains (brute force, payload/C2, persistence, exfiltration, privilege escalation, credential theft, defense evasion)
-- **ML Alert Triage** — Random Forest classifier with 11 features, auto-trains at 100+ resolved alerts
+- **Event-Driven Correlation Engine** — 7 correlation rules (brute force → success, payload → C2, persistence, exfiltration, privilege escalation, credential theft + exfil, defense evasion) with `as_of` time binding (no `NOW()` in queries) and persistent `correlation_matches` table
+- **ML Alert Triage** — 11-feature CalibratedClassifierCV with StratifiedKFold cross-validation, full provenance persisted to `triage_model_provenance` (run_id, model_type, source_csv, n_samples, precision/recall/f1, model_path, run_metadata); auto-trains on >20% new labels or >7d stale
+- **Versioned Prompt Templates** — Jinja2 templates in `src/ai/prompts.py` with explicit `prompt_version` constants, surfaced in `LLMResult.prompt_version`
+- **Per-Call AI Cost Tracking** — `src/ai/cost_tracker.py` records tokens, latency, model, prompt_version to `ai_usage` table on every LLM call
 - **Natural Language → SQL** — Ask questions in plain English, get safe parameterized SQL with 7-layer injection defense
 - **UEBA Behavioral Baselines** — Isolation Forest anomaly detection with per-user behavioral fingerprinting
-- **AI Alert Explanation** — LLM-powered explanations with 6 template fallbacks when Ollama is unavailable
+- **AI Alert Explanation** — LLM-powered explanations with structured `LLMResult` contract and template fallback when Ollama is unavailable
 - **Threat Hunting Assistant** — 7 pre-built hunt templates, MITRE gap analysis, and hunt-from-alert
-- **Threat Intel Integration** — AbuseIPDB, OTX AlienVault, URLhaus with IOC caching and auto-refresh
+- **Threat Intel Integration** — AbuseIPDB, OTX AlienVault, URLhaus with IOC caching, auto-refresh, and honest feed-status reporting (not just "key configured")
 - **Risk Scoring Engine** — Multi-factor scoring: severity, threat intel match, asset criticality, UEBA anomaly
 - **Case Management** — Full CRUD with assignments, notes, status tracking, and lessons learned
-- **RBAC Authentication** — JWT-based auth with role-based access control (viewer, analyst, admin)
-- **Real-time Dashboard** — Streamlit with WebSocket live updates, auto-refresh, and toast notifications
+- **JWT Auth with Hardening** — `jti` (UUID4) per token, refresh token rotation (7-day TTL), Redis-backed logout blocklist, password-change invalidation, `SecretStr` for secrets
+- **Redis Rate Limiting** — Per-endpoint overrides (`/auth/login` 5/min, `/ingest` 100/min) with custom 429 handler, `X-RateLimit-*` headers, fail-open to in-memory on Redis outage
+- **DB-Backed Audit Logs** — `AuditLogMiddleware` writes one row per state-changing HTTP request to `audit_logs` (append-only, with `REVOKE UPDATE,DELETE,TRUNCATE` hardening documented)
+- **Real-time Dashboard** — Streamlit with WebSocket live updates, auto-refresh, and toast notifications; two auth modes (JWT or `DASHBOARD_API_TOKEN` service bearer)
 - **SOAR Lite** — Automated Slack/email alerts and macOS pf firewall blocking
+- **Docker Bootstrap** — Idempotent `entrypoint.sh` waits for Postgres, applies schema, seeds demo data, trains models, creates admin, execs uvicorn
 
 ---
 
@@ -59,12 +65,13 @@
 | Language | Python 3.11+ |
 | API Framework | FastAPI + Uvicorn |
 | Database | PostgreSQL 17 (asyncpg) |
+| Cache / Rate Limit | Redis 7 |
 | Migrations | Alembic |
-| AI/ML | Ollama (LLM), scikit-learn, joblib |
-| Dashboard | Streamlit |
+| AI/ML | Ollama (LLM), scikit-learn, joblib, Jinja2 |
+| Dashboard | Streamlit + streamlit-autorefresh |
 | Detection | pySigma |
 | Networking | httpx, websockets |
-| Auth | JWT (python-jose) + bcrypt |
+| Auth | JWT (python-jose) + bcrypt + Redis blocklist |
 | Geolocation | MaxMind GeoIP2 |
 | Containerization | Docker Compose |
 | Testing | pytest, pytest-asyncio, hypothesis |
@@ -76,33 +83,44 @@
 
 ```bash
 # 1. Clone and enter the project
-git clone https://github.com/your-org/SecurityScarletAI.git
-cd SecurityScarletAI
+git clone https://github.com/aiagentmackenzie-lang/securityscarletai.git
+cd securityscarletai
 
-# 2. Start PostgreSQL with Docker
-docker-compose up -d
-
-# 3. Install dependencies
-poetry install
-
-# 4. Configure environment
+# 2. Configure environment
 cp .env.example .env
 # Edit .env — set DB_PASSWORD, API_SECRET_KEY, API_BEARER_TOKEN
+# Generate secrets: openssl rand -base64 32  (DB_PASSWORD)
+#                   openssl rand -hex 64    (API_SECRET_KEY)
+#                   openssl rand -hex 32    (API_BEARER_TOKEN)
+# Optional: DASHBOARD_API_TOKEN for headless dashboard access.
 
-# 5. Run database migrations
+# 3. Start the full stack (Postgres + Redis + API + dashboard)
+docker compose up -d
+# The idempotent entrypoint.sh will:
+#   - wait for Postgres to be ready
+#   - apply alembic migrations and the canonical schema
+#   - seed demo data and train the triage model
+#   - create the admin user (password surfaced in `docker logs`)
+#   - start uvicorn
+
+# 4. (Dev only) Or run the API outside Docker:
+poetry install
 poetry run alembic upgrade head
+poetry run uvicorn src.api.main:app --host 127.0.0.1 --port 8000
 
-# 6. Start the API
-poetry run uvicorn src.api.main:app --port 8000
-
-# 7. Start the dashboard (separate terminal)
+# 5. (Dev only) Start the dashboard outside Docker:
 poetry run streamlit run dashboard/main.py --server.port 8501
 ```
 
 Verify it's running:
 ```bash
 curl http://localhost:8000/api/v1/health
-# → {"status":"healthy","checks":{"api":"ok","database":"ok"}}
+# Returns:
+# {
+#   "status": "healthy",
+#   "checks": {"api": "ok", "database": "ok", "ollama": "ok|error|unreachable"},
+#   "ollama": {"ollama_status": "healthy|degraded|unavailable", "model": "<name>|null", "error": "<msg>|null"}
+# }
 ```
 
 ---
@@ -114,22 +132,35 @@ Interactive API docs are available at:
 - **Swagger UI**: [http://localhost:8000/api/docs](http://localhost:8000/api/docs)
 - **ReDoc**: [http://localhost:8000/api/redoc](http://localhost:8000/api/redoc)
 
-Key endpoints:
+Key endpoints (all under `/api/v1`):
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/v1/health` | GET | Health check (API, DB, Ollama status) |
-| `/api/v1/ingest` | POST | Ingest log events (bearer token required) |
-| `/api/v1/alerts` | GET | List alerts with filtering and pagination |
-| `/api/v1/query` | POST | Natural language → SQL query |
-| `/api/v1/cases` | GET/POST | Case management CRUD |
-| `/api/v1/rules` | GET | List Sigma detection rules |
-| `/api/v1/threat-intel/stats` | GET | Threat intel cache statistics |
-| `/api/v1/correlation/run` | POST | Run all correlation rules |
-| `/api/v1/ai/triage/train` | POST | Train the ML triage model |
-| `/api/v1/ai/explain` | POST | Get AI explanation for an alert |
-| `/api/v1/hunt/suggestions` | GET | Get hunting suggestions |
-| `/api/v1/chat` | POST | AI chat assistant |
+| `/health` | GET | Health check (API, DB, rich Ollama status block) |
+| `/ingest` | POST | Ingest log events (rate-limited 100/min/IP; bearer token required) |
+| `/alerts` | GET | List alerts with filtering and pagination |
+| `/correlation/rules` | GET | List all 7 correlation rules |
+| `/correlation/run` | POST | Run all correlation rules with `as_of` time binding + `persist` flag |
+| `/correlation/run/{rule_name}` | POST | Run a single correlation rule |
+| `/correlation/matches` | GET | List persisted correlation matches with filters |
+| `/correlation/matches/{id}/seen` | POST | Mark a match as seen |
+| `/ai/status` | GET | AI health, triage cv_accuracy/calibrated/features, UEBA status |
+| `/ai/train` | POST | Train the ML triage model |
+| `/ai/triage/{alert_id}` | POST | Get ML triage classification for an alert |
+| `/ai/explain/{alert_id}` | POST | Get LLM explanation for an alert |
+| `/ai/ueba/{user_name}` | GET | UEBA anomaly score for a user |
+| `/query` | POST | Natural language → SQL query |
+| `/chat` | POST | AI chat assistant |
+| `/hunt/suggestions` | GET | Get hunting suggestions |
+| `/threat-intel/stats` | GET | Threat intel cache + per-feed health (ok/error/no_key/never_refreshed) |
+| `/threat-intel/refresh` | POST | Force-refresh threat intel feeds |
+| `/threat-intel/lookup/ip/{ip}` | GET | Lookup IP against all feeds |
+| `/audit/requests` | GET | Query HTTP request audit log (DB-backed) |
+| `/auth/login` | POST | Login (rate-limited 5/min/IP) |
+| `/auth/me` | GET | Current user info |
+| `/auth/change-password` | POST | Change password (invalidates all sessions) |
+| `/cases` | GET/POST | Case management CRUD |
+| `/rules` | GET | List Sigma detection rules |
 
 ---
 
@@ -141,13 +172,17 @@ See [docs/RULES.md](docs/RULES.md) for the complete reference of all 45 Sigma ru
 
 ## AI Features
 
-See [docs/AI.md](docs/AI.md) for detailed documentation on:
-- Natural Language → SQL query conversion
-- ML-powered alert triage with Random Forest
+See [docs/AI.md](docs/AI.md) and [docs/V2_PRODUCTION_ROADMAP.md](docs/V2_PRODUCTION_ROADMAP.md) for detailed documentation on:
+- `LLMResult` contract — uniform return shape across `query_llm()`, `chat()`, `explain_alert()`
+- Versioned Jinja2 prompt templates (`src/ai/prompts.py`)
+- Per-call cost tracking (`src/ai/cost_tracker.py` → `ai_usage` table)
+- Event-driven correlation with `as_of` time binding (no `NOW()` in queries)
+- ML-powered alert triage with CalibratedClassifierCV + provenance
 - UEBA behavioral baselines with Isolation Forest
 - LLM alert explanation with template fallback
 - Threat hunting assistant
 - Risk scoring engine
+- Validation of Ollama model availability via `validate_ollama_model()`
 
 ---
 
@@ -273,18 +308,52 @@ access from the dashboard.
 ## Testing
 
 ```bash
-# Run all unit tests (1022 tests)
-poetry run pytest tests/unit/ -v
+# Run the full unit suite (1237 tests, 3 warnings, ~30s)
+poetry run pytest tests/unit/ -q --no-cov
 
-# Run with coverage report
-poetry run pytest tests/ --cov=src --cov-report=term-missing -q
+# With coverage report
+poetry run pytest tests/unit/ --cov=src --cov-report=term-missing -q
 
-# Lint check
+# Lint
 poetry run ruff check src/ dashboard/ --select S,E,F,W
 
 # Type check
 poetry run mypy src/
 ```
+
+CI runs the unit suite on every push; integration tests in `tests/integration/`
+require a live Postgres + Redis and are run on a separate job.
+
+## Security
+
+- **Auth**: JWT (python-jose) with bcrypt password hashing. Every token carries
+  a unique `jti` (UUID4); logout adds it to a Redis blocklist. Password changes
+  increment a per-user `user_revoke` marker that invalidates all outstanding
+  tokens. Secrets are stored as Pydantic `SecretStr` (never logged).
+- **Rate limiting**: slowapi + Redis. `/auth/login` 5/min/IP, `/ingest` 100/min/IP,
+  default 200/min/IP. Falls back to in-memory storage if Redis is unreachable
+  (with a startup warning). Custom 429 JSON handler emits `Retry-After` and
+  `X-RateLimit-*` headers.
+- **Audit**: `AuditLogMiddleware` writes one row to `audit_logs` for every
+  state-changing HTTP request. The `audit_logs` table is append-only by
+  design — documented hardening:
+  ```sql
+  REVOKE UPDATE, DELETE, TRUNCATE ON audit_logs FROM scarletai;
+  GRANT  INSERT, SELECT            ON audit_logs TO   scarletai;
+  ```
+- **SQL safety**: All user-supplied values flow through parameterized queries
+  (`$1`, `$2`, …) — no string interpolation in SQL. NL→SQL pipeline has
+  7 layers of injection defense. `correlation.py` uses `as_of: $1::timestamptz`
+  for every time predicate (no `NOW()` in query strings).
+- **Secret hygiene**: `.env` is gitignored. `.env.example` documents how to
+  generate strong secrets with `openssl rand`. Local secret rotation is
+  documented in `scripts/entrypoint.sh`; git history rewrite (`filter-repo` /
+  BFG) is **deliberately deferred** — see `SESSION_HANDOFF.md` for the
+  decision record (Option B: local-dev-only credentials, cost/benefit of
+  history rewrite not justified).
+- **Dashboard auth**: Two modes — interactive JWT login (default) or
+  `DASHBOARD_API_TOKEN` service-to-service bearer (set in `.env`). The API's
+  unified auth dependency accepts either form.
 
 ---
 
@@ -302,50 +371,68 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for production deployment instructi
 ## Project Structure
 
 ```
-SecurityScarletAI/
+securityscarletai/
 ├── src/
-│   ├── api/                 # FastAPI endpoints (14 routers)
-│   │   ├── main.py          # App config, CORS, lifespan
+│   ├── api/                 # FastAPI routers + middleware (15 routers)
+│   │   ├── main.py          # App config, CORS, lifespan, middleware stack
+│   │   ├── health.py        # /health with rich Ollama status block
+│   │   ├── ingest.py        # /ingest (rate-limited, 202 Accepted, fire-and-forget enrichment)
 │   │   ├── alerts.py        # Alert CRUD, export, suppressions
 │   │   ├── cases.py         # Case management
-│   │   ├── ai.py            # AI triage, explanation, NL→SQL
-│   │   ├── chat.py          # AI chat endpoint
-│   │   ├── hunt.py          # Hunting assistant
-│   │   ├── query.py         # NL→SQL query endpoint
-│   │   └── ...
+│   │   ├── ai.py            # /ai/status, /ai/train, /ai/triage, /ai/explain, /ai/ueba
+│   │   ├── chat.py          # /chat AI chat endpoint
+│   │   ├── hunt.py          # /hunt/suggestions
+│   │   ├── query.py         # /query NL→SQL
+│   │   ├── correlation.py   # /correlation/rules, /run, /matches
+│   │   ├── threat_intel.py  # /threat-intel/stats|refresh|lookup
+│   │   ├── audit.py         # /audit/requests (DB-backed audit log query)
+│   │   ├── auth.py          # JWT helpers, RBAC, password hashing, jti, refresh
+│   │   ├── auth_login.py    # /auth/login, /auth/me, /auth/change-password
+│   │   ├── rules.py         # /rules Sigma rule listing
+│   │   ├── logs.py          # /logs raw event query
+│   │   ├── websocket.py     # WebSocket live alert feed
+│   │   ├── middleware.py    # AuditLogMiddleware, RequestValidationMiddleware
+│   │   ├── rate_limit.py    # slowapi Limiter, per-endpoint overrides, 429 handler
+│   │   └── redis_client.py  # Lazy-init Redis with fail-open
 │   ├── ai/                  # AI/ML module
 │   │   ├── nl2sql.py        # Natural language → SQL (7-layer safety)
-│   │   ├── alert_triage.py  # Random Forest triage model
-│   │   ├── alert_explanation.py  # LLM + template fallback
+│   │   ├── alert_triage.py  # CalibratedClassifierCV triage + provenance
+│   │   ├── alert_explanation.py  # LLM + template fallback (LLMResult contract)
 │   │   ├── hunting_assistant.py  # Hunt templates + MITRE gaps
 │   │   ├── risk_scoring.py  # Multi-factor risk scoring
 │   │   ├── ueba.py          # Isolation Forest UEBA
 │   │   ├── chat.py          # AI chat
-│   │   └── ollama_client.py # Ollama LLM integration
+│   │   ├── ollama_client.py # Ollama LLM + validate_ollama_model()
+│   │   ├── prompts.py       # Versioned Jinja2 prompt templates
+│   │   ├── cost_tracker.py  # Per-call cost + latency → ai_usage
+│   │   └── utils.py         # Shared helpers
 │   ├── detection/           # Detection engine
 │   │   ├── sigma.py         # pySigma parser + PostgreSQL backend
-│   │   ├── correlation.py   # 7 correlation rules
+│   │   ├── correlation.py   # 7 correlation rules (as_of, persist)
 │   │   ├── sequences.py     # 7 event sequence patterns
 │   │   ├── alerts.py        # Alert lifecycle management
 │   │   └── scheduler.py     # Rule scheduler
 │   ├── enrichment/          # Event enrichment
-│   │   └── pipeline.py     # GeoIP, DNS, Threat Intel enrichment
+│   │   └── pipeline.py      # GeoIP (with retry), DNS, Threat Intel
 │   ├── intel/               # Threat intelligence
 │   │   └── threat_intel.py  # AbuseIPDB, OTX, URLhaus clients
 │   ├── ingestion/           # Log ingestion
 │   │   ├── parser.py        # ECS normalization
 │   │   ├── shipper.py       # File tailing (osquery)
-│   │   └── schemas.py      # Pydantic models
-│   ├── case/                # Case management
+│   │   ├── schemas.py       # Pydantic models
+│   │   └── ingest.py        # Ingestion path with async enrichment + correlation trigger
 │   ├── response/            # SOAR Lite
 │   │   ├── soar.py          # Slack, email, pf
 │   │   └── notifications.py # Notification dispatch
+│   ├── services/
+│   │   └── writer.py        # Batched log writer
 │   ├── config/              # Configuration
-│   │   ├── settings.py      # Pydantic Settings
-│   │   └── logging.py      # Structured logging
+│   │   ├── settings.py      # Pydantic Settings (SecretStr for secrets)
+│   │   └── logging.py       # Structured logging
 │   └── db/                  # Database
-│       ├── connection.py    # asyncpg pool
-│       └── writer.py        # Batched log writer
+│       ├── connection.py    # asyncpg pool (retry + backoff)
+│       ├── writer.py        # Async batched writer
+│       └── schema.sql       # Canonical schema (ai_usage, correlation_matches, audit_logs, triage_model_provenance, alert_labels)
 ├── dashboard/               # Streamlit UI
 │   ├── main.py              # Dashboard entry point
 │   ├── alerts_view.py       # Alert browser
@@ -355,8 +442,9 @@ SecurityScarletAI/
 │   ├── rules_view.py        # Rule management
 │   ├── logs_view.py         # Log viewer
 │   ├── charts.py            # Visualization
-│   ├── api_client.py        # HTTP client
-│   └── auth.py              # JWT auth
+│   ├── api_client.py        # HTTP client (JWT + DASHBOARD_API_TOKEN support)
+│   ├── auth.py              # JWT auth (3 roles: admin/analyst/viewer)
+│   └── ui_utils.py          # Shared UI helpers
 ├── rules/
 │   └── sigma/               # 45 Sigma YAML rules
 │       ├── authentication/  # 9 rules
@@ -365,11 +453,14 @@ SecurityScarletAI/
 │       ├── file/            # 6 rules
 │       ├── macOS/           # 10 rules
 │       └── cloud/           # 5 rules
-├── alembic/                 # Database migrations
-├── tests/                   # 1022 unit tests
-├── scripts/                 # Utilities
-├── docs/                    # Documentation
-└── docker-compose.yml       # PostgreSQL + Redis
+├── alembic/                 # Database migrations (5 revisions)
+├── scripts/
+│   ├── entrypoint.sh        # Idempotent Docker bootstrap
+│   ├── generate_training_data.py  # Synthetic alert generator (Epic 3)
+│   └── setup_db.sh          # Local DB setup
+├── tests/                   # 1237 unit tests + 2 integration suites
+├── docs/                    # AI.md, RULES.md, DEPLOYMENT.md, ATTACK-SCENARIOS.md, V2_PRODUCTION_ROADMAP.md
+└── docker-compose.yml       # Postgres 17 + Redis 7 + API + dashboard
 ```
 
 <!-- TODO: Screenshots -->
