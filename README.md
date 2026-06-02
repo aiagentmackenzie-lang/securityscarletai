@@ -213,6 +213,63 @@ only care about config presence.
 
 ---
 
+## Dashboard
+
+A Streamlit dashboard is included in the repo (`dashboard/`) and
+shipped as a `dashboard` service in `docker-compose.yml` (Epic 10).
+
+### Running it
+
+```bash
+# With docker-compose (recommended)
+docker compose up -d dashboard
+open http://localhost:8501
+
+# Or directly (for dev)
+poetry run streamlit run dashboard/main.py
+```
+
+The dashboard container depends on the `api` service being healthy
+(uses its healthcheck), so it won't start until the API is reachable
+on `http://api:8000`.
+
+### Auth
+
+The dashboard supports two auth flows:
+
+1. **Interactive JWT login** (default). Visit `http://localhost:8501`,
+   enter username/password (the API's `seed-admin` endpoint creates
+   the first admin). The JWT is stored in `st.session_state`.
+
+2. **Service-to-service bearer** (headless / docker). Set
+   `DASHBOARD_API_TOKEN` in `.env` to a valid API token (typically
+   the same value as `API_BEARER_TOKEN`). The dashboard will use
+   this as a fallback `Authorization: Bearer ...` header on every
+   API call when no user JWT is in the session. Useful for:
+   - Headless / automated dashboard access
+   - Screenshot capture tools
+   - Pre-authenticated demos
+
+The API's unified auth dependency accepts either form, so the
+dashboard works with both.
+
+### Dashboard views
+
+| View | File | Purpose |
+|------|------|---------|
+| Alerts | `dashboard/alerts_view.py` | Triage queue, bulk operations, severity filtering |
+| Cases | `dashboard/cases_view.py` | Case management, alert linking, notes |
+| Logs | `dashboard/logs_view.py` | Recent events, host/category filtering |
+| Hunt | `dashboard/hunt_view.py` | MITRE ATT&CK hunt templates, gap analysis |
+| Rules | `dashboard/rules_view.py` | Detection rule CRUD (admin only) |
+| AI Chat | `dashboard/ai_chat_view.py` | NL threat-hunting assistant |
+| Charts | `dashboard/charts.py` | Time-series visualisations |
+
+All views go through `dashboard/api_client.py` — no direct database
+access from the dashboard.
+
+---
+
 ## Testing
 
 ```bash

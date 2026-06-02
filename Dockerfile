@@ -32,6 +32,9 @@ COPY rules/ ./rules/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./alembic.ini
 COPY config/ ./config/
+# Epic 10: copy the Streamlit dashboard so the `dashboard` compose
+# service can `streamlit run dashboard/main.py` from this same image.
+COPY dashboard/ ./dashboard/
 
 # Copy entrypoint script (Epic 7)
 COPY scripts/entrypoint.sh /app/scripts/entrypoint.sh

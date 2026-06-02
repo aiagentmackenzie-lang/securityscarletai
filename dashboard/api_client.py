@@ -31,6 +31,16 @@ API_BASE_URL = os.environ.get("SCARLET_API_URL", "http://localhost:8000/api/v1")
 REQUEST_TIMEOUT = 15.0  # seconds (default)
 AI_TIMEOUT = 60.0  # seconds (AI chat/explain/hunt — longer for LLM inference)
 
+# Epic 10: static service-to-service auth token for the dashboard
+# container. Used as a fallback bearer when no user JWT is in the
+# session state (e.g. headless / docker dashboard, scheduled refresh,
+# automated screenshot capture). If unset, dashboard behaves as before
+# and requires a manual JWT login.
+# Set this in docker-compose.yml (dashboard env block) or in .env.
+DASHBOARD_API_TOKEN: str | None = os.environ.get("DASHBOARD_API_TOKEN") or None
+if DASHBOARD_API_TOKEN is not None and not DASHBOARD_API_TOKEN.strip():
+    DASHBOARD_API_TOKEN = None  # treat empty string as unset
+
 
 class ApiError(Exception):
     """Raised when the API returns a non-200 response."""
@@ -54,12 +64,29 @@ class ApiClient:
 
     @property
     def _headers(self) -> dict[str, str]:
-        """Build auth headers from session state."""
+        """Build auth headers.
+
+        Priority:
+          1. Session JWT (interactive login) — used by all views.
+          2. DASHBOARD_API_TOKEN (env) — used when no JWT is in the
+             session (headless / docker dashboard, scheduled refresh).
+        The API's unified auth dependency accepts either, so a
+        bearer-from-env works as service-to-service auth.
+        """
         headers = {"Content-Type": "application/json"}
         token = st.session_state.get("access_token")
         if token:
             headers["Authorization"] = f"Bearer {token}"
+        elif DASHBOARD_API_TOKEN:
+            headers["Authorization"] = f"Bearer {DASHBOARD_API_TOKEN}"
         return headers
+
+    def has_service_auth(self) -> bool:
+        """True if the dashboard is configured with a DASHBOARD_API_TOKEN
+        and can make API calls without a user login. Useful for the
+        login page to skip rendering when running headless in docker.
+        """
+        return bool(DASHBOARD_API_TOKEN)
 
     # ───────────────────────────────────────────────────────────
     # Core HTTP methods

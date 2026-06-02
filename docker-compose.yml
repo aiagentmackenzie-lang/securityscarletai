@@ -81,6 +81,33 @@ services:
       start_period: 60s
     restart: unless-stopped  # M-18: restart policy added
 
+  dashboard:
+    # Epic 10: Streamlit dashboard. Reuses the API image (same Python deps,
+    # same source tree mounted). When DASHBOARD_API_TOKEN is set, the
+    # dashboard authenticates to the API as a service — no manual login
+    # required. When unset, the dashboard falls back to the JWT login flow.
+    build: .
+    container_name: scarletai-dashboard
+    command: ["streamlit", "run", "dashboard/main.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true", "--browser.gatherUsageStats=false"]
+    ports:
+      - "8501:8501"
+    environment:
+      # Inside the compose network the API is reachable at http://api:8000
+      SCARLET_API_URL: http://api:8000/api/v1
+      # Optional static bearer. If blank, the dashboard requires user login.
+      DASHBOARD_API_TOKEN: ${DASHBOARD_API_TOKEN:-}
+      # Streamlit settings — make the container reachable from the host browser
+      STREAMLIT_SERVER_HEADLESS: "true"
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+    volumes:
+      # Mount source so streamlit reloads on code changes during dev.
+      # In production, remove this and bake the image at build time.
+      - ./dashboard:/app/dashboard
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pgdata:
   redisdata:
