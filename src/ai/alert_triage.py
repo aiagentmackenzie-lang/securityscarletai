@@ -11,15 +11,26 @@ Changes from Phase 0:
 - Model training + status API endpoints
 - Fallback when Ollama is down
 """
+import csv
 import hashlib
+import io
+import socket
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import joblib
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
+
+try:
+    from sklearn.calibration import CalibratedClassifierCV
+    from sklearn.model_selection import StratifiedKFold
+    _HAS_V2_DEPS = True
+except ImportError:  # pragma: no cover — defensive only
+    _HAS_V2_DEPS = False
 
 from src.config.logging import get_logger
 from src.db.connection import get_pool
@@ -36,6 +47,19 @@ META_PATH = MODEL_DIR / "triage_meta.joblib"
 AUTO_TRAIN_THRESHOLD = 100
 AUTO_TRAIN_COOLDOWN_SECONDS = 3600  # M-05: 1 hour cooldown between auto-trains
 _last_auto_train_time: float = 0.0
+
+# V2 (Epic 3) — calibrated retraining with provenance.
+MIN_CV_ACCURACY = 0.70  # brief target; below this we refuse to persist
+V2_RANDOM_STATE = 42
+V2_CV_SPLITS = 5
+V2_CALIBRATION_CV = 3
+V2_CALIBRATION_METHOD = "isotonic"
+V2_DEFAULT_CSV = Path("data/training/alerts_v3.csv")
+
+# CSV column names used by the synthetic training data generator and loader.
+# Declared here so the helpers below can reference them directly.
+LABEL_COLUMN = "label"
+ALERT_ID_COLUMN = "alert_id"
 
 
 from src.ai.utils import (  # noqa: E402 — L-01: shared utility, after config constants
@@ -511,6 +535,302 @@ class AlertTriageModel:
             "model_path": str(MODEL_PATH) if MODEL_PATH.exists() else None,
         }
 
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # V2 (Epic 3) — Calibrated retrain with provenance
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    async def train_v2(
+        self,
+        csv_path: Optional[Path] = None,
+        min_cv_accuracy: float = MIN_CV_ACCURACY,
+        run_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Retrain triage model with calibration and CV-based threshold gate.
+
+        Pipeline:
+            1. Load data from CSV (preferred) or fall back to resolved alerts.
+            2. Wrap base RandomForestClassifier in CalibratedClassifierCV
+               (isotonic, cv=3) for better-calibrated probabilities.
+            3. Run StratifiedKFold (5 splits) to estimate cv_accuracy.
+            4. If cv_accuracy >= min_cv_accuracy, fit on full data, persist
+               via _save_model(), and write a provenance row to
+               triage_model_provenance (plus alert_labels for each row).
+            5. If below threshold, refuse to persist; still write a
+               provenance row tagged as rejected for audit trail.
+
+        Args:
+            csv_path: Path to training CSV. Defaults to V2_DEFAULT_CSV.
+            min_cv_accuracy: Floor for accepting a model. Default 0.70.
+            run_id: External correlation id; generated if not given.
+
+        Returns:
+            Dict with ok, run_id, cv_accuracy, cv_std, n_samples, calibrated,
+            persisted_path, accepted, reason.
+        """
+        if not _HAS_V2_DEPS:
+            return {
+                "ok": False,
+                "run_id": run_id,
+                "reason": "missing_sklearn_v2_deps",
+                "accepted": False,
+            }
+
+        run_id = run_id or f"v2-{uuid.uuid4().hex[:12]}"
+        source_csv = Path(csv_path) if csv_path else V2_DEFAULT_CSV
+
+        try:
+            X, y, source_meta = _load_training_data(source_csv)
+        except FileNotFoundError:
+            log.warning("triage_v2_csv_missing", path=str(source_csv))
+            return {
+                "ok": False,
+                "run_id": run_id,
+                "reason": f"csv_not_found:{source_csv}",
+                "accepted": False,
+            }
+        except ValueError as e:
+            log.warning("triage_v2_csv_invalid", error=str(e))
+            return {
+                "ok": False,
+                "run_id": run_id,
+                "reason": f"csv_invalid:{e}",
+                "accepted": False,
+            }
+
+        n_samples = len(X)
+        if n_samples < 10:
+            return {
+                "ok": False,
+                "run_id": run_id,
+                "n_samples": n_samples,
+                "reason": "insufficient_samples",
+                "accepted": False,
+            }
+
+        X_array = np.asarray(X, dtype=float)
+        y_array = np.asarray(y, dtype=int)
+        unique_classes = np.unique(y_array)
+        if len(unique_classes) < 2:
+            return {
+                "ok": False,
+                "run_id": run_id,
+                "n_samples": n_samples,
+                "reason": f"single_class:{unique_classes.tolist()}",
+                "accepted": False,
+            }
+
+        # Base estimator — same RF hyperparams as the v1 trainer for parity.
+        base_rf = RandomForestClassifier(
+            n_estimators=50,
+            max_depth=10,
+            random_state=V2_RANDOM_STATE,
+            class_weight="balanced",
+        )
+        calibrated = CalibratedClassifierCV(
+            base_rf,
+            method=V2_CALIBRATION_METHOD,
+            cv=V2_CALIBRATION_CV,
+        )
+
+        # Stratified K-fold for honest CV accuracy + PRF.
+        # We aggregate per-fold (y_true, y_pred) into a single array so PRF
+        # is computed over the full CV prediction set, not averaged per fold
+        # (per-fold averaging weights small folds equally with large ones,
+        # which biases the macro estimate).
+        n_splits = min(V2_CV_SPLITS, n_samples)
+        skf = StratifiedKFold(
+            n_splits=n_splits, shuffle=True, random_state=V2_RANDOM_STATE
+        )
+        fold_accuracies: List[float] = []
+        cv_y_true: List[int] = []
+        cv_y_pred: List[int] = []
+        try:
+            for train_idx, test_idx in skf.split(X_array, y_array):
+                fold_calibrated = CalibratedClassifierCV(
+                    RandomForestClassifier(
+                        n_estimators=50,
+                        max_depth=10,
+                        random_state=V2_RANDOM_STATE,
+                        class_weight="balanced",
+                    ),
+                    method=V2_CALIBRATION_METHOD,
+                    cv=V2_CALIBRATION_CV,
+                )
+                fold_calibrated.fit(X_array[train_idx], y_array[train_idx])
+                preds = fold_calibrated.predict(X_array[test_idx])
+                fold_accuracies.append(
+                    float(np.mean(preds == y_array[test_idx]))
+                )
+                cv_y_true.extend(y_array[test_idx].tolist())
+                cv_y_pred.extend(preds.tolist())
+        except ValueError as e:
+            log.warning("triage_v2_cv_failed", error=str(e))
+            return {
+                "ok": False,
+                "run_id": run_id,
+                "n_samples": n_samples,
+                "reason": f"cv_failed:{e}",
+                "accepted": False,
+            }
+
+        cv_accuracy = float(np.mean(fold_accuracies))
+        cv_std = float(np.std(fold_accuracies))
+        accepted = cv_accuracy >= min_cv_accuracy
+
+        # PRF — binary, pos_label=1 (true_positive). Aggregated across folds.
+        # Defaults to (None, None, None) if sklearn can't compute (e.g. only
+        # one class present in the concatenated predictions — degenerate case).
+        precision_score: Optional[float] = None
+        recall_score: Optional[float] = None
+        f1_score: Optional[float] = None
+        if cv_y_true and cv_y_pred:
+            try:
+                from sklearn.metrics import precision_recall_fscore_support
+
+                p, r, f, _ = precision_recall_fscore_support(
+                    np.asarray(cv_y_true, dtype=int),
+                    np.asarray(cv_y_pred, dtype=int),
+                    pos_label=1,
+                    average="binary",
+                    zero_division=0,
+                )
+                precision_score = float(p)
+                recall_score = float(r)
+                f1_score = float(f)
+            except ValueError as e:
+                log.warning("triage_v2_prf_compute_failed", error=str(e))
+
+        persisted_path: Optional[str] = None
+        if accepted:
+            calibrated.fit(X_array, y_array)
+            self.model = calibrated
+            self.is_trained = True
+            self.trained_at = time.time()
+            self.training_samples = n_samples
+            self.training_accuracy = cv_accuracy
+            self._save_model(accuracy=cv_accuracy)
+            persisted_path = str(MODEL_PATH) if MODEL_PATH.exists() else None
+        else:
+            log.warning(
+                "triage_v2_below_threshold",
+                cv_accuracy=round(cv_accuracy, 3),
+                threshold=min_cv_accuracy,
+                run_id=run_id,
+            )
+
+        # Persist provenance + alert_labels (best-effort, swallow DB errors so
+        # offline CI doesn't break).
+        provenance_row_id: Optional[int] = None
+        try:
+            provenance_row_id = await _write_provenance(
+                run_id=run_id,
+                source_csv=str(source_csv),
+                source_meta=source_meta,
+                n_samples=n_samples,
+                cv_accuracy=cv_accuracy,
+                cv_std=cv_std,
+                precision_score=precision_score,
+                recall_score=recall_score,
+                f1_score=f1_score,
+                calibrated=accepted,
+                accepted=accepted,
+                model_path=persisted_path,
+                fold_accuracies=fold_accuracies,
+                features=self.FEATURES,
+            )
+            if accepted and provenance_row_id is not None:
+                await _write_alert_labels(
+                    run_id=run_id, source_meta=source_meta
+                )
+        except Exception as e:  # noqa: BLE001
+            log.warning("triage_v2_provenance_write_failed", error=str(e))
+
+        result: Dict[str, Any] = {
+            "ok": True,
+            "run_id": run_id,
+            "n_samples": n_samples,
+            "cv_accuracy": round(cv_accuracy, 4),
+            "cv_std": round(cv_std, 4),
+            "fold_accuracies": [round(a, 4) for a in fold_accuracies],
+            "precision": round(precision_score, 4) if precision_score is not None else None,
+            "recall": round(recall_score, 4) if recall_score is not None else None,
+            "f1": round(f1_score, 4) if f1_score is not None else None,
+            "calibrated": accepted,
+            "accepted": accepted,
+            "persisted_path": persisted_path,
+            "source_csv": str(source_csv),
+            "model_type": (
+                "CalibratedClassifierCV(RandomForestClassifier, isotonic, cv=3)"
+                if accepted
+                else None
+            ),
+            "provenance_row_id": provenance_row_id,
+        }
+        if not accepted:
+            result["reason"] = (
+                f"below_threshold:{cv_accuracy:.3f}<{min_cv_accuracy:.3f}"
+            )
+        # Avoid duplicate-key collision if result already contains run_id.
+        log.info("triage_v2_complete", **result)
+        return result
+
+    async def latest_provenance(self) -> Optional[Dict[str, Any]]:
+        """Fetch the most recent triage_model_provenance row, or None."""
+        try:
+            pool = await get_pool()
+        except Exception:  # noqa: BLE001
+            return None
+        try:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT id, run_id, source_csv, n_samples, accuracy_score,
+                           precision_score, recall_score, f1_score, calibrated,
+                           trained_at
+                    FROM triage_model_provenance
+                    ORDER BY trained_at DESC
+                    LIMIT 1
+                    """
+                )
+        except Exception:  # noqa: BLE001 — table may not exist in test DBs
+            return None
+        if not row:
+            return None
+        return {
+            "id": row["id"],
+            "run_id": row["run_id"],
+            "source_csv": row["source_csv"],
+            "n_samples": row["n_samples"],
+            "accuracy": (
+                round(float(row["accuracy_score"]), 4)
+                if row["accuracy_score"] is not None
+                else None
+            ),
+            "precision": (
+                round(float(row["precision_score"]), 4)
+                if row["precision_score"] is not None
+                else None
+            ),
+            "recall": (
+                round(float(row["recall_score"]), 4)
+                if row["recall_score"] is not None
+                else None
+            ),
+            "f1": (
+                round(float(row["f1_score"]), 4)
+                if row["f1_score"] is not None
+                else None
+            ),
+            "calibrated": bool(row["calibrated"]),
+            "trained_at": (
+                row["trained_at"].isoformat()
+                if row["trained_at"] is not None
+                else None
+            ),
+        }
+
+
 
 async def check_auto_train() -> bool:
     """
@@ -560,3 +880,192 @@ async def get_triage_model() -> AlertTriageModel:
         if not _triage_model.is_trained:
             await _triage_model.train()
     return _triage_model
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# V2 (Epic 3) — module-level helpers (CSV loader, provenance writer)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+def _db_reachable(host: str = "localhost", port: int = 5433, timeout: float = 0.25) -> bool:
+    """
+    Cheap TCP probe to detect whether Postgres is accepting connections.
+
+    Avoids the 15-second retry storm inside get_pool() when running in CI
+    or any environment without a live database. Never raises.
+    """
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _load_training_data(
+    csv_path: Path,
+) -> Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]]:
+    """
+    Load labeled training data from a CSV file.
+
+    Returns:
+        X: ndarray of shape (n, 11) — features in AlertTriageModel.FEATURES order
+        y: ndarray of shape (n,)   — 1 for true_positive, 0 for false_positive
+        meta: list of dicts with per-row metadata (alert_id, label) for
+              downstream provenance/alert_labels writing.
+    """
+    label_to_y = {"true_positive": 1, "false_positive": 0}
+    rows: List[Dict[str, Any]] = []
+    with Path(csv_path).open("r", newline="") as f:
+        reader = csv.DictReader(f)
+        required = set(AlertTriageModel.FEATURES + [LABEL_COLUMN, ALERT_ID_COLUMN])
+        if not required.issubset(reader.fieldnames or []):
+            missing = sorted(required - set(reader.fieldnames or []))
+            raise ValueError(f"csv missing required columns: {missing}")
+        for row in reader:
+            rows.append(row)
+
+    if not rows:
+        raise ValueError("csv is empty")
+
+    X = np.array(
+        [[float(row[col]) for col in AlertTriageModel.FEATURES] for row in rows],
+        dtype=float,
+    )
+    y = np.array(
+        [label_to_y[row[LABEL_COLUMN]] for row in rows],
+        dtype=int,
+    )
+    meta = [
+        {
+            "alert_id": int(row[ALERT_ID_COLUMN]),
+            "label": row[LABEL_COLUMN],
+        }
+        for row in rows
+    ]
+    return X, y, meta
+
+
+async def _write_provenance(
+    *,
+    run_id: str,
+    source_csv: str,
+    source_meta: List[Dict[str, Any]],
+    n_samples: int,
+    cv_accuracy: float,
+    cv_std: float,
+    precision_score: Optional[float],
+    recall_score: Optional[float],
+    f1_score: Optional[float],
+    calibrated: bool,
+    accepted: bool,
+    model_path: Optional[str],
+    fold_accuracies: List[float],
+    features: List[str],
+) -> Optional[int]:
+    """
+    Insert one row into triage_model_provenance.
+
+    Returns the inserted row id, or None if the table is unavailable.
+    Best-effort: any DB error is logged and swallowed by the caller.
+
+    Requires the modern schema columns appended by the Epic 3 follow-up
+    (run_id, model_version, model_type, source_csv, n_samples, n_positive,
+    n_negative, accuracy_score, model_path, run_metadata). The legacy
+    columns (precision_score, recall_score, f1_score, calibrated,
+    feature_importances, features) were present in the original 391e7d1
+    table.
+    """
+    feature_importances: Dict[str, float] = {}
+    n_pos = sum(1 for r in source_meta if r["label"] == "true_positive")
+    n_neg = sum(1 for r in source_meta if r["label"] == "false_positive")
+
+    if not _db_reachable():
+        return None
+
+    # joblib >=1.5 removed dumps/loads; use dump/load with BytesIO instead.
+    def _jb(obj: Any) -> bytes:
+        buf = io.BytesIO()
+        joblib.dump(obj, buf)
+        return buf.getvalue()
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO triage_model_provenance (
+                run_id, model_version, model_type, source_csv, n_samples,
+                n_positive, n_negative, accuracy_score, precision_score,
+                recall_score, f1_score, calibrated, feature_importances,
+                features, model_path, run_metadata
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                $14, $15, $16
+            )
+            RETURNING id
+            """,
+            run_id,
+            "v2",
+            "CalibratedClassifierCV(RandomForestClassifier, isotonic, cv=3)",
+            source_csv,
+            n_samples,
+            n_pos,
+            n_neg,
+            cv_accuracy,
+            precision_score,
+            recall_score,
+            f1_score,
+            calibrated,
+            _jb(feature_importances) if feature_importances else None,
+            _jb(features),
+            model_path,
+            _jb(
+                {
+                    "cv_std": cv_std,
+                    "fold_accuracies": fold_accuracies,
+                    "accepted": accepted,
+                    "min_cv_accuracy": MIN_CV_ACCURACY,
+                }
+            ),
+        )
+    return int(row["id"]) if row else None
+
+
+async def _write_alert_labels(
+    *, run_id: str, source_meta: List[Dict[str, Any]]
+) -> int:
+    """
+    Write analyst labels for each synthetic alert into alert_labels.
+
+    These rows are tagged labeled_by='training_data_v2:<run_id>' so the
+    provenance is traceable from the analyst UI back to the generator run.
+    Returns the number of rows inserted.
+    """
+    if not source_meta:
+        return 0
+    if not _db_reachable():
+        return 0
+    labeled_by = f"training_data_v2:{run_id}"
+    pool = await get_pool()
+    inserted = 0
+    async with pool.acquire() as conn:
+        for entry in source_meta:
+            try:
+                await conn.execute(
+                    """
+                    INSERT INTO alert_labels (alert_id, label, labeled_by)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (alert_id, label) DO NOTHING
+                    """,
+                    entry["alert_id"],
+                    entry["label"],
+                    labeled_by,
+                )
+                inserted += 1
+            except Exception as e:  # noqa: BLE001
+                # Skip missing-FK alerts (no real alert row); keep going.
+                log.debug(
+                    "alert_label_insert_skipped",
+                    alert_id=entry["alert_id"],
+                    error=str(e),
+                )
+    return inserted

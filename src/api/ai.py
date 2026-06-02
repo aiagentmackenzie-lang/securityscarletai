@@ -7,10 +7,10 @@ POST /api/v1/ai/triage/{id}   — Get triage prediction for alert
 GET  /api/v1/ai/ueba/{user}   — Get UEBA anomaly score for user
 POST /api/v1/ai/explain/{id}  — Generate AI explanation for alert
 """
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-
-import json
 
 from src.ai.alert_explanation import explain_alert
 from src.ai.alert_triage import AlertTriageModel, check_auto_train, get_triage_model
@@ -67,6 +67,15 @@ class ExplainResponse(BaseModel):
     """Alert explanation response."""
     alert_id: int
     explanation: str
+    source: str | None = None
+    model: str | None = None
+    fallback_used: bool = False
+    warning: str | None = None
+    tokens_in: int = 0
+    tokens_out: int = 0
+    latency_ms: int = 0
+    prompt_version: str | None = None
+    cost_recorded: bool = False
 
 
 @router.post(
@@ -117,6 +126,15 @@ async def get_status(
     # Triage model status
     triage = AlertTriageModel()
     triage_status = triage.get_status()
+
+    # V2 (Epic 3) — attach latest triage_model_provenance row if reachable.
+    # Best-effort: any DB error yields provenance=None and the call still
+    # returns the existing triage_status keys for backward compatibility.
+    try:
+        provenance = await triage.latest_provenance()
+    except Exception:  # noqa: BLE001
+        provenance = None
+    triage_status["provenance"] = provenance
 
     # UEBA model status
     ueba = await get_ueba()
@@ -250,11 +268,21 @@ async def explain_alert_endpoint(
         mitre_techniques=alert["mitre_techniques"] or [],
         evidence=evidence_parsed,
         related_logs_count=related_count or 0,
+        user=_user.get("sub"),
     )
 
     return ExplainResponse(
         alert_id=alert_id,
-        explanation=explanation,
+        explanation=explanation.get("explanation", ""),
+        source=explanation.get("source"),
+        model=explanation.get("model"),
+        fallback_used=explanation.get("fallback_used", False),
+        warning=explanation.get("warning"),
+        tokens_in=explanation.get("tokens_in", 0),
+        tokens_out=explanation.get("tokens_out", 0),
+        latency_ms=explanation.get("latency_ms", 0),
+        prompt_version=explanation.get("prompt_version"),
+        cost_recorded=explanation.get("cost_recorded", False),
     )
 
 

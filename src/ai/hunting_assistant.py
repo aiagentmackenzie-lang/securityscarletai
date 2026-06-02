@@ -351,7 +351,7 @@ async def _suggest_hunts_for_alert(alert_data: Dict) -> List[Dict]:
         max_tokens=400,
     )
 
-    if response == FALLBACK_MESSAGE:
+    if response.source == "template_library" or response.source == "error":
         return [
             {
                 "name": f"Investigate {alert_data.get('host_name', 'host')}",
@@ -372,7 +372,7 @@ async def _suggest_hunts_for_alert(alert_data: Dict) -> List[Dict]:
 
     # Parse into simple list
     suggestions = []
-    for line in response.split("\n"):
+    for line in response.text.split("\n"):
         line = line.strip()
         if line and line[0].isdigit() and "." in line[:3]:
             suggestions.append({
@@ -538,7 +538,7 @@ async def suggest_hunting_queries(
         max_tokens=800,
     )
 
-    if response == FALLBACK_MESSAGE:
+    if response.source == "template_library" or response.source == "error":
         # Return template suggestions as fallback
         return [
             {"name": t["name"], "description": t["description"]}
@@ -547,7 +547,7 @@ async def suggest_hunting_queries(
 
     # Parse suggestions
     suggestions = []
-    for line in response.split("\n"):
+    for line in response.text.split("\n"):
         line = line.strip()
         if line and line[0].isdigit() and "." in line[:3]:
             suggestions.append({
@@ -595,7 +595,7 @@ async def analyze_hunting_results(
         max_tokens=400,
     )
 
-    if analysis == FALLBACK_MESSAGE:
+    if analysis.source == "template_library" or analysis.source == "error":
         if result_count == 0:
             return (
                 f"**Hunt: {query_name}** — No results found.\n\n"
@@ -614,7 +614,7 @@ async def analyze_hunting_results(
                 "3. Create a detection rule if the pattern is suspicious"
             )
 
-    return analysis
+    return analysis.text
 
 
 # ---------------------------------------------------------------------------
