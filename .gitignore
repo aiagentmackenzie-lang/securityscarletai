@@ -80,3 +80,7 @@ HOW_TO_USE.md
 docs/HANDOVER.md
 docs/PHASE5-CONTINUATION-PROMPT.md
 docs/SECURITYSCARLETAI-PLAN.md
+
+# Audit reports and bug catalogs (generated, not for public repo)
+AUDIT_REPORT.md
+BUG_CATALOG.md
