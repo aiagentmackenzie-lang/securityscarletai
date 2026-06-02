@@ -7,10 +7,10 @@ POST /api/v1/ai/triage/{id}   — Get triage prediction for alert
 GET  /api/v1/ai/ueba/{user}   — Get UEBA anomaly score for user
 POST /api/v1/ai/explain/{id}  — Generate AI explanation for alert
 """
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-
-import json
 
 from src.ai.alert_explanation import explain_alert
 from src.ai.alert_triage import AlertTriageModel, check_auto_train, get_triage_model
@@ -126,6 +126,15 @@ async def get_status(
     # Triage model status
     triage = AlertTriageModel()
     triage_status = triage.get_status()
+
+    # V2 (Epic 3) — attach latest triage_model_provenance row if reachable.
+    # Best-effort: any DB error yields provenance=None and the call still
+    # returns the existing triage_status keys for backward compatibility.
+    try:
+        provenance = await triage.latest_provenance()
+    except Exception:  # noqa: BLE001
+        provenance = None
+    triage_status["provenance"] = provenance
 
     # UEBA model status
     ueba = await get_ueba()
