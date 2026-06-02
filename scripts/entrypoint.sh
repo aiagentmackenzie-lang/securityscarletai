@@ -17,6 +17,15 @@
 # That's intentional — better to crash and let Compose restart than to
 # start the API against an uninitialised DB.
 
+# NOTE (2026-06-02): Secret rotation done locally; git history rewrite
+# (git filter-repo / BFG) explicitly SKIPPED per parent Pi decision.
+# The scarletai_secure_2026 token present in earlier commits is treated
+# as a local-dev credential: it has been rotated, the new value lives
+# only in .env (which is gitignored), and the cost of rewriting shared
+# history is not justified for an already-rotated secret. Do NOT run
+# `git filter-repo` or `BFG` on this branch without re-opening the
+# decision with parent Pi. — Agent B
+
 set -euo pipefail
 
 echo "[entrypoint] $(date -u +%Y-%m-%dT%H:%M:%SZ) — starting SecurityScarletAI"

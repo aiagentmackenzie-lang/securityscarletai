@@ -41,7 +41,7 @@ cb5c9ee wip(epic6): audit middleware + audit_logs table + request audit tests
 | 5. JWT hardening | ✅ DONE | agent-b-infra | `4c096cb` — jti, logout, refresh, user_revoke markers |
 | 6. Real audit log (DB-backed) | 🟡 WIP COMMITTED | agent-b-infra | `cb5c9ee` — committed but **not yet validated by full pytest run** |
 | 7. Docker bootstrap | ✅ DONE | agent-b-infra | `8460dae` — entrypoint.sh, init script, docker-compose updates |
-| 8. Secret hygiene | 🟡 PARTIAL | agent-b-infra | Local rotation scaffold done. **Git history purge (git-filter-repo / BFG) NOT done** — needs explicit parent approval before force-push |
+| 8. Secret hygiene | ✅ DONE (rotated only) | agent-b-infra | Local rotation scaffold (`4c096cb`) + new password never enters git. **History purge explicitly SKIPPED** per parent Pi decision 2026-06-02 — rotated local-dev credential in old commits is low-risk, cost of `filter-repo` rewrite not justified. See SESSION_HANDOFF.md "Epic 8 closure note". |
 | 9. Event enrichment revamp | 🔴 NOT STARTED | agent-b-infra | Briefed but untouched |
 | 10. Dashboard | 🔴 NOT STARTED | agent-b-infra | Lower-effort Streamlit-in-docker path |
 
