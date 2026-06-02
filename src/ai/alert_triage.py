@@ -13,6 +13,7 @@ Changes from Phase 0:
 """
 import csv
 import hashlib
+import io
 import socket
 import time
 import uuid
@@ -632,12 +633,18 @@ class AlertTriageModel:
             cv=V2_CALIBRATION_CV,
         )
 
-        # Stratified K-fold for honest CV accuracy.
+        # Stratified K-fold for honest CV accuracy + PRF.
+        # We aggregate per-fold (y_true, y_pred) into a single array so PRF
+        # is computed over the full CV prediction set, not averaged per fold
+        # (per-fold averaging weights small folds equally with large ones,
+        # which biases the macro estimate).
         n_splits = min(V2_CV_SPLITS, n_samples)
         skf = StratifiedKFold(
             n_splits=n_splits, shuffle=True, random_state=V2_RANDOM_STATE
         )
         fold_accuracies: List[float] = []
+        cv_y_true: List[int] = []
+        cv_y_pred: List[int] = []
         try:
             for train_idx, test_idx in skf.split(X_array, y_array):
                 fold_calibrated = CalibratedClassifierCV(
@@ -655,6 +662,8 @@ class AlertTriageModel:
                 fold_accuracies.append(
                     float(np.mean(preds == y_array[test_idx]))
                 )
+                cv_y_true.extend(y_array[test_idx].tolist())
+                cv_y_pred.extend(preds.tolist())
         except ValueError as e:
             log.warning("triage_v2_cv_failed", error=str(e))
             return {
@@ -668,6 +677,29 @@ class AlertTriageModel:
         cv_accuracy = float(np.mean(fold_accuracies))
         cv_std = float(np.std(fold_accuracies))
         accepted = cv_accuracy >= min_cv_accuracy
+
+        # PRF — binary, pos_label=1 (true_positive). Aggregated across folds.
+        # Defaults to (None, None, None) if sklearn can't compute (e.g. only
+        # one class present in the concatenated predictions — degenerate case).
+        precision_score: Optional[float] = None
+        recall_score: Optional[float] = None
+        f1_score: Optional[float] = None
+        if cv_y_true and cv_y_pred:
+            try:
+                from sklearn.metrics import precision_recall_fscore_support
+
+                p, r, f, _ = precision_recall_fscore_support(
+                    np.asarray(cv_y_true, dtype=int),
+                    np.asarray(cv_y_pred, dtype=int),
+                    pos_label=1,
+                    average="binary",
+                    zero_division=0,
+                )
+                precision_score = float(p)
+                recall_score = float(r)
+                f1_score = float(f)
+            except ValueError as e:
+                log.warning("triage_v2_prf_compute_failed", error=str(e))
 
         persisted_path: Optional[str] = None
         if accepted:
@@ -698,6 +730,9 @@ class AlertTriageModel:
                 n_samples=n_samples,
                 cv_accuracy=cv_accuracy,
                 cv_std=cv_std,
+                precision_score=precision_score,
+                recall_score=recall_score,
+                f1_score=f1_score,
                 calibrated=accepted,
                 accepted=accepted,
                 model_path=persisted_path,
@@ -718,6 +753,9 @@ class AlertTriageModel:
             "cv_accuracy": round(cv_accuracy, 4),
             "cv_std": round(cv_std, 4),
             "fold_accuracies": [round(a, 4) for a in fold_accuracies],
+            "precision": round(precision_score, 4) if precision_score is not None else None,
+            "recall": round(recall_score, 4) if recall_score is not None else None,
+            "f1": round(f1_score, 4) if f1_score is not None else None,
             "calibrated": accepted,
             "accepted": accepted,
             "persisted_path": persisted_path,
@@ -915,6 +953,9 @@ async def _write_provenance(
     n_samples: int,
     cv_accuracy: float,
     cv_std: float,
+    precision_score: Optional[float],
+    recall_score: Optional[float],
+    f1_score: Optional[float],
     calibrated: bool,
     accepted: bool,
     model_path: Optional[str],
@@ -926,6 +967,13 @@ async def _write_provenance(
 
     Returns the inserted row id, or None if the table is unavailable.
     Best-effort: any DB error is logged and swallowed by the caller.
+
+    Requires the modern schema columns appended by the Epic 3 follow-up
+    (run_id, model_version, model_type, source_csv, n_samples, n_positive,
+    n_negative, accuracy_score, model_path, run_metadata). The legacy
+    columns (precision_score, recall_score, f1_score, calibrated,
+    feature_importances, features) were present in the original 391e7d1
+    table.
     """
     feature_importances: Dict[str, float] = {}
     n_pos = sum(1 for r in source_meta if r["label"] == "true_positive")
@@ -933,6 +981,12 @@ async def _write_provenance(
 
     if not _db_reachable():
         return None
+
+    # joblib >=1.5 removed dumps/loads; use dump/load with BytesIO instead.
+    def _jb(obj: Any) -> bytes:
+        buf = io.BytesIO()
+        joblib.dump(obj, buf)
+        return buf.getvalue()
 
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -944,8 +998,8 @@ async def _write_provenance(
                 recall_score, f1_score, calibrated, feature_importances,
                 features, model_path, run_metadata
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, NULL, $9, $10,
-                $11, $12, $13
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                $14, $15, $16
             )
             RETURNING id
             """,
@@ -957,11 +1011,14 @@ async def _write_provenance(
             n_pos,
             n_neg,
             cv_accuracy,
+            precision_score,
+            recall_score,
+            f1_score,
             calibrated,
-            joblib.dumps(feature_importances) if feature_importances else None,
-            joblib.dumps(features),
+            _jb(feature_importances) if feature_importances else None,
+            _jb(features),
             model_path,
-            joblib.dumps(
+            _jb(
                 {
                     "cv_std": cv_std,
                     "fold_accuracies": fold_accuracies,

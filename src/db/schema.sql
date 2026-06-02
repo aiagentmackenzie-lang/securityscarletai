@@ -322,3 +322,26 @@ CREATE TABLE IF NOT EXISTS alert_labels (
 
 CREATE INDEX IF NOT EXISTS idx_alert_labels_label ON alert_labels(label);
 CREATE INDEX IF NOT EXISTS idx_alert_labels_alert_id ON alert_labels(alert_id);
+
+
+-- ============================================================
+-- TRIAGE_MODEL_PROVENANCE — modern audit columns (Agent A, Epic 3 follow-up)
+-- The original table (created in 391e7d1) has: id, model_hash, training_samples,
+-- cv_accuracy, cv_std, precision_score, recall_score, f1_score, calibrated,
+-- feature_importances, features, trained_at.
+-- Agent A's train_v2() writes a richer provenance row (run_id, model_type,
+-- source_csv, n_samples, accuracy_score, model_path, run_metadata). These
+-- columns are appended nullable so legacy rows keep working and re-running
+-- the schema is idempotent.
+-- ============================================================
+ALTER TABLE triage_model_provenance
+    ADD COLUMN IF NOT EXISTS run_id TEXT,
+    ADD COLUMN IF NOT EXISTS model_version TEXT,
+    ADD COLUMN IF NOT EXISTS model_type TEXT,
+    ADD COLUMN IF NOT EXISTS source_csv TEXT,
+    ADD COLUMN IF NOT EXISTS n_samples INT,
+    ADD COLUMN IF NOT EXISTS n_positive INT,
+    ADD COLUMN IF NOT EXISTS n_negative INT,
+    ADD COLUMN IF NOT EXISTS accuracy_score FLOAT,
+    ADD COLUMN IF NOT EXISTS model_path TEXT,
+    ADD COLUMN IF NOT EXISTS run_metadata JSONB;
