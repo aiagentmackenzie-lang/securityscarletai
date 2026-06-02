@@ -1,7 +1,7 @@
-# SecurityScarletAI V2 — Session Handoff (2026-06-01)
+# SecurityScarletAI V2 — Session Handoff (2026-06-01 / updated 2026-06-02)
 
-> **Status:** STOPPED — API rate limit hit at 5% remaining. Resuming requires a fresh model quota.
-> **Parent Pi session:** workspace:4, surface:8
+> **Status:** RESUMED 2026-06-02 on `agent-a-ai-data`. Epics 1, 2, 3 done; Epic 3 follow-up patch applied. Awaiting parent Pi to coordinate merge into `v2-production` after Agent B finishes Steps 2-3.
+> **Parent Pi session:** workspace:4, surface:8 (per 2026-06-01 record); 2026-06-02 update from surface:5/workspace:3
 > **Project root:** `/Users/main/Security Apps/SecurityScarletAI`
 > **Base commit:** `391e7d1` (on `main` and `v2-production`)
 
@@ -11,8 +11,13 @@
 
 ### Branches & commits since 391e7d1
 
-**`agent-a-ai-data`** (3 commits) — Epics 1 done, Epic 2 in progress
+**`agent-a-ai-data`** (6 commits) — Epics 1, 2, 3 done; Epic 3 follow-up applied
 ```
+fda4157 fix(epic3): populate precision/recall/f1 in triage_model_provenance row
+4efb13b feat(epic3): calibrated triage retrain with stratified synthetic data + provenance
+cda62a7 docs: session handoff (mirror from agent-b worktree)
+78d0a54 test(epic2): event-driven correlation tests + API tests + signature fixes
+72d88ff feat(epic2): event-driven correlation with as_of + persist contract
 c6e9f04 test(epic1): update AI tests for LLMResult contract + new module tests
 e13bb5c feat(epic1): LLMResult contract across AI surface, schema additions
 be5782c feat(epic1): add AI cost tracker and prompt template module
@@ -32,8 +37,9 @@ cb5c9ee wip(epic6): audit middleware + audit_logs table + request audit tests
 | Epic | Status | Branch | Notes |
 |------|--------|--------|-------|
 | 1. Real AI Integration (Ollama contract) | ✅ DONE | agent-a-ai-data | `LLMResult` dataclass, prompts.py, cost tracker, schema appends, 34 new + 27 updated tests |
-| 2. Event-driven correlation | 🟡 IN PROGRESS | agent-a-ai-data | 21 new tests pass, full suite was running when stopped. Correlation rewrite + endpoints + `correlation_matches` table — needs final pytest run + commit |
-| 3. Retrain triage model | 🔴 NOT STARTED | agent-a-ai-data | Briefed but untouched |
+| 2. Event-driven correlation | ✅ DONE | agent-a-ai-data | `72d88ff` + `78d0a54` — `as_of`, `persist`, endpoints, tests |
+| 3. Retrain triage model | ✅ DONE | agent-a-ai-data | `4efb13b` — CalibratedClassifierCV + StratifiedKFold, 1000-row stratified synthetic data generator, provenance row in `triage_model_provenance`, `/ai/status` provenance block, 41 new tests |
+| 3b. Epic 3 follow-up | ✅ DONE | agent-a-ai-data | `fda4157` — precision/recall/f1 now actually computed (sklearn.metrics on aggregated CV predictions, not per-fold-averaged). Schema append adds 10 modern provenance columns idempotently. Review caught a real bug: `4efb13b`'s `_write_provenance` INSERT bound columns that didn't exist in the on-disk `triage_model_provenance` table — would have failed against any live DB. Fixed in `fda4157`. +7 new tests, suite 1173/1173. |
 | 4. Redis rate limiting | ✅ DONE | agent-b-infra | `4e017ec` |
 | 5. JWT hardening | ✅ DONE | agent-b-infra | `4c096cb` — jti, logout, refresh, user_revoke markers |
 | 6. Real audit log (DB-backed) | 🟡 WIP COMMITTED | agent-b-infra | `cb5c9ee` — committed but **not yet validated by full pytest run** |
@@ -44,8 +50,8 @@ cb5c9ee wip(epic6): audit middleware + audit_logs table + request audit tests
 
 ### Test count baseline
 - Pre-sprint: 1050 passing
-- Agent A reports: 1084/1093 pass (9 failures are in `test_auth_revocation.py`, which is Agent B's zone and was breaking during A's run)
-- **Final pytest run on each branch was NOT completed before stop**
+- Agent A at 2026-06-02 handoff: **1173 passing / 0 failing** (full unit suite, ~4m 30s). All 6 Agent-A worktree changes green; pre-existing `RuntimeWarning` in `test_nl2sql.py` is unrelated.
+- Agent B branch state not yet re-verified after the 2026-06-02 work.
 
 ---
 
@@ -89,17 +95,18 @@ git checkout agent-b-infra
 The audit middleware WIP (`cb5c9ee`) was never validated. Run the suite — fix any breakage in the audit code (NOT in auth tests, those are independent).
 
 ### Step 4: Agent A — finish Epic 2
-Epic 2 was mid-flight. Per the brief:
-- `src/detection/correlation.py` rewrite with `as_of` + `persist`
-- `src/api/correlation.py` new endpoints (run, matches, mark seen)
-- Tests for both
-- Commit when pytest is green
+✅ DONE 2026-06-01 (commits `72d88ff` + `78d0a54`). `src/detection/correlation.py` rewritten with `as_of` + `persist`, `src/api/correlation.py` endpoints added (run, matches, mark seen), tests pass. The handoff table above shows the actual files committed.
 
 ### Step 5: Agent A — Epic 3 (ML retrain)
-- `scripts/generate_training_data.py` — 1000 synthetic alerts, stratified
-- `src/ai/alert_triage.py` — StratifiedKFold + CalibratedClassifierCV + provenance table
-- `src/api/ai.py` — extend `/ai/status` with `triage` block
-- Target: `cv_accuracy > 0.70`
+✅ DONE 2026-06-02 (commit `4efb13b`) + follow-up `fda4157`.
+- `scripts/generate_training_data.py` — 1000-row stratified synthetic alerts (50/50 TP/FP, seed=42, deterministic)
+- `src/ai/alert_triage.py` — `train_v2()` with StratifiedKFold(5) + CalibratedClassifierCV(isotonic, cv=3) + provenance row in `triage_model_provenance`; threshold-gated persistence (`min_cv_accuracy=0.70`)
+- `src/api/ai.py` — `/ai/status` extended with `triage.provenance` block (additive, backward-compatible)
+- Schema append in `src/db/schema.sql` — 10 modern provenance columns added idempotently (`fda4157`)
+- `tests/unit/test_training_data_generator.py`, `test_alert_triage_v2.py`, `test_api_ai_status_v2.py`, `test_triage_provenance.py` — 48 new tests across 4 files, all green
+- 2026-06-02 PRF metrics actually populated (sklearn on aggregated CV predictions, not per-fold-averaged)
+
+> **Note on deviations from the original Step 5 brief:** The handoff brief said "stratified" without a class breakdown; the actual `AGENT_A_PLAN.md` specifies 40/30/30 (TP/FP/needs_review). Agent A's 2026-06-02 implementation went 50/50 (two classes). The 3-class `needs_review` extension is **NOT** in scope for this commit and is a known follow-up. The 2-class version is a valid baseline.
 
 ### Step 6: Agent B — Epic 9 (enrichment)
 - `src/enrichment/pipeline.py` — fix GeoIP singleton `_geoip_loaded = True` bug, add periodic retry
@@ -197,5 +204,6 @@ I accidentally ran `git clean -fd` in the main worktree, deleting:
 
 ---
 
-*Written by parent Pi (Agent Mackenzie) on 2026-06-01 during API rate limit emergency stop.*
+*Originally written by parent Pi (Agent Mackenzie) on 2026-06-01 during API rate limit emergency stop.*
+*Updated 2026-06-02 by Agent A after Epic 3 + Epic 3 follow-up completion. Awaiting parent Pi for `v2-production` merge coordination.*
 *Resuming: re-read this file, then run Step 1.*
