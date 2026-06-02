@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -23,7 +24,7 @@ from src.api.audit import log_request_audit
 from tests.unit._test_request import make_test_request
 
 
-REPO_ROOT = "/Users/main/Security Apps/SecurityScarletAI-agentb"
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 # ───────────────────────────────────────────────────────────────
@@ -34,7 +35,7 @@ REPO_ROOT = "/Users/main/Security Apps/SecurityScarletAI-agentb"
 class TestAuditLogsTable:
     @pytest.fixture(scope="class")
     def schema(self) -> str:
-        with open(f"{REPO_ROOT}/src/db/schema.sql") as f:
+        with open(REPO_ROOT / "src/db/schema.sql") as f:
             return f.read()
 
     def test_audit_logs_table_present(self, schema: str):

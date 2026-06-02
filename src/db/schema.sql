@@ -345,3 +345,33 @@ ALTER TABLE triage_model_provenance
     ADD COLUMN IF NOT EXISTS accuracy_score FLOAT,
     ADD COLUMN IF NOT EXISTS model_path TEXT,
     ADD COLUMN IF NOT EXISTS run_metadata JSONB;
+
+
+-- ============================================================
+-- AUDIT LOGS — HTTP request-level audit (Agent B, Epic 6)
+-- Separate table from the action-level audit_log above. This table
+-- captures every state-changing HTTP request (POST/PUT/PATCH/DELETE)
+-- with method, path, IP, user, status code, and request duration.
+-- ============================================================
+-- Permission hardening (run as superuser, NOT as the app role):
+--   REVOKE UPDATE, DELETE, TRUNCATE ON audit_logs FROM scarletai;
+--   GRANT  INSERT, SELECT            ON audit_logs TO   scarletai;
+-- This prevents a compromised app from rewriting or deleting its own
+-- audit trail. Documented here because the table is append-only by design.
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id                BIGSERIAL PRIMARY KEY,
+    timestamp         TIMESTAMPTZ DEFAULT NOW(),
+    "user"            TEXT,
+    role              TEXT,
+    method            TEXT NOT NULL,
+    path              TEXT NOT NULL,
+    ip                TEXT,
+    status_code       INT,
+    request_body_hash TEXT,
+    duration_ms       INT
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs ("user");
+CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs (timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_method_path ON audit_logs (method, path);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_status ON audit_logs (status_code) WHERE status_code >= 400;
