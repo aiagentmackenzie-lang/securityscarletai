@@ -1,6 +1,56 @@
 # AI Features Documentation
 
-SecurityScarletAI integrates AI/ML throughout the detection-to-response pipeline. All AI features degrade gracefully when Ollama is unavailable — template and rule-based fallbacks ensure the system never blocks on LLM availability.
+SecurityScarletAI integrates AI/ML throughout the detection-to-response pipeline. All AI features degrade gracefully when Ollama is unavailable — template-based fallbacks and rule-based responses ensure the system never blocks on LLM availability. Every LLM call returns a structured `LLMResult` dataclass that records source, token usage, latency, and whether a fallback was used.
+
+The V2 sprint (June 2026) added: a unified `LLMResult` contract across all LLM callsites, versioned Jinja2 prompt templates (`src/ai/prompts.py`), per-call cost tracking (`src/ai/cost_tracker.py`), a calibrated triage model (`CalibratedClassifierCV` wrapper), and the chat endpoint.
+
+---
+
+## LLM Infrastructure (V2)
+
+### The `LLMResult` contract
+
+Every Ollama call returns an `LLMResult` dataclass (`src/ai/ollama_client.py`) instead of a raw string. This contract is uniform across `query_llm`, `chat`, alert explanation, and hunting suggestions:
+
+```python
+@dataclass
+class LLMResult:
+    ok: bool                       # True iff `text` is safe to use
+    text: str                      # The model output (or template fallback)
+    source: SourceType             # "ollama" | "template" | "error"
+    model_used: Optional[str]      # The Ollama model that answered
+    tokens_in: int                 # Prompt tokens (0 for templates)
+    tokens_out: int                # Completion tokens (0 for templates)
+    latency_ms: int                # Wall-clock latency
+    fallback_used: bool            # True if Ollama was unreachable
+    warning: Optional[str]         # User-facing message when fallback fires
+    error: Optional[str]           # Internal error if source == "error"
+    prompt_version: Optional[str]  # e.g. "v1.0.0" from prompts.py
+    extra: dict                    # Call-specific extras
+```
+
+Callers check `result.ok` and `result.fallback_used` rather than catching exceptions for "expected" unavailability.
+
+### Versioned prompt templates (`src/ai/prompts.py`)
+
+All LLM prompts live in one place as Jinja2 templates with explicit version constants. Bumping a version produces a new `version_hash` so callers can record which prompt produced which result:
+
+| Constant | Version | Used by |
+|----------|---------|---------|
+| `ALERT_EXPLANATION_PROMPT_VERSION` | `v1.0.0` | `src/ai/alert_explanation.py` |
+| `ALERT_SUMMARY_PROMPT_VERSION` | `v1.0.0` | `src/ai/alert_triage.py` (summaries) |
+| `INVESTIGATION_STEPS_PROMPT_VERSION` | `v1.0.0` | `src/ai/alert_explanation.py` (steps) |
+| `CHAT_SYSTEM_PROMPT_VERSION` | `v1.0.0` | `src/api/chat.py` |
+
+Render helpers (`render_alert_explanation`, `render_alert_summary`, etc.) return both the rendered text and a content hash. Bumping the version constant is the only edit needed to roll a prompt forward.
+
+### Per-call cost tracking (`src/ai/cost_tracker.py`)
+
+`record_usage()` writes one row to the `ai_usage` table per LLM call with `tokens_in`, `tokens_out`, the calling user, endpoint, and model. This powers the cost rollups surfaced in `/ai/status`.
+
+### Graceful degradation
+
+If Ollama is unreachable, `LLMResult.source == "template"` and `fallback_used == True`. Each AI feature has a deterministic template fallback so behavior is reproducible without an LLM.
 
 ---
 
@@ -8,7 +58,7 @@ SecurityScarletAI integrates AI/ML throughout the detection-to-response pipeline
 
 ### How It Works
 
-The NL→SQL engine converts plain English security questions into safe, parameterized SQL queries:
+The NL→SQL engine (`src/ai/nl2sql.py`) converts plain English security questions into safe, parameterized SQL queries:
 
 1. **Input sanitization** — Strips prompt injection patterns before sending to the LLM
 2. **LLM translation** — Sends the question to Ollama with a strict system prompt requiring SELECT-only output
@@ -26,17 +76,15 @@ The NL→SQL engine converts plain English security questions into safe, paramet
 | "Which hosts are exfiltrating the most data?" | `SELECT host_name, SUM(COALESCE((enrichment->>'bytes_sent')::bigint, 0)) AS total FROM logs WHERE event_category = 'network' GROUP BY host_name ORDER BY total DESC` |
 | "Show me all root logins this week" | `SELECT * FROM logs WHERE user_name = 'root' AND event_action LIKE '%login%' AND time > NOW() - INTERVAL '7 days'` |
 
-### Injection Defense
-
-The 7-layer defense prevents SQL injection from natural language input:
+### 7-Layer Injection Defense
 
 | Layer | Protection |
 |-------|-----------|
 | 1. Input sanitization | Strips common prompt injection patterns (`ignore instructions`, `you are now`, etc.) |
 | 2. LLM system prompt | Instructs the model to generate only SELECT queries |
-| 3. sqlparse validation | Rejects any non-SELECT statement at the AST level |
-| 4. FORBIDDEN_PATTERNS regex | Blocks `DROP`, `ALTER`, `CREATE`, `TRUNCATE`, `INSERT`, `UPDATE`, `DELETE`, `GRANT`, `REVOKE`, `COPY`, system tables |
-| 5. EXPLAIN cost check | Rejects queries estimated to scan > 10,000 rows |
+| 3. `sqlparse` validation | Rejects any non-SELECT statement at the AST level |
+| 4. `FORBIDDEN_PATTERNS` regex | Blocks `DROP`, `ALTER`, `CREATE`, `TRUNCATE`, `INSERT`, `UPDATE`, `DELETE`, `GRANT`, `REVOKE`, `COPY`, system tables |
+| 5. `EXPLAIN` cost check | Rejects queries estimated to scan > 10,000 rows |
 | 6. Result size limit | Caps output at 1,000 rows |
 | 7. Execution timeout | 5-second hard limit per query |
 
@@ -54,41 +102,48 @@ Response: {"question": "...", "sql": "...", "results": [...], "row_count": N}
 
 ### Architecture
 
-The alert triage system uses a **Random Forest classifier** (scikit-learn) to predict whether alerts are true positives or false positives, and to prioritize them for analyst review.
+The alert triage system (`src/ai/alert_triage.py`) uses a **Random Forest classifier** wrapped in **`CalibratedClassifierCV`** (isotonic, cv=3) to predict whether alerts are true positives or false positives, and to prioritize them for analyst review.
 
-### Feature Engineering (11 Features)
+**Why calibration matters (V2):** The pre-V2 model emitted raw RF probabilities that were poorly calibrated — a 0.7 output did not mean 70% of such alerts were true positives in practice. Wrapping in `CalibratedClassifierCV` (added in Epic 3) gives trustworthy probability estimates suitable for threshold-based routing ("auto-close anything with confidence < 0.2", etc.).
+
+### Feature Set (11 input features)
+
+The `AlertTriageModel.FEATURES` list defines the input feature vector:
 
 | Feature | Type | Description |
 |---------|------|-------------|
-| `severity_score` | Float | Severity mapped to numeric (critical=4, high=3, medium=2, low=1, info=0) |
-| `source_ip_entropy` | Float | Shannon entropy of source IPs across alerts (diversity = suspicious) |
-| `process_name_entropy` | Float | Shannon entropy of process names (diversity indicates anomaly) |
-| `host_count` | Int | Number of distinct hosts affected |
-| `event_count` | Int | Number of related events |
-| `has_threat_intel_match` | Bool | Whether source IP appears in threat intel feeds |
-| `has_geo_anomaly` | Bool | Whether source IP is from an unusual geographic location |
-| `is_off_hours` | Bool | Whether alert occurred outside business hours |
-| `hour_of_day` | Float | Sin/cos-encoded hour of alert (circadian pattern) |
-| `day_of_week` | Float | Sin/cos-encoded day of week |
-| `login_hour_deviation` | Float | How much the alert hour deviates from that user's typical pattern |
+| `severity_score` | Float (0-1) | Severity mapped to numeric (critical=1.0, high=0.75, medium=0.5, low=0.25, info=0.0) |
+| `hour_of_day` | Float (0-1) | Normalized hour of the alert (circadian pattern) |
+| `rule_hit_count` | Int | How often this rule has fired historically |
+| `host_alert_count` | Int | Number of historical alerts on this host |
+| `asset_risk_score` | Float (0-1) | Host risk score from the asset inventory |
+| `mitre_count` | Int | Number of distinct MITRE techniques in the alert |
+| `time_since_last_hours` | Float | Hours since the most recent similar alert |
+| `has_threat_intel` | Float (0-1) | Whether any IOC matches a threat intel feed |
+| `command_entropy` | Float | Shannon entropy of recent process names |
+| `session_duration_hours` | Float | Duration of the associated user session |
+| `login_hour_deviation` | Float (0-1) | How far the alert hour is from the user's normal login hour |
 
-### Auto-Training
+### Training Pipeline
 
-The model auto-trains when 100+ resolved alerts exist:
-1. Alerts with status `resolved` or `false_positive` become training data
-2. Features are extracted from each alert's context
-3. Random Forest (100 estimators) is trained with class weight balancing
-4. Model is saved with SHA-256 integrity hash to `models/triage_model.joblib`
-5. Model metadata is saved to `models/triage_meta.joblib`
+1. Alerts with status `resolved` or `false_positive` are pulled from the DB as training data (positive = `true_positive`, negative = `false_positive`).
+2. For development without real labels, `scripts/generate_training_data.py` produces 1,000 stratified synthetic alerts (seed=42, deterministic).
+3. Features are extracted from each alert's context.
+4. `RandomForestClassifier(n_estimators=100, class_weight="balanced")` is wrapped in `CalibratedClassifierCV(cv=3, method="isotonic")`.
+5. 5-fold StratifiedKFold cross-validation computes precision, recall, and F1 on the aggregated CV predictions (not per-fold averaged — this was a V2 bugfix).
+6. The trained model is saved to `models/triage_model.joblib` with a SHA-256 integrity hash to `models/triage_model.sha256`.
+7. A provenance row is written to `triage_model_provenance` recording the model path, hyperparameters, dataset size, CV metrics, and run metadata.
+8. Persistence is threshold-gated: the model is only saved if `min_cv_accuracy >= 0.70` (configurable).
 
 ### API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/v1/ai/triage/train` | POST | Trigger model training |
-| `/api/v1/ai/triage/status` | GET | Get training status and model info |
-| `/api/v1/ai/triage/predict` | POST | Get triage prediction for an alert |
-| `/api/v1/ai/triage/explain` | POST | Get feature importance explanation |
+| `/api/v1/ai/train` | POST | Trigger model training |
+| `/api/v1/ai/status` | GET | Training status, model info, provenance, cost rollup |
+| `/api/v1/ai/triage/{alert_id}` | POST | Get triage prediction for a specific alert |
+| `/api/v1/ai/ueba/{user_name}` | GET | UEBA anomaly score for a user |
+| `/api/v1/ai/explain/{alert_id}` | POST | LLM-generated alert explanation |
 
 ### Model Integrity
 
@@ -103,25 +158,25 @@ The model auto-trains when 100+ resolved alerts exist:
 
 ### How It Works
 
-The UEBA module builds behavioral baselines for each user using an **Isolation Forest** anomaly detection model:
+The UEBA module (`src/ai/ueba.py`) builds behavioral baselines for each user using an **Isolation Forest** anomaly detection model:
 
-1. **Feature extraction** — For each user per day, extract 7 behavioral features
+1. **Feature extraction** — For each user per day, extract 8 behavioral features from the `logs` table
 2. **Baseline training** — Isolation Forest learns "normal" behavior patterns
 3. **Anomaly scoring** — New events are scored against the baseline (0-1 scale)
 4. **Flagging** — Users with anomaly scores above the contamination threshold are flagged
 
-### Behavioral Features (7)
+### Behavioral Features (8)
 
 | Feature | Calculation | Anomaly Signal |
 |---------|-------------|----------------|
-| `login_hour_of_day` | Mode hour of user's logins | Off-hours access |
-| `unique_processes_count` | Count of distinct processes | Unusual tool usage |
+| `login_hour_of_day` | Mode of user's login hour distribution | Off-hours access |
+| `unique_processes_count` | Count of distinct processes run by the user | Unusual tool usage |
 | `command_diversity` | Shannon entropy of process names | Abnormal process variety |
 | `network_connections_count` | Outbound connection count | Excessive networking |
 | `unique_destination_ips` | Distinct IPs contacted | Broad network reach |
 | `file_access_count` | File operations count | Excessive file access |
 | `sudo_usage_count` | Privilege escalation count | Unusual sudo patterns |
-| `session_duration_minutes` | Time between first/last event | Abnormally long sessions |
+| `session_duration_minutes` | Time between first and last event of the day | Abnormally long sessions |
 
 ### Scoring
 
@@ -135,16 +190,17 @@ The UEBA module builds behavioral baselines for each user using an **Isolation F
 
 ### How It Works
 
-When an alert is created, the system generates a human-readable explanation:
+When an alert is created, the system generates a human-readable explanation via `src/ai/alert_explanation.py`:
 
 1. **Context assembly** — Rule name, severity, affected host, MITRE techniques, and evidence are gathered
-2. **LLM query** — Ollama is asked to explain the alert in 2-4 sentences covering:
+2. **Jinja2 prompt render** — `render_alert_explanation()` produces the user prompt from `ALERT_EXPLANATION_PROMPT_VERSION = "v1.0.0"`; `render_investigation_steps()` produces the recommended next-steps block from `INVESTIGATION_STEPS_PROMPT_VERSION = "v1.0.0"`
+3. **LLM query** — Ollama is asked to explain the alert in 2-4 sentences covering:
    - **What happened**: Brief description of detected activity
    - **Why it matters**: Risk and context assessment
    - **Next steps**: Specific investigation recommendations
-3. **Fallback** — If Ollama is unavailable, one of 6 template-based explanations is used
+4. **Fallback** — If Ollama is unavailable, a template-based explanation is selected by `(event_category, severity)`. The fallback is recorded in the `LLMResult` (`source="template"`, `fallback_used=True`).
 
-### Template Fallbacks
+### Template Fallbacks (6)
 
 | Template | Trigger Condition |
 |----------|------------------|
@@ -174,12 +230,12 @@ For an SSH Brute Force alert:
 | ID | Name | Category | MITRE |
 |----|------|----------|-------|
 | `lateral_movement_service_accounts` | Lateral Movement — New Service Accounts | Persistence | T1078, T1021 |
-| `impossible_travel_check` | Impossible Travel — Geographic Anomaly | Initial Access | T1078 |
-| `new_process_from_tmp` | Suspicious /tmp Process Execution | Execution | T1059 |
-| `dns_tunneling_hunt` | DNS Tunneling Indicators | Command & Control | T1071 |
-| `credential_access_patterns` | Credential Access Attempts | Credential Access | T1003 |
-| `data_staging_exfil` | Data Staging and Exfiltration | Exfiltration | T1048 |
-| `c2_beaconing_hunt` | C2 Beaconing Detection | Command & Control | T1071 |
+| `data_staging_temp_files` | Data Staging in Temp Directories | Exfiltration | T1074 |
+| `c2_beaconing_connections` | C2 Beaconing Connection Patterns | Command & Control | T1071 |
+| `privilege_escalation_sudo` | Sudo-Based Privilege Escalation | Privilege Escalation | T1548 |
+| `credential_dumping` | Credential Dumping Tool Execution | Credential Access | T1003 |
+| `unusual_network_activity` | Unusual Outbound Network Activity | Command & Control | T1071 |
+| `persistence_launch_agents` | LaunchAgent Persistence Creation | Persistence | T1547 |
 
 Each template includes a ready-to-execute parameterized SQL query.
 
@@ -214,7 +270,7 @@ Given an alert, the hunting assistant:
 
 ### Factor Weights
 
-The risk scoring engine combines multiple signals into a single 0-100 risk score:
+The risk scoring engine (`src/ai/risk_scoring.py`) combines multiple signals into a single 0-100 risk score:
 
 | Factor | Weight | Description |
 |--------|--------|-------------|
@@ -241,4 +297,17 @@ All scores are capped at 100.
 |----------|--------|-------------|
 | `/api/v1/ai/risk/alert/{alert_id}` | GET | Risk score for a specific alert |
 | `/api/v1/ai/risk/asset/{hostname}` | GET | Risk score for a host/asset |
-| `/api/v1/ai/risk/user/{username}` | GET | Risk score for a user |_
+| `/api/v1/ai/risk/user/{username}` | GET | Risk score for a user |
+
+---
+
+## Chat Endpoint (V2)
+
+The `/api/v1/chat` endpoint exposes a conversational interface backed by the same Ollama client. The system prompt is rendered from `CHAT_SYSTEM_PROMPT_VERSION = "v1.0.0"`. The endpoint:
+
+1. Loads the recent alert context for the user
+2. Renders the chat system prompt with that context
+3. Calls Ollama with the user's message + history
+4. Returns the `LLMResult` (text, model, token counts, latency)
+
+The chat endpoint is **read-only** — it has no access to mutation routes. All responses cite the alert IDs they referenced for audit.

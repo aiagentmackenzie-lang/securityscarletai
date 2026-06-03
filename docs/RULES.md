@@ -1,115 +1,119 @@
 # Detection Rules Reference
 
-SecurityScarletAI ships with **45 Sigma rules** and **12 correlation rules** (5 SQL + 7 sequence-based), covering authentication, process, network, file, macOS, and cloud attack patterns.
-
-All rules are MITRE ATT&CK mapped and use the Sigma YAML specification, compiled to safe parameterized SQL via our custom pySigma PostgreSQL backend.
+SecurityScarletAI ships with **45 Sigma rules** and **7 event-driven correlation rules**, covering authentication, process, network, file, macOS, and cloud attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL via our custom pySigma PostgreSQL backend.
 
 ---
 
-## Authentication Rules (9)
+## Sigma Rule Catalog (45 total)
+
+45 rules distributed across 6 categories. Each rule is a YAML file under `rules/sigma/<category>/`.
+
+### Authentication (9 rules)
 
 | # | Rule Name | Severity | MITRE Tactic | MITRE Technique | Description |
 |---|-----------|----------|--------------|-----------------|-------------|
-| 1 | SSH Brute Force Detected | High | Credential Access | T1110 | Multiple failed SSH login attempts from the same source IP |
-| 2 | Failed Login Spike | High | Credential Access | T1110 | Spike of failed logins across multiple accounts from one source |
-| 3 | Login from Unusual Geography | Medium | Initial Access | T1078 | Successful auth from IP with unexpected geographic origin |
-| 4 | Multiple Account Lockouts | High | Credential Access | T1110 | Multiple account lockouts from the same source IP |
-| 5 | Privilege Escalation via Sudo | Medium | Privilege Escalation | T1548 | Sudo execution for privilege escalation |
-| 6 | Root Login from Non-Console | High | Privilege Escalation | T1078 | Root user login from remote or non-console session |
-| 7 | Credential Dumping Attempt | Critical | Credential Access | T1003 | Mimikatz, procdump, LaZagne, or keychain dump processes |
-| 8 | SSH Successful Login After Failures | Critical | Credential Access | T1110 | Successful SSH login following multiple failed attempts |
-| 9 | Service Account Anomaly | Low | Initial Access | T1078 | Service account authentication outside normal patterns |
+| 1 | SSH Brute Force Detected | High | Credential Access (TA0006) | T1110 | Multiple failed SSH login attempts from the same source IP |
+| 2 | Failed Login Spike | High | Credential Access (TA0006) | T1110 | Spike of failed logins across multiple accounts from one source |
+| 3 | Login from Unusual Geography | Medium | Initial Access (TA0001) | T1078 | Successful auth from IP with unexpected geographic origin |
+| 4 | Multiple Account Lockouts | High | Credential Access (TA0006) | T1110 | Multiple account lockouts from the same source IP |
+| 5 | Privilege Escalation via Sudo | Medium | Privilege Escalation (TA0004) | T1548 | Sudo execution for privilege escalation |
+| 6 | Root Login from Non-Console | High | Privilege Escalation (TA0004) | T1078 | Root user login from remote or non-console session |
+| 7 | Credential Dumping Attempt | Critical | Credential Access (TA0006) | T1003 | Mimikatz, procdump, LaZagne, or keychain dump processes |
+| 8 | SSH Successful Login After Failures | Critical | Credential Access (TA0006) | T1110 | Successful SSH login following multiple failed attempts |
+| 9 | Service Account Anomaly | Low | Initial Access (TA0001) | T1078 | Service account authentication outside normal patterns |
 
-## Process Rules (8)
-
-| # | Rule Name | Severity | MITRE Tactic | MITRE Technique | Description |
-|---|-----------|----------|--------------|-----------------|-------------|
-| 1 | Reverse Shell Pattern Detected | Critical | Execution | T1059 | Common reverse shell patterns (bash -i, socat, nc -e, etc.) |
-| 2 | Suspicious Process from /tmp | Medium | Execution | T1059 | Process execution from temporary directories |
-| 3 | Living-off-the-Land Binary Execution | Medium | Defense Evasion | T1218 | LOLBin abuse (curl, wget, base64, xattr, launchctl, defaults) |
-| 4 | Encoded Command Execution | High | Defense Evasion | T1027 | Base64-encoded or obfuscated command execution |
-| 5 | Suspicious Parent-Child Process Chain | Medium | Execution | T1059 | Unusual parent-child process relationships |
-| 6 | Download and Execute Pattern | High | Execution | T1059 | Download-then-execute patterns from malware droppers |
-| 7 | Script Interpreter from Unexpected Location | Medium | Execution | T1059 | Python, Perl, Ruby, Node running from /tmp or unusual paths |
-| 8 | Process Injection Indicator | High | Privilege Escalation | T1055 | ptrace, lldb, dtrace, or LD_PRELOAD injection |
-
-## Network Rules (7)
+### Process (8 rules)
 
 | # | Rule Name | Severity | MITRE Tactic | MITRE Technique | Description |
 |---|-----------|----------|--------------|-----------------|-------------|
-| 1 | Suspicious DNS Query | Low | Command and Control | T1071 | DNS queries to suspicious or known-malicious domains |
-| 2 | DNS Tunneling Indicators | Medium | Command and Control | T1071 | DNS query patterns indicating tunneling for data exfiltration |
-| 3 | C2 Beaconing Pattern | Medium | Command and Control | T1071 | Regular-interval outbound connections suggesting C2 |
-| 4 | Data Exfiltration Volume | High | Exfiltration | T1048 | Large outbound data transfers indicating exfiltration |
-| 5 | Tor Exit Node Connection | Medium | Command and Control | T1090 | Connections to known Tor exit node ports |
-| 6 | Internal Lateral Movement | Medium | Lateral Movement | T1021 | Internal connections on SSH, RDP, SMB, or VNC ports |
-| 7 | Outbound Connection to Rare/C2 Port | High | Command and Control | T1071 | Outbound connections to ports 4444, 31337, 6667, etc. |
+| 1 | Reverse Shell Pattern Detected | Critical | Execution (TA0002) | T1059 | Common reverse shell patterns (`bash -i`, `socat`, `nc -e`, etc.) |
+| 2 | Suspicious Process from /tmp | Medium | Execution (TA0002) | T1059 | Process execution from temporary directories |
+| 3 | Living-off-the-Land Binary Execution | Medium | Defense Evasion (TA0005) | T1218 | LOLBin abuse (`curl`, `wget`, `base64`, `xattr`, `launchctl`, `defaults`) |
+| 4 | Encoded Command Execution | High | Defense Evasion (TA0005) | T1027 | Base64-encoded or obfuscated command execution |
+| 5 | Suspicious Parent-Child Process Chain | Medium | Execution (TA0002) | T1059 | Unusual parent-child process relationships |
+| 6 | Download and Execute Pattern | High | Execution (TA0002) | T1059 | Download-then-execute patterns from malware droppers |
+| 7 | Script Interpreter from Unexpected Location | Medium | Execution (TA0002) | T1059 | Python, Perl, Ruby, Node running from /tmp or unusual paths |
+| 8 | Process Injection Indicator | High | Privilege Escalation (TA0004) | T1055 | `ptrace`, `lldb`, `dtrace`, or `LD_PRELOAD` injection |
 
-## File Rules (6)
-
-| # | Rule Name | Severity | MITRE Tactic | MITRE Technique | Description |
-|---|-----------|----------|--------------|-----------------|-------------|
-| 1 | Sensitive File Access | High | Credential Access | T1003 | Access to /etc/shadow, .ssh/id_rsa, authorized_keys |
-| 2 | Ransomware File Encryption Pattern | Critical | Impact | T1486 | Rapid file encryption patterns (openssl enc, gpg symmetric) |
-| 3 | Cron Job Modification | Medium | Persistence | T1053 | Modification of cron jobs for persistence |
-| 4 | Webshell Creation | Critical | Persistence | T1505 | PHP files created in web-served directories |
-| 5 | Log File Deletion | Critical | Defense Evasion | T1070 | rm/shred/srm targeting /var/log files |
-| 6 | Binary Replacement or Hijacking | High | Persistence | T1574 | Modification of system binaries or libraries |
-
-## macOS-Specific Rules (10)
+### Network (7 rules)
 
 | # | Rule Name | Severity | MITRE Tactic | MITRE Technique | Description |
 |---|-----------|----------|--------------|-----------------|-------------|
-| 1 | LaunchAgent Persistence Created | High | Persistence | T1547 | Creation of macOS LaunchAgent plist files |
-| 2 | LaunchDaemon Persistence Created | Critical | Persistence | T1547 | Creation of macOS LaunchDaemon plist files |
-| 3 | TCC Database Modification | Critical | Defense Evasion | T1562 | Modification of macOS TCC (permissions) database |
-| 4 | Gatekeeper Bypass Attempt | High | Defense Evasion | T1553 | spctl, xattr quarantine removal, or codesign tampering |
-| 5 | XProtect Removal or Modification | Critical | Defense Evasion | T1562 | Modification or deletion of macOS XProtect files |
-| 6 | Safari Extension Installation | Medium | Persistence | T1176 | Installation of browser extensions in Safari |
-| 7 | Keychain Access by Unusual Process | High | Credential Access | T1555 | Access to macOS Keychain via security find-generic-password |
-| 8 | SIP Modification | Critical | Defense Evasion | T1562 | Attempts to disable System Integrity Protection |
-| 9 | Authorization Database Modification | High | Privilege Escalation | T1548 | Modification of macOS authorization database |
-| 10 | Hidden File Creation in User Directories | Low | Defense Evasion | T1564 | Hidden (dot-prefix) file creation in user home |
+| 1 | Suspicious DNS Query | Low | Command and Control (TA0011) | T1071 | DNS queries to suspicious or known-malicious domains |
+| 2 | DNS Tunneling Indicators | Medium | Command and Control (TA0011) | T1071 | DNS query patterns indicating tunneling for data exfiltration |
+| 3 | C2 Beaconing Pattern | Medium | Command and Control (TA0011) | T1071 | Regular-interval outbound connections suggesting C2 |
+| 4 | Data Exfiltration Volume | High | Exfiltration (TA0010) | T1048 | Large outbound data transfers indicating exfiltration |
+| 5 | Tor Exit Node Connection | Medium | Command and Control (TA0011) | T1090 | Connections to known Tor exit node ports |
+| 6 | Internal Lateral Movement | Medium | Lateral Movement (TA0008) | T1021 | Internal connections on SSH, RDP, SMB, or VNC ports |
+| 7 | Outbound Connection to Rare/C2 Port | High | Command and Control (TA0011) | T1071 | Outbound connections to ports 4444, 31337, 6667, etc. |
 
-## Cloud Rules (5)
+### File (6 rules)
 
 | # | Rule Name | Severity | MITRE Tactic | MITRE Technique | Description |
 |---|-----------|----------|--------------|-----------------|-------------|
-| 1 | Impossible Travel — Distant Logins | Critical | Initial Access | T1078 | Auth from two distant locations within impossible time window |
-| 2 | API Key Usage from New IP | Medium | Initial Access | T1078 | API key authentication from previously unseen IP |
-| 3 | Bulk Data Download | Medium | Exfiltration | T1567 | Unusually large data downloads from cloud services |
-| 4 | SaaS Permission Escalation | High | Privilege Escalation | T1078 | Permission/role changes in SaaS applications |
-| 5 | New Admin Account Creation | High | Persistence | T1136 | Creation of new accounts with admin privileges |
+| 1 | Sensitive File Access | High | Credential Access (TA0006) | T1003 | Access to `/etc/shadow`, `.ssh/id_rsa`, `authorized_keys` |
+| 2 | Ransomware File Encryption Pattern | Critical | Impact (TA0040) | T1486 | Rapid file encryption patterns (`openssl enc`, `gpg symmetric`) |
+| 3 | Cron Job Modification | Medium | Persistence (TA0003) | T1053 | Modification of cron jobs for persistence |
+| 4 | Webshell Creation | Critical | Persistence (TA0003) | T1505 | PHP files created in web-served directories |
+| 5 | Log File Deletion | Critical | Defense Evasion (TA0005) | T1070 | `rm`/`shred`/`srm` targeting `/var/log` files |
+| 6 | Binary Replacement or Hijacking | High | Persistence (TA0003) | T1574 | Modification of system binaries or libraries |
+
+### macOS (10 rules)
+
+| # | Rule Name | Severity | MITRE Tactic | MITRE Technique | Description |
+|---|-----------|----------|--------------|-----------------|-------------|
+| 1 | LaunchAgent Persistence Created | High | Persistence (TA0003) | T1547 | Creation of macOS LaunchAgent plist files |
+| 2 | LaunchDaemon Persistence Created | Critical | Persistence (TA0003) | T1547 | Creation of macOS LaunchDaemon plist files |
+| 3 | TCC Database Modification | Critical | Defense Evasion (TA0005) | T1562 | Modification of macOS TCC (permissions) database |
+| 4 | Gatekeeper Bypass Attempt | High | Defense Evasion (TA0005) | T1553 | `spctl`, `xattr` quarantine removal, or `codesign` tampering |
+| 5 | XProtect Removal or Modification | Critical | Defense Evasion (TA0005) | T1562 | Modification or deletion of macOS XProtect files |
+| 6 | Safari Extension Installation | Medium | Persistence (TA0003) | T1176 | Installation of browser extensions in Safari |
+| 7 | Keychain Access by Unusual Process | High | Credential Access (TA0006) | T1555 | Access to macOS Keychain via `security find-generic-password` |
+| 8 | SIP Modification | Critical | Defense Evasion (TA0005) | T1562 | Attempts to disable System Integrity Protection |
+| 9 | Authorization Database Modification | High | Privilege Escalation (TA0004) | T1548 | Modification of macOS authorization database |
+| 10 | Hidden File Creation in User Directories | Low | Defense Evasion (TA0005) | T1564 | Hidden (dot-prefix) file creation in user home |
+
+### Cloud (5 rules)
+
+| # | Rule Name | Severity | MITRE Tactic | MITRE Technique | Description |
+|---|-----------|----------|--------------|-----------------|-------------|
+| 1 | Impossible Travel — Distant Logins | Critical | Initial Access (TA0001) | T1078 | Auth from two distant locations within impossible time window |
+| 2 | API Key Usage from New IP | Medium | Initial Access (TA0001) | T1078 | API key authentication from previously unseen IP |
+| 3 | Bulk Data Download | Medium | Exfiltration (TA0010) | T1567 | Unusually large data downloads from cloud services |
+| 4 | SaaS Permission Escalation | High | Privilege Escalation (TA0004) | T1078 | Permission/role changes in SaaS applications |
+| 5 | New Admin Account Creation | High | Persistence (TA0003) | T1136 | Creation of new accounts with admin privileges |
 
 ---
 
-## Correlation Rules (5 SQL-Based)
+## Correlation Rules (7 event-driven)
 
-These rules detect multi-step attack chains by correlating events across time windows.
+The correlation engine (`src/detection/correlation.py`) defines 7 multi-step attack chain detectors. Each rule is **event-driven** (queries the `logs` table with an explicit `as_of` timestamp for point-in-time safety — no `NOW()` baked into SQL) and returns matches with a unique `correlation_id`. When `run_all_correlations(persist=True)` is called, matches are written to the `correlation_matches` table and surfaced as alerts via `create_alert()`.
 
-| # | Rule Name | Severity | MITRE Tactics | MITRE Techniques | Description |
-|---|-----------|----------|---------------|------------------|-------------|
-| 1 | Brute Force → Successful Login | Critical | Credential Access | T1110 | N failed logins followed by success from same source IP |
-| 2 | Dropped Payload → C2 Callback | Critical | Execution, C2 | T1059, T1071 | Process from /tmp followed by outbound network connection |
-| 3 | Persistence Created → Activated | High | Persistence | T1547 | LaunchAgent creation followed by launchctl load |
-| 4 | Large Read → Large Network Transfer | High | Exfiltration | T1048 | Large file reads followed by significant outbound transfers |
-| 5 | Privilege Escalation → Root Process | Critical | Privilege Escalation | T1548 | Sudo followed by new root-level process execution |
+| # | Rule ID | Title | Severity | Confidence (base) | MITRE Tactics | MITRE Techniques | Description |
+|---|---------|-------|----------|-------------------|---------------|------------------|-------------|
+| 1 | `brute_force_success` | Brute Force → Successful Login | Critical | 80% | Credential Access (TA0006) | T1110 | N failed logins followed by success from same source IP |
+| 2 | `payload_callback` | Dropped Payload → C2 Callback | Critical | 75% | Execution (TA0002), C2 (TA0011) | T1059, T1071 | Process from `/tmp` followed by outbound network connection |
+| 3 | `persistence_activated` | Persistence Created → Activated | High | 70% | Persistence (TA0003) | T1547 | LaunchAgent creation followed by `launchctl load` |
+| 4 | `data_exfiltration` | Large Read → Large Network Transfer | High | 65% | Exfiltration (TA0010) | T1048 | Large file reads followed by significant outbound transfers |
+| 5 | `privilege_escalation_chain` | Privilege Escalation → Root Process | Critical | 70% | Privilege Escalation (TA0004) | T1548 | Sudo followed by new root-level process execution |
+| 6 | `credential_theft_exfil` | Credential Access → External Connection | Critical | 80% | Credential Access (TA0006), Exfiltration (TA0010) | T1555, T1048 | Access to sensitive credential files followed by outbound network connection |
+| 7 | `defense_evasion_cleanup` | Suspicious Activity → Log Deletion | High | 70% | Defense Evasion (TA0005) | T1070 | High-severity process followed by log file deletion |
 
----
+### Programmatic invocation
 
-## Sequence Rules (7 Event-Based)
+```python
+from src.detection.correlation import run_all_correlations
 
-These define event sequence patterns (A → B within N minutes) for multi-event detection.
+# Manual retro-hunt (no DB writes)
+result = await run_all_correlations(as_of=datetime.now(timezone.utc), persist=False)
 
-| # | Rule Name | Severity | Time Window | MITRE Tactics | Description |
-|---|-----------|----------|-------------|---------------|-------------|
-| 1 | Brute Force → Successful Login | Critical | 5 min | TA0006 | Failed auth followed by success |
-| 2 | Dropped Payload → C2 Callback | Critical | 10 min | TA0002, TA0011 | /tmp process → outbound connection |
-| 3 | Persistence Created → Activated | High | 30 min | TA0003 | LaunchAgent → launchctl load |
-| 4 | Large File Read → Network Transfer | High | 60 min | TA0010 | Data read → outbound transfer |
-| 5 | Privilege Escalation → Root Process | Critical | 10 min | TA0004 | Sudo → root process |
-| 6 | Credential Access → External Connection | Critical | 15 min | TA0006, TA0010 | .ssh access → outbound |
-| 7 | Suspicious Activity → Log Deletion | High | 30 min | TA0005 | High-severity process → log cleanup |
+# Persist matches to correlation_matches + create alerts
+result = await run_all_correlations(as_of=..., persist=True)
+# Returns: {"matches": [...], "total_matches": N, "persisted": N,
+#          "as_of": ..., "per_rule": {...}}
+```
+
+The ingestion endpoint (`POST /api/v1/ingest`) fires `run_all_correlations(persist=True)` as a fire-and-forget background task after each batch insert.
 
 ---
 
@@ -168,9 +172,11 @@ tags:
 ### Aggregation Conditions
 
 Rules support count-based aggregation:
+
 ```yaml
 condition: selection | count(source_ip) by host_name > 5
 ```
+
 This triggers when more than 5 events from the same source IP occur per host within the specified timeframe.
 
 ### Timeframes
@@ -181,47 +187,33 @@ timeframe: 1h    # 1 hour
 timeframe: 24h   # 24 hours
 ```
 
----
-
-## Rule Testing Workflow
-
-1. **Write the rule** as a YAML file in `rules/sigma/<category>/`
-2. **Verify YAML syntax**:
-   ```bash
-   python -c "import yaml; yaml.safe_load(open('rules/sigma/category/rule.yml'))"
-   ```
-3. **Restart the API** — Rules are loaded from disk at startup:
-   ```bash
-   poetry run uvicorn src.api.main:app --reload
-   ```
-4. **Trigger the rule** by ingesting matching events:
-   ```bash
-   curl -X POST http://localhost:8000/api/v1/ingest \
-     -H "Authorization: Bearer $TOKEN" \
-     -H "Content-Type: application/json" \
-     -d '[{"host_name":"test-host","source":"test","event_category":"process",
-           "event_type":"start","process_name":"suspicious_binary"}]'
-   ```
-5. **Check alerts**:
-   ```bash
-   curl http://localhost:8000/api/v1/alerts | jq
-   ```
-6. **Verify via unit tests** — Add test cases to `tests/unit/test_sigma.py`
+The timeframe sets the rolling window for the detection query.
 
 ---
 
-## Correlation Rule Testing
+## Testing Rules
 
-Correlation rules run on a scheduler and query the database directly. Test by:
+Use the Sigma compiler directly to verify a rule compiles to safe SQL:
 
-1. **Ingest the trigger events** (e.g., failed logins followed by a success)
-2. **Run correlations manually**:
-   ```bash
-   curl -X POST http://localhost:8000/api/v1/correlation/run
-   ```
-3. **Check correlation results**:
-   ```bash
-   curl http://localhost:8000/api/v1/correlation/results | jq
-   ```
+```python
+from src.detection.sigma import compile_sigma_rule
 
-Each correlation rule applies confidence scoring — base confidence + bonus for additional signals.
+with open("rules/sigma/process/my_new_rule.yml") as f:
+    rule_yaml = f.read()
+
+sql, params = compile_sigma_rule(rule_yaml)
+print(sql)       # Parameterized SQL (no string interpolation)
+print(params)    # Bound parameters
+```
+
+Unit tests under `tests/unit/test_sigma.py` exercise the compiler across all 45 bundled rules.
+
+---
+
+## Rule Lifecycle
+
+- **Loading**: `src/detection/sigma.py` loads all `.yml` files under `rules/sigma/` at API startup.
+- **Evaluation**: The detection scheduler ticks periodically and runs each rule against recent `logs` rows.
+- **Alert creation**: Matching rows are inserted into the `alerts` table via `create_alert()`.
+- **Suppression**: Per-rule suppression rules in the `alert_suppressions` table allow tuning false-positive rates without modifying rule YAML.
+- **Tuning**: When a rule generates too many false positives, either (a) add a suppression rule, (b) tighten the detection condition, or (c) retrain the triage model (see [docs/AI.md](AI.md)) to better rank its output.
