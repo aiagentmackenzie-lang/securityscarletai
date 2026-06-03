@@ -20,7 +20,7 @@ import asyncio
 import json
 from typing import Any, Dict, List
 
-from src.ai.ollama_client import FALLBACK_MESSAGE, query_llm
+from src.ai.ollama_client import query_llm
 from src.config.logging import get_logger
 from src.db.connection import get_pool
 

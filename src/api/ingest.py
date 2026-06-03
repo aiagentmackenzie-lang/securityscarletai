@@ -16,9 +16,11 @@ from pydantic import BaseModel, Field, field_validator
 
 from src.api.auth import get_current_user
 from src.api.rate_limit import LIMIT_INGEST, limiter
+from src.config.logging import get_logger
 from src.ingestion.schemas import NormalizedEvent
 
 router = APIRouter(tags=["ingestion"])
+log = get_logger(__name__)
 
 
 class IngestEvent(BaseModel):

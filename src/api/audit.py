@@ -5,8 +5,8 @@ Provides log_audit_action() for recording mutations, and RBAC
 enforcement via require_role() dependency for FastAPI endpoints.
 Also provides GET /audit endpoint for querying the audit log.
 """
-from typing import Optional
 import json
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 

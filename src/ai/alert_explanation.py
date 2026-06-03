@@ -23,8 +23,8 @@ from typing import Any, Dict, List, Optional
 from src.ai.cost_tracker import record_usage
 from src.ai.ollama_client import LLMResult, query_llm
 from src.ai.prompts import (
-    ALERT_EXPLANATION_SYSTEM,
     ALERT_EXPLANATION_PROMPT_VERSION,
+    ALERT_EXPLANATION_SYSTEM,
     render_alert_explanation,
     render_alert_summary,
     render_investigation_steps,

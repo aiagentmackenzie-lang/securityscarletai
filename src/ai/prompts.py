@@ -13,7 +13,6 @@ To bump a prompt:
 
 import hashlib
 from datetime import datetime, timezone
-from typing import Any
 
 from jinja2 import Environment, StrictUndefined, select_autoescape
 

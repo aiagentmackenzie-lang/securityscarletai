@@ -38,7 +38,6 @@ from src.services.writer import writer
 log = get_logger("api")
 
 # Shared writer instance
-from src.services.writer import writer
 
 RULES_DIR = Path(__file__).parent.parent.parent / "rules" / "sigma"
 

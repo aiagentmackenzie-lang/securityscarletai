@@ -12,8 +12,8 @@ Endpoints:
   POST   /cases/{id}/notes             — Add a note to the case
   GET    /cases/{id}/notes             — Get all notes for a case
 """
-from datetime import datetime, timezone
 import json
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
