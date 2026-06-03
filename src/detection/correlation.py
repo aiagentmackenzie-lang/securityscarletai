@@ -12,12 +12,10 @@ Changes from v2:
 - When `persist=True`, writes each match into `correlation_matches` with
   a fresh correlation_id (uuid) and severity from CORRELATION_RULES.
 
-Event-driven trigger (Agent B's responsibility — NOT implemented in this
-sprint):
-  After batch insert into `logs` (src/db/writer.py around line 124),
-  call `asyncio.create_task(run_correlations_for_host(host))`. This file
-  documents the seam in the run_all_correlations docstring; the actual
-  trigger wiring is left to Agent B.
+Event-driven trigger (wired in src/api/ingest.py, 2026-06-02):
+  After batch insert in the ingest endpoint, a fire-and-forget background
+  task `_enrich_and_correlate()` calls `run_all_correlations(persist=True)`.
+  This file documents the contract; the wiring lives in the API layer.
 """
 import uuid
 from datetime import datetime, timezone
