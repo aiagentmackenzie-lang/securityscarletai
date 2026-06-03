@@ -68,3 +68,7 @@ data/GeoLite2-City.mmdb
 # Docker
 docker-compose.override.yml
 
+# Internal orchestration artifacts (sub-agent briefs, sprint summaries)
+# These are working files, not part of the public codebase.
+.agent-briefs/
+
