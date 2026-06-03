@@ -83,7 +83,10 @@ CORRELATION_RULES = {
     },
     "credential_theft_exfil": {
         "title": "Credential Access → External Connection",
-        "description": "Access to sensitive credential files followed by outbound network connection",
+        "description": (
+            "Access to sensitive credential files followed by outbound "
+            "network connection"
+        ),
         "severity": "critical",
         "mitre_tactics": ["TA0006", "TA0010"],
         "mitre_techniques": ["T1555", "T1048"],

@@ -29,7 +29,12 @@ async def get_pool() -> asyncpg.Pool:
             if _pool is None:
                 for attempt in range(1, DB_RETRY_MAX_ATTEMPTS + 1):
                     try:
-                        log.info("creating_pool", host=settings.db_host, db=settings.db_name, attempt=attempt)
+                        log.info(
+                            "creating_pool",
+                            host=settings.db_host,
+                            db=settings.db_name,
+                            attempt=attempt,
+                        )
                         _pool = await asyncpg.create_pool(
                             host=settings.db_host,
                             port=settings.db_port,
@@ -44,10 +49,19 @@ async def get_pool() -> asyncpg.Pool:
                         break
                     except (asyncpg.PostgresError, OSError, ConnectionError) as e:
                         if attempt == DB_RETRY_MAX_ATTEMPTS:
-                            log.error("pool_creation_failed", error=str(e), attempts=DB_RETRY_MAX_ATTEMPTS)
+                            log.error(
+                                "pool_creation_failed",
+                                error=str(e),
+                                attempts=DB_RETRY_MAX_ATTEMPTS,
+                            )
                             raise
                         delay = DB_RETRY_BASE_DELAY * (2 ** (attempt - 1))
-                        log.warning("pool_creation_retry", error=str(e), attempt=attempt, delay=delay)
+                        log.warning(
+                            "pool_creation_retry",
+                            error=str(e),
+                            attempt=attempt,
+                            delay=delay,
+                        )
                         await asyncio.sleep(delay)
     return _pool
 
