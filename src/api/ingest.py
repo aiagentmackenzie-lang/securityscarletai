@@ -20,7 +20,7 @@ from src.config.logging import get_logger
 from src.ingestion.schemas import NormalizedEvent
 
 router = APIRouter(tags=["ingestion"])
-log = get_logger(__name__)
+log = get_logger("api.ingest")
 
 
 class IngestEvent(BaseModel):
