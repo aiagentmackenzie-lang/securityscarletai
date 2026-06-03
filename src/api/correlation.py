@@ -329,8 +329,8 @@ async def get_correlation_matches(
             import json as _json
             try:
                 s["match_data"] = _json.loads(s["match_data"]) if isinstance(s["match_data"], str) else s["match_data"]
-            except Exception:
-                pass
+            except Exception as e:  # pragma: no cover — defensive
+                log.exception("correlation_match_data_parse_failed", error=str(e))
         serialized.append(s)
     return CorrelationMatchSummary(
         total=len(serialized),

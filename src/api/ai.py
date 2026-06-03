@@ -253,7 +253,8 @@ async def explain_alert_endpoint(
         if isinstance(raw_ev, str) and raw_ev.strip():
             try:
                 evidence_parsed = json.loads(raw_ev)
-            except Exception:
+            except Exception as e:  # pragma: no cover — defensive
+                log.exception("ai_evidence_parse_failed", error=str(e))
                 evidence_parsed = None
         elif isinstance(raw_ev, dict):
             evidence_parsed = raw_ev
