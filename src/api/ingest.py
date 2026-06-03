@@ -95,8 +95,9 @@ async def ingest_events(
     if count > 0:
         try:
             import asyncio
-            from src.enrichment.pipeline import enrich_event_dict
+
             from src.detection.correlation import run_all_correlations
+            from src.enrichment.pipeline import enrich_event_dict
 
             async def _enrich_and_correlate():
                 try:
