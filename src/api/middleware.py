@@ -56,7 +56,9 @@ class RequestValidationMiddleware(BaseHTTPMiddleware):
                         return {"type": "http.request", "body": body}
                     request._receive = receive
                 except Exception as e:  # pragma: no cover — defensive
-                    log.exception("request_body_read_failed", error=str(e))  # Let downstream handle it
+                    log.exception(
+                        "request_body_read_failed", error=str(e)
+                    )  # Let downstream handle it
 
             # Content-Type enforcement for ingest endpoint
             if request.url.path.endswith("/ingest"):
