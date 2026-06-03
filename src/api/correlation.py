@@ -135,7 +135,10 @@ def _parse_as_of(as_of) -> Optional[datetime]:
     except ValueError as e:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid as_of format. Expected ISO-8601 (e.g. 2026-05-31T22:00:00Z). Got: {as_of}",
+            detail=(
+                f"Invalid as_of format. Expected ISO-8601 "
+                f"(e.g. 2026-05-31T22:00:00Z). Got: {as_of}"
+            ),
         ) from e
 
 
@@ -328,7 +331,11 @@ async def get_correlation_matches(
             # match_data is JSONB but asyncpg may return as str in some paths
             import json as _json
             try:
-                s["match_data"] = _json.loads(s["match_data"]) if isinstance(s["match_data"], str) else s["match_data"]
+                s["match_data"] = (
+                    _json.loads(s["match_data"])
+                    if isinstance(s["match_data"], str)
+                    else s["match_data"]
+                )
             except Exception as e:  # pragma: no cover — defensive
                 log.exception("correlation_match_data_parse_failed", error=str(e))
         serialized.append(s)
