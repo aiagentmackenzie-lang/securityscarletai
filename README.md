@@ -2,7 +2,7 @@
 
 **AI-Native SIEM for macOS** — Real-time log ingestion, Sigma-based detection, ML-powered alert triage, and LLM-driven investigation assistance.
 
-[![Tests](https://img.shields.io/badge/tests-1237%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1209%20passing-brightgreen)]()
 [![Coverage](https://img.shields.io/badge/coverage-82%25-green)]()
 [![Rules](https://img.shields.io/badge/Sigma%20rules-45-blue)]()
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python)]()
@@ -172,7 +172,7 @@ See [docs/RULES.md](docs/RULES.md) for the complete reference of all 45 Sigma ru
 
 ## AI Features
 
-See [docs/AI.md](docs/AI.md) and [docs/V2_PRODUCTION_ROADMAP.md](docs/V2_PRODUCTION_ROADMAP.md) for detailed documentation on:
+See [docs/AI.md](docs/AI.md) for detailed documentation on:
 - `LLMResult` contract — uniform return shape across `query_llm()`, `chat()`, `explain_alert()`
 - Versioned Jinja2 prompt templates (`src/ai/prompts.py`)
 - Per-call cost tracking (`src/ai/cost_tracker.py` → `ai_usage` table)
@@ -308,7 +308,7 @@ access from the dashboard.
 ## Testing
 
 ```bash
-# Run the full unit suite (1237 tests, 3 warnings, ~30s)
+# Run the full unit suite (1209 tests, 3 warnings, ~22s)
 poetry run pytest tests/unit/ -q --no-cov
 
 # With coverage report
@@ -348,8 +348,8 @@ require a live Postgres + Redis and are run on a separate job.
 - **Secret hygiene**: `.env` is gitignored. `.env.example` documents how to
   generate strong secrets with `openssl rand`. Local secret rotation is
   documented in `scripts/entrypoint.sh`; git history rewrite (`filter-repo` /
-  BFG) is **deliberately deferred** — see `SESSION_HANDOFF.md` for the
-  decision record (Option B: local-dev-only credentials, cost/benefit of
+  BFG) is **deliberately deferred** — see git log for the original
+  decision (Option B: local-dev-only credentials, cost/benefit of
   history rewrite not justified).
 - **Dashboard auth**: Two modes — interactive JWT login (default) or
   `DASHBOARD_API_TOKEN` service-to-service bearer (set in `.env`). The API's
@@ -458,8 +458,8 @@ securityscarletai/
 │   ├── entrypoint.sh        # Idempotent Docker bootstrap
 │   ├── generate_training_data.py  # Synthetic alert generator (Epic 3)
 │   └── setup_db.sh          # Local DB setup
-├── tests/                   # 1237 unit tests + 2 integration suites
-├── docs/                    # AI.md, RULES.md, DEPLOYMENT.md, ATTACK-SCENARIOS.md, V2_PRODUCTION_ROADMAP.md
+├── tests/                   # 1209 unit tests + 2 integration suites
+├── docs/                    # AI.md, RULES.md, DEPLOYMENT.md, ATTACK-SCENARIOS.md
 └── docker-compose.yml       # Postgres 17 + Redis 7 + API + dashboard
 ```
 

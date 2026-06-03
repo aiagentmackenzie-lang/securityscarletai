@@ -68,15 +68,3 @@ data/GeoLite2-City.mmdb
 # Docker
 docker-compose.override.yml
 
-# Repo-level docs that shouldn't be tracked
-AUDIT_REPORT.md
-BUG_CATALOG.md
-
-# Session handoff docs are working files, not source
-SESSION_HANDOFF.md
-
-# Misc
-HOW_TO_USE.md
-docs/HANDOVER.md
-docs/PHASE5-CONTINUATION-PROMPT.md
-docs/SECURITYSCARLETAI-PLAN.md
