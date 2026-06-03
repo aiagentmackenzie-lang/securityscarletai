@@ -394,14 +394,36 @@ class TestEstimateQueryCost:
     @pytest.mark.asyncio
     async def test_explain_failure_returns_zero(self):
         """If EXPLAIN fails, return 0 and allow execution."""
+        from contextlib import asynccontextmanager
+
         with patch("src.ai.nl2sql.get_pool") as mock_pool:
             mock_conn = AsyncMock()
-            mock_conn.fetch.side_effect = Exception("Connection refused")
-            mock_acquirer = MagicMock()
-            mock_acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
-            mock_acquirer.__aexit__ = AsyncMock(return_value=None)
-            mock_pool_instance = AsyncMock()
-            mock_pool_instance.acquire.return_value = mock_acquirer
+
+            # side_effect must be a coroutine function (not a plain Exception)
+            # so AsyncMock returns a proper coroutine wrapper. A plain
+            # Exception side_effect raises synchronously inside the mock
+            # dispatcher, which leaves the returned coroutine un-awaited
+            # (RuntimeWarning: coroutine '_execute_mock_call' was never
+            # awaited). Defining an async _raise function ensures the
+            # coroutine body runs and the awaiting code catches the
+            # exception cleanly.
+            async def _raise(*args, **kwargs):
+                raise Exception("Connection refused")
+
+            mock_conn.fetch.side_effect = _raise
+
+            # Use a real async context manager class instead of
+            # MagicMock + AsyncMock attribute pattern. The MagicMock
+            # pattern created a coroutine that the async-with machinery
+            # did not properly await, surfacing as
+            # 'RuntimeWarning: coroutine never awaited' on the
+            # `async with pool.acquire() as conn:` line.
+            @asynccontextmanager
+            async def _acquire():
+                yield mock_conn
+
+            mock_pool_instance = MagicMock()
+            mock_pool_instance.acquire = _acquire
             mock_pool.return_value = mock_pool_instance
 
             rows, plan = await estimate_query_cost("SELECT 1")
