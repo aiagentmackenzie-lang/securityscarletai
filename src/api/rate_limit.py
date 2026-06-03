@@ -15,7 +15,6 @@ Degradation:
 """
 from __future__ import annotations
 
-import logging
 from typing import Awaitable, Callable
 
 from fastapi import Request, Response
@@ -147,7 +146,9 @@ class RateLimitHeadersMiddleware(BaseHTTPMiddleware):
         # that need exact counts can use the Retry-After header on 429.
         if "X-RateLimit-Reset" not in response.headers:
             import time as _time
-            response.headers["X-RateLimit-Reset"] = str(int(_time.time()) + self.DEFAULT_LIMIT_SECONDS)
+            response.headers["X-RateLimit-Reset"] = str(
+                int(_time.time()) + self.DEFAULT_LIMIT_SECONDS
+            )
         if "X-RateLimit-Remaining" not in response.headers:
             response.headers["X-RateLimit-Remaining"] = "n/a (see Retry-After on 429)"
 

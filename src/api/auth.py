@@ -41,7 +41,9 @@ def verify_bearer_token(
     credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
 ) -> str:
     """Verify the static bearer token for API ingestion endpoints."""
-    if not secrets.compare_digest(credentials.credentials, settings.api_bearer_token.get_secret_value()):
+    if not secrets.compare_digest(
+        credentials.credentials, settings.api_bearer_token.get_secret_value()
+    ):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     return credentials.credentials
 
@@ -57,7 +59,9 @@ def verify_jwt(
     """
     try:
         payload = jwt.decode(
-            credentials.credentials, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+            credentials.credentials,
+            settings.api_secret_key.get_secret_value(),
+            algorithms=[JWT_ALGORITHM],
         )
     except JWTError as e:
         log.warning("jwt_verify_failed", error=str(e), token_preview=credentials.credentials[:20])

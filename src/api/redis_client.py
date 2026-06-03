@@ -56,8 +56,8 @@ def reset_client() -> None:
     if _client is not None:
         try:
             _client.close()
-        except Exception:
-            pass
+        except Exception:  # pragma: no cover — defensive
+            log.debug("redis_close_noop", note="client already closed or unreachable")
     _client = None
     _connect_attempted = False
 

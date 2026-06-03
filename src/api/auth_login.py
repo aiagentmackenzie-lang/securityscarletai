@@ -19,11 +19,10 @@ from src.api.auth import (
     create_jwt,
     create_refresh_token,
     hash_password,
-    require_role,
     verify_jwt,
     verify_password,
 )
-from src.api.rate_limit import LIMIT_LOGIN, LIMIT_INGEST, limiter
+from src.api.rate_limit import LIMIT_LOGIN, limiter
 from src.config.logging import get_logger
 from src.db.connection import get_pool
 
@@ -120,7 +119,10 @@ async def login(
         if row.get("locked_until") and row["locked_until"] > datetime.now(tz=timezone.utc):
             raise HTTPException(
                 status_code=status.HTTP_423_LOCKED,
-                detail="Account temporarily locked due to too many failed login attempts. Try again later.",
+                detail=(
+                    "Account temporarily locked due to too many failed login attempts. "
+                    "Try again later."
+                ),
             )
 
         if not verify_password(login_request.password, row["password_hash"]):
@@ -164,7 +166,9 @@ async def login(
 
         # M-21 fix: Update last_login in same connection/transaction
         await conn.execute(
-            "UPDATE siem_users SET last_login = NOW(), failed_login_attempts = 0, locked_until = NULL WHERE id = $1",
+            "UPDATE siem_users "
+            "SET last_login = NOW(), failed_login_attempts = 0, locked_until = NULL "
+            "WHERE id = $1",
             row["id"],
         )
 
