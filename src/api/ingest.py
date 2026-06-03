@@ -125,7 +125,7 @@ async def ingest_events(
                     # call is the integration point). Runs across all rules
                     # and persists any matches as alerts.
                     if hosts_in_batch:
-                        await run_all_correlations(persist_alerts=True)
+                        await run_all_correlations(persist=True)
                 except Exception as e:  # pragma: no cover — defensive
                     log.warning("ingest_post_processing_failed", error=str(e))
 
