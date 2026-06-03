@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional
 
+from fastapi import HTTPException
+
 from src.config.logging import get_logger
 
 log = get_logger("response.soar")
