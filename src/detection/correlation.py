@@ -711,13 +711,10 @@ async def run_all_correlations(
     Event-driven trigger (Agent B):
         When `persist=True` and called from the ingestion path, this writes
         matches to `correlation_matches`. Manual `POST /correlation/run?persist=true`
-        works for retro-hunting. The ingestion-path trigger (after batch
-        insert in `src/db/writer.py`) is left as a TODO for Agent B — see
-        the docstring of that file.
-
-    # FIXME(agent-b): wire `asyncio.create_task(run_all_correlations(as_of=ts,
-    #   persist=True))` into the batch-insert success path in
-    #   `src/db/writer.py` after `self._total_written += len(batch)`.
+        works for retro-hunting. The ingestion-path trigger lives in
+        `src/api/ingest.py::_enrich_and_correlate()` (after the batch write),
+        invoked as `await run_all_correlations(persist=True)` per the
+        Epic 2 contract.
     """
     if as_of is None:
         as_of = datetime.now(timezone.utc)
