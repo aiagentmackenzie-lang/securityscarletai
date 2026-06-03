@@ -99,8 +99,8 @@ def close_geoip_reader():
     if _geoip_reader:
         try:
             _geoip_reader.close()
-        except Exception:
-            log.debug("geoip_close_failed")  # Non-critical, best-effort close
+        except Exception as e:  # pragma: no cover — defensive
+            log.exception("geoip_close_failed", error=str(e))  # Non-critical, best-effort close
     _geoip_reader = None
     _geoip_loaded = False
     _geoip_last_attempt = 0.0

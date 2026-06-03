@@ -158,7 +158,8 @@ async def broadcast_event(event: NormalizedEvent) -> None:
         try:
             if client.client_state == WebSocketState.CONNECTED:
                 await client.send_json(message)
-        except Exception:
+        except Exception as e:  # pragma: no cover — defensive
+            log.exception("ws_broadcast_failed", error=str(e))
             disconnected.append(client)
 
     # Clean up disconnected clients under lock
