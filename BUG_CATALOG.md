@@ -27,7 +27,8 @@
 | 🟡 Medium | 22 | 0 | 22 | 0 |
 | 🟢 Low | 12 | 0 | 12 | 0 |
 | 🔵 Test Quality | 10 | 0 | 10 | 0 |
-| **Total** | **86** | **0** | **86** | **0** |
+| 🛠️ Removal | 1 | 0 | 0 | 1 |
+| **Total** | **87** | **0** | **86** | **1** |
 
 ---
 
@@ -164,6 +165,7 @@
 | A-06 | CI | Integration tests not run in CI. Only `tests/unit/` executed. | Add integration test step with DB service. |
 | A-07 | Auth | Static bearer token with no rotation or expiry. Full ingestion API access. | Add token rotation mechanism or short-lived tokens. |
 | A-08 | Auth | JWT with no key rotation or token revocation. No `jti` claim. | Add `jti` for revocation. Document key rotation procedure. |
+| R-01 | Response | `src/response/soar.py` (263 lines) — orphan SOAR module. `get_playbook_for_alert()` defined but no inbound callers in `src/`. The recommended wiring (call from `src/detection/alerts.py:create_alert`) is in Agent A's territory and A's brief was scoped away from response-layer edits. Companion test file `tests/unit/test_soar.py` also removed. Live notification path (`src/response/notifications.py:send_alert_notification` → Slack) untouched — verified wired via `src/detection/alerts.py:236`. | **Removed (option b, scoped):** `trash src/response/soar.py tests/unit/test_soar.py`. Both files recoverable from `~/.Trash/` if SOAR wiring is ever prioritized. To revive: re-add wiring call in `src/detection/alerts.py` and restore from trash. |
 
 ---
 
@@ -177,6 +179,7 @@
 | 2026-05-04 | Mackenzie 🔍 | **Batch 3: Fixed all 22 Medium bugs** (M-01→M-22). Anomaly score clamp, session duration doc, UEBA sample doc, cross-validation, auto-train cooldown, EXPLAIN timeout, NL2SQL context sanitize, CTE LIMIT fix, chat prompt fix, SHA-256 pre-hash, dedup sentinel (C-02), severity suppression gate, N+1 query fix, MITRE cache path, dest enrichment (H-04), seed script variable, remove unused Redis, restart policy, PG version align (H-22), atomic checkpoint, single-conn login, audit raise on failure. |
 | 2026-05-04 | Mackenzie 🔍 | **Batch 4: Fixed all 12 Low bugs** (L-01→L-12). Shannon entropy dedup, SOAR action stubs, MIMEText import, status filter underscore, time range wiring, bulk action confirmation, chat history cap, format_map defaultdict, logout session cleanup, bare except fix, require_auth wired, dead import removed. |
 | 2026-05-04 | Mackenzie 🔍 | **Batch 5: Fixed all 10 Test Quality bugs** (T-01→T-10). Removed blanket except, SHA-256 prehash test, proper bcrypt hashes, meaningful assertions (replaced tautological), enrichment test calls function, integration test markers + conftest, SQL injection adversarial tests (13 new), concurrent alert creation tests, websocket autouse fixture isolation, independent triage assertions. |
+| 2026-06-03 | Agent B (M3) | **R-01: Removed orphan SOAR module.** `src/response/soar.py` + `tests/unit/test_soar.py` (paired deletion). Verified zero inbound callers from `src/`. `src/response/notifications.py` kept — actively imported by `src/detection/alerts.py:236`. B1 also committed: `fix(soar): import HTTPException for 501 stubs` (B1 superseded by R-01, commit left in history for audit trail). |
 
 ---
 
