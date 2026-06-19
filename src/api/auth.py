@@ -175,7 +175,10 @@ def create_jwt(username: str, role: str, extra: dict | None = None) -> str:
     }
     if extra:
         payload.update(extra)
-    return cast(str, jwt.encode(payload, settings.api_secret_key.get_secret_value(), algorithm=JWT_ALGORITHM))
+    return cast(
+        str,
+        jwt.encode(payload, settings.api_secret_key.get_secret_value(), algorithm=JWT_ALGORITHM),
+    )
 
 
 def create_refresh_token(username: str, role: str) -> str:
@@ -188,7 +191,10 @@ def create_refresh_token(username: str, role: str) -> str:
         "iat": datetime.now(tz=timezone.utc),
         "exp": datetime.now(tz=timezone.utc) + timedelta(days=settings.refresh_token_ttl_days),
     }
-    return cast(str, jwt.encode(payload, settings.api_secret_key.get_secret_value(), algorithm=JWT_ALGORITHM))
+    return cast(
+        str,
+        jwt.encode(payload, settings.api_secret_key.get_secret_value(), algorithm=JWT_ALGORITHM),
+    )
 
 
 def hash_password(plain: str) -> str:
