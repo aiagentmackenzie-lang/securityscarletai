@@ -9,7 +9,7 @@ import streamlit as st
 
 from dashboard.api_client import ApiError
 from dashboard.auth import can_manage_rules, get_api_client
-from dashboard.ui_utils import sev_badge, status_badge
+from dashboard.ui_utils import sev_badge
 
 # Sample rule templates
 RULE_TEMPLATES = {
@@ -225,7 +225,7 @@ def render_rules_view():
                 "severity": severity,
                 "process_name": "python",
                 "port": "4444",
-                "path": "/tmp",
+                "path": "/tmp",  # noqa: S108 — sample rule template value, not a real temp path
             })
             default_yaml = RULE_TEMPLATES[template].format_map(template_vars)
             sigma_yaml = st.text_area("Sigma Rule (YAML)", value=default_yaml, height=300)

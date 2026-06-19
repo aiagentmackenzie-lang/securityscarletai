@@ -13,7 +13,7 @@ import time
 import streamlit as st
 
 from dashboard.api_client import ApiClient, ApiError
-from dashboard.ui_utils import BG_SURFACE, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY, ACCENT
+from dashboard.ui_utils import BG_SURFACE, BORDER_SUBTLE
 
 ROLE_REVERIFY_INTERVAL = 300
 
@@ -147,7 +147,9 @@ def render_sidebar_user_info():
 
     role_label = role.upper()
 
-    st.sidebar.markdown("<hr style='margin:0.5rem 0;border-color:#1e2636;'/>", unsafe_allow_html=True)
+    st.sidebar.markdown(
+        "<hr style='margin:0.5rem 0;border-color:#1e2636;'/>", unsafe_allow_html=True
+    )
     st.sidebar.markdown(
         f"""
         <div style="
@@ -158,7 +160,8 @@ def render_sidebar_user_info():
             margin-bottom:0.5rem;
         ">
             <p style="margin:0;color:#e8ecf1;font-weight:600;font-size:0.9rem;">{username}</p>
-            <p style="margin:0.15rem 0 0 0;color:#8b95a5;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;">{role_label}</p>
+            <p style="margin:0.15rem 0 0 0;color:#8b95a5;font-size:0.7rem;
+                text-transform:uppercase;letter-spacing:0.06em;">{role_label}</p>
         </div>
         """,
         unsafe_allow_html=True,

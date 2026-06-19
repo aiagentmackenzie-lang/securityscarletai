@@ -14,9 +14,10 @@ ALL data fetched through ApiClient — NO direct database access.
 Loading states: st.spinner() on fetches, st.toast() on actions, st.status() for AI ops.
 """
 import streamlit as st
+
 from dashboard.api_client import ApiClient, ApiError
 from dashboard.auth import can_write, get_api_client
-from dashboard.ui_utils import sev_badge, status_badge, esc
+from dashboard.ui_utils import esc, sev_badge, status_badge
 
 
 def render_alert_list():
@@ -213,9 +214,12 @@ def render_alert_detail(alert: dict, api: ApiClient):
         if ai_summary:
             st.markdown(
                 f"""
-                <div style="background:#0f1420;border:1px solid #1e2636;border-radius:0.5rem;padding:0.75rem;margin:0.5rem 0;">
-                    <p style="margin:0;color:#00bcd4;font-weight:600;font-size:0.8rem;">AI Summary</p>
-                    <p style="margin:0.25rem 0 0 0;color:#8b95a5;font-size:0.85rem;">{esc(ai_summary)}</p>
+                <div style="background:#0f1420;border:1px solid #1e2636;
+                    border-radius:0.5rem;padding:0.75rem;margin:0.5rem 0;">
+                    <p style="margin:0;color:#00bcd4;font-weight:600;
+                        font-size:0.8rem;">AI Summary</p>
+                    <p style="margin:0.25rem 0 0 0;color:#8b95a5;
+                        font-size:0.85rem;">{esc(ai_summary)}</p>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -225,13 +229,19 @@ def render_alert_detail(alert: dict, api: ApiClient):
                 with st.status("Generating AI explanation...", expanded=True) as status:
                     try:
                         result = api.ai_explain(alert_id)
-                        explanation = result.get("explanation", result.get("ai_summary", "No explanation available"))
+                        explanation = result.get(
+                            "explanation",
+                            result.get("ai_summary", "No explanation available"),
+                        )
                         status.update(label="AI explanation generated", state="complete")
                         st.markdown(
                             f"""
-                            <div style="background:#0f1420;border:1px solid #1e2636;border-radius:0.5rem;padding:0.75rem;margin:0.5rem 0;">
-                                <p style="margin:0;color:#00bcd4;font-weight:600;font-size:0.8rem;">AI Explanation</p>
-                                <p style="margin:0.25rem 0 0 0;color:#8b95a5;font-size:0.85rem;">{esc(explanation)}</p>
+                            <div style="background:#0f1420;border:1px solid #1e2636;
+                                border-radius:0.5rem;padding:0.75rem;margin:0.5rem 0;">
+                                <p style="margin:0;color:#00bcd4;font-weight:600;
+                                    font-size:0.8rem;">AI Explanation</p>
+                                <p style="margin:0.25rem 0 0 0;color:#8b95a5;
+                                    font-size:0.85rem;">{esc(explanation)}</p>
                             </div>
                             """,
                             unsafe_allow_html=True,
@@ -246,7 +256,6 @@ def render_alert_detail(alert: dict, api: ApiClient):
         )
         risk = alert.get("risk_score")
         if risk:
-            color = "#ff3860" if risk >= 70 else "#ff8f00" if risk >= 40 else "#00e676"
             st.progress(min(risk / 100, 1.0), text=f"Risk Score: {risk:.0f}/100")
 
         # MITRE mapping
@@ -268,7 +277,7 @@ def render_alert_detail(alert: dict, api: ApiClient):
         if evidence:
             with st.expander("Evidence"):
                 if isinstance(evidence, list):
-                    for i, ev in enumerate(evidence[:10]):
+                    for ev in evidence[:10]:
                         st.json(ev, expanded=False)
                     if len(evidence) > 10:
                         st.caption(f"... and {len(evidence) - 10} more evidence items")
@@ -289,7 +298,8 @@ def render_alert_detail(alert: dict, api: ApiClient):
             new_status = st.selectbox(
                 "Status",
                 status_options,
-                index=status_options.index(current_status) if current_status in status_options else 0,
+                index=status_options.index(current_status)
+                    if current_status in status_options else 0,
                 key=f"status_{alert_id}",
                 label_visibility="collapsed",
             )
@@ -322,7 +332,8 @@ def render_alert_detail(alert: dict, api: ApiClient):
 
             # Quick Actions
             st.markdown(
-                "<p style='color:#e8ecf1;font-weight:600;font-size:0.9rem;margin:0.75rem 0 0.5rem 0;'>"
+                "<p style='color:#e8ecf1;font-weight:600;font-size:0.9rem;"
+                "margin:0.75rem 0 0.5rem 0;'>"
                 "Quick Actions"
                 "</p>",
                 unsafe_allow_html=True,
@@ -334,10 +345,13 @@ def render_alert_detail(alert: dict, api: ApiClient):
                         result = api.hunt_from_alert(alert_id)
                         hunts = result.get("suggested_hunts", [])
                         if hunts:
-                            status.update(label=f"Found {len(hunts)} hunt suggestions", state="complete")
+                            status.update(
+                                label=f"Found {len(hunts)} hunt suggestions", state="complete"
+                            )
                             for hunt in hunts[:5]:
                                 st.markdown(
-                                    f"- **{hunt.get('name', 'Unknown')}**: {hunt.get('description', '')}"
+                                    f"- **{hunt.get('name', 'Unknown')}**: "
+                                    f"{hunt.get('description', '')}"
                                 )
                         else:
                             status.update(label="No specific hunt suggestions", state="complete")
