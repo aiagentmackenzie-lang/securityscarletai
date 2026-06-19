@@ -73,3 +73,6 @@ docker-compose.override.yml
 # These are working files, not part of the public codebase.
 .agent-briefs/
 
+# Internal state/roadmap doc — private, not for the public repo.
+/CURRENT_VS_PRODUCTION.md
+
