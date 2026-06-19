@@ -169,6 +169,6 @@ app.add_middleware(AuditLogMiddleware)
 
 # Rate limiting state — Redis-backed via src.api.rate_limit
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]  # slowapi handler sig vs Starlette
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(RateLimitHeadersMiddleware)

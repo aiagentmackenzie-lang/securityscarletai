@@ -15,8 +15,23 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.ai.ollama_client import FALLBACK_MESSAGE
+from src.ai.ollama_client import FALLBACK_MESSAGE, LLMResult
 from src.detection.ai_analyzer import _parse_json_response, analyze_alert, build_prompt, enrich_alert
+
+
+def _llm_result(text: str, fallback: bool = False) -> LLMResult:
+    """Build a realistic LLMResult matching query_llm's real contract."""
+    return LLMResult(
+        ok=not fallback,
+        text=text,
+        source="template_library" if fallback else "ollama",
+        model_used=None,
+        tokens_in=0,
+        tokens_out=0,
+        latency_ms=0,
+        fallback_used=fallback,
+        warning="Ollama not responding — using local analysis rules" if fallback else None,
+    )
 
 
 class TestBuildPrompt:
@@ -126,7 +141,7 @@ class TestAnalyzeAlert:
         })
 
         with patch("src.detection.ai_analyzer.query_llm", new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = analysis_json
+            mock_llm.return_value = _llm_result(analysis_json)
 
             result = await analyze_alert(
                 alert_id=1,
@@ -144,7 +159,7 @@ class TestAnalyzeAlert:
     async def test_ollama_fallback_returned(self):
         """Should return None when query_llm returns FALLBACK_MESSAGE."""
         with patch("src.detection.ai_analyzer.query_llm", new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = FALLBACK_MESSAGE
+            mock_llm.return_value = _llm_result(FALLBACK_MESSAGE, fallback=True)
 
             result = await analyze_alert(
                 alert_id=2,
@@ -161,7 +176,7 @@ class TestAnalyzeAlert:
         """Should return None when query_llm raises an exception (safety net)."""
         with patch("src.detection.ai_analyzer.query_llm", new_callable=AsyncMock) as mock_llm:
             # query_llm now wraps all exceptions and returns FALLBACK_MESSAGE
-            mock_llm.return_value = FALLBACK_MESSAGE
+            mock_llm.return_value = _llm_result(FALLBACK_MESSAGE, fallback=True)
 
             result = await analyze_alert(
                 alert_id=2,
@@ -186,7 +201,7 @@ class TestAnalyzeAlert:
         raw = f"```json\n{json.dumps(analysis)}\n```"
 
         with patch("src.detection.ai_analyzer.query_llm", new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = raw
+            mock_llm.return_value = _llm_result(raw)
 
             result = await analyze_alert(4, "R", "h", "H", {})
 
@@ -201,7 +216,7 @@ class TestAnalyzeAlert:
         raw = f"```\n{json.dumps(analysis)}\n```"
 
         with patch("src.detection.ai_analyzer.query_llm", new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = raw
+            mock_llm.return_value = _llm_result(raw)
 
             result = await analyze_alert(5, "R", "h", "H", {})
 
@@ -212,7 +227,7 @@ class TestAnalyzeAlert:
     async def test_invalid_json_response(self):
         """Should return None on invalid JSON."""
         with patch("src.detection.ai_analyzer.query_llm", new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = "not valid json at all {{{"
+            mock_llm.return_value = _llm_result("not valid json at all {{{")
 
             result = await analyze_alert(5, "R", "h", "H", {})
 

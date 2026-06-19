@@ -13,7 +13,7 @@ the SecurityScarletAI logs table with all safety measures:
 - Timeframe is converted to integer seconds (safe parameter)
 """
 import re
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar, Iterable, Optional, cast
 
 from sigma.conversion.base import TextQueryBackend
 from sigma.conversion.state import ConversionState
@@ -143,7 +143,7 @@ class PostgreSQLBackend(TextQueryBackend):
         # Extract plain string from SigmaString
         plain = ""
 
-        for part in value:
+        for part in cast("Iterable[Any]", value):
             if isinstance(part, str):
                 plain += part
             elif part == SpecialChars.WILDCARD_MULTI:
@@ -210,7 +210,7 @@ class PostgreSQLBackend(TextQueryBackend):
     # Main conversion — produce SQL query with parameters
     # ───────────────────────────────────────────────────────
 
-    def convert_rule(self, rule: PySigmaRule, *args, **kwargs) -> str:
+    def convert_rule(self, rule: PySigmaRule, *args, **kwargs) -> list[Any]:
         """
         Convert a SigmaRule to a parameterized PostgreSQL query.
 
@@ -258,7 +258,7 @@ class PostgreSQLBackend(TextQueryBackend):
         time_filter = f"time > NOW() - INTERVAL '1 second' * {lookback_param}"
 
         # Check for aggregation conditions in the condition string
-        condition_str = rule.detection.condition
+        condition_str = cast(Any, rule.detection.condition)
         if isinstance(condition_str, list):
             condition_str = condition_str[0] if condition_str else ""
 

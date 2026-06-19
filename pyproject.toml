@@ -78,7 +78,37 @@ ignore = ["S608", "B008"]  # B008: FastAPI Depends() in args is standard pattern
 
 [tool.mypy]
 python_version = "3.11"
-strict = true
+plugins = "pydantic.mypy"
+# Pragmatic, CI-enforced type-checking.
+#
+# Previously `strict = true` was configured but produced 336 errors that were
+# never enforced (CI never ran mypy) — a false signal of type safety. This
+# config is actually green in CI. Tighten incrementally: the next steps are
+# `disallow_untyped_defs` (115 untyped functions) and `disallow_any_generics`
+# (133 bare dict/list), each tracked separately.
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+warn_return_any = true
+
+[[tool.mypy.overrides]]
+# These dependencies ship no type stubs / py.typed marker. Silenced per-module
+# so missing-stub noise doesn't mask real type errors elsewhere.
+module = [
+  "asyncpg",
+  "asyncpg.*",
+  "joblib",
+  "joblib.*",
+  "sklearn",
+  "sklearn.*",
+  "apscheduler.*",
+  "jose",
+  "jose.*",
+  "passlib",
+  "passlib.*",
+]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

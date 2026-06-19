@@ -14,7 +14,7 @@ All external API calls use async httpx with proper timeouts and error handling.
 import asyncio
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 import httpx
 
@@ -181,7 +181,7 @@ class OTXClient:
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                return data.get("results", [])
+                return cast(List[Dict[str, Any]], data.get("results", []))
             except Exception as e:
                 log.warning("otx_pulses_failed", error=str(e))
                 return []
@@ -191,7 +191,7 @@ class OTXClient:
         if not self.api_key:
             return []
 
-        params = {"limit": 100}
+        params: dict[str, Any] = {"limit": 100}
         if since:
             params["modified_since"] = since.isoformat()
 
@@ -204,7 +204,7 @@ class OTXClient:
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                return data.get("results", [])
+                return cast(List[Dict[str, Any]], data.get("results", []))
             except Exception as e:
                 log.warning("otx_modified_failed", error=str(e))
                 return []

@@ -4,7 +4,7 @@ Log viewer API endpoints.
 Provides REST access to ingested logs for the dashboard.
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Query
 
@@ -37,7 +37,7 @@ async def list_logs(
     pool = await get_pool()
 
     conditions = []
-    params = []
+    params: list[Any] = []
     idx = 1
 
     if category:

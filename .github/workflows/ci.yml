@@ -43,6 +43,12 @@ jobs:
         # tooling and linted separately if desired.
         run: poetry run ruff check src/ dashboard/
 
+      - name: Type check
+        # Pragmatic mypy config (see [tool.mypy] in pyproject.toml). Not
+        # `strict` — strict produced 336 unenforced errors (a false signal).
+        # This config is actually green; tighten incrementally over time.
+        run: poetry run mypy src
+
       - name: Unit tests
         run: poetry run pytest tests/unit/ -q
         env:

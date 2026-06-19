@@ -10,7 +10,7 @@ Correlation detection API endpoints (Agent A, Epic 2).
 - GET  /api/v1/correlation/sequences   — List sequence definitions
 """
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -116,7 +116,7 @@ async def list_sequence_rules(user: dict = Depends(get_current_user)):
 # ───────────────────────────────────────────────────────────────
 
 
-def _parse_as_of(as_of) -> Optional[datetime]:
+def _parse_as_of(as_of) -> datetime:
     """Parse ISO-8601 string into datetime, or return current UTC time.
 
     Tolerates None, str, or FastAPI Query/inspect.Parameter objects.
@@ -204,7 +204,7 @@ class PersistFlags(BaseModel):
 
 @router.post("/run-legacy")
 async def run_correlations_legacy(
-    request: PersistFlags = None,
+    request: PersistFlags | None = None,
     user: str = Depends(require_role("analyst")),
 ):
     """Legacy: POST /run with PersistFlags (persist_alerts flag, no as_of)."""
@@ -239,7 +239,7 @@ async def run_single_correlation(
     user: dict = Depends(require_role("analyst")),
 ):
     """Run a single correlation rule by name."""
-    rule_funcs = {
+    rule_funcs: Dict[str, Callable[..., Awaitable[List[Dict[str, Any]]]]] = {
         "brute_force_success": detect_brute_force_then_success,
         "payload_callback": detect_payload_callback,
         "persistence_activated": detect_persistence_activated,

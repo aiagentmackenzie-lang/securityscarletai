@@ -158,8 +158,8 @@ def _parse_with_pysigma(yaml_content: str) -> SigmaRule:
         detection=detection_dict,
         condition=_extract_condition_string(detection_dict),
         timeframe=(
-            str(rule.detection.timeframe)
-            if rule.detection and rule.detection.timeframe
+            str(rule.detection.timeframe)  # type: ignore[attr-defined]  # pySigma SigmaDetections has no timeframe; the AttributeError triggers the legacy YAML fallback below
+            if rule.detection and rule.detection.timeframe  # type: ignore[attr-defined]
             else None
         ),
         level=str(rule.level.name) if rule.level else "medium",
@@ -442,7 +442,7 @@ def sigma_to_sql(yaml_content: str) -> tuple[str, list[Any]]:
 
 def load_rules_from_directory(rules_dir: Path) -> list[SigmaRule]:
     """Load all Sigma YAML rules from a directory (recursive)."""
-    rules = []
+    rules: list[SigmaRule] = []
     if not rules_dir.exists():
         log.warning("rules_dir_not_found", path=str(rules_dir))
         return rules

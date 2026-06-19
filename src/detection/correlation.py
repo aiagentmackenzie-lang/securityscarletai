@@ -19,7 +19,7 @@ Event-driven trigger (wired in src/api/ingest.py, 2026-06-02):
 """
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, cast
 
 from src.config.logging import get_logger
 from src.db.connection import get_pool
@@ -382,7 +382,7 @@ async def detect_data_exfiltration(
         # Higher volume = higher confidence
         extra = min(int((d.get("total_bytes", 0) - threshold_bytes) / threshold_bytes * 10), 25)
         d["confidence"] = min(
-            CORRELATION_RULES["data_exfiltration"]["confidence_base"] + extra, 100
+            cast(int, CORRELATION_RULES["data_exfiltration"]["confidence_base"]) + extra, 100
         )
         results.append(d)
     return results
@@ -720,7 +720,7 @@ async def run_all_correlations(
     if as_of is None:
         as_of = datetime.now(timezone.utc)
 
-    correlation_funcs = {
+    correlation_funcs: Dict[str, Callable[..., Awaitable[List[Dict[str, Any]]]]] = {
         "brute_force_success": detect_brute_force_then_success,
         "payload_callback": detect_payload_callback,
         "persistence_activated": detect_persistence_activated,
@@ -862,7 +862,7 @@ async def persist_match(
                 trigger_event_id,
                 as_of,
             )
-            return row_id
+            return cast(Optional[int], row_id)
     except Exception as e:
         log.error(
             "persist_match_failed",
@@ -933,7 +933,7 @@ async def mark_match_seen(match_id: int) -> bool:
                 match_id,
             )
             # asyncpg returns "UPDATE N"
-            return result.endswith(" 1")
+            return cast(bool, result.endswith(" 1"))
     except Exception as e:
         log.error("mark_match_seen_failed", match_id=match_id, error=str(e))
         return False
