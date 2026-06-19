@@ -247,6 +247,29 @@ server {
 
 For the Streamlit dashboard, run it behind the same reverse proxy on a subpath.
 
+#### Production overlay (Caddy + automatic TLS)
+
+A committed Caddy config and a production compose overlay ship in the repo so the
+TLS-terminated path is reproducible rather than left as an exercise:
+
+- `deploy/Caddyfile` — Caddy reverse proxy with automatic Let's Encrypt TLS,
+  security headers, and `/api/*` -> API, everything else -> dashboard.
+- `docker-compose.prod.yml` — overlay that removes the dev source mount,
+  stops the API/dashboard from publishing host ports (only Caddy exposes
+  80/443), sets `LOG_FORMAT=json` / `LOG_LEVEL=WARNING`, and adds memory
+  limits + a `caddy` service.
+
+Launch it with your real hostname:
+
+```bash
+DOMAIN=scarlet.example.com docker compose \
+  -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+> Requires Docker Compose v2.20+ for the `!reset` volume/port override syntax.
+> Set the `email` and `<DOMAIN>` placeholders in `deploy/Caddyfile` before the
+> first launch. Secrets still come from `.env` (or a secrets manager — see below).
+
 ### JWT Secret Rotation (V2)
 
 The V2 sprint added proper JWT hardening. To rotate the `API_SECRET_KEY` safely:

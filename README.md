@@ -2,8 +2,8 @@
 
 **AI-Native SIEM for macOS** — Real-time log ingestion, Sigma-based detection, ML-powered alert triage, and LLM-driven investigation assistance.
 
-[![Tests](https://img.shields.io/badge/tests-1209%20passing-brightgreen)]()
-[![Coverage](https://img.shields.io/badge/coverage-82%25-green)]()
+[![Tests](https://img.shields.io/badge/tests-1258%20passing-brightgreen)]()
+[![Coverage](https://img.shields.io/badge/coverage-85%25-green)]()
 [![Rules](https://img.shields.io/badge/Sigma%20rules-45-blue)]()
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow)]()
@@ -308,7 +308,7 @@ access from the dashboard.
 ## Testing
 
 ```bash
-# Run the full unit suite (1209 tests, 3 warnings, ~22s)
+# Run the full unit suite (1258 tests, 3 warnings, ~23s)
 poetry run pytest tests/unit/ -q --no-cov
 
 # With coverage report
@@ -458,12 +458,24 @@ securityscarletai/
 │   ├── entrypoint.sh        # Idempotent Docker bootstrap
 │   ├── generate_training_data.py  # Synthetic alert generator (Epic 3)
 │   └── setup_db.sh          # Local DB setup
-├── tests/                   # 1209 unit tests + 2 integration suites
+├── tests/                   # 1258 tests (unit + integration)
 ├── docs/                    # AI.md, RULES.md, DEPLOYMENT.md, ATTACK-SCENARIOS.md
 └── docker-compose.yml       # Postgres 17 + Redis 7 + API + dashboard
 ```
 
-<!-- TODO: Screenshots -->
+## Screenshots
+
+The dashboard is a Streamlit app (real-time alerts, cases, AI chat, hunting).
+To capture screenshots for this section, run the stack locally and snapshot
+the views you want to showcase:
+
+```bash
+docker compose up -d          # Postgres + Redis + API + dashboard
+open http://localhost:8501     # dashboard (JWT login or DASHBOARD_API_TOKEN)
+```
+
+> _Replace this block with dashboard screenshots (alerts grid, AI triage
+> explanation, MITRE heatmap, case timeline) once captured._
 
 ---
 
