@@ -6,7 +6,7 @@ enforcement via require_role() dependency for FastAPI endpoints.
 Also provides GET /audit endpoint for querying the audit log.
 """
 import json
-from typing import Optional
+from typing import Optional, cast
 
 from fastapi import APIRouter, Depends, Query
 
@@ -67,7 +67,7 @@ async def log_audit_action(
                 target_type=target_type,
                 target_id=target_id,
             )
-            return audit_id
+            return cast(Optional[int], audit_id)
         except Exception as e:
             log.error(
                 "audit_log_failed",

@@ -274,16 +274,25 @@ DARK_THEME_CSS = f"""
         border-radius: 0.25rem;
         line-height: 1.2;
     }}
-    .badge-critical  {{ background: {SEV_CRITICAL}22; color: {SEV_CRITICAL}; border: 1px solid {SEV_CRITICAL}44; }}
-    .badge-high      {{ background: {SEV_HIGH}22; color: {SEV_HIGH}; border: 1px solid {SEV_HIGH}44; }}
-    .badge-medium    {{ background: {SEV_MEDIUM}22; color: {SEV_MEDIUM}; border: 1px solid {SEV_MEDIUM}44; }}
+    .badge-critical  {{ background: {SEV_CRITICAL}22; color: {SEV_CRITICAL};
+        border: 1px solid {SEV_CRITICAL}44; }}
+    .badge-high      {{ background: {SEV_HIGH}22; color: {SEV_HIGH};
+        border: 1px solid {SEV_HIGH}44; }}
+    .badge-medium    {{ background: {SEV_MEDIUM}22; color: {SEV_MEDIUM};
+        border: 1px solid {SEV_MEDIUM}44; }}
     .badge-low       {{ background: {SEV_LOW}22; color: {SEV_LOW}; border: 1px solid {SEV_LOW}44; }}
-    .badge-info      {{ background: {SEV_INFO}22; color: {SEV_INFO}; border: 1px solid {SEV_INFO}44; }}
-    .badge-new       {{ background: {STATUS_NEW}22; color: {STATUS_NEW}; border: 1px solid {STATUS_NEW}44; }}
-    .badge-investigating {{ background: {STATUS_INVESTIGATING}22; color: {STATUS_INVESTIGATING}; border: 1px solid {STATUS_INVESTIGATING}44; }}
-    .badge-resolved  {{ background: {STATUS_RESOLVED}22; color: {STATUS_RESOLVED}; border: 1px solid {STATUS_RESOLVED}44; }}
-    .badge-false_positive {{ background: {STATUS_FALSE_POSITIVE}22; color: {STATUS_FALSE_POSITIVE}; border: 1px solid {STATUS_FALSE_POSITIVE}44; }}
-    .badge-closed    {{ background: {STATUS_CLOSED}22; color: {STATUS_CLOSED}; border: 1px solid {STATUS_CLOSED}44; }}
+    .badge-info      {{ background: {SEV_INFO}22; color: {SEV_INFO};
+        border: 1px solid {SEV_INFO}44; }}
+    .badge-new       {{ background: {STATUS_NEW}22; color: {STATUS_NEW};
+        border: 1px solid {STATUS_NEW}44; }}
+    .badge-investigating {{ background: {STATUS_INVESTIGATING}22; color: {STATUS_INVESTIGATING};
+        border: 1px solid {STATUS_INVESTIGATING}44; }}
+    .badge-resolved  {{ background: {STATUS_RESOLVED}22; color: {STATUS_RESOLVED};
+        border: 1px solid {STATUS_RESOLVED}44; }}
+    .badge-false_positive {{ background: {STATUS_FALSE_POSITIVE}22; color: {STATUS_FALSE_POSITIVE};
+        border: 1px solid {STATUS_FALSE_POSITIVE}44; }}
+    .badge-closed    {{ background: {STATUS_CLOSED}22; color: {STATUS_CLOSED};
+        border: 1px solid {STATUS_CLOSED}44; }}
 
     /* ─── Spinner / status ─── */
     .stSpinner > div > div {{
@@ -421,14 +430,37 @@ PAGE_REFRESH_MS = {
 }
 
 
+_SIDEBAR_LABEL_CSS = (
+    "color:#8b95a5;font-size:0.75rem;font-weight:600;"
+    "text-transform:uppercase;letter-spacing:0.06em;"
+)
+_SIDEBAR_HR = "<hr style='margin:0.5rem 0;border-color:#1e2636;'/>"
+
+
+def _sidebar_label(text: str) -> str:
+    """Sidebar section label (uppercase styled <p>)."""
+    return f"<p style='{_SIDEBAR_LABEL_CSS}'>{text}</p>"
+
+
+def _sidebar_dot(color: str) -> str:
+    """Sidebar status dot span."""
+    return f"<span style='color:{color}'>&#9679;</span>"
+
+
+def _sidebar_p(color: str, icon: str, text: str, bold: bool = False) -> str:
+    """Sidebar status line as a styled <p>."""
+    weight = "font-weight:500;" if bold else ""
+    return f"<p style='color:{color};font-size:0.85rem;{weight}'>{icon} {text}</p>"
+
+
 def render_sidebar():
     """Render the sidebar with navigation and status info."""
     st.sidebar.title("SecurityScarletAI")
     st.sidebar.caption("AI-Native SIEM")
-    st.sidebar.markdown("<hr style='margin:0.5rem 0;border-color:#1e2636;'/>", unsafe_allow_html=True)
+    st.sidebar.markdown(_SIDEBAR_HR, unsafe_allow_html=True)
 
     # Page navigation
-    st.sidebar.markdown(f"<p style='color:#8b95a5;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;'>Navigation</p>", unsafe_allow_html=True)
+    st.sidebar.markdown(_sidebar_label("Navigation"), unsafe_allow_html=True)
 
     # Regular pages
     page_labels = list(PAGES.keys())
@@ -445,8 +477,8 @@ def render_sidebar():
     st.session_state.current_page = page_key
 
     # Health check
-    st.sidebar.markdown("<hr style='margin:0.5rem 0;border-color:#1e2636;'/>", unsafe_allow_html=True)
-    st.sidebar.markdown(f"<p style='color:#8b95a5;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;'>System Status</p>", unsafe_allow_html=True)
+    st.sidebar.markdown(_SIDEBAR_HR, unsafe_allow_html=True)
+    st.sidebar.markdown(_sidebar_label("System Status"), unsafe_allow_html=True)
     try:
         api = get_api_client()
         health = api.health()
@@ -455,23 +487,45 @@ def render_sidebar():
             db_status = checks.get("database", "unknown")
             ollama_status = checks.get("ollama", "unknown")
 
-            db_icon = "<span style='color:#00e676'>&#9679;</span>" if db_status == "ok" else "<span style='color:#ff3860'>&#9679;</span>"
-            ollama_icon = "<span style='color:#00e676'>&#9679;</span>" if ollama_status == "ok" else "<span style='color:#ffc107'>&#9679;</span>"
+            db_icon = _sidebar_dot("#00e676") if db_status == "ok" else _sidebar_dot("#ff3860")
+            ollama_icon = (
+                _sidebar_dot("#00e676") if ollama_status == "ok" else _sidebar_dot("#ffc107")
+            )
 
-            st.sidebar.markdown(f"{db_icon}&nbsp;&nbsp;Database: <span style='color:#e8ecf1'>{db_status}</span>", unsafe_allow_html=True)
-            st.sidebar.markdown(f"{ollama_icon}&nbsp;&nbsp;Ollama: <span style='color:#e8ecf1'>{ollama_status}</span>", unsafe_allow_html=True)
+            st.sidebar.markdown(
+                f"{db_icon}&nbsp;&nbsp;Database: "
+                f"<span style='color:#e8ecf1'>{db_status}</span>",
+                unsafe_allow_html=True,
+            )
+            st.sidebar.markdown(
+                f"{ollama_icon}&nbsp;&nbsp;Ollama: "
+                f"<span style='color:#e8ecf1'>{ollama_status}</span>",
+                unsafe_allow_html=True,
+            )
 
             if health.get("status") == "healthy":
-                st.sidebar.markdown("<p style='color:#00e676;font-size:0.85rem;font-weight:500;'>&#10003; System Healthy</p>", unsafe_allow_html=True)
+                st.sidebar.markdown(
+                    _sidebar_p("#00e676", "&#10003;", "System Healthy", bold=True),
+                    unsafe_allow_html=True,
+                )
             else:
-                st.sidebar.markdown("<p style='color:#ffc107;font-size:0.85rem;font-weight:500;'>&#9888; System Degraded</p>", unsafe_allow_html=True)
+                st.sidebar.markdown(
+                    _sidebar_p("#ffc107", "&#9888;", "System Degraded", bold=True),
+                    unsafe_allow_html=True,
+                )
         else:
-            st.sidebar.markdown("<p style='color:#ff3860;font-size:0.85rem;font-weight:500;'>&#10007; System Down</p>", unsafe_allow_html=True)
+            st.sidebar.markdown(
+                _sidebar_p("#ff3860", "&#10007;", "System Down", bold=True),
+                unsafe_allow_html=True,
+            )
     except Exception:
-        st.sidebar.markdown("<p style='color:#ff3860;font-size:0.85rem;font-weight:500;'>&#10007; API Unreachable</p>", unsafe_allow_html=True)
+        st.sidebar.markdown(
+            _sidebar_p("#ff3860", "&#10007;", "API Unreachable", bold=True),
+            unsafe_allow_html=True,
+        )
 
     # Auto-refresh toggle with interval selector
-    st.sidebar.markdown("<hr style='margin:0.5rem 0;border-color:#1e2636;'/>", unsafe_allow_html=True)
+    st.sidebar.markdown(_SIDEBAR_HR, unsafe_allow_html=True)
     auto_refresh = st.sidebar.toggle("Auto-refresh", value=False, key="auto_refresh_toggle")
 
     if auto_refresh:
@@ -498,26 +552,38 @@ def render_sidebar():
                 st.rerun()
 
     # AI Status
-    st.sidebar.markdown("<hr style='margin:0.5rem 0;border-color:#1e2636;'/>", unsafe_allow_html=True)
-    st.sidebar.markdown(f"<p style='color:#8b95a5;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;'>AI Status</p>", unsafe_allow_html=True)
+    st.sidebar.markdown(_SIDEBAR_HR, unsafe_allow_html=True)
+    st.sidebar.markdown(_sidebar_label("AI Status"), unsafe_allow_html=True)
     try:
         status = api.ai_status()
         triage = status.get("triage", {})
         model_status = triage.get("status", "unknown")
         if model_status == "trained":
-            st.sidebar.markdown("<p style='color:#00e676;font-size:0.85rem;'>&#9679; AI Triage: Trained</p>", unsafe_allow_html=True)
+            st.sidebar.markdown(
+                _sidebar_p("#00e676", "&#9679;", "AI Triage: Trained"),
+                unsafe_allow_html=True,
+            )
         elif model_status == "no_data":
-            st.sidebar.markdown("<p style='color:#ffc107;font-size:0.85rem;'>&#9679; AI Triage: No data</p>", unsafe_allow_html=True)
+            st.sidebar.markdown(
+                _sidebar_p("#ffc107", "&#9679;", "AI Triage: No data"),
+                unsafe_allow_html=True,
+            )
         else:
-            st.sidebar.markdown(f"<p style='color:#78909c;font-size:0.85rem;'>&#9679; AI Triage: {model_status}</p>", unsafe_allow_html=True)
+            st.sidebar.markdown(
+                _sidebar_p("#78909c", "&#9679;", f"AI Triage: {model_status}"),
+                unsafe_allow_html=True,
+            )
     except Exception:
-        st.sidebar.markdown("<p style='color:#78909c;font-size:0.85rem;'>&#9679; AI Status: Unavailable</p>", unsafe_allow_html=True)
+        st.sidebar.markdown(
+            _sidebar_p("#78909c", "&#9679;", "AI Status: Unavailable"),
+            unsafe_allow_html=True,
+        )
 
     # User info and logout
     render_sidebar_user_info()
 
     # Keyboard shortcuts hint
-    st.sidebar.markdown("<hr style='margin:0.5rem 0;border-color:#1e2636;'/>", unsafe_allow_html=True)
+    st.sidebar.markdown(_SIDEBAR_HR, unsafe_allow_html=True)
     st.sidebar.caption("Press 1-7 for quick nav")
 
     return page_key

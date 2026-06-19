@@ -131,7 +131,9 @@ def render_ai_chat():
             with st.status("Thinking...", expanded=False) as status:
                 try:
                     result = api.ai_chat(user_input)
-                    response = result.get("response", result.get("message", "No response available"))
+                    response = result.get(
+                        "response", result.get("message", "No response available")
+                    )
 
                     query_results = result.get("query_results")
                     if query_results:
@@ -156,13 +158,17 @@ def render_ai_chat():
                     status.update(label="Request failed", state="error")
                     error_msg = f"Sorry, I couldn't process that request. Error: {e.detail}"
                     st.error(error_msg)
-                    st.session_state.chat_history.append({"role": "assistant", "content": error_msg})
+                    st.session_state.chat_history.append(
+                        {"role": "assistant", "content": error_msg}
+                    )
 
                 except Exception as e:
                     status.update(label="Unexpected error", state="error")
                     error_msg = f"Unexpected error: {e}"
                     st.error(error_msg)
-                    st.session_state.chat_history.append({"role": "assistant", "content": error_msg})
+                    st.session_state.chat_history.append(
+                        {"role": "assistant", "content": error_msg}
+                    )
 
     # ─── NL&#8594;SQL Query ───
     st.divider()
@@ -184,7 +190,10 @@ def render_ai_chat():
                         if st.button(f"{category}: {question}", key=f"tmpl_{i}"):
                             st.session_state.nl_query = question
                 else:
-                    st.info("No templates available — Ollama may be down. Type your question directly below.")
+                    st.info(
+                        "No templates available — Ollama may be down. "
+                        "Type your question directly below."
+                    )
             except ApiError:
                 st.info("Query templates unavailable — you can still type questions directly.")
 

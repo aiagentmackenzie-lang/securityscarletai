@@ -44,8 +44,10 @@ class RuleResponse(BaseModel):
     @classmethod
     def from_row(cls, row: dict) -> "RuleResponse":
         """Convert a DB row to RuleResponse, serializing datetimes."""
-        row["last_run"] = row.get("last_run").isoformat() if row.get("last_run") else None
-        row["last_match"] = row.get("last_match").isoformat() if row.get("last_match") else None
+        last_run = row.get("last_run")
+        row["last_run"] = last_run.isoformat() if last_run else None
+        last_match = row.get("last_match")
+        row["last_match"] = last_match.isoformat() if last_match else None
         # Only pass fields that the model accepts
         fields = set(cls.model_fields.keys())
         filtered = {k: v for k, v in row.items() if k in fields}

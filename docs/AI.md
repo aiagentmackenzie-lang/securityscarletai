@@ -2,11 +2,11 @@
 
 SecurityScarletAI integrates AI/ML throughout the detection-to-response pipeline. All AI features degrade gracefully when Ollama is unavailable — template-based fallbacks and rule-based responses ensure the system never blocks on LLM availability. Every LLM call returns a structured `LLMResult` dataclass that records source, token usage, latency, and whether a fallback was used.
 
-The V2 sprint (June 2026) added: a unified `LLMResult` contract across all LLM callsites, versioned Jinja2 prompt templates (`src/ai/prompts.py`), per-call cost tracking (`src/ai/cost_tracker.py`), a calibrated triage model (`CalibratedClassifierCV` wrapper), and the chat endpoint.
+The AI subsystem provides: a unified `LLMResult` contract across all LLM callsites, versioned Jinja2 prompt templates (`src/ai/prompts.py`), per-call cost tracking (`src/ai/cost_tracker.py`), a calibrated triage model (`CalibratedClassifierCV` wrapper), and the chat endpoint.
 
 ---
 
-## LLM Infrastructure (V2)
+## LLM Infrastructure
 
 ### The `LLMResult` contract
 
@@ -104,7 +104,7 @@ Response: {"question": "...", "sql": "...", "results": [...], "row_count": N}
 
 The alert triage system (`src/ai/alert_triage.py`) uses a **Random Forest classifier** wrapped in **`CalibratedClassifierCV`** (isotonic, cv=3) to predict whether alerts are true positives or false positives, and to prioritize them for analyst review.
 
-**Why calibration matters (V2):** The pre-V2 model emitted raw RF probabilities that were poorly calibrated — a 0.7 output did not mean 70% of such alerts were true positives in practice. Wrapping in `CalibratedClassifierCV` (added in Epic 3) gives trustworthy probability estimates suitable for threshold-based routing ("auto-close anything with confidence < 0.2", etc.).
+**Why calibration matters:** Earlier iterations emitted raw RF probabilities that were poorly calibrated — a 0.7 output did not mean 70% of such alerts were true positives in practice. Wrapping in `CalibratedClassifierCV` gives trustworthy probability estimates suitable for threshold-based routing ("auto-close anything with confidence < 0.2", etc.).
 
 ### Feature Set (11 input features)
 
@@ -301,7 +301,7 @@ All scores are capped at 100.
 
 ---
 
-## Chat Endpoint (V2)
+## Chat Endpoint
 
 The `/api/v1/chat` endpoint exposes a conversational interface backed by the same Ollama client. The system prompt is rendered from `CHAT_SYSTEM_PROMPT_VERSION = "v1.0.0"`. The endpoint:
 

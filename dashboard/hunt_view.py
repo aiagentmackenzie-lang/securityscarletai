@@ -10,12 +10,11 @@ Features:
 ALL data fetched through ApiClient — NO direct database access.
 Loading states: st.spinner() on fetches, st.status() for executions, st.toast() on actions.
 """
-import streamlit as st
 import pandas as pd
+import streamlit as st
 
 from dashboard.api_client import ApiError
 from dashboard.auth import can_write, get_api_client
-from dashboard.ui_utils import sev_badge
 
 
 def render_hunt_view():
@@ -52,7 +51,10 @@ def render_hunt_view():
 
             tactics = {}
             for t in templates:
-                tactic = t.get("mitre_tactics", ["General"])[0] if t.get("mitre_tactics") else "General"
+                tactic = (
+                    t.get("mitre_tactics", ["General"])[0]
+                    if t.get("mitre_tactics") else "General"
+                )
                 if tactic not in tactics:
                     tactics[tactic] = []
                 tactics[tactic].append(t)

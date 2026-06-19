@@ -8,9 +8,9 @@ Loading states: Every data fetch is wrapped in st.spinner() for UX polish.
 Performance: All alert data is fetched once via cached_alerts() then passed
   to chart functions — eliminates N+1 redundant API calls per page load.
 """
-import streamlit as st
-import pandas as pd
 import altair as alt
+import pandas as pd
+import streamlit as st
 
 from dashboard.api_client import ApiError
 from dashboard.auth import get_api_client
@@ -128,8 +128,8 @@ except Exception:
     try:
         alt.themes.register("scarlet_dark", _altair_theme)
         alt.themes.enable("scarlet_dark")
-    except Exception:
-        pass  # Theme registration failed — charts will use default theme
+    except Exception:  # noqa: S110 — theme registration optional; charts fall back to default
+        pass
 
 
 # ───────────────────────────────────────────────────────────────
@@ -160,10 +160,19 @@ def _colored_metric(label: str, value, delta=None, color=None):
     style = ""
     if color:
         style = f' style="color:{color}"'
-    label_html = f'<p style="color:{TEXT_SECONDARY};font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:0;{style}">{label}</p>'
-    value_html = f'<p style="color:{TEXT_PRIMARY};font-size:1.6rem;font-weight:700;margin:0;{style}">{value}</p>'
+    label_html = (
+        f'<p style="color:{TEXT_SECONDARY};font-size:0.75rem;font-weight:600;'
+        f'text-transform:uppercase;letter-spacing:0.04em;margin:0;{style}">{label}</p>'
+    )
+    value_html = (
+        f'<p style="color:{TEXT_PRIMARY};font-size:1.6rem;font-weight:700;'
+        f'margin:0;{style}">{value}</p>'
+    )
     if delta:
-        value_html += f'<p style="color:#00e676;font-size:0.75rem;margin:0.25rem 0 0 0;{style}">{delta}</p>'
+        value_html += (
+            f'<p style="color:#00e676;font-size:0.75rem;'
+            f'margin:0.25rem 0 0 0;{style}">{delta}</p>'
+        )
     st.markdown(
         f'<div style="background:{BG_SURFACE};border:1px solid {BORDER_SUBTLE};'
         f'border-radius:0.5rem;padding:0.75rem 1rem;margin-bottom:0.5rem;">'
@@ -443,7 +452,7 @@ def render_mitre_heatmap(rules: list[dict]):
                 else:
                     color = "#ff3860"
                     label = "Weak"
-                _colored_metric(tactic, f"{count}", color=color)
+                _colored_metric(tactic, f"{count} · {label}", color=color)
 
     with st.expander("Detailed Technique Coverage"):
         st.dataframe(
@@ -554,10 +563,12 @@ def render_severity_sparklines(alerts: list | None = None):
                         st.markdown(
                             f"""
                             <div style="text-align:center;margin-bottom:0.25rem;">
-                                <p style="margin:0;color:{TEXT_SECONDARY};font-size:0.7rem;font-weight:600;text-transform:uppercase;">
+                                <p style="margin:0;color:{TEXT_SECONDARY};font-size:0.7rem;
+                                    font-weight:600;text-transform:uppercase;">
                                     {label}
                                 </p>
-                                <p style="margin:0;color:{TEXT_PRIMARY};font-size:1.1rem;font-weight:700;">
+                                <p style="margin:0;color:{TEXT_PRIMARY};font-size:1.1rem;
+                                    font-weight:700;">
                                     {count}
                                 </p>
                             </div>
@@ -570,7 +581,7 @@ def render_severity_sparklines(alerts: list | None = None):
                     with cols[i]:
                         _colored_metric(label, count, color=color)
 
-        except Exception:
+        except Exception:  # noqa: S110 — graceful chart render fallback
             pass
 
 
@@ -601,7 +612,8 @@ def render_host_risk_scores(alerts: list | None = None):
                 max_score = top_hosts[0][1] if top_hosts[0][1] > 0 else 1
 
                 st.markdown(
-                    f'<p style="color:{TEXT_PRIMARY};font-weight:700;font-size:1.05rem;margin:0.75rem 0;">'
+                    f'<p style="color:{TEXT_PRIMARY};font-weight:700;'
+                    f'font-size:1.05rem;margin:0.75rem 0;">'
                     f'Host Risk Scores'
                     f'</p>',
                     unsafe_allow_html=True,
@@ -620,7 +632,7 @@ def render_host_risk_scores(alerts: list | None = None):
                         color = "#00e676"
                         label = "Normal"
                     with cols[i]:
-                        _colored_metric(host, f"{score}", color=color)
+                        _colored_metric(host, f"{score} · {label}", color=color)
 
-        except Exception:
+        except Exception:  # noqa: S110 — graceful chart render fallback
             pass

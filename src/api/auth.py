@@ -15,6 +15,7 @@ import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any, cast
 
 import bcrypt as _bcrypt
 from fastapi import HTTPException, Security, status
@@ -64,7 +65,7 @@ def verify_jwt(
             algorithms=[JWT_ALGORITHM],
         )
     except JWTError as e:
-        log.warning("jwt_verify_failed", error=str(e), token_preview=credentials.credentials[:20])
+        log.warning("jwt_verify_failed", error=str(e), token_preview=credentials.credentials[:20])  # type: ignore[call-arg]  # structlog event-dict kwargs
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
@@ -93,7 +94,7 @@ def verify_jwt(
                 detail="Token issued before password change",
             )
 
-    return payload
+    return cast(dict[str, Any], payload)
 
 
 def get_current_user(
@@ -113,7 +114,7 @@ def get_current_user(
     # Try JWT first (dashboard users)
     try:
         payload = jwt.decode(token, secret, algorithms=[JWT_ALGORITHM])
-        return payload
+        return cast(dict[str, Any], payload)
     except JWTError:
         pass
 
@@ -174,7 +175,10 @@ def create_jwt(username: str, role: str, extra: dict | None = None) -> str:
     }
     if extra:
         payload.update(extra)
-    return jwt.encode(payload, settings.api_secret_key.get_secret_value(), algorithm=JWT_ALGORITHM)
+    return cast(
+        str,
+        jwt.encode(payload, settings.api_secret_key.get_secret_value(), algorithm=JWT_ALGORITHM),
+    )
 
 
 def create_refresh_token(username: str, role: str) -> str:
@@ -187,7 +191,10 @@ def create_refresh_token(username: str, role: str) -> str:
         "iat": datetime.now(tz=timezone.utc),
         "exp": datetime.now(tz=timezone.utc) + timedelta(days=settings.refresh_token_ttl_days),
     }
-    return jwt.encode(payload, settings.api_secret_key.get_secret_value(), algorithm=JWT_ALGORITHM)
+    return cast(
+        str,
+        jwt.encode(payload, settings.api_secret_key.get_secret_value(), algorithm=JWT_ALGORITHM),
+    )
 
 
 def hash_password(plain: str) -> str:

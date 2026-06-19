@@ -94,11 +94,8 @@ async def send_email_notification(
     Returns:
         True if sent successfully
     """
-    if not all([
-        settings.smtp_host,
-        settings.smtp_user,
-        settings.smtp_password,
-    ]):
+    smtp_user = settings.smtp_user
+    if not (settings.smtp_host and smtp_user and settings.smtp_password):
         log.warning("smtp_not_configured")
         return False
 
@@ -112,7 +109,7 @@ async def send_email_notification(
 
         msg = MIMEText(body)
         msg["Subject"] = f"[SecurityScarletAI] {subject}"
-        msg["From"] = settings.smtp_user
+        msg["From"] = smtp_user
         msg["To"] = recipient
 
         await aiosmtplib.send(

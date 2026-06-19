@@ -1,0 +1,57 @@
+# SecurityScarletAI — Caddy reverse proxy config (automatic TLS).
+#
+# Caddy obtains and renews Let's Encrypt certificates automatically when a
+# real domain is set. Use this in front of the API + dashboard so neither
+# is exposed directly to the internet (see docker-compose.prod.yml).
+#
+# Replace <DOMAIN> with your real hostname (e.g. scarlet.example.com) and
+# set the matching ACME account email. Run: docker compose -f docker-compose.yml
+# -f docker-compose.prod.yml up -d, with this file mounted into the caddy
+# container at /etc/caddy/Caddyfile.
+
+{
+	email admin@example.com  # <-- replace with your address for Let's Encrypt
+	# Uncomment to use the staging CA while testing (avoids rate limits):
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+<DOMAIN> {
+	encode zstd gzip
+
+	# API — /api/* -> scarletai-api:8000
+	handle_path /api/* {
+		reverse_proxy scarletai-api:8000 {
+			header_up X-Forwarded-Proto https
+			# Preserve the original Host so the API builds correct URLs
+			header_up Host {host}
+		}
+	}
+
+	# Dashboard — everything else -> scarletai-dashboard:8501
+	handle {
+		reverse_proxy scarletai-dashboard:8501 {
+			header_up X-Forwarded-Proto https
+			header_up Host {host}
+		}
+	}
+
+	# Security headers
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		# Streamlit uses websockets; Caddy handles Upgrade automatically.
+	}
+
+	# Rate-limit login + ingest at the edge (defense in depth with slowapi).
+	# Requires the caddy-ratelimit plugin; see DEPLOYMENT.md if you enable it.
+
+	log {
+		output file /data/access.log {
+			roll_size 100mb
+			roll_keep 7
+		}
+		format json
+	}
+}

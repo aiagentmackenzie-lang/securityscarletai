@@ -143,14 +143,13 @@ class RiskScorer:
         # Threat intel
         factors.threat_intel_hits = min(ti_hits / 5, 1.0) if ti_hits else 0.0
 
-        # UEBA anomaly score — fetch from UEBA if available
-        try:
-            from src.ai.ueba import UEBAEngine
-            ueba_engine = UEBAEngine()
-            anomaly = await ueba_engine.get_user_anomaly_score("__host__" + hostname)
-            factors.anomaly_score = max(0.0, min(1.0, anomaly or 0.0))
-        except Exception:
-            factors.anomaly_score = 0.0
+        # UEBA anomaly score: UEBA is user-scoped (IsolationForest over
+        # per-user features), not host-scoped, so the host risk path leaves
+        # anomaly_score at its default 0.0. The previous block imported a
+        # non-existent `UEBAEngine` class and called a non-existent
+        # `get_user_anomaly_score` — dead code whose ImportError was silently
+        # swallowed. User-level UEBA scoring belongs in calculate_user_risk
+        # (tracked as a follow-up).
 
         # Exposure score — internet-facing host check
         try:

@@ -49,6 +49,7 @@ htmlcov/
 .cache
 .hypothesis/
 .ruff_cache/
+.mypy_cache/
 
 # Logs
 logs/

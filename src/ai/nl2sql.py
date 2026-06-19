@@ -17,7 +17,7 @@ import asyncio
 import re
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 import sqlparse  # noqa: F401 — used in validate_sql_structure below
 
@@ -617,23 +617,24 @@ async def nl_to_sql(
 
     # 2. Try template match first (fast path, no LLM needed)
     matched_template = template_match(sanitized)
-    if matched_template:
-        sql = matched_template
+    sql: str | None = matched_template
+    if sql:
         log.info("nl2sql_template_match", query=sanitized[:50])
     else:
         # 3. LLM generation
         sql = await _llm_generate(sanitized, ctx)
-        if sql is None:
-            # LLM failed or returned unsafe output
-            return {
-                "success": False,
-                "error": (
-                    "AI service unavailable. "
-                    "Please try again later or use different phrasing."
-                ),
-                "warnings": warnings,
-                "session_id": session_id,
-            }
+
+    if sql is None:
+        # LLM failed or returned unsafe output
+        return {
+            "success": False,
+            "error": (
+                "AI service unavailable. "
+                "Please try again later or use different phrasing."
+            ),
+            "warnings": warnings,
+            "session_id": session_id,
+        }
 
     # 4. Validate SQL structure
     is_valid, validation_reason = validate_sql_structure(sql)
@@ -850,7 +851,7 @@ def template_match(nl_query: str) -> Optional[str]:
             best_match = template["sql"]
 
     if best_match and best_score >= 1:
-        return best_match
+        return cast(Optional[str], best_match)
 
     return None
 

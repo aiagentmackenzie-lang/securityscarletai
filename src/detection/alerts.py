@@ -15,7 +15,7 @@ import io
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, cast
 
 from src.config.logging import get_logger
 from src.db.connection import get_pool
@@ -61,6 +61,8 @@ async def create_alert(
     Returns:
         The ID of the created alert, or -1 if suppressed/deduplicated
     """
+    if rule_id is None:
+        raise ValueError("rule_id is required to create an alert")
     pool = await get_pool()
     async with pool.acquire() as conn:
         # ── Step 1: Insert with dedup check (race-safe) ───────
@@ -136,7 +138,7 @@ async def create_alert(
             alert_id, rule_name, escalated_severity, host_name, description
         )
 
-        return alert_id
+        return cast(int, alert_id)
 
 
 async def _check_severity_escalation(
@@ -495,7 +497,7 @@ async def create_suppression_rule(
 
         log.info("suppression_rule_created", suppression_id=suppression_id,
                   rule_name=rule_name, host_name=host_name)
-        return suppression_id
+        return cast(int, suppression_id)
 
 
 async def list_suppression_rules() -> list[dict]:

@@ -556,7 +556,7 @@ async def suggest_hunting_queries(
             })
 
     return suggestions if suggestions else [
-        {"name": "Custom Hunting", "description": response[:200]}
+        {"name": "Custom Hunting", "description": response.text[:200]}
     ]
 
 

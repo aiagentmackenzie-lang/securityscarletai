@@ -5,8 +5,10 @@ This lets you grep/jq your own SIEM's logs when something breaks.
 """
 import logging
 import sys
+from typing import cast
 
 import structlog
+from structlog.types import Processor
 
 from src.config.settings import settings
 
@@ -16,7 +18,7 @@ def setup_logging() -> None:
 
     # Choose renderer based on environment
     if settings.log_format == "json":
-        renderer = structlog.processors.JSONRenderer()
+        renderer: Processor = structlog.processors.JSONRenderer()
     else:
         renderer = structlog.dev.ConsoleRenderer(colors=True)
 
@@ -46,4 +48,4 @@ def get_logger(component: str) -> structlog.BoundLogger:
         log.info("started tailing", path="/var/log/osquery/results.log")
         log.error("parse failed", raw_line=line, error=str(e))
     """
-    return structlog.get_logger(component=component)
+    return cast(structlog.BoundLogger, structlog.get_logger(component=component))

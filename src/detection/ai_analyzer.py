@@ -11,7 +11,7 @@ Uses shared ollama_client for consistent timeout/error handling/fallback
 instead of a separate raw httpx client.
 """
 import json
-from typing import Optional
+from typing import Any, Optional, cast
 
 from src.ai.ollama_client import query_llm
 from src.config.logging import get_logger
@@ -65,7 +65,7 @@ def _parse_json_response(raw_response: str) -> Optional[dict]:
         json_str = json_str.split("```")[1].split("```")[0]
 
     try:
-        return json.loads(json_str.strip())
+        return cast(dict[str, Any] | None, json.loads(json_str.strip()))
     except json.JSONDecodeError:
         return None
 
@@ -97,16 +97,18 @@ async def analyze_alert(
         log.warning("ai_analyzer_query_failed", alert_id=alert_id)
         return None
 
-    # Fallback means Ollama is down — return None so enrichment is skipped
+    # Fallback means Ollama is down — return None so enrichment is skipped.
+    # query_llm returns an LLMResult; detect fallback via the structured
+    # `fallback_used` flag or the canonical fallback text.
     from src.ai.ollama_client import FALLBACK_MESSAGE
-    if raw_response == FALLBACK_MESSAGE:
+    if raw_response.fallback_used or raw_response.text == FALLBACK_MESSAGE:
         log.warning("ai_analyzer_ollama_unavailable", alert_id=alert_id)
         return None
 
     # Parse structured JSON from response
-    analysis = _parse_json_response(raw_response)
+    analysis = _parse_json_response(raw_response.text)
     if analysis is None:
-        log.warning("ai_parse_failed", alert_id=alert_id, raw=raw_response[:200])
+        log.warning("ai_parse_failed", alert_id=alert_id, raw=raw_response.text[:200])
         return None
 
     log.info(

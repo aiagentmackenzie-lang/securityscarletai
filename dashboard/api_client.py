@@ -103,9 +103,9 @@ class ApiClient:
             )
             return self._handle_response(r)
         except httpx.ConnectError:
-            raise ApiError(0, "Cannot connect to API server. Is it running?")
+            raise ApiError(0, "Cannot connect to API server. Is it running?") from None
         except httpx.TimeoutException:
-            raise ApiError(0, "API request timed out")
+            raise ApiError(0, "API request timed out") from None
 
     def _post(self, path: str, json_data: dict | None = None, timeout: float | None = None) -> Any:
         """POST request with error handling. timeout overrides default."""
@@ -118,9 +118,9 @@ class ApiClient:
             )
             return self._handle_response(r)
         except httpx.ConnectError:
-            raise ApiError(0, "Cannot connect to API server. Is it running?")
+            raise ApiError(0, "Cannot connect to API server. Is it running?") from None
         except httpx.TimeoutException:
-            raise ApiError(0, "API request timed out")
+            raise ApiError(0, "API request timed out") from None
 
     def _put(self, path: str, json_data: dict | None = None) -> Any:
         """PUT request with error handling."""
@@ -133,9 +133,9 @@ class ApiClient:
             )
             return self._handle_response(r)
         except httpx.ConnectError:
-            raise ApiError(0, "Cannot connect to API server. Is it running?")
+            raise ApiError(0, "Cannot connect to API server. Is it running?") from None
         except httpx.TimeoutException:
-            raise ApiError(0, "API request timed out")
+            raise ApiError(0, "API request timed out") from None
 
     def _patch(self, path: str, json_data: dict | None = None) -> Any:
         """PATCH request with error handling."""
@@ -148,9 +148,9 @@ class ApiClient:
             )
             return self._handle_response(r)
         except httpx.ConnectError:
-            raise ApiError(0, "Cannot connect to API server. Is it running?")
+            raise ApiError(0, "Cannot connect to API server. Is it running?") from None
         except httpx.TimeoutException:
-            raise ApiError(0, "API request timed out")
+            raise ApiError(0, "API request timed out") from None
 
     def _delete(self, path: str) -> Any:
         """DELETE request with error handling."""
@@ -162,9 +162,9 @@ class ApiClient:
             )
             return self._handle_response(r)
         except httpx.ConnectError:
-            raise ApiError(0, "Cannot connect to API server. Is it running?")
+            raise ApiError(0, "Cannot connect to API server. Is it running?") from None
         except httpx.TimeoutException:
-            raise ApiError(0, "API request timed out")
+            raise ApiError(0, "API request timed out") from None
 
     @staticmethod
     def _handle_response(r: httpx.Response) -> Any:
@@ -319,7 +319,7 @@ class ApiClient:
             r.raise_for_status()
             return r.text
         except httpx.ConnectError:
-            raise ApiError(0, "Cannot connect to API server.")
+            raise ApiError(0, "Cannot connect to API server.") from None
 
     # ───────────────────────────────────────────────────────────
     # Rules

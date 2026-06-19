@@ -9,7 +9,7 @@ import streamlit as st
 
 from dashboard.api_client import ApiError
 from dashboard.auth import can_write, get_api_client, is_admin
-from dashboard.ui_utils import sev_badge, status_badge, BG_SURFACE, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY, esc
+from dashboard.ui_utils import BG_SURFACE, BORDER_SUBTLE, esc, sev_badge, status_badge
 
 # Status flow: open → in_progress → resolved → closed
 STATUS_FLOW = ["open", "in_progress", "resolved", "closed"]
@@ -154,8 +154,14 @@ def _render_case_card(case: dict, api):
                 unsafe_allow_html=True,
             )
 
-            created = case_detail.get("created_at", "")[:19] if case_detail.get("created_at") else ""
-            updated = case_detail.get("updated_at", "")[:19] if case_detail.get("updated_at") else ""
+            created = (
+                case_detail.get("created_at", "")[:19]
+                if case_detail.get("created_at") else ""
+            )
+            updated = (
+                case_detail.get("updated_at", "")[:19]
+                if case_detail.get("updated_at") else ""
+            )
             st.caption(f"Created: {created}")
             st.caption(f"Updated: {updated}")
 
@@ -165,7 +171,8 @@ def _render_case_card(case: dict, api):
 
         # Linked Alerts
         st.markdown(
-            f"**Linked Alerts**<span style='color:#5a6578;font-weight:400;'> ({len(linked_alerts)})</span>",
+            f"**Linked Alerts**"
+            f"<span style='color:#5a6578;font-weight:400;'> ({len(linked_alerts)})</span>",
             unsafe_allow_html=True,
         )
         if linked_alerts:

@@ -1,0 +1,72 @@
+# Production overlay for SecurityScarletAI.
+#
+# Usage:
+#   DOMAIN=scarlet.example.com docker compose \
+#     -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Differences from the dev compose:
+#   - Caddy reverse proxy with automatic TLS fronts API + dashboard.
+#   - API + dashboard no longer publish host ports (only Caddy exposes 80/443).
+#   - The dashboard's live-reload source mount is removed (image is baked).
+#   - LOG_FORMAT=json, LOG_LEVEL=WARNING for structured, lower-volume logs.
+#   - Restart policies + resource limits for predictable memory use.
+#
+# Secrets still come from .env (DB_PASSWORD / API_SECRET_KEY / API_BEARER_TOKEN
+# are required). For real production use a secrets manager (see DEPLOYMENT.md).
+#
+# NOTE: `volumes: !reset []` requires Docker Compose v2.20+. Verify with
+# `docker compose version`.
+
+services:
+  api:
+    ports: !reset []
+    environment:
+      LOG_FORMAT: json
+      LOG_LEVEL: ${LOG_LEVEL:-WARNING}
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.5"
+
+  dashboard:
+    # Remove the dev live-reload mount — bake the dashboard into the image.
+    volumes: !reset []
+    ports: !reset []
+    environment:
+      SCARLET_API_URL: http://api:8000/api/v1
+      DASHBOARD_API_TOKEN: ${DASHBOARD_API_TOKEN:-}
+      STREAMLIT_SERVER_HEADLESS: "true"
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: scarletai-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      dashboard:
+        condition: service_started
+    environment:
+      # Substitute <DOMAIN> in the Caddyfile at container start.
+      DOMAIN: ${DOMAIN:?Set DOMAIN to your real hostname}
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+
+volumes:
+  caddy_data:
+  caddy_config:

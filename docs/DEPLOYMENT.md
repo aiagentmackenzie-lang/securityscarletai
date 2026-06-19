@@ -61,7 +61,7 @@ openssl rand -base64 32
 | `DB_POOL_MAX` | `10` | Max asyncpg connection pool size |
 | `DATABASE_URL` | _(derived)_ | Full `postgresql://` URL — overrides the parts above if set |
 
-### Redis Configuration (V2)
+### Redis Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -76,7 +76,7 @@ openssl rand -base64 32
 | `API_CORS_ORIGINS` | `http://localhost:8501` | Comma-separated allowed CORS origins |
 | `ACCESS_TOKEN_TTL_MINUTES` | `60` | JWT access token lifetime |
 
-### Dashboard Configuration (V2)
+### Dashboard Configuration
 
 | Variable | Default | Description |
 |----------|---------|---------|
@@ -218,7 +218,12 @@ poetry run alembic revision --autogenerate -m "add new column"
 poetry run alembic downgrade -1
 ```
 
-> **Note (V2 follow-up):** The Alembic chain is wired for new deployments, but in the V2 sprint some columns were appended directly to `schema.sql` to bypass a migration-generation failure. For greenfield deployments both paths converge; for existing deployments, run `alembic upgrade head` after `schema.sql` has been applied to ensure version tracking is consistent.
+> **Schema management:** The canonical schema lives in `src/db/schema.sql`,
+> applied idempotently by `entrypoint.sh`. Alembic migration files exist
+> alongside it for reference; see `alembic/README.md` for their current status
+> (the alembic chain is not the primary path). For greenfield deployments the
+> schema is applied via `schema.sql`; do not mix the two paths on an existing
+> database without reading `alembic/README.md` first.
 
 ---
 
@@ -247,9 +252,32 @@ server {
 
 For the Streamlit dashboard, run it behind the same reverse proxy on a subpath.
 
-### JWT Secret Rotation (V2)
+#### Production overlay (Caddy + automatic TLS)
 
-The V2 sprint added proper JWT hardening. To rotate the `API_SECRET_KEY` safely:
+A committed Caddy config and a production compose overlay ship in the repo so the
+TLS-terminated path is reproducible rather than left as an exercise:
+
+- `deploy/Caddyfile` — Caddy reverse proxy with automatic Let's Encrypt TLS,
+  security headers, and `/api/*` -> API, everything else -> dashboard.
+- `docker-compose.prod.yml` — overlay that removes the dev source mount,
+  stops the API/dashboard from publishing host ports (only Caddy exposes
+  80/443), sets `LOG_FORMAT=json` / `LOG_LEVEL=WARNING`, and adds memory
+  limits + a `caddy` service.
+
+Launch it with your real hostname:
+
+```bash
+DOMAIN=scarlet.example.com docker compose \
+  -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+> Requires Docker Compose v2.20+ for the `!reset` volume/port override syntax.
+> Set the `email` and `<DOMAIN>` placeholders in `deploy/Caddyfile` before the
+> first launch. Secrets still come from `.env` (or a secrets manager — see below).
+
+### JWT Secret Rotation
+
+The project includes JWT hardening (jti blocklist, refresh-token rotation, password-change invalidation). To rotate the `API_SECRET_KEY` safely:
 
 1. Generate a new key: `openssl rand -hex 64`
 2. Update the `.env` (or your secrets manager) on **one** API replica at a time
@@ -259,9 +287,9 @@ The V2 sprint added proper JWT hardening. To rotate the `API_SECRET_KEY` safely:
 
 **In production:** use a secrets manager (Vault, AWS Secrets Manager, 1Password) and roll keys without restart via the provider's reload hooks.
 
-> **History rewrite deliberately deferred:** Git history rewrite (BFG / `git filter-repo`) to remove the original `scarletai_secure_2026` credential from history is **not** part of the V2 sprint — see git log for the original decision record (Option B: local-dev-only credentials, cost/benefit of history rewrite not justified for a pre-production SIEM).
+> **History rewrite deliberately deferred:** Git history rewrite (BFG / `git filter-repo`) to remove the original `scarletai_secure_2026` credential from history is **not** part of this work — see git log for the original decision record (Option B: local-dev-only credentials, cost/benefit of history rewrite not justified for a pre-production SIEM).
 
-### Authentication Hardening (V2)
+### Authentication Hardening
 
 - **JWT `jti` claims** — every access token has a unique ID, enabling single-token revocation
 - **Refresh token rotation** — refresh tokens rotate on use; the old token is invalidated
@@ -284,7 +312,7 @@ The V2 sprint added proper JWT hardening. To rotate the `API_SECRET_KEY` safely:
 - Ollama should only listen on `127.0.0.1:11434` (default) — never expose to the network
 - Redis should not be accessible externally — bind to `127.0.0.1` or use Docker's internal network
 
-### Rate Limiting (V2)
+### Rate Limiting
 
 The API includes Redis-backed rate limiting via SlowAPI (`src/api/rate_limit.py`). Per-endpoint limits are configured in `src/api/rate_limit.py`:
 
@@ -394,7 +422,7 @@ Model files (`models/*.joblib`, `models/*.sha256`) are gitignored and should be 
 }
 ```
 
-`status` is `healthy` only when every check passes; otherwise `degraded`. The `ollama` block is a rich object (`ollama_status`, `model`, `error`) for monitoring/alerting. The legacy `checks["ollama"]` key is preserved with string values (`"ok" | "error" | "unreachable"`) for backward compat with pre-V2 monitors.
+`status` is `healthy` only when every check passes; otherwise `degraded`. The `ollama` block is a rich object (`ollama_status`, `model`, `error`) for monitoring/alerting. The legacy `checks["ollama"]` key is preserved with string values (`"ok" | "error" | "unreachable"`) for backward compat with older monitors.
 
 When Ollama is unreachable, the status becomes `"degraded"` and AI features use template fallbacks.
 

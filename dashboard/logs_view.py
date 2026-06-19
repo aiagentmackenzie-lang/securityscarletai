@@ -5,12 +5,11 @@ Real-time and historical log viewing with filtering.
 ALL data fetched through ApiClient — NO direct database access.
 Loading states: st.spinner() on data fetches, auto-refresh friendly.
 """
-import streamlit as st
 import pandas as pd
+import streamlit as st
 
 from dashboard.api_client import ApiError
 from dashboard.auth import get_api_client
-from dashboard.ui_utils import SEVERITY_COLORS, TEXT_SECONDARY, BG_SURFACE, BORDER_SUBTLE, TEXT_PRIMARY
 
 
 def render_log_viewer():
@@ -34,7 +33,8 @@ def render_log_viewer():
         with col2:
             category_filter = st.selectbox(
                 "Category",
-                ["All", "process", "network", "file", "authentication", "configuration", "security"],
+                ["All", "process", "network", "file", "authentication",
+                 "configuration", "security"],
                 key="log_category_filter",
             )
 
@@ -64,7 +64,9 @@ def render_log_viewer():
 
     with st.spinner("Loading log entries...", show_time=True):
         try:
-            logs = api.get_logs(limit=limit, category=category, host=host, time_minutes=time_minutes)
+            logs = api.get_logs(
+                limit=limit, category=category, host=host, time_minutes=time_minutes
+            )
         except ApiError as e:
             if e.status_code == 401:
                 st.error("Session expired. Please log in again.")

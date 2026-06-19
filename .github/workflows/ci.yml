@@ -38,7 +38,16 @@ jobs:
           poetry install
 
       - name: Lint
-        run: poetry run ruff check src/ dashboard/ --select S,E,F,W
+        # Full pyproject config (E,F,W,I,S,B with S608/B008 ignored).
+        # Gates the product code (src + dashboard); tests/scripts/alembic are
+        # tooling and linted separately if desired.
+        run: poetry run ruff check src/ dashboard/
+
+      - name: Type check
+        # Pragmatic mypy config (see [tool.mypy] in pyproject.toml). Not
+        # `strict` — strict produced 336 unenforced errors (a false signal).
+        # This config is actually green; tighten incrementally over time.
+        run: poetry run mypy src
 
       - name: Unit tests
         run: poetry run pytest tests/unit/ -q

@@ -74,7 +74,7 @@ The triage model (`src/ai/alert_triage.py`) evaluates the alert with 11 features
 | `session_duration_hours` | 0.08 | Short session (failed auth) |
 | `login_hour_deviation` | 0.87 | Far from user's normal login hour |
 
-**Model**: `RandomForestClassifier` (100 estimators, `class_weight="balanced"`) wrapped in `CalibratedClassifierCV` (isotonic, cv=3) for calibrated probability output. The calibration wrapper was added in V2 (Epic 3) — probabilities are now trustworthy as confidence scores, not just relative rankings.
+**Model**: `RandomForestClassifier` (100 estimators, `class_weight="balanced"`) wrapped in `CalibratedClassifierCV` (isotonic, cv=3) for calibrated probability output — probabilities are trustworthy as confidence scores, not just relative rankings.
 
 **Prediction**: `True Positive` with 94% confidence — prioritize for immediate investigation.
 

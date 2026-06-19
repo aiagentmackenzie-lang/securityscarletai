@@ -2,8 +2,8 @@
 
 **AI-Native SIEM for macOS** — Real-time log ingestion, Sigma-based detection, ML-powered alert triage, and LLM-driven investigation assistance.
 
-[![Tests](https://img.shields.io/badge/tests-1209%20passing-brightgreen)]()
-[![Coverage](https://img.shields.io/badge/coverage-82%25-green)]()
+[![Tests](https://img.shields.io/badge/tests-1258%20passing-brightgreen)]()
+[![Coverage](https://img.shields.io/badge/coverage-85%25-green)]()
 [![Rules](https://img.shields.io/badge/Sigma%20rules-45-blue)]()
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow)]()
@@ -98,14 +98,15 @@ cp .env.example .env
 docker compose up -d
 # The idempotent entrypoint.sh will:
 #   - wait for Postgres to be ready
-#   - apply alembic migrations and the canonical schema
+#   - apply the canonical schema (src/db/schema.sql)
 #   - seed demo data and train the triage model
 #   - create the admin user (password surfaced in `docker logs`)
 #   - start uvicorn
 
 # 4. (Dev only) Or run the API outside Docker:
 poetry install
-poetry run alembic upgrade head
+# Apply the canonical schema (alembic is not wired — see alembic/README.md):
+psql "$DATABASE_URL" -f src/db/schema.sql
 poetry run uvicorn src.api.main:app --host 127.0.0.1 --port 8000
 
 # 5. (Dev only) Start the dashboard outside Docker:
@@ -188,8 +189,8 @@ See [docs/AI.md](docs/AI.md) for detailed documentation on:
 
 ## Event Enrichment
 
-Every ingested event flows through a fire-and-forget enrichment pipeline
-(added in Epic 9). The HTTP `/ingest` endpoint returns 202 Accepted as
+Every ingested event flows through a fire-and-forget enrichment pipeline.
+The HTTP `/ingest` endpoint returns 202 Accepted as
 soon as the batch is queued in the writer; enrichment runs as a
 background `asyncio.create_task` and never blocks ingestion.
 
@@ -201,7 +202,7 @@ Enrichments applied (in order):
 4. **Severity boost** — high-confidence threat-intel matches upgrade the
    event to `high` or `critical` automatically.
 
-### GeoIP singleton retry (Epic 9 fix)
+### GeoIP singleton retry
 
 The pre-Epic-9 GeoIP reader set its "loaded" flag *before* the
 init try/except, so a single missing `.mmdb` (or any init failure)
@@ -251,7 +252,7 @@ only care about config presence.
 ## Dashboard
 
 A Streamlit dashboard is included in the repo (`dashboard/`) and
-shipped as a `dashboard` service in `docker-compose.yml` (Epic 10).
+shipped as a `dashboard` service in `docker-compose.yml`.
 
 ### Running it
 
@@ -308,14 +309,14 @@ access from the dashboard.
 ## Testing
 
 ```bash
-# Run the full unit suite (1209 tests, 3 warnings, ~22s)
+# Run the full unit suite (1258 tests, 3 warnings, ~23s)
 poetry run pytest tests/unit/ -q --no-cov
 
 # With coverage report
 poetry run pytest tests/unit/ --cov=src --cov-report=term-missing -q
 
 # Lint
-poetry run ruff check src/ dashboard/ --select S,E,F,W
+poetry run ruff check src/ dashboard/
 
 # Type check
 poetry run mypy src/
@@ -456,14 +457,25 @@ securityscarletai/
 ├── alembic/                 # Database migrations (5 revisions)
 ├── scripts/
 │   ├── entrypoint.sh        # Idempotent Docker bootstrap
-│   ├── generate_training_data.py  # Synthetic alert generator (Epic 3)
-│   └── setup_db.sh          # Local DB setup
-├── tests/                   # 1209 unit tests + 2 integration suites
+│   ├── generate_training_data.py  # Synthetic alert generator for model training
+├── tests/                   # 1258 tests (unit + integration)
 ├── docs/                    # AI.md, RULES.md, DEPLOYMENT.md, ATTACK-SCENARIOS.md
 └── docker-compose.yml       # Postgres 17 + Redis 7 + API + dashboard
 ```
 
-<!-- TODO: Screenshots -->
+## Screenshots
+
+The dashboard is a Streamlit app (real-time alerts, cases, AI chat, hunting).
+To capture screenshots for this section, run the stack locally and snapshot
+the views you want to showcase:
+
+```bash
+docker compose up -d          # Postgres + Redis + API + dashboard
+open http://localhost:8501     # dashboard (JWT login or DASHBOARD_API_TOKEN)
+```
+
+> _Replace this block with dashboard screenshots (alerts grid, AI triage
+> explanation, MITRE heatmap, case timeline) once captured._
 
 ---
 
