@@ -124,6 +124,30 @@ curl http://localhost:8000/api/v1/health
 # }
 ```
 
+## Live Telemetry Demo (osquery → detection → alert)
+
+The default deployment seeds synthetic data so the dashboard looks alive. To see
+the SIEM ingest a **real log source** and fire detection live, enable the
+ingestion shipper — it tails an osquery results log and feeds the detection
+scheduler:
+
+```bash
+# One-command demo: starts Postgres, applies the schema, starts the API with
+# ENABLE_INGESTION_SHIPPER=true, writes osquery events (benign + a reverse-shell
+# that matches rules/sigma/process/reverse_shell.yml), and waits for the
+# scheduler to tick (~70s, real run_interval) before printing the fired alert.
+./scripts/run_osquery_demo.sh
+
+# Or emit events manually into a tailed log:
+poetry run python3 scripts/generate_osquery_events.py --path /tmp/osqueryd.results.log
+```
+
+What's wired: `osquery log → FileShipper (tail, checkpointed) → parser (ECS) →
+LogWriter → Postgres → Sigma detection scheduler → alerts`. The shipper is OFF
+by default (`enable_ingestion_shipper=false`) so existing deployments and CI are
+unaffected; enable it in `.env` (`ENABLE_INGESTION_SHIPPER=true`) or pass it as
+an env var as the demo script does.
+
 ---
 
 ## API Documentation
