@@ -29,11 +29,6 @@ class Settings(BaseSettings):
     def database_url(self) -> str:
         return f"postgresql+asyncpg://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
 
-    @property
-    def database_url_sync(self) -> str:
-        """Sync URL for Alembic migrations."""
-        return f"postgresql://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
-
     # --- Redis ---
     redis_url: str = "redis://localhost:6379/0"
 
@@ -54,6 +49,10 @@ class Settings(BaseSettings):
     # --- osquery ---
     osquery_log_path: str = "/opt/homebrew/var/log/osquery/osqueryd.results.log"
     osquery_config_path: str = "/opt/homebrew/etc/osquery/osquery.conf"
+    # Start the osquery FileShipper (tails osquery_log_path) on API startup.
+    # OFF by default so existing deployments and CI are unaffected; enable in
+    # .env to wire the real telemetry pipe (see scripts/run_osquery_demo.sh).
+    enable_ingestion_shipper: bool = False
 
     # --- Threat Intel ---
     abuseipdb_api_key: Optional[str] = None

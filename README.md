@@ -66,7 +66,7 @@
 | API Framework | FastAPI + Uvicorn |
 | Database | PostgreSQL 17 (asyncpg) |
 | Cache / Rate Limit | Redis 7 |
-| Migrations | Alembic |
+| Migrations | `src/db/schema.sql` (idempotent, append-only) |
 | AI/ML | Ollama (LLM), scikit-learn, joblib, Jinja2 |
 | Dashboard | Streamlit + streamlit-autorefresh |
 | Detection | pySigma |
@@ -105,7 +105,7 @@ docker compose up -d
 
 # 4. (Dev only) Or run the API outside Docker:
 poetry install
-# Apply the canonical schema (alembic is not wired — see alembic/README.md):
+# Apply the canonical schema (src/db/schema.sql — Alembic was removed):
 psql "$DATABASE_URL" -f src/db/schema.sql
 poetry run uvicorn src.api.main:app --host 127.0.0.1 --port 8000
 
@@ -123,6 +123,30 @@ curl http://localhost:8000/api/v1/health
 #   "ollama": {"ollama_status": "healthy|degraded|unavailable", "model": "<name>|null", "error": "<msg>|null"}
 # }
 ```
+
+## Live Telemetry Demo (osquery → detection → alert)
+
+The default deployment seeds synthetic data so the dashboard looks alive. To see
+the SIEM ingest a **real log source** and fire detection live, enable the
+ingestion shipper — it tails an osquery results log and feeds the detection
+scheduler:
+
+```bash
+# One-command demo: starts Postgres, applies the schema, starts the API with
+# ENABLE_INGESTION_SHIPPER=true, writes osquery events (benign + a reverse-shell
+# that matches rules/sigma/process/reverse_shell.yml), and waits for the
+# scheduler to tick (~70s, real run_interval) before printing the fired alert.
+./scripts/run_osquery_demo.sh
+
+# Or emit events manually into a tailed log:
+poetry run python3 scripts/generate_osquery_events.py --path /tmp/osqueryd.results.log
+```
+
+What's wired: `osquery log → FileShipper (tail, checkpointed) → parser (ECS) →
+LogWriter → Postgres → Sigma detection scheduler → alerts`. The shipper is OFF
+by default (`enable_ingestion_shipper=false`) so existing deployments and CI are
+unaffected; enable it in `.env` (`ENABLE_INGESTION_SHIPPER=true`) or pass it as
+an env var as the demo script does.
 
 ---
 
@@ -454,10 +478,11 @@ securityscarletai/
 │       ├── file/            # 6 rules
 │       ├── macOS/           # 10 rules
 │       └── cloud/           # 5 rules
-├── alembic/                 # Database migrations (5 revisions)
 ├── scripts/
 │   ├── entrypoint.sh        # Idempotent Docker bootstrap
 │   ├── generate_training_data.py  # Synthetic alert generator for model training
+│   ├── run_osquery_demo.sh  # Live telemetry demo (osquery -> shipper -> alert)
+│   ├── generate_osquery_events.py # Emits osquery result-log lines for the demo
 ├── tests/                   # 1258 tests (unit + integration)
 ├── docs/                    # AI.md, RULES.md, DEPLOYMENT.md, ATTACK-SCENARIOS.md
 └── docker-compose.yml       # Postgres 17 + Redis 7 + API + dashboard

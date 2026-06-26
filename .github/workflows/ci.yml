@@ -39,7 +39,7 @@ jobs:
 
       - name: Lint
         # Full pyproject config (E,F,W,I,S,B with S608/B008 ignored).
-        # Gates the product code (src + dashboard); tests/scripts/alembic are
+        # Gates the product code (src + dashboard); tests/scripts are
         # tooling and linted separately if desired.
         run: poetry run ruff check src/ dashboard/
 
