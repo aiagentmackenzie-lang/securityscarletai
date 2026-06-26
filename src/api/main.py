@@ -1,8 +1,10 @@
 """
 FastAPI application entry point.
 """
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -103,6 +105,14 @@ async def lifespan(app: FastAPI):
     # Load Sigma rules from disk
     await load_sigma_rules()
 
+    # Start ingestion shipper (osquery tail) if enabled. OFF by default.
+    from src.ingestion.runner import maybe_create_shipper
+
+    shipper = maybe_create_shipper(writer)
+    shipper_task: Optional[asyncio.Task] = None
+    if shipper is not None:
+        shipper_task = asyncio.create_task(shipper.run())
+
     # Start detection scheduler
     from src.detection.scheduler import schedule_rules
     await schedule_rules()
@@ -120,6 +130,16 @@ async def lifespan(app: FastAPI):
     # Stop scheduler
     from src.detection.scheduler import stop_scheduler
     await stop_scheduler()
+
+    # Stop the ingestion shipper if it was started
+    if shipper is not None:
+        shipper.stop()
+    if shipper_task is not None:
+        shipper_task.cancel()
+        try:
+            await shipper_task
+        except asyncio.CancelledError:
+            pass
 
     # Stop threat intel scheduler
     from src.intel.threat_intel import stop_threat_intel_scheduler

