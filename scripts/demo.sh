@@ -15,9 +15,12 @@ sleep 5
 echo "📦 Installing dependencies..."
 poetry install
 
-# Run migrations
-echo "🗄️ Running database migrations..."
-poetry run alembic upgrade head
+# Apply the canonical schema (src/db/schema.sql — Alembic was removed;
+# schema.sql is the sole schema path, applied idempotently here and by entrypoint.sh)
+echo "🗄️ Applying canonical schema (src/db/schema.sql)..."
+docker compose exec -T postgres psql -U scarletai -d scarletai \
+  -f /dev/stdin < src/db/schema.sql >/dev/null 2>&1 \
+  || psql "$DATABASE_URL" -f src/db/schema.sql
 
 # Seed demo data
 echo "🌱 Seeding demo data..."

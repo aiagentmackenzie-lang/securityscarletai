@@ -29,11 +29,6 @@ class Settings(BaseSettings):
     def database_url(self) -> str:
         return f"postgresql+asyncpg://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
 
-    @property
-    def database_url_sync(self) -> str:
-        """Sync URL for Alembic migrations."""
-        return f"postgresql://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
-
     # --- Redis ---
     redis_url: str = "redis://localhost:6379/0"
 

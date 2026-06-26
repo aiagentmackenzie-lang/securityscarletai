@@ -66,7 +66,7 @@
 | API Framework | FastAPI + Uvicorn |
 | Database | PostgreSQL 17 (asyncpg) |
 | Cache / Rate Limit | Redis 7 |
-| Migrations | Alembic |
+| Migrations | `src/db/schema.sql` (idempotent, append-only) |
 | AI/ML | Ollama (LLM), scikit-learn, joblib, Jinja2 |
 | Dashboard | Streamlit + streamlit-autorefresh |
 | Detection | pySigma |
@@ -105,7 +105,7 @@ docker compose up -d
 
 # 4. (Dev only) Or run the API outside Docker:
 poetry install
-# Apply the canonical schema (alembic is not wired — see alembic/README.md):
+# Apply the canonical schema (src/db/schema.sql — Alembic was removed):
 psql "$DATABASE_URL" -f src/db/schema.sql
 poetry run uvicorn src.api.main:app --host 127.0.0.1 --port 8000
 
@@ -478,10 +478,11 @@ securityscarletai/
 │       ├── file/            # 6 rules
 │       ├── macOS/           # 10 rules
 │       └── cloud/           # 5 rules
-├── alembic/                 # Database migrations (5 revisions)
 ├── scripts/
 │   ├── entrypoint.sh        # Idempotent Docker bootstrap
 │   ├── generate_training_data.py  # Synthetic alert generator for model training
+│   ├── run_osquery_demo.sh  # Live telemetry demo (osquery -> shipper -> alert)
+│   ├── generate_osquery_events.py # Emits osquery result-log lines for the demo
 ├── tests/                   # 1258 tests (unit + integration)
 ├── docs/                    # AI.md, RULES.md, DEPLOYMENT.md, ATTACK-SCENARIOS.md
 └── docker-compose.yml       # Postgres 17 + Redis 7 + API + dashboard

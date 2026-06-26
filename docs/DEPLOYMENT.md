@@ -2,7 +2,7 @@
 
 SecurityScarletAI runs as a FastAPI service backed by PostgreSQL 17 and Redis 7. Docker Compose is the recommended deployment path — it brings up Postgres, Redis, the API, the entrypoint initializer, and optionally the Streamlit dashboard. The entrypoint is idempotent: re-running on a populated database is a no-op for one-time setup steps.
 
-This document covers: prerequisites, environment variables, Docker Compose deployment, the idempotent entrypoint, Alembic migrations, security hardening, JWT rotation, backup/recovery, monitoring, and troubleshooting.
+This document covers: prerequisites, environment variables, Docker Compose deployment, the idempotent entrypoint, schema management, security hardening, JWT rotation, backup/recovery, monitoring, and troubleshooting.
 
 ---
 
@@ -192,38 +192,24 @@ docker compose --profile dashboard up -d
 
 ## Database Migrations
 
-SecurityScarletAI uses **two complementary mechanisms** for schema management:
+SecurityScarletAI uses a **single canonical schema path**: `src/db/schema.sql`.
 
-### 1. `src/db/schema.sql` (canonical, idempotent)
+### `src/db/schema.sql` (canonical, idempotent)
 
-The raw SQL file is the source of truth. All `CREATE TABLE` statements use `IF NOT EXISTS`. This file is what `scripts/entrypoint.sh` and `docker-entrypoint-initdb.d/10-create-db.sql` apply on first run.
+The raw SQL file is the source of truth. All `CREATE TABLE` statements use `IF NOT EXISTS`. This file is what `scripts/entrypoint.sh` and `docker-entrypoint-initdb.d/10-create-db.sql` apply on first run, and what `scripts/run_osquery_demo.sh` / `scripts/demo.sh` apply for local dev.
 
 When you need to add a new column or table, **append** to this file rather than rewriting existing statements. This keeps the file diff-friendly across merges and safe to re-run on a live database.
 
-### 2. Alembic (versioned migrations)
-
-Alembic tracks schema changes as versioned Python scripts. Five revisions are currently bundled:
-
 ```bash
-# Apply all pending migrations
-poetry run alembic upgrade head
-
-# Check current migration status
-poetry run alembic current
-
-# Generate a new migration (after schema.sql changes)
-poetry run alembic revision --autogenerate -m "add new column"
-
-# Rollback one migration
-poetry run alembic downgrade -1
+# Apply / refresh the schema against a running Postgres
+psql "$DATABASE_URL" -f src/db/schema.sql
 ```
 
-> **Schema management:** The canonical schema lives in `src/db/schema.sql`,
-> applied idempotently by `entrypoint.sh`. Alembic migration files exist
-> alongside it for reference; see `alembic/README.md` for their current status
-> (the alembic chain is not the primary path). For greenfield deployments the
-> schema is applied via `schema.sql`; do not mix the two paths on an existing
-> database without reading `alembic/README.md` first.
+> **History note:** Alembic migration files were previously bundled but never
+> wired (`env.py` had `target_metadata = None` and used a sync engine against
+> an asyncpg app, so `alembic upgrade head` could not run). They were removed
+> in favor of owning `schema.sql` as the sole path. There is no versioned
+> migration tool today — schema evolution is append-only on `schema.sql`.
 
 ---
 
@@ -446,7 +432,7 @@ docker compose logs postgres
 Common issues:
 - **Port 5433 in use**: Stop Homebrew PostgreSQL (`brew services stop postgresql`) or change `DB_PORT`
 - **Authentication failed**: Verify `DB_PASSWORD` matches in `.env` and the postgres container's init script
-- **Migration errors**: Run `poetry run alembic upgrade head` to apply pending migrations
+- **Migration errors**: The schema is `src/db/schema.sql`, applied idempotently — re-run `psql "$DATABASE_URL" -f src/db/schema.sql`. There is no Alembic chain.
 
 ### Ollama Connection Issues
 
