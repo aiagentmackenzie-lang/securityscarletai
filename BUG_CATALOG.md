@@ -1061,3 +1061,7 @@ in the final pass (Phase 11); this log is the running record.
 - P1-06 — run_all_correlations(persist=True) calls create_alert(rule_id=None) per match; create_alert accepts rule_id=None (dedup by rule_name+host_name) — 7890108
 - P1-13 — ingest loop broadcasts each event to /ws/logs via broadcast_event (best-effort) — 7890108
 - P2-28 (partial) — deleted dead run_all_correlations_legacy wrapper — 7890108
+- P1-08 — _write_provenance uses json.dumps for JSONB; provides model_hash/training_samples/cv_accuracy (NOT NULL); _db_reachable uses settings.db_host/db_port — 6338cf0
+- P1-09 — calculate_asset_risk exposure query moved inside async-with conn block — 6338cf0
+- P1-10 — get_top_risk_assets rewritten (joined outbound-conns subquery; catalog's logs.id premise was incomplete — subquery didn't expose id/event_category) — 6338cf0
+- P2-25 — schedule_rules schedules auto_train_check hourly — 6338cf0
