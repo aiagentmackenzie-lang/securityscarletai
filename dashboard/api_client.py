@@ -356,8 +356,9 @@ class ApiClient:
         return self._post("/rules", rule_data)
 
     def update_rule(self, rule_id: int, rule_data: dict) -> dict:
-        """Update a detection rule."""
-        return self._put(f"/rules/{rule_id}", rule_data)
+        """Partially update a rule via PATCH (P1-15/P2-43: a partial body like
+        {"enabled": false} no longer hits the full-replace PUT and 422s)."""
+        return self._patch(f"/rules/{rule_id}", rule_data)
 
     def delete_rule(self, rule_id: int) -> None:
         """Delete a detection rule."""

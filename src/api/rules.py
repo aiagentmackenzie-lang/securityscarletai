@@ -3,6 +3,7 @@ Detection rules API endpoints.
 
 CRUD operations for Sigma detection rules.
 """
+from datetime import timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -30,6 +31,20 @@ class RuleCreate(BaseModel):
     threshold: int = 1
 
 
+class RulePatch(BaseModel):
+    """Partial update for a rule (P1-15/P2-43). All fields optional; only the
+    provided fields are updated. sigma_yaml is re-parsed and MITRE re-extracted
+    only when provided."""
+    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    description: Optional[str] = None
+    sigma_yaml: Optional[str] = None
+    severity: Optional[str] = None
+    enabled: Optional[bool] = None
+    run_interval: Optional[int] = None  # seconds
+    lookback: Optional[int] = None  # seconds
+    threshold: Optional[int] = None
+
+
 class RuleResponse(BaseModel):
     id: int
     name: str
@@ -39,16 +54,31 @@ class RuleResponse(BaseModel):
     last_run: Optional[str] = None
     last_match: Optional[str] = None
     match_count: int = 0
+    # P1-15: expose MITRE + full fields so the dashboard MITRE heatmap and
+    # rule detail populate (previously dropped by from_row).
+    mitre_tactics: Optional[List[str]] = None
+    mitre_techniques: Optional[List[str]] = None
+    sigma_yaml: Optional[str] = None
+    run_interval: Optional[str] = None
+    lookback: Optional[str] = None
+    threshold: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
     @classmethod
     def from_row(cls, row: dict) -> "RuleResponse":
-        """Convert a DB row to RuleResponse, serializing datetimes."""
+        """Convert a DB row to RuleResponse, serializing datetimes/intervals."""
         last_run = row.get("last_run")
         row["last_run"] = last_run.isoformat() if last_run else None
         last_match = row.get("last_match")
         row["last_match"] = last_match.isoformat() if last_match else None
+        # Serialize intervals (timedelta) to strings for the JSON response.
+        for interval_field in ("run_interval", "lookback"):
+            val = row.get(interval_field)
+            if hasattr(val, "total_seconds"):
+                row[interval_field] = str(val)
+            elif val is not None:
+                row[interval_field] = str(val)
         # Only pass fields that the model accepts
         fields = set(cls.model_fields.keys())
         filtered = {k: v for k, v in row.items() if k in fields}
@@ -82,8 +112,8 @@ async def create_rule(
             rule.sigma_yaml,
             rule.severity,
             rule.enabled,
-            f"{rule.run_interval} seconds",
-            f"{rule.lookback} seconds",
+            timedelta(seconds=rule.run_interval),
+            timedelta(seconds=rule.lookback),
             rule.threshold,
             parsed.mitre_tactics,
             parsed.mitre_techniques,
@@ -141,6 +171,13 @@ async def update_rule(
     user: dict = Depends(require_role("admin")),
 ):
     """Update a detection rule (admin-only, P1-12)."""
+    # P2-20: re-parse the YAML so invalid YAML is rejected here (not at runtime)
+    # and MITRE tactics/techniques are refreshed when sigma_yaml changes.
+    try:
+        parsed = parse_sigma_rule(updates.sigma_yaml)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid Sigma rule: {str(e)}") from None
+
     pool = await get_pool()
     async with pool.acquire() as conn:
         # Check if rule exists
@@ -159,17 +196,21 @@ async def update_rule(
                 run_interval = $6,
                 lookback = $7,
                 threshold = $8,
+                mitre_tactics = $9,
+                mitre_techniques = $10,
                 updated_at = NOW()
-            WHERE id = $9
+            WHERE id = $11
             """,
             updates.name,
             updates.description,
             updates.sigma_yaml,
             updates.severity,
             updates.enabled,
-            f"{updates.run_interval} seconds",
-            f"{updates.lookback} seconds",
+            timedelta(seconds=updates.run_interval),
+            timedelta(seconds=updates.lookback),
             updates.threshold,
+            parsed.mitre_tactics,
+            parsed.mitre_techniques,
             rule_id,
         )
 
@@ -189,6 +230,88 @@ async def update_rule(
         await reload_rules()
 
         return await get_rule_by_id(rule_id)
+
+
+@router.patch("/{rule_id}", response_model=RuleResponse)
+async def patch_rule(
+    rule_id: int,
+    patch: RulePatch,
+    user: dict = Depends(require_role("admin")),
+):
+    """Partially update a detection rule (admin-only, P1-15/P2-43).
+
+    Only the provided fields are updated. sigma_yaml, when provided, is
+    re-parsed/validated and MITRE tactics/techniques are re-extracted. This
+    fixes the dashboard Enable/Disable toggle (which sends {"enabled": false})
+    hitting the full-replace PUT and getting a 422.
+    """
+    # Build the SET clause + params dynamically from provided (non-None) fields.
+    set_parts: list[str] = []
+    params: list = []
+    idx = 1
+
+    field_map = {
+        "name": patch.name,
+        "description": patch.description,
+        "sigma_yaml": patch.sigma_yaml,
+        "severity": patch.severity,
+        "enabled": patch.enabled,
+        "threshold": patch.threshold,
+    }
+    for col, val in field_map.items():
+        if val is not None:
+            set_parts.append(f"{col} = ${idx}")
+            params.append(val)
+            idx += 1
+    if patch.run_interval is not None:
+        set_parts.append(f"run_interval = ${idx}")
+        params.append(timedelta(seconds=patch.run_interval))
+        idx += 1
+    if patch.lookback is not None:
+        set_parts.append(f"lookback = ${idx}")
+        params.append(timedelta(seconds=patch.lookback))
+        idx += 1
+
+    # Re-parse sigma_yaml + re-extract MITRE only when sigma_yaml is provided.
+    if patch.sigma_yaml is not None:
+        try:
+            parsed = parse_sigma_rule(patch.sigma_yaml)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid Sigma rule: {str(e)}") from None
+        set_parts.append(f"mitre_tactics = ${idx}")
+        params.append(parsed.mitre_tactics)
+        idx += 1
+        set_parts.append(f"mitre_techniques = ${idx}")
+        params.append(parsed.mitre_techniques)
+        idx += 1
+
+    if not set_parts:
+        # Nothing to update — return the current rule.
+        return await get_rule_by_id(rule_id)
+
+    set_parts.append("updated_at = NOW()")
+    params.append(rule_id)
+    sql = f"UPDATE rules SET {', '.join(set_parts)} WHERE id = ${idx}"
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        existing = await conn.fetchrow("SELECT id FROM rules WHERE id = $1", rule_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Rule not found")
+        await conn.execute(sql, *params)
+
+    username = user.get("sub", "unknown")
+    log.info("rule_patched", rule_id=rule_id, user=username)
+    await log_audit_action(
+        actor=username,
+        action="rule.update",
+        target_type="rule",
+        target_id=rule_id,
+        new_values={k: v for k, v in patch.model_dump(exclude_none=True).items()},
+    )
+
+    await reload_rules()
+    return await get_rule_by_id(rule_id)
 
 
 @router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -51,13 +51,16 @@ def render_ai_chat():
                 col1, col2 = st.columns(2)
 
                 with col1:
-                    st.metric("Triage Model", triage.get("status", "Unknown"))
-                    st.metric("Training Samples", triage.get("samples", 0))
-                    if triage.get("accuracy"):
-                        st.metric("Model Accuracy", f"{triage['accuracy']:.1%}")
+                    # P2-43: get_status() returns is_trained/training_samples/
+                    # training_accuracy (not status/samples/accuracy).
+                    triage_label = "Trained" if triage.get("is_trained") else "Not trained"
+                    st.metric("Triage Model", triage_label)
+                    st.metric("Training Samples", triage.get("training_samples", 0))
+                    if triage.get("training_accuracy"):
+                        st.metric("Model Accuracy", f"{triage['training_accuracy']:.1%}")
 
                 with col2:
-                    ollama_status = status.get("ollama", "Unknown")
+                    ollama_status = status.get("ollama_available", "Unknown")
                     if ollama_status == "ok":
                         st.success("Ollama Connected")
                     else:
@@ -185,10 +188,10 @@ def render_ai_chat():
                 templates = api.get_query_templates()
                 if templates:
                     for i, tmpl in enumerate(templates[:10]):
-                        question = tmpl.get("question", tmpl.get("name", "Unknown"))
-                        category = tmpl.get("category", "General")
-                        if st.button(f"{category}: {question}", key=f"tmpl_{i}"):
-                            st.session_state.nl_query = question
+                        # P2-43: API returns {id, description, keywords}.
+                        description = tmpl.get("description", "Unknown")
+                        if st.button(description, key=f"tmpl_{tmpl.get('id', i)}"):
+                            st.session_state.nl_query = description
                 else:
                     st.info(
                         "No templates available — Ollama may be down. "

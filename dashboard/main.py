@@ -557,20 +557,20 @@ def render_sidebar():
     try:
         status = api.ai_status()
         triage = status.get("triage", {})
-        model_status = triage.get("status", "unknown")
-        if model_status == "trained":
+        # P2-39: get_status() returns is_trained (bool), not a status string.
+        if triage.get("is_trained"):
             st.sidebar.markdown(
                 _sidebar_p("#00e676", "&#9679;", "AI Triage: Trained"),
                 unsafe_allow_html=True,
             )
-        elif model_status == "no_data":
+        elif triage.get("training_samples", 0) == 0:
             st.sidebar.markdown(
                 _sidebar_p("#ffc107", "&#9679;", "AI Triage: No data"),
                 unsafe_allow_html=True,
             )
         else:
             st.sidebar.markdown(
-                _sidebar_p("#78909c", "&#9679;", f"AI Triage: {model_status}"),
+                _sidebar_p("#78909c", "&#9679;", "AI Triage: Not trained"),
                 unsafe_allow_html=True,
             )
     except Exception:

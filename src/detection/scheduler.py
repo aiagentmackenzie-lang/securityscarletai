@@ -130,7 +130,11 @@ async def schedule_rules() -> None:
     )
     log.info("scheduled_auto_train_check", interval_hours=1)
 
-    scheduler.start()
+    # Idempotent start: reload_rules() (called after rule CRUD) re-enters
+    # schedule_rules; scheduler.start() raises SchedulerAlreadyRunningError if
+    # already running, which would 500 every rule mutation after the first.
+    if not scheduler.running:
+        scheduler.start()
     log.info("scheduler_started", rules_scheduled=len(rules))
 
 

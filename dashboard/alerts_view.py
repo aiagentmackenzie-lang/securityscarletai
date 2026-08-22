@@ -343,7 +343,11 @@ def render_alert_detail(alert: dict, api: ApiClient):
                 with st.status("Analyzing alert for hunt suggestions...", expanded=True) as status:
                     try:
                         result = api.hunt_from_alert(alert_id)
-                        hunts = result.get("suggested_hunts", [])
+                        # P2-43: API returns matching_hunts + llm_suggestions
+                        # (HuntFromAlertResponse), not suggested_hunts.
+                        hunts = list(result.get("matching_hunts", [])) + list(
+                            result.get("llm_suggestions", [])
+                        )
                         if hunts:
                             status.update(
                                 label=f"Found {len(hunts)} hunt suggestions", state="complete"
@@ -364,12 +368,18 @@ def render_alert_detail(alert: dict, api: ApiClient):
                 with st.status("Running AI triage...", expanded=True) as status:
                     try:
                         result = api.ai_triage(alert_id)
-                        prediction = result.get("prediction", {})
+                        # P2-43: TriageResponse.prediction is a string
+                        # ("true_positive" / "false_positive"), not a dict.
+                        prediction = result.get("prediction", "unknown")
+                        confidence = result.get("confidence", 0)
                         reasoning = result.get("reasoning", "N/A")
                         status.update(label="AI triage complete", state="complete")
+                        try:
+                            conf_str = f"({float(confidence):.1%})"
+                        except (TypeError, ValueError):
+                            conf_str = f"({confidence})"
                         st.markdown(
-                            f"**Prediction:** {prediction.get('label', 'N/A')} "
-                            f"(confidence: {prediction.get('confidence', 0):.1%})"
+                            f"**Prediction:** {prediction} {conf_str}"
                         )
                         st.markdown(f"**Reasoning:** {reasoning}")
                     except ApiError as e:
