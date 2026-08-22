@@ -647,11 +647,11 @@ async def start_threat_intel_scheduler():
         replace_existing=True,
     )
 
-    # Run initial refresh
-    try:
-        await refresh_all_feeds()
-    except Exception as e:
-        log.error("initial_threat_intel_refresh_failed", error=str(e))
+    # P2-17: don't block API startup on the initial refresh (up to ~90s of
+    # external HTTP to URLhaus/AbuseIPDB/OTX on a cold/no-network boot). Fire it
+    # as a background task so the health check passes immediately; the
+    # scheduled 6h refresh keeps it current.
+    asyncio.create_task(refresh_all_feeds())
 
     _async_scheduler.start()
     log.info("threat_intel_scheduler_started", interval_hours=FEED_REFRESH_INTERVAL_HOURS)
@@ -663,9 +663,4 @@ async def stop_threat_intel_scheduler():
     if _async_scheduler:
         _async_scheduler.shutdown()
         log.info("threat_intel_scheduler_stopped")
-
-
-# ───────────────────────────────────────────────────────────────
-# Enrichment module (wires threat intel into ingestion)
-# ───────────────────────────────────────────────────────────────
 

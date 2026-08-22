@@ -272,15 +272,15 @@ async def link_to_case(
                 alert_id,
             )
 
-            # Append alert to case's alert_ids array
-            current_ids = case_row["alert_ids"] or []
-            if alert_id not in current_ids:
-                current_ids.append(alert_id)
-                await conn.execute(
-                    "UPDATE cases SET alert_ids = $1, updated_at = NOW() WHERE id = $2",
-                    current_ids,
-                    body.case_id,
-                )
+            # Append alert to case's alert_ids array (P2-35: atomic array_append
+            # with a NOT-ANY guard — no read-modify-write race).
+            await conn.execute(
+                """UPDATE cases
+                   SET alert_ids = array_append(alert_ids, $1), updated_at = NOW()
+                   WHERE id = $2 AND NOT ($1 = ANY(alert_ids))""",
+                alert_id,
+                body.case_id,
+            )
 
             result = await conn.fetchrow("SELECT * FROM alerts WHERE id = $1", alert_id)
             log.info("alert_linked_to_case", alert_id=alert_id, case_id=body.case_id, user=username)

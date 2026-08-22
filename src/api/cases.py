@@ -341,9 +341,17 @@ async def link_alert(
         if not alert_row:
             raise HTTPException(status_code=404, detail="Alert not found")
 
-        # Check for duplicate link
-        current_alert_ids = case_row["alert_ids"] or []
-        if alert_id in current_alert_ids:
+        # P2-35: atomic append — array_append with a NOT-ANY guard appends only if
+        # not already present, eliminating the read-modify-write lost-update race.
+        result = await conn.execute(
+            """UPDATE cases
+               SET alert_ids = array_append(alert_ids, $1), updated_at = NOW()
+               WHERE id = $2 AND NOT ($1 = ANY(alert_ids))""",
+            alert_id,
+            case_id,
+        )
+        if result == "UPDATE 0":
+            # Case exists (checked above) but the alert is already linked.
             raise HTTPException(status_code=409, detail="Alert already linked to this case")
 
         # Update alert.case_id
@@ -351,14 +359,6 @@ async def link_alert(
             "UPDATE alerts SET case_id = $1, updated_at = NOW() WHERE id = $2",
             case_id,
             alert_id,
-        )
-
-        # Append to cases.alert_ids
-        current_alert_ids.append(alert_id)
-        await conn.execute(
-            "UPDATE cases SET alert_ids = $1, updated_at = NOW() WHERE id = $2",
-            current_alert_ids,
-            case_id,
         )
 
     # Audit log
@@ -393,20 +393,20 @@ async def unlink_alert(
         if not case_row:
             raise HTTPException(status_code=404, detail="Case not found")
 
-        # Remove from cases.alert_ids
-        current_alert_ids = case_row["alert_ids"] or []
-        if alert_id not in current_alert_ids:
+        # P2-35: atomic remove — array_remove with an ANY guard removes only if
+        # present, eliminating the read-modify-write race.
+        result = await conn.execute(
+            """UPDATE cases
+               SET alert_ids = array_remove(alert_ids, $1), updated_at = NOW()
+               WHERE id = $2 AND ($1 = ANY(alert_ids))""",
+            alert_id,
+            case_id,
+        )
+        if result == "UPDATE 0":
             raise HTTPException(
                 status_code=404,
                 detail="Alert is not linked to this case",
             )
-
-        current_alert_ids.remove(alert_id)
-        await conn.execute(
-            "UPDATE cases SET alert_ids = $1, updated_at = NOW() WHERE id = $2",
-            current_alert_ids,
-            case_id,
-        )
 
         # Set alert.case_id to null
         await conn.execute(
@@ -442,23 +442,23 @@ async def add_case_note(
         if not row:
             raise HTTPException(status_code=404, detail="Case not found")
 
-        notes = row["notes"] or []
-        if isinstance(notes, str):
-            notes = json.loads(notes)
-
         new_note = {
             "author": username,
             "text": note.text,
             "timestamp": datetime.now(tz=timezone.utc).isoformat(),
         }
-        notes.append(new_note)
-
+        # P2-35: atomic append to the JSONB array (|| appends an object to a
+        # jsonb array) — no read-modify-write race.
         updated = await conn.fetchrow(
-            "UPDATE cases SET notes = $1::jsonb, updated_at = NOW() "
-            "WHERE id = $2 RETURNING id, notes",
-            json.dumps(notes),
+            """UPDATE cases
+               SET notes = notes || $1::jsonb, updated_at = NOW()
+               WHERE id = $2
+               RETURNING id, notes""",
+            json.dumps(new_note),
             case_id,
         )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Case not found")
 
     # Audit log
     await log_audit_action(

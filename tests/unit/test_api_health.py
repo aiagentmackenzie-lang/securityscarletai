@@ -19,6 +19,18 @@ from src.api.health import router
 class TestHealthCheck:
     """Test health check endpoint."""
 
+    @pytest.fixture(autouse=True)
+    def _reset_ollama_cache(self):
+        """P2-34: the /health Ollama probe is TTL-cached at module level;
+        reset it between tests so a cached result from one test does not leak in."""
+        from src.api.health import _OLLAMA_CACHE
+
+        _OLLAMA_CACHE["result"] = None
+        _OLLAMA_CACHE["ts"] = 0.0
+        yield
+        _OLLAMA_CACHE["result"] = None
+        _OLLAMA_CACHE["ts"] = 0.0
+
     @pytest.fixture
     def client(self):
         """Create test client with health router."""

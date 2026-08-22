@@ -121,9 +121,17 @@ async def lifespan(app: FastAPI):
     from src.intel.threat_intel import start_threat_intel_scheduler
     await start_threat_intel_scheduler()
 
-    # M-01 fix: Validate configured Ollama model exists
+    # P2-16: warn (don't block) if the configured Ollama model isn't available.
+    # /health caches the probe (P2-34); this is a one-time startup notice so a
+    # misconfigured model is surfaced to the operator instead of silently
+    # falling back to templates.
     from src.ai.ollama_client import validate_ollama_model
-    await validate_ollama_model()
+    try:
+        _ok, _model, err = await validate_ollama_model()
+        if not _ok and err:
+            log.warning("ollama_model_unavailable_at_startup", error=err)
+    except Exception as e:
+        log.warning("ollama_startup_check_failed", error=str(e))
 
     yield
 

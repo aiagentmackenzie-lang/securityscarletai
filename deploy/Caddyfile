@@ -18,8 +18,9 @@
 <DOMAIN> {
 	encode zstd gzip
 
-	# API — /api/* -> scarletai-api:8000
-	handle_path /api/* {
+	# API - /api/* -> scarletai-api:8000 (handle, not handle_path: keep the
+	# /api prefix the FastAPI app mounts its routers under, P1-17).
+	handle /api/* {
 		reverse_proxy scarletai-api:8000 {
 			header_up X-Forwarded-Proto https
 			# Preserve the original Host so the API builds correct URLs

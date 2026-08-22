@@ -584,6 +584,8 @@ class TestAlertLinking:
         case_row = {"id": 1, "alert_ids": [5]}
         alert_row = {"id": 5, "case_id": 1}
         mock_conn.fetchrow.side_effect = [case_row, alert_row]
+        # P2-35: atomic append WHERE NOT (...) returns UPDATE 0 when already linked.
+        mock_conn.execute.return_value = "UPDATE 0"
 
         with (
             patch("src.api.cases.get_pool", return_value=mock_pool),
@@ -660,6 +662,8 @@ class TestAlertLinking:
 
         # Alert 5 is NOT in the case's alert_ids list [10]
         mock_conn.fetchrow.return_value = {"id": 1, "alert_ids": [10]}
+        # P2-35: atomic remove WHERE (...) returns UPDATE 0 when not linked.
+        mock_conn.execute.return_value = "UPDATE 0"
 
         with patch("src.api.cases.get_pool", return_value=mock_pool):
             with pytest.raises(HTTPException) as exc_info:

@@ -8,6 +8,9 @@ for monitoring/alerting.
 Backward compat: `checks["ollama"]` is still populated with the same
 string values as before so existing tests/monitors don't break.
 """
+import time
+from typing import Any, cast
+
 from fastapi import APIRouter
 
 from src.ai.ollama_client import validate_ollama_model
@@ -16,6 +19,25 @@ from src.db.connection import get_pool
 
 router = APIRouter(tags=["health"])
 log = get_logger("api.health")
+
+# P2-34: cache the Ollama probe (a 5s HTTP GET to /api/tags) so /health stays
+# cheap for monitoring polling. Refreshed at most once per _OLLAMA_CACHE_TTL.
+_OLLAMA_CACHE: dict[str, Any] = {"result": None, "ts": 0.0}
+_OLLAMA_CACHE_TTL = 60.0
+
+
+async def _cached_ollama_check() -> tuple[bool, str | None, str | None]:
+    now = time.time()
+    cached = _OLLAMA_CACHE["result"]
+    if cached is not None and now - _OLLAMA_CACHE["ts"] < _OLLAMA_CACHE_TTL:
+        return cast(tuple[bool, str | None, str | None], cached)
+    try:
+        result = await validate_ollama_model()
+    except Exception as e:
+        result = (False, None, str(e))
+    _OLLAMA_CACHE["result"] = result
+    _OLLAMA_CACHE["ts"] = now
+    return result
 
 
 def _derive_status(available: bool, error: str | None) -> str:
@@ -49,7 +71,7 @@ async def health_check():
     ollama_model_check = None
     ollama_error = None
     try:
-        available, model_name, error = await validate_ollama_model()
+        available, model_name, error = await _cached_ollama_check()
         ollama_status_value = _derive_status(available, error)
         ollama_model_check = model_name
         ollama_error = error
