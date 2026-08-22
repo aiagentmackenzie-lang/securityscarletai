@@ -10,8 +10,8 @@ detect_* stamps correlation_rule, correlation_id (uuid), severity, title,
 mitre_tactics, mitre_techniques, and confidence onto the match dict.
 
 Also covers: _serialize_match_data set/frozenset branch, list_matches
-since/until filter branches, run_all_correlations_legacy, and the
-run_all_correlations per-rule exception handler.
+since/until filter branches, run_all_correlations(persist=True) alert
+surfacing (P1-06), and the run_all_correlations per-rule exception handler.
 """
 import json
 from datetime import datetime, timezone
@@ -174,29 +174,11 @@ async def test_run_all_correlations_continues_when_one_rule_raises():
     assert "per_rule" in result
 
 
-# ── run_all_correlations_legacy (975-998) ────────────────────────────────
+# ── run_all_correlations(persist=True) surfaces matches as alerts (P1-06) ──
 
 
-async def test_run_all_correlations_legacy_returns_rule_metadata(monkeypatch):
-    """Legacy shape returns {rule_name: [matches]} per rule (old API compat)."""
-    async def fake_run(as_of, persist):
-        return {
-            "as_of": AS_OF.isoformat(),
-            "total_matches": 0,
-            "persisted": persist,
-            "per_rule": {"brute_force_success": [], "payload_callback": []},
-        }
-
-    monkeypatch.setattr(corr, "run_all_correlations", fake_run)
-    result = await corr.run_all_correlations_legacy(persist_alerts=False)
-
-    # legacy returns the per_rule dict (rule_name -> matches)
-    assert "brute_force_success" in result
-    assert "payload_callback" in result
-
-
-async def test_run_all_correlations_legacy_persists_alerts_for_matches(monkeypatch):
-    """With persist_alerts=True, each match triggers a create_alert attempt."""
+async def test_run_all_correlations_persist_creates_alerts_for_matches():
+    """With persist=True, each match triggers a create_alert attempt (P1-06)."""
     match = {
         "correlation_rule": "payload_callback",
         "severity": "high",
@@ -205,19 +187,51 @@ async def test_run_all_correlations_legacy_persists_alerts_for_matches(monkeypat
         "mitre_tactics": ["TA0002"],
         "mitre_techniques": ["T1059"],
     }
+    conn = AsyncMock()
+    conn.execute = AsyncMock(return_value="INSERT 0 1")
+    acquirer = MagicMock()
+    acquirer.__aenter__ = AsyncMock(return_value=conn)
+    acquirer.__aexit__ = AsyncMock(return_value=None)
+    pool = MagicMock()
+    pool.acquire = MagicMock(return_value=acquirer)
 
-    async def fake_run(as_of, persist):
-        return {
-            "as_of": AS_OF.isoformat(),
-            "total_matches": 1,
-            "persisted": persist,
-            "per_rule": {"payload_callback": [match]},
-        }
+    # Deterministic: only detect_payload_callback yields a match; the rest yield [].
+    async def _one_match(conn, as_of, **kw):
+        return [match]
 
-    monkeypatch.setattr(corr, "run_all_correlations", fake_run)
-    with patch("src.detection.correlation.create_alert", new=AsyncMock()) as mock_create:
-        result = await corr.run_all_correlations_legacy(persist_alerts=True)
+    async def _none(conn, as_of, **kw):
+        return []
 
-    # one match -> one create_alert call
+    with patch("src.detection.correlation.get_pool", return_value=pool), \
+            patch("src.detection.correlation.detect_payload_callback", _one_match), \
+            patch("src.detection.correlation.detect_brute_force_then_success", _none), \
+            patch("src.detection.correlation.detect_persistence_activated", _none), \
+            patch("src.detection.correlation.detect_data_exfiltration", _none), \
+            patch("src.detection.correlation.detect_privilege_escalation_chain", _none), \
+            patch("src.detection.correlation.detect_credential_theft_exfil", _none), \
+            patch("src.detection.correlation.detect_defense_evasion_cleanup", _none), \
+            patch("src.detection.correlation.create_alert", new=AsyncMock()) as mock_create:
+        result = await corr.run_all_correlations(as_of=AS_OF, persist=True)
+
+    # one match -> one create_alert call with rule_id=None (correlation-origin)
     assert mock_create.await_count == 1
-    assert "payload_callback" in result
+    assert mock_create.await_args.kwargs["rule_id"] is None
+    assert mock_create.await_args.kwargs["rule_name"] == "payload_callback"
+    assert result["persisted"] == 1
+    assert result["total_matches"] == 1
+
+
+async def test_run_all_correlations_persist_false_does_not_create_alerts():
+    """With persist=False, create_alert is never called."""
+    conn = _conn_returning([_sample_row()])
+    acquirer = MagicMock()
+    acquirer.__aenter__ = AsyncMock(return_value=conn)
+    acquirer.__aexit__ = AsyncMock(return_value=None)
+    pool = MagicMock()
+    pool.acquire = MagicMock(return_value=acquirer)
+
+    with patch("src.detection.correlation.get_pool", return_value=pool), \
+            patch("src.detection.correlation.create_alert", new=AsyncMock()) as mock_create:
+        await corr.run_all_correlations(as_of=AS_OF, persist=False)
+
+    assert mock_create.await_count == 0

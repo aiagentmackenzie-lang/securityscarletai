@@ -61,42 +61,68 @@ async def create_alert(
     Returns:
         The ID of the created alert, or -1 if suppressed/deduplicated
     """
-    if rule_id is None:
-        raise ValueError("rule_id is required to create an alert")
+    if rule_id is None and not rule_name:
+        raise ValueError("rule_id or rule_name is required to create an alert")
     pool = await get_pool()
     async with pool.acquire() as conn:
         # ── Step 1: Insert with dedup check (race-safe) ───────
         # Use advisory lock per (rule_id, host_name) to prevent TOCTOU races
-        lock_key = (rule_id * 1000 + hash(host_name)) % (2**31)
+        # Correlation-origin alerts have rule_id=None; lock on rule_name instead.
+        if rule_id is not None:
+            lock_key = (rule_id * 1000 + hash(host_name)) % (2**31)
+        else:
+            lock_key = hash((rule_name, host_name)) % (2**31)
         await conn.execute("SELECT pg_advisory_xact_lock($1)", lock_key)
 
-        existing = await conn.fetchrow(
-            """
-            SELECT id FROM alerts
-            WHERE rule_id = $1
-              AND host_name = $2
-              AND time > NOW() - INTERVAL '1 second' * $3
-            ORDER BY time DESC
-            LIMIT 1
-            """,
-            rule_id,
-            host_name,
-            dedup_window_seconds,
-        )
+        if rule_id is not None:
+            existing = await conn.fetchrow(
+                """
+                SELECT id FROM alerts
+                WHERE rule_id = $1
+                  AND host_name = $2
+                  AND time > NOW() - INTERVAL '1 second' * $3
+                ORDER BY time DESC
+                LIMIT 1
+                """,
+                rule_id,
+                host_name,
+                dedup_window_seconds,
+            )
+        else:
+            # Correlation-origin alert: dedup by rule_name + host_name.
+            existing = await conn.fetchrow(
+                """
+                SELECT id FROM alerts
+                WHERE rule_id IS NULL
+                  AND rule_name = $1
+                  AND host_name = $2
+                  AND time > NOW() - INTERVAL '1 second' * $3
+                ORDER BY time DESC
+                LIMIT 1
+                """,
+                rule_name,
+                host_name,
+                dedup_window_seconds,
+            )
 
         if existing:
             log.info(
                 "duplicate_alert_suppressed",
                 rule_id=rule_id,
+                rule_name=rule_name,
                 host_name=host_name,
                 alert_id=existing["id"],
             )
             return -1  # Dedup hit — indicate suppression
 
         # ── Step 2: Check escalation BEFORE insert ───────────
-        escalated_severity = await _check_severity_escalation(
-            conn, rule_id, host_name, severity
-        )
+        # Correlation-origin alerts (rule_id=None) don't escalate by rule_id.
+        if rule_id is not None:
+            escalated_severity = await _check_severity_escalation(
+                conn, rule_id, host_name, severity
+            )
+        else:
+            escalated_severity = severity
 
         # ── Step 3: Check suppression rules ──────────────────
         if await _is_suppressed(conn, rule_name, host_name, escalated_severity):

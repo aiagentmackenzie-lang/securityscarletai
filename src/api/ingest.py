@@ -90,6 +90,14 @@ async def ingest_events(
         await writer.write(event)
         if event.host_name:
             hosts_in_batch.add(event.host_name)
+        # P1-13: broadcast to connected WebSocket clients (/ws/logs). Best-effort —
+        # a failure here never affects ingestion.
+        try:
+            from src.api.websocket import broadcast_event
+
+            await broadcast_event(event)
+        except Exception as e:  # pragma: no cover — defensive
+            log.debug("ws_broadcast_failed", error=str(e))
         count += 1
 
     # Epic 9: fire-and-forget enrichment + correlation per batch.

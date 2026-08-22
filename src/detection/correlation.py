@@ -783,6 +783,30 @@ async def run_all_correlations(
                         error=str(e),
                     )
 
+        # P1-06: surface persisted correlations as alerts. rule_id=None for
+        # correlation-origin alerts (alerts.rule_id FK is nullable); create_alert
+        # dedups by rule_name + host_name when rule_id is None. Best-effort -- a
+        # failure here never blocks the persisted match. Called outside the conn
+        # block so create_alert can acquire its own connection.
+        for match in all_matches:
+            try:
+                await create_alert(
+                    rule_id=None,
+                    rule_name=match.get("correlation_rule", "correlation"),
+                    severity=match.get("severity", "medium"),
+                    host_name=match.get("host_name", ""),
+                    description=match.get("title", ""),
+                    mitre_tactics=match.get("mitre_tactics", []),
+                    mitre_techniques=match.get("mitre_techniques", []),
+                    evidence={"match": match},
+                )
+            except Exception as e:
+                log.error(
+                    "correlation_alert_create_failed",
+                    rule=match.get("correlation_rule"),
+                    error=str(e),
+                )
+
     total_matches = len(all_matches)
     log.info(
         "all_correlations_complete",
@@ -962,37 +986,3 @@ def list_correlation_rules() -> list[dict]:
         }
         for name, info in CORRELATION_RULES.items()
     ]
-
-
-# Backward-compat wrapper: old call signature `run_all_correlations(persist_alerts=...)`.
-# This preserves any callers that still use the old shape.
-async def run_all_correlations_legacy(persist_alerts: bool = False) -> dict:
-    """Legacy compatibility: persist_alerts as first positional arg.
-
-    Maps to the new run_all_correlations with persist=persist_alerts.
-    Returns the OLD shape (dict[rule_name] -> matches) for compat.
-    """
-    result = await run_all_correlations(as_of=None, persist=persist_alerts)
-    # Build the old shape: {rule_name: [matches]} and recreate alert side-effects
-    legacy: Dict[str, List[Dict[str, Any]]] = result["per_rule"]
-    if persist_alerts:
-        for rule_name, matches in legacy.items():
-            for match in matches:
-                try:
-                    await create_alert(
-                        rule_id=None,
-                        rule_name=rule_name,
-                        severity=match.get("severity", "medium"),
-                        host_name=match.get("host_name", ""),
-                        description=match.get("title", ""),
-                        mitre_tactics=match.get("mitre_tactics", []),
-                        mitre_techniques=match.get("mitre_techniques", []),
-                        evidence={"match": match},
-                    )
-                except Exception as e:
-                    log.error(
-                        "legacy_alert_create_failed",
-                        rule=rule_name,
-                        error=str(e),
-                    )
-    return legacy
