@@ -29,8 +29,6 @@ RUN poetry install --without dev --no-root --no-interaction --no-ansi
 # Copy application code
 COPY src/ ./src/
 COPY rules/ ./rules/
-COPY alembic/ ./alembic/
-COPY alembic.ini ./alembic.ini
 COPY config/ ./config/
 # Epic 10: copy the Streamlit dashboard so the `dashboard` compose
 # service can `streamlit run dashboard/main.py` from this same image.

@@ -4,14 +4,23 @@
 -- ============================================================
 
 -- Severity enum — never use magic integers
-CREATE TYPE alert_severity AS ENUM ('info', 'low', 'medium', 'high', 'critical');
-CREATE TYPE alert_status AS ENUM ('new', 'investigating', 'resolved', 'false_positive', 'closed');
-CREATE TYPE case_status AS ENUM ('open', 'in_progress', 'resolved', 'closed');
+-- Wrapped in DO blocks so re-running the schema (idempotent apply) does not
+-- crash on already-existing types (asyncpg re-runs, multi-boot containers).
+DO $$ BEGIN
+    CREATE TYPE alert_severity AS ENUM ('info', 'low', 'medium', 'high', 'critical');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TYPE alert_status AS ENUM ('new', 'investigating', 'resolved', 'false_positive', 'closed');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE TYPE case_status AS ENUM ('open', 'in_progress', 'resolved', 'closed');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ============================================================
 -- LOGS — partitioned by time via table partitioning (TimescaleDB upgrade: use hypertable)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS logs (
+    id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     time           TIMESTAMPTZ NOT NULL,
     host_name      TEXT NOT NULL,
     host_ip        INET,
@@ -32,6 +41,7 @@ CREATE TABLE IF NOT EXISTS logs (
     raw_data       JSONB NOT NULL,          -- original event, unmodified
     normalized     JSONB NOT NULL,          -- ECS-mapped fields
     enrichment     JSONB DEFAULT '{}'::jsonb, -- GeoIP, DNS, threat intel hits
+    severity       TEXT DEFAULT 'info',        -- info/low/medium/high/critical (event severity)
     ingested_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -42,6 +52,9 @@ CREATE INDEX IF NOT EXISTS idx_logs_category ON logs (event_category, time DESC)
 CREATE INDEX IF NOT EXISTS idx_logs_user ON logs (user_name, time DESC) WHERE user_name IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_logs_source_ip ON logs (source_ip, time DESC) WHERE source_ip IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_logs_process ON logs (process_name, time DESC) WHERE process_name IS NOT NULL;
+-- Primary key index exists implicitly on id; helper index for severity-filtered
+-- correlation/detection queries (e.g. detect_defense_evasion_cleanup).
+CREATE INDEX IF NOT EXISTS idx_logs_severity ON logs (severity, time DESC) WHERE severity IS NOT NULL;
 -- GIN index for JSONB full-text search on raw data
 CREATE INDEX IF NOT EXISTS idx_logs_raw_gin ON logs USING GIN (raw_data jsonb_path_ops);
 -- GIN index for normalized JSONB column (supports process_cmdline, process_path, etc.)
@@ -296,7 +309,7 @@ CREATE TABLE IF NOT EXISTS correlation_matches (
     correlation_rule TEXT NOT NULL,
     severity TEXT NOT NULL,
     match_data JSONB NOT NULL,
-    trigger_event_id INT REFERENCES logs(id),
+    trigger_event_id BIGINT REFERENCES logs(id),
     seen BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );

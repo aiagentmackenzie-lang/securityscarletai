@@ -56,24 +56,24 @@ fi
 echo "[entrypoint] Postgres is reachable."
 
 # ───────────────────────────────────────────────────────────────
-# 2. Apply schema (idempotent)
+# 2. Apply schema (idempotent, statement-by-statement, loud on failure)
 # ───────────────────────────────────────────────────────────────
 echo "[entrypoint] Applying schema if needed..."
-run_async "
-import asyncio
-from pathlib import Path
-from src.db.connection import get_pool
-
-async def main():
-    pool = await get_pool()
-    schema = Path('src/db/schema.sql').read_text()
-    async with pool.acquire() as conn:
-        await conn.execute(schema)
-    await pool.close()
-    print('[entrypoint] schema OK')
-
-asyncio.run(main())
-"
+# P0-05: asyncpg conn.execute(multi_statement_string) runs ALL statements in ONE
+# implicit transaction; if any statement fails the whole batch rolls back and
+# execute raises, leaving 0 tables. We shell out to psql instead, which applies
+# the schema statement-by-statement with ON_ERROR_STOP=1 so a failure in one
+# statement is loud but does not roll back the others. CREATE TYPE is wrapped
+# in DO $$ ... EXCEPTION blocks in schema.sql so re-runs are idempotent.
+export PGPASSWORD="${DB_PASSWORD}"
+if ! psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" \
+        -v ON_ERROR_STOP=1 -f src/db/schema.sql; then
+    unset PGPASSWORD
+    echo "[entrypoint] FATAL: schema apply failed" >&2
+    exit 1
+fi
+unset PGPASSWORD
+echo "[entrypoint] schema OK"
 
 # ───────────────────────────────────────────────────────────────
 # 3. Seed demo data if alerts table is empty
