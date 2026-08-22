@@ -117,6 +117,19 @@ async def schedule_rules() -> None:
         )
         log.info("scheduled_rule", rule_id=rule["id"], interval=interval_seconds)
 
+    # P2-25: schedule the triage auto-retrain check (runs hourly). Triggers a
+    # retrain once >=100 alerts have been resolved since the last training run.
+    # Lazy import to avoid a src.detection -> src.api import cycle at module load.
+    from src.api.ai import auto_train_check
+
+    scheduler.add_job(
+        auto_train_check,
+        trigger=IntervalTrigger(hours=1),
+        id="auto_train_check",
+        replace_existing=True,
+    )
+    log.info("scheduled_auto_train_check", interval_hours=1)
+
     scheduler.start()
     log.info("scheduler_started", rules_scheduled=len(rules))
 

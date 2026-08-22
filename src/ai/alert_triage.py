@@ -13,7 +13,7 @@ Changes from Phase 0:
 """
 import csv
 import hashlib
-import io
+import json
 import socket
 import time
 import uuid
@@ -33,6 +33,7 @@ except ImportError:  # pragma: no cover — defensive only
     _HAS_V2_DEPS = False
 
 from src.config.logging import get_logger
+from src.config.settings import settings
 from src.db.connection import get_pool
 
 log = get_logger("ai.triage")
@@ -887,15 +888,25 @@ async def get_triage_model() -> AlertTriageModel:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-def _db_reachable(host: str = "localhost", port: int = 5433, timeout: float = 0.25) -> bool:
+def _db_reachable(
+    host: Optional[str] = None,
+    port: Optional[int] = None,
+    timeout: float = 0.25,
+) -> bool:
     """
     Cheap TCP probe to detect whether Postgres is accepting connections.
 
-    Avoids the 15-second retry storm inside get_pool() when running in CI
-    or any environment without a live database. Never raises.
+    Defaults to the configured db_host/db_port (P1-08: previously hardcoded to
+    port 5433, the compose host->container mapping, so non-compose deployments
+    whose DB is on another port silently skipped provenance/label writes).
+    Optional host/port overrides are accepted for testing. Avoids the 15-second
+    retry storm inside get_pool() when running in CI or any environment without
+    a live database. Never raises.
     """
+    target_host = host if host is not None else settings.db_host
+    target_port = port if port is not None else settings.db_port
     try:
-        with socket.create_connection((host, port), timeout=timeout):
+        with socket.create_connection((target_host, target_port), timeout=timeout):
             return True
     except OSError:
         return False
@@ -979,30 +990,37 @@ async def _write_provenance(
     n_pos = sum(1 for r in source_meta if r["label"] == "true_positive")
     n_neg = sum(1 for r in source_meta if r["label"] == "false_positive")
 
+    # model_hash is a NOT NULL legacy column. Hash the persisted model file
+    # when available; otherwise derive a deterministic hash from run_id so a
+    # provenance row is always insertable (P1-08: previously the INSERT omitted
+    # model_hash/training_samples, which are NOT NULL, so no row was ever written).
+    if model_path and Path(model_path).exists():
+        model_hash = hashlib.sha256(Path(model_path).read_bytes()).hexdigest()
+    else:
+        model_hash = hashlib.sha256(run_id.encode()).hexdigest()
+
     if not _db_reachable():
         return None
-
-    # joblib >=1.5 removed dumps/loads; use dump/load with BytesIO instead.
-    def _jb(obj: Any) -> bytes:
-        buf = io.BytesIO()
-        joblib.dump(obj, buf)
-        return buf.getvalue()
 
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
             INSERT INTO triage_model_provenance (
+                model_hash, training_samples, cv_accuracy,
                 run_id, model_version, model_type, source_csv, n_samples,
                 n_positive, n_negative, accuracy_score, precision_score,
                 recall_score, f1_score, calibrated, feature_importances,
                 features, model_path, run_metadata
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                $14, $15, $16
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+                $15, $16, $17, $18, $19
             )
             RETURNING id
             """,
+            model_hash,
+            n_samples,
+            cv_accuracy,
             run_id,
             "v2",
             "CalibratedClassifierCV(RandomForestClassifier, isotonic, cv=3)",
@@ -1015,10 +1033,10 @@ async def _write_provenance(
             recall_score,
             f1_score,
             calibrated,
-            _jb(feature_importances) if feature_importances else None,
-            _jb(features),
+            json.dumps(feature_importances) if feature_importances else None,
+            json.dumps(features),
             model_path,
-            _jb(
+            json.dumps(
                 {
                     "cv_std": cv_std,
                     "fold_accuracies": fold_accuracies,

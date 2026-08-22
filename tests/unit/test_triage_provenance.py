@@ -179,20 +179,28 @@ class TestWriteProvenanceParameterBinding:
         call = mock_conn.fetchrow.await_args
         positional = call.args  # (sql, p1, p2, ...)
         # Positional[0] is the SQL string; everything from [1] is a bound param.
-        # $1=run_id, $2=model_version, $3=model_type, $4=source_csv,
-        # $5=n_samples, $6=n_positive, $7=n_negative, $8=accuracy_score,
-        # $9=precision_score, $10=recall_score, $11=f1_score,
-        # $12=calibrated, $13=feature_importances (joblib bytes),
-        # $14=features (joblib bytes), $15=model_path, $16=run_metadata.
+        # P1-08: the INSERT now also provides the legacy NOT NULL columns
+        # model_hash, training_samples, cv_accuracy (prepended), so:
+        # $1=model_hash, $2=training_samples, $3=cv_accuracy, $4=run_id,
+        # $5=model_version, $6=model_type, $7=source_csv, $8=n_samples,
+        # $9=n_positive, $10=n_negative, $11=accuracy_score, $12=precision_score,
+        # $13=recall_score, $14=f1_score, $15=calibrated,
+        # $16=feature_importances (json str), $17=features (json str),
+        # $18=model_path, $19=run_metadata.
         assert positional[0] is not None and "INSERT" in positional[0]
-        assert positional[1] == "v2-test-001"          # $1 run_id
-        assert positional[4] == "data/x.csv"           # $4 source_csv
-        assert positional[5] == 2                      # $5 n_samples
-        assert positional[8] == 0.85                   # $8 accuracy_score
-        assert positional[9] == 0.84                   # $9 precision_score
-        assert positional[10] == 0.86                  # $10 recall_score
-        assert positional[11] == 0.85                  # $11 f1_score
-        assert positional[15] == "/tmp/model.joblib"   # $15 model_path
+        assert len(positional[1]) == 64 and all(c in "0123456789abcdef" for c in positional[1])  # $1 model_hash (sha256 hex of run_id; model file absent)
+        assert positional[2] == 2                      # $2 training_samples
+        assert positional[3] == 0.85                   # $3 cv_accuracy
+        assert positional[4] == "v2-test-001"          # $4 run_id
+        assert positional[7] == "data/x.csv"           # $7 source_csv
+        assert positional[8] == 2                      # $8 n_samples
+        assert positional[9] == 1                      # $9 n_positive (1 true_positive)
+        assert positional[10] == 1                     # $10 n_negative (1 false_positive)
+        assert positional[11] == 0.85                   # $11 accuracy_score (= cv_accuracy)
+        assert positional[12] == 0.84                   # $12 precision_score
+        assert positional[13] == 0.86                   # $13 recall_score
+        assert positional[14] == 0.85                   # $14 f1_score
+        assert positional[18] == "/tmp/model.joblib"   # $18 model_path
 
     @pytest.mark.asyncio
     async def test_prf_none_is_passed_through(self):
@@ -225,10 +233,11 @@ class TestWriteProvenanceParameterBinding:
             )
 
         positional = mock_conn.fetchrow.await_args.args
-        # PRF slots are bound to None when sklearn couldn't compute.
-        assert positional[9] is None
-        assert positional[10] is None
-        assert positional[11] is None
+        # P1-08: PRF slots are now $12/$13/$14 (see layout above). Bound to
+        # None when sklearn couldn't compute them.
+        assert positional[12] is None
+        assert positional[13] is None
+        assert positional[14] is None
 
 
 # ──────────────────────────────────────────────────────────

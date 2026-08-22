@@ -125,6 +125,29 @@ class RiskScorer:
                 hours,
             )
 
+            # P1-09: exposure score must run on the same (still-acquired)
+            # connection. Previously this query ran AFTER the `async with` block
+            # released the connection, raising a use-after-release that the
+            # bare except swallowed -> exposure_score was always 0.0.
+            try:
+                exposed = await conn.fetchval(
+                    """
+                    SELECT COUNT(*)
+                    FROM logs
+                    WHERE host_name = $1
+                      AND source_ip NOT << '10.0.0.0/8'::inet
+                      AND source_ip NOT << '192.168.0.0/16'::inet
+                      AND source_ip NOT << '172.16.0.0/12'::inet
+                      AND time > NOW() - INTERVAL '1 hour' * $2
+                      AND event_category = 'network'
+                    """,
+                    hostname,
+                    hours,
+                )
+            except Exception as e:
+                log.warning("asset_risk_exposure_query_failed", host=hostname, error=str(e))
+                exposed = 0
+
         # Calculate factors
         factors = RiskFactors()
 
@@ -151,26 +174,9 @@ class RiskScorer:
         # swallowed. User-level UEBA scoring belongs in calculate_user_risk
         # (tracked as a follow-up).
 
-        # Exposure score — internet-facing host check
-        try:
-            # A host is exposed if it has inbound connections from non-RFC1918 IPs
-            exposed = await conn.fetchval(
-                """
-                SELECT COUNT(*)
-                FROM logs
-                WHERE host_name = $1
-                  AND source_ip NOT << '10.0.0.0/8'::inet
-                  AND source_ip NOT << '192.168.0.0/16'::inet
-                  AND source_ip NOT << '172.16.0.0/12'::inet
-                  AND time > NOW() - INTERVAL '1 hour' * $2
-                  AND event_category = 'network'
-                """,
-                hostname,
-                hours,
-            )
-            factors.exposure_score = min(exposed / 10, 1.0) if exposed else 0.0
-        except Exception:
-            factors.exposure_score = 0.0
+        # Exposure score — internet-facing host check (P1-09: query moved
+        # inside the conn block above; compute from the result here).
+        factors.exposure_score = min(exposed / 10, 1.0) if exposed else 0.0
 
         # Calculate weighted risk
         risk_score = (
@@ -288,25 +294,31 @@ class RiskScorer:
             rows = await conn.fetch(
                 """
                 SELECT
-                    l.host_name,
+                    h.host_name,
                     COALESCE(a.risk_score, 50.0) as base_risk,
                     COUNT(DISTINCT al.id) FILTER (WHERE al.severity = 'critical') as crit_alerts,
                     COUNT(DISTINCT al.id) FILTER (WHERE al.severity = 'high') as high_alerts,
                     COUNT(DISTINCT al.id) as total_alerts,
-                    COUNT(DISTINCT l.id) FILTER (
-                        WHERE l.event_category = 'network' AND l.source_ip IS NOT NULL
-                    ) as outbound_conns
+                    COALESCE(oc.outbound_conns, 0) as outbound_conns
                 FROM (
                     SELECT DISTINCT host_name
                     FROM logs
                     WHERE time > NOW() - INTERVAL '24 hours'
                     LIMIT 50
-                ) l
+                ) h
                 LEFT JOIN alerts al
-                    ON al.host_name = l.host_name
+                    ON al.host_name = h.host_name
                     AND al.time > NOW() - INTERVAL '24 hours'
-                LEFT JOIN assets a ON a.hostname = l.host_name
-                GROUP BY l.host_name, a.risk_score
+                LEFT JOIN assets a ON a.hostname = h.host_name
+                LEFT JOIN (
+                    SELECT host_name, COUNT(DISTINCT id) as outbound_conns
+                    FROM logs
+                    WHERE time > NOW() - INTERVAL '24 hours'
+                      AND event_category = 'network'
+                      AND source_ip IS NOT NULL
+                    GROUP BY host_name
+                ) oc ON oc.host_name = h.host_name
+                GROUP BY h.host_name, a.risk_score, oc.outbound_conns
                 ORDER BY
                     COALESCE(a.risk_score, 50.0)
                     + COUNT(DISTINCT al.id) FILTER (WHERE al.severity = 'critical') * 20

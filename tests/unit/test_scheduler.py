@@ -176,7 +176,11 @@ class TestScheduleRules:
         with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
             with patch("src.detection.scheduler.scheduler", mock_scheduler):
                 result = await schedule_rules()
-                assert mock_scheduler.add_job.call_count == 2
+                # 2 rule jobs + 1 auto_train_check job (P2-25)
+                assert mock_scheduler.add_job.call_count == 3
+                # the auto_train_check job is registered with a stable id
+                job_ids = [c.kwargs.get("id") for c in mock_scheduler.add_job.call_args_list]
+                assert "auto_train_check" in job_ids
 
     @pytest.mark.asyncio
     async def test_schedule_empty_rules(self):
@@ -195,7 +199,10 @@ class TestScheduleRules:
         with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
             with patch("src.detection.scheduler.scheduler", mock_scheduler):
                 await schedule_rules()
-                mock_scheduler.add_job.assert_not_called()
+                # No rules, but the auto_train_check maintenance job is still scheduled (P2-25)
+                assert mock_scheduler.add_job.call_count == 1
+                job_ids = [c.kwargs.get("id") for c in mock_scheduler.add_job.call_args_list]
+                assert job_ids == ["auto_train_check"]
 
 
 class TestStopScheduler:
