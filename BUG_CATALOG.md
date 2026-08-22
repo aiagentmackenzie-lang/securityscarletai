@@ -1049,3 +1049,9 @@ in the final pass (Phase 11); this log is the running record.
 - P0-05 — entrypoint.sh applies schema via psql -v ON_ERROR_STOP=1 (statement-by-statement) — 0edaa14
 - P0-06 — Dockerfile: deleted stale COPY alembic/ + alembic.ini — 0edaa14
 - CREATE TYPE idempotency (DO $$ EXCEPTION duplicate_object) — 0edaa14
+- P0-01 — sigma_to_sql routes through legacy SigmaParser only; all 45 rules execute against real Postgres — 359a339
+- P0-04 — deleted _parse_with_pysigma/_extract_mitre_tags_pysigma (dead pySigma parse path); legacy is primary — 359a339
+- P2-42 — SigmaParser._parse_condition plain ' and ' support (webshell_creation) — 359a339
+- P1-04 — reverse_shell.yml + ssh_success_after_failures.yml duplicate-key YAML fixed (list form; ssh -> pure threshold) — 359a339
+- P2-10 — to_sql parses condition once (was double-parse leaving untyped unreferenced placeholders) — 359a339 (moved up from Phase 9; blocked data_exfiltration_volume execution)
+- INET LIKE host(col)::text + Sigma '*' -> IS NOT NULL (login_unusual_geography, impossible_travel, data_exfiltration — unflagged INET runtime bugs surfaced by execution test) — 359a339
