@@ -1071,3 +1071,8 @@ in the final pass (Phase 11); this log is the running record.
 - P2-23 — log_audit_action no longer raises (logs+returns None); audit added to rule/alert mutations — 52ed123
 - P2-24 — alerts.py uses user.get("sub") not str(user) for author/created_by/updated_by/assigned_to — 52ed123
 - P2-40 — dashboard logout POSTs /auth/logout (server-side blocklist) before clearing session — 52ed123
+- P1-15 — RuleResponse exposes mitre_tactics/techniques/sigma_yaml/run_interval/lookback/threshold; from_row serializes intervals — d9f447a
+- P2-43 — PATCH /rules/{id} partial update; dashboard update_rule uses PATCH; dashboard field-shape fixes (prediction string, matching_hunts+llm_suggestions, is_trained/training_samples/training_accuracy/ollama_available, templates description+id) — d9f447a
+- P2-39 — sidebar AI Triage uses is_trained — d9f447a
+- P2-20 — PUT update_rule re-parses sigma_yaml + refreshes MITRE — d9f447a
+- (unflagged) rules interval params use timedelta (asyncpg str->interval bug); scheduler.start() idempotent (reload_rules second-call crash) — d9f447a
