@@ -1058,3 +1058,6 @@ in the final pass (Phase 11); this log is the running record.
 - P0-03 (completion) — severity column verified in detect_defense_evasion_cleanup query (executes) — 8d357de
 - P1-07 — ingest writes enrichment back to logs.enrichment JSONB (flush + UPDATE-by-tuple); LogWriter.flush() added — 8d357de
 - P1-16 — IngestEvent: process_cmdline/process_path/host_ip added; seed_realistic_data reverse-shell sets process_cmdline — 8d357de
+- P1-06 — run_all_correlations(persist=True) calls create_alert(rule_id=None) per match; create_alert accepts rule_id=None (dedup by rule_name+host_name) — 7890108
+- P1-13 — ingest loop broadcasts each event to /ws/logs via broadcast_event (best-effort) — 7890108
+- P2-28 (partial) — deleted dead run_all_correlations_legacy wrapper — 7890108
