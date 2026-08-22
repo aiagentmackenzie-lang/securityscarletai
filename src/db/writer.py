@@ -76,6 +76,15 @@ class LogWriter:
         async with self._lock:
             await self._flush_unlocked()
 
+    async def flush(self) -> None:
+        """Flush the buffer immediately (public).
+
+        Used by callers that need the just-written rows persisted before a
+        follow-up UPDATE (e.g. the ingest endpoint's enrichment write-back,
+        P1-07). Safe to call when the buffer is empty.
+        """
+        await self._flush()
+
     async def _flush_unlocked(self) -> None:
         """Actually write the batch to the database. Must be called with lock held."""
         if not self._buffer:

@@ -35,7 +35,10 @@ class IngestEvent(BaseModel):
     # Optional fields
     user_name: str | None = Field(None, max_length=256)
     process_name: str | None = Field(None, max_length=256)
+    process_cmdline: str | None = Field(None, max_length=4096)
+    process_path: str | None = Field(None, max_length=1024)
     process_pid: int | None = Field(None)
+    host_ip: str | None = Field(None, max_length=45)
     source_ip: str | None = Field(None, max_length=45)
     destination_ip: str | None = Field(None, max_length=45)
     destination_port: int | None = Field(None)
@@ -103,26 +106,52 @@ async def ingest_events(
 
             async def _enrich_and_correlate():
                 try:
-                    # Enrichment pipeline (GeoIP, DNS, threat intel) for
-                    # public IPs in the batch. Writes back into the
-                    # logs.enrichment JSONB column.
-                    for event_data in events:
-                        try:
-                            enrichment = await enrich_event_dict(
-                                event_data.model_dump(by_alias=True)
-                            )
-                            if enrichment:
-                                log.debug(
-                                    "ingest_enrichment_done",
-                                    host=event_data.host_name,
-                                    keys=list(enrichment.keys()),
+                    # Persist the just-written batch so the enrichment
+                    # write-back below can find the rows. The writer is batched
+                    # (flush every ~2s); force a flush now (P1-07).
+                    await writer.flush()
+
+                    import json as _json
+
+                    from src.db.connection import get_pool
+
+                    pool = await get_pool()
+                    # Enrichment pipeline (GeoIP, DNS, threat intel) for public
+                    # IPs in the batch. Writes back into the logs.enrichment
+                    # JSONB column by matching the writer's unique-ish tuple
+                    # (time, host_name, source, event_category, event_type).
+                    # Best-effort: a failure here never affects ingestion — the
+                    # events are already persisted and the HTTP 202 is on the wire.
+                    async with pool.acquire() as conn:
+                        for event_data in events:
+                            try:
+                                enrichment = await enrich_event_dict(
+                                    event_data.model_dump(by_alias=True)
                                 )
-                        except Exception as e:  # pragma: no cover — defensive
-                            log.warning(
-                                "ingest_enrichment_failed",
-                                host=getattr(event_data, "host_name", None),
-                                error=str(e),
-                            )
+                                if enrichment:
+                                    await conn.execute(
+                                        """UPDATE logs SET enrichment = $1::jsonb
+                                           WHERE time = $2 AND host_name = $3
+                                             AND source = $4 AND event_category = $5
+                                             AND event_type = $6""",
+                                        _json.dumps(enrichment),
+                                        event_data.timestamp,
+                                        event_data.host_name,
+                                        event_data.source,
+                                        event_data.event_category,
+                                        event_data.event_type,
+                                    )
+                                    log.debug(
+                                        "ingest_enrichment_persisted",
+                                        host=event_data.host_name,
+                                        keys=list(enrichment.keys()),
+                                    )
+                            except Exception as e:  # pragma: no cover — defensive
+                                log.warning(
+                                    "ingest_enrichment_failed",
+                                    host=getattr(event_data, "host_name", None),
+                                    error=str(e),
+                                )
 
                     # Correlation seam (Agent A owns correlation.py; this
                     # call is the integration point). Runs across all rules

