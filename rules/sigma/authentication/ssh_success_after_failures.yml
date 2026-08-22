@@ -1,19 +1,28 @@
 title: SSH Successful Login After Multiple Failures
 id: 3328127c-6626-514a-aa52-132e3661b986
 status: stable
-description: Detects a successful SSH login following multiple failed attempts from the same source — likely a brute force success
+description: |
+    Detects repeated failed SSH logins from a single source — a brute-force
+    indicator. NOTE (P1-04): the original rule attempted a Sigma correlation
+    (`selection_failed | count(*) by source_ip > 3 and selection_success`) to
+    flag a success following failures, but the legacy Sigma parser cannot join
+    a threshold aggregation with a second selection, and the YAML had duplicate
+    `event_action|contains` keys. This is now a pure threshold rule over failed
+    authentications grouped by source IP. The success-after-failure chain is
+    handled by the correlation engine (brute_force_to_success), not Sigma. The
+    meaningless `source_ip: '*'` (a Sigma "any" wildcard the legacy parser
+    mistranslates to literal INET equality) was removed so the rule executes;
+    GROUP BY source_ip is unaffected.
 author: SecurityScarletAI
 date: 2026/05/03
 logsource:
     category: authentication
 detection:
     selection_failed:
-        event_action|contains: failed
-        source_ip: '*'
-    selection_success:
-        event_action|contains: success
-        event_action|contains: ssh
-    condition: selection_failed | count(*) by source_ip > 3 and selection_success
+        event_action|contains:
+            - failed
+            - ssh
+    condition: selection_failed | count(*) by source_ip > 3
 timeframe: 10m
 level: critical
 tags:

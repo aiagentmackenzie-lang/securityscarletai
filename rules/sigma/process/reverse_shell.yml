@@ -18,12 +18,14 @@ detection:
         process_cmdline|contains: bash -i
     selection_python_shell:
         process_name: python
-        process_cmdline|contains: socket
-        process_cmdline|contains: connect
+        process_cmdline|contains:
+            - socket
+            - connect
     selection_perl_socket:
         process_name: perl
-        process_cmdline|contains: Socket
-        process_cmdline|contains: connect
+        process_cmdline|contains:
+            - Socket
+            - connect
     selection_ruby_reverse:
         process_name: ruby
         process_cmdline|contains: IO.pipe

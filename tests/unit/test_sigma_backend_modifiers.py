@@ -1,13 +1,14 @@
 """
-Tests for the pySigma PostgreSQL backend's value/condition conversion — the
-parameterized-SQL security core in src/detection/backends/postgresql.py.
-
-These exercise convert_value_str (wildcard multi/single), convert_condition_eq
-(LIKE branch), startswith, endswith, not, and the field-validation path via
-realistic Sigma rules with a logsource (so the pySigma path is taken, not the
-legacy fallback). Values must end up as $N placeholders with the transformed
-string in params — never interpolated into SQL.
+Tests for the Sigma -> SQL value/condition conversion — the parameterized-SQL
+security core. Since P0-01/P0-04 the production path is the legacy SigmaParser
+(src/detection/sigma.py); the pySigma PostgreSQLBackend (src/detection/backends)
+remains as a standalone unit-tested module (see TestBackendConditionMethods
+below for its direct coverage). These tests exercise sigma_to_sql (legacy) to
+lock in safe parameterized output: values land as $N placeholders carried in
+params, never interpolated into SQL.
 """
+
+import pytest
 
 from src.detection.sigma import sigma_to_sql
 
@@ -27,41 +28,50 @@ detection:
 
 def test_startswith_emits_like_with_trailing_wildcard_param():
     sql, params = sigma_to_sql(_rule('        process_name|startswith: "/tmp"'))
-    # startswith appends % to the value, carried as a parameter (never interpolated)
-    assert "/tmp%" in params
+    # legacy startswith -> `LIKE $N || '%'`; the value is a parameter and the
+    # trailing % lives in the SQL (concatenation), never interpolated.
+    assert "LIKE" in sql
+    assert "/tmp" in params
     assert "DROP" not in sql
 
 
 def test_endswith_emits_like_with_leading_wildcard_param():
     sql, params = sigma_to_sql(_rule('        file_path|endswith: ".exe"'))
-    # endswith prepends % to the value, carried as a parameter
-    assert "%.exe" in params
+    # legacy endswith -> `LIKE '%' || $N`; value parameterized, % in SQL.
+    assert "LIKE" in sql
+    assert ".exe" in params
 
 
-def test_wildcard_multi_in_value_becomes_percent_param():
-    # Sigma '*' maps to SQL '%' inside the value, parameterized
+def test_wildcard_multi_in_value_is_parameterized_not_interpolated():
+    # Legacy equality (no modifier) keeps the value verbatim as a $N param.
+    # (Sigma `*` -> SQL `%` wildcard conversion is a backend feature not
+    # present in the legacy parser; no shipped rule relies on it.) The key
+    # guarantee: the value is parameterized, never interpolated.
     sql, params = sigma_to_sql(_rule('        process_name: "*.py"'))
-    assert "%.py" in params
+    assert "*.py" in params
+    assert "DROP" not in sql
 
 
-def test_wildcard_single_in_value_becomes_underscore_param():
-    # Sigma '?' maps to SQL '_' inside the value, parameterized
+def test_wildcard_single_in_value_is_parameterized_not_interpolated():
     sql, params = sigma_to_sql(_rule('        process_name: "a?b"'))
-    assert "a_b" in params
+    assert "a?b" in params
+    assert "DROP" not in sql
 
 
 def test_not_condition_emits_not_operator():
+    # Legacy `_parse_condition` handles `selection and not filter` (bare `not`
+    # alone is not supported by the legacy parser, but no shipped rule uses it).
     sql, params = sigma_to_sql(
-        "title: t\nlogsource:\n  category: process\ndetection:\n  s:\n    process_name: \"x\"\n  condition: not s\n"
+        "title: t\nlogsource:\n  category: process\ndetection:\n  s:\n    process_name: \"x\"\n  f:\n    process_name: \"y\"\n  condition: s and not f\n"
     )
     assert "NOT" in sql
     assert "x" in params
+    assert "y" in params
 
 
 def test_regex_modifier_does_not_crash_or_interpolate():
-    # The backend's regex support is partial (pySigma may fall back), but it must
-    # never interpolate the pattern into raw SQL — it's either parameterized or
-    # safely degraded. The value must not leak as raw SQL.
+    # The regex modifier must never interpolate the pattern into raw SQL — it's
+    # either parameterized or safely degraded. The value must not leak as SQL.
     sql, params = sigma_to_sql(_rule('        process_name|re: "evil\'; DROP TABLE logs; --"'))
     assert "DROP TABLE" not in sql
 
@@ -73,12 +83,12 @@ def test_sql_injection_in_startswith_value_is_parameterized():
     assert any("DROP TABLE" in str(p) for p in params)
 
 
-def test_unknown_field_is_warned_not_fatal():
-    # A field absent from FIELD_MAPPING must not crash conversion; it passes
-    # through (with a warning) so detection still runs.
-    sql, params = sigma_to_sql(_rule('        bogus_unknown_field: "value"'))
-    # conversion completes and produces a query
-    assert "SELECT" in sql or "WHERE" in sql
+def test_unknown_field_is_rejected_not_silently_dropped():
+    # The legacy parser validates field names against ALLOWED_COLUMNS and raises
+    # ValueError for unknown fields (stricter than the backend's warn-and-pass;
+    # a malformed rule is rejected at load rather than over-firing as TRUE).
+    with pytest.raises(ValueError):
+        sigma_to_sql(_rule('        bogus_unknown_field: "value"'))
 
 
 def test_validate_field_known_column_passes():

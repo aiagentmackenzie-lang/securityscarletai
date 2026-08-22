@@ -2,17 +2,18 @@
 """
 Sigma rule parser and SQL generator.
 
-ARCHITECTURE: Uses pySigma for spec-compliant YAML parsing and
-our own PostgreSQLBackend for parameterized SQL generation.
+ARCHITECTURE: Rules are parsed and converted to parameterized SQL by our own
+legacy SigmaParser. The pySigma-backed PostgreSQLBackend (src/detection/backends)
+was the primary path but produced invalid/semantically-wrong SQL (Python
+list-repr injected into WHERE, aggregation selections dropped to TRUE); it is
+retained only as a standalone, unit-tested module and is no longer on the
+production detection path (P0-01/P0-04).
 
-This gives us:
-- Full Sigma spec compliance (all modifiers, AND/OR, aggregation)
-- Safe parameterized queries (no SQL injection possible)
-- Column name validation against whitelist
-- Safe interval construction (INTERVAL '1 second' * $N)
-
-Fallback: If pySigma fails to parse a rule (e.g., custom extensions),
-we fall back to our legacy parser so existing rules keep working.
+The legacy parser gives us:
+- Safe parameterized queries (no SQL injection possible) — every value is a
+  $N placeholder; INTERVAL is built as INTERVAL '1 second' * $N.
+- Column name validation against a whitelist.
+- AND / OR / AND-NOT / plain-AND conditions and Sigma aggregation (count by).
 """
 import re
 from dataclasses import dataclass
@@ -35,6 +36,12 @@ ALLOWED_COLUMNS = frozenset({
     "user_name", "file_path", "file_hash",
     "severity", "source", "host_ip",
 })
+
+# INET-typed columns. LIKE-family modifiers (contains/startswith/endswith/re)
+# are not defined for inet in Postgres ("operator does not exist: inet ~~ text"),
+# so LIKE comparisons use the text form host(col)::text. Equality on inet with a
+# valid IP string still works without a cast.
+INET_COLUMNS = frozenset({"source_ip", "destination_ip", "host_ip"})
 
 # Timeframe validation regex
 TIMEFRAME_PATTERN = re.compile(r"^(\d+)([mhd])$")
@@ -119,67 +126,14 @@ def _timeframe_to_seconds(timeframe: Optional[str]) -> int:
 
 def parse_sigma_rule(yaml_content: str) -> SigmaRule:
     """
-    Parse a Sigma rule from YAML string using pySigma.
+    Parse a Sigma rule from YAML string.
 
-    Falls back to legacy YAML parser if pySigma can't parse the rule
-    (e.g., custom extensions, non-UUID identifiers).
+    Uses the legacy SigmaParser (the pySigma-first path was dead — it always
+    fell back here via a deliberate AttributeError; see P0-04). The legacy parser
+    handles non-UUID ids, missing logsource, and all shipped rules.
     """
-    # Try pySigma first for spec compliance
-    try:
-        return _parse_with_pysigma(yaml_content)
-    except Exception as e:
-        log.debug("pysigma_parse_fallback", error=str(e))
-        # Fall back to legacy parser (handles non-UUID ids, missing logsource, etc.)
-        parser = SigmaParser()
-        return parser.parse(yaml_content)
-
-
-def _parse_with_pysigma(yaml_content: str) -> SigmaRule:
-    """Parse using pySigma for full spec compliance."""
-    from sigma.rule import SigmaRule as PySigmaRule
-
-    rule = PySigmaRule.from_yaml(yaml_content)
-
-    # Extract MITRE tags
-    tactics, techniques = _extract_mitre_tags_pysigma(rule.tags)
-
-    # Build detection dict from parsed rule for backward compat
-    detection_dict = yaml.safe_load(yaml_content).get("detection", {})
-
-    return SigmaRule(
-        id=str(rule.id) if rule.id else "unknown",
-        title=rule.title or "Untitled",
-        description=rule.description or "",
-        status=str(rule.status) if rule.status else "experimental",
-        author=rule.author or "Unknown",
-        date=str(rule.date) if rule.date else "",
-        logsource_category=rule.logsource.category if rule.logsource else None,
-        logsource_product=rule.logsource.product if rule.logsource else None,
-        detection=detection_dict,
-        condition=_extract_condition_string(detection_dict),
-        timeframe=(
-            str(rule.detection.timeframe)  # type: ignore[attr-defined]  # pySigma SigmaDetections has no timeframe; the AttributeError triggers the legacy YAML fallback below
-            if rule.detection and rule.detection.timeframe  # type: ignore[attr-defined]
-            else None
-        ),
-        level=str(rule.level.name) if rule.level else "medium",
-        tags=[str(t) for t in rule.tags],
-        mitre_tactics=tactics,
-        mitre_techniques=techniques,
-    )
-
-
-def _extract_mitre_tags_pysigma(tags) -> tuple[list[str], list[str]]:
-    """Extract MITRE tags from pySigma tag objects."""
-    tactics = []
-    techniques = []
-    for tag in tags:
-        tag_str = str(tag)
-        if tag_str.startswith("attack.ta"):
-            tactics.append(tag_str.replace("attack.", "").upper())
-        elif tag_str.startswith("attack.t"):
-            techniques.append(tag_str.replace("attack.", "").upper())
-    return tactics, techniques
+    parser = SigmaParser()
+    return parser.parse(yaml_content)
 
 
 def _extract_condition_string(detection: dict) -> str:
@@ -241,27 +195,32 @@ class SigmaParser:
         self._param_counter = 0
         self._params = []
 
-        where_clause = self._parse_condition(rule.condition, rule.detection)
-
         filters = []
         if rule.logsource_category:
             filters.append(f"event_category = {self._add_param(rule.logsource_category)}")
 
-        if filters:
-            where_clause = f"({' AND '.join(filters)}) AND ({where_clause})"
-
+        # Aggregation (count-by) rules parse the condition exactly once on the
+        # base condition (the part before the `| count(...) by ...` pipe). We
+        # must NOT parse the full condition first and then re-parse the base —
+        # that double parse (P2-10) leaves the first parse's $N placeholders
+        # unreferenced in the final SQL, which asyncpg cannot type
+        # ("could not determine data type of parameter $1").
         agg_match = re.match(
             r"(.+?)\s*\|\s*count\(([^)]+)\)\s*by\s+(\w+)\s*>\s*(\d+)",
             rule.condition,
         )
 
         if agg_match:
-            return self._build_aggregation_query(rule, agg_match, where_clause, filters)
-        else:
-            return self._build_simple_query(rule, where_clause)
+            return self._build_aggregation_query(rule, agg_match, filters)
+
+        where_clause = self._parse_condition(rule.condition, rule.detection)
+        if filters:
+            where_clause = f"({' AND '.join(filters)}) AND ({where_clause})"
+
+        return self._build_simple_query(rule, where_clause)
 
     def _build_aggregation_query(
-        self, rule, agg_match, where_clause, filters
+        self, rule, agg_match, filters
     ) -> tuple[str, list[Any]]:
         """Build an aggregation (GROUP BY) SQL query."""
         base_condition = agg_match.group(1).strip()
@@ -316,6 +275,14 @@ class SigmaParser:
             sql_parts = [self._parse_selection(p.strip(), detection) for p in parts]
             return " OR ".join(f"({p})" for p in sql_parts)
 
+        # P2-42: plain " and " (e.g. webshell_creation.yml uses
+        # `selection_web_dir and selection_shell_content`). Checked after
+        # `and not` (above) so `and not` is not mis-split, and after `or`.
+        if " and " in condition.lower():
+            parts = condition.lower().split(" and ")
+            sql_parts = [self._parse_selection(p.strip(), detection) for p in parts]
+            return " AND ".join(f"({p})" for p in sql_parts)
+
         return self._parse_selection(condition.strip(), detection)
 
     def _parse_selection(self, name: str, detection: dict) -> str:
@@ -335,17 +302,24 @@ class SigmaParser:
                 sql_field = self._map_field(field_name)
 
                 if modifier in self.MODIFIERS:
+                    # LIKE-family operators don't exist for inet; compare on the
+                    # text form (e.g. host(source_ip)::text LIKE '10.%').
+                    like_field = (
+                        f"host({sql_field})::text"
+                        if sql_field in INET_COLUMNS
+                        else sql_field
+                    )
                     if isinstance(value, list):
                         or_conditions = []
                         for v in value:
                             or_conditions.append(
-                                self.MODIFIERS[modifier](sql_field, self._add_param(v))
+                                self.MODIFIERS[modifier](like_field, self._add_param(v))
                             )
                         conditions.append(f"({' OR '.join(or_conditions)})")
                     else:
                         conditions.append(
                             self.MODIFIERS[modifier](
-                                sql_field, self._add_param(value)
+                                like_field, self._add_param(value)
                             )
                         )
                 else:
@@ -360,6 +334,9 @@ class SigmaParser:
                         for p in params
                     )
                     conditions.append(f"{sql_field} IN ({placeholders})")
+                elif value == "*":
+                    # Sigma wildcard-all: field is present (any value).
+                    conditions.append(f"{sql_field} IS NOT NULL")
                 else:
                     conditions.append(f"{sql_field} = {self._add_param(value)}")
 
@@ -406,36 +383,14 @@ def sigma_to_sql(yaml_content: str) -> tuple[str, list[Any]]:
     """
     Convert Sigma YAML to parameterized SQL.
 
-    Uses pySigma-backed PostgreSQLBackend for generation,
-    falls back to legacy parser if needed.
+    Routes through the legacy SigmaParser (P0-01/P0-04). The pySigma-backed
+    PostgreSQLBackend produced invalid SQL (list-repr in WHERE) and dropped
+    aggregation selections to TRUE; it is no longer on this path.
     Returns (sql, params) tuple.
     """
-    # Parse the rule first
-    rule = parse_sigma_rule(yaml_content)
-
-    # Try pySigma-backed generation
-    try:
-        from src.detection.backends.postgresql import PostgreSQLBackend
-        backend = PostgreSQLBackend()
-
-        # Parse with pySigma for backend conversion
-        from sigma.rule import SigmaRule as PySigmaRule
-        py_rule = PySigmaRule.from_yaml(yaml_content)
-
-        lookback_seconds = _timeframe_to_seconds(rule.timeframe)
-        sql, params = backend.generate_query(py_rule, lookback_seconds=lookback_seconds)
-
-        if sql and params is not None:
-            log.debug("pysigma_sql_generated", rule=rule.title)
-            return sql, params
-
-    except Exception as e:
-        log.warning("pysigma_sql_fallback", rule=rule.title, error=str(e))
-
-    # Fall back to legacy parser
     parser = SigmaParser()
-    legacy_rule = parser.parse(yaml_content)
-    sql, params = parser.to_sql(legacy_rule)
+    rule = parser.parse(yaml_content)
+    sql, params = parser.to_sql(rule)
     log.debug("legacy_sql_generated", rule=rule.title)
     return sql, params
 
