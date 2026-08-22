@@ -1076,3 +1076,10 @@ in the final pass (Phase 11); this log is the running record.
 - P2-39 — sidebar AI Triage uses is_trained — d9f447a
 - P2-20 — PUT update_rule re-parses sigma_yaml + refreshes MITRE — d9f447a
 - (unflagged) rules interval params use timedelta (asyncpg str->interval bug); scheduler.start() idempotent (reload_rules second-call crash) — d9f447a
+- P1-17 — Caddyfile handle_path -> handle /api/* (preserve /api prefix) — 3a4897a
+- P2-17 — threat-intel initial refresh runs as background task (non-blocking startup) — 3a4897a
+- P2-37 — osquery.conf logger_path aligned to /opt/homebrew/var/log/osquery; browser_plugins/disk_encryption documented as intentionally unmapped — 3a4897a
+- P2-31 — docker-compose OLLAMA_MODEL default llama3.2:8b — 3a4897a
+- P2-34 — /health caches Ollama probe (60s TTL) — 3a4897a
+- P2-16 — startup validate_ollama_model warns on result (was discarded) — 3a4897a
+- P2-35 — cases link/unlink/note + alerts link_to_case use atomic SQL (array_append/remove, notes || jsonb) — 3a4897a
