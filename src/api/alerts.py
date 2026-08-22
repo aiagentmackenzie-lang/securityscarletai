@@ -158,15 +158,27 @@ async def get_alert(
 async def update_alert(
     alert_id: int,
     update: AlertUpdate,
-    user: str = Depends(require_role("analyst")),
+    user: dict = Depends(require_role("analyst")),
 ):
     """Update alert status and assignment. Requires analyst role or above."""
+    username = user.get("sub", "unknown")
     await update_alert_status(
         alert_id=alert_id,
         status=update.status,
         assigned_to=update.assigned_to,
         resolution_note=update.resolution_note,
-        updated_by=str(user),
+        updated_by=username,
+    )
+
+    # P2-23: audit alert status updates.
+    from src.api.audit import log_audit_action
+
+    await log_audit_action(
+        actor=username,
+        action="alert.update",
+        target_type="alert",
+        target_id=alert_id,
+        new_values={"status": update.status, "assigned_to": update.assigned_to},
     )
 
     pool = await get_pool()
@@ -179,7 +191,7 @@ async def update_alert(
 async def add_note(
     alert_id: int,
     note: AlertNote,
-    user: str = Depends(require_role("analyst")),
+    user: dict = Depends(require_role("analyst")),
 ):
     """Add a note/timeline entry to an alert."""
     pool = await get_pool()
@@ -188,7 +200,8 @@ async def add_note(
         if not row:
             raise HTTPException(status_code=404, detail="Alert not found")
 
-    await add_alert_note(alert_id=alert_id, author=str(user), text=note.text)
+    username = user.get("sub", "unknown")
+    await add_alert_note(alert_id=alert_id, author=username, text=note.text)
     return {"status": "note_added", "alert_id": alert_id}
 
 
@@ -321,10 +334,10 @@ async def link_to_case(
 @router.post("/bulk/acknowledge")
 async def bulk_acknowledge_alerts(
     op: BulkOperation,
-    user: str = Depends(require_role("analyst")),
+    user: dict = Depends(require_role("analyst")),
 ):
     """Acknowledge multiple alerts (set to 'investigating' status)."""
-    count = await bulk_acknowledge(op.alert_ids, op.assigned_to or str(user))
+    count = await bulk_acknowledge(op.alert_ids, op.assigned_to or user.get("sub", "unknown"))
     return {"acknowledged": count, "alert_ids": op.alert_ids}
 
 
@@ -404,13 +417,13 @@ async def list_suppressions(
 @router.post("/suppressions")
 async def create_suppression(
     rule: SuppressionRuleCreate,
-    user: str = Depends(require_role("admin")),
+    user: dict = Depends(require_role("admin")),
 ):
     """Create a new alert suppression rule. Admin only."""
     suppression_id = await create_suppression_rule(
         rule_name=rule.rule_name,
         host_name=rule.host_name,
         reason=rule.reason,
-        created_by=str(user),
+        created_by=user.get("sub", "unknown"),
     )
     return {"id": suppression_id, "status": "created"}

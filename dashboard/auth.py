@@ -111,28 +111,17 @@ def render_login_page():
     st.divider()
     with st.expander("Initial Setup"):
         st.markdown("""
-        If this is a fresh install, you need to create an admin user first.
+        If this is a fresh install, an admin user is created automatically by
+        the Docker entrypoint — the one-time password is printed to
+        `docker logs scarletai-api` (look for the `ADMIN USER CREATED` block).
 
-        **Option 1:** Use the API:
+        Alternatively, bootstrap from the API host **only** (localhost-restricted):
         ```bash
         curl -X POST http://localhost:8000/api/v1/auth/seed-admin
         ```
-
-        **Option 2:** Default credentials after seeding:
-        - Username: `admin`
-        - Password: `admin`
-
-        **Change the password immediately after first login!**
+        A password reset is forced on first login. Do **not** use a default
+        password in production.
         """)
-        if st.button("Seed Admin User", type="secondary"):
-            with st.spinner("Creating admin user...", show_time=True):
-                api = get_api_client()
-                try:
-                    result = api.seed_admin()
-                    st.toast("Admin user created")
-                    st.success(f"{result.get('message', 'Admin user created!')}")
-                except ApiError as e:
-                    st.error(f"{e.detail}")
 
     return False
 

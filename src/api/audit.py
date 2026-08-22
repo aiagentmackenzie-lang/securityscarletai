@@ -40,7 +40,12 @@ async def log_audit_action(
         ip_address: Request IP address
 
     Returns:
-        The audit log entry ID, or None on failure
+        The audit log entry ID, or None on failure.
+
+    Never raises (P2-23): audit must never break a successful mutation. The
+    M-22 "raise RuntimeError" fix was wrong — a successful case/rule mutation
+    would 500 (and a client retry would duplicate it) whenever audit_log was
+    unavailable. Failures are logged and swallowed.
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -75,8 +80,8 @@ async def log_audit_action(
                 action=action,
                 error=str(e),
             )
-            # M-22 fix: Don't silently return None — raise so caller knows audit failed
-            raise RuntimeError(f"Audit log write failed: {e}") from e
+            # P2-23: do NOT raise — audit must never break a successful mutation.
+            return None
 
 
 # ───────────────────────────────────────────────────────────────

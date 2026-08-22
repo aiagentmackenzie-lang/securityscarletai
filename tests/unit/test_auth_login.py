@@ -189,7 +189,9 @@ class TestSeedAdmin:
             with patch("src.api.auth_login.hash_password", return_value="hashed_admin"):
                 from src.api.auth_login import seed_admin_user
 
-                result = await seed_admin_user()
+                request = MagicMock()
+                request.client.host = "127.0.0.1"
+                result = await seed_admin_user(request=request)
                 assert "admin" in result["message"].lower()
                 assert result["username"] == "admin"
 
@@ -214,7 +216,9 @@ class TestSeedAdmin:
             from src.api.auth_login import seed_admin_user
 
             with pytest.raises(HTTPException) as exc_info:
-                await seed_admin_user()
+                request = MagicMock()
+                request.client.host = "127.0.0.1"
+                await seed_admin_user(request=request)
             assert exc_info.value.status_code == 409
 
 

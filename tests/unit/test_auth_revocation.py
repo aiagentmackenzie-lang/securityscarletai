@@ -300,3 +300,55 @@ class TestFailOpen:
         )
         # is_jti_blocked should return False (fail-open)
         assert redis_client.is_jti_blocked(payload["jti"]) is False
+
+
+# ───────────────────────────────────────────────────────────────
+# Business-API revocation (P1-11): get_current_user must enforce the
+# same jti blocklist + user_revoke markers as verify_jwt.
+# ───────────────────────────────────────────────────────────────
+
+
+class TestBusinessAPIRevocation:
+    @pytest.mark.asyncio
+    async def test_get_current_user_rejects_blocked_jti(self):
+        from src.api.auth import create_jwt, get_current_user
+        from src.api.redis_client import blocklist_jti
+
+        token = create_jwt("bizuser", "analyst")
+        from jose import jwt as jose_jwt
+        from src.api.auth import JWT_ALGORITHM
+        from src.config.settings import settings
+
+        payload = jose_jwt.decode(
+            token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+        )
+        blocklist_jti(payload["jti"], ttl_seconds=3600)
+
+        creds = MagicMock()
+        creds.credentials = token
+        with pytest.raises(HTTPException) as exc:
+            get_current_user(creds)
+        assert exc.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_get_current_user_rejects_revoked_user(self):
+        from datetime import datetime, timedelta, timezone
+
+        from jose import jwt as jose_jwt
+        from src.api.auth import JWT_ALGORITHM, create_jwt, get_current_user
+        from src.api.redis_client import set_user_revoke_marker
+        from src.config.settings import settings
+
+        old_token = create_jwt("bizuser2", "analyst")
+        old_payload = jose_jwt.decode(
+            old_token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+        )
+        # Simulate a password change after the token was issued.
+        revoke_time = datetime.now(tz=timezone.utc) + timedelta(seconds=5)
+        set_user_revoke_marker("bizuser2", revoke_time, 3600)
+
+        creds = MagicMock()
+        creds.credentials = old_token
+        with pytest.raises(HTTPException) as exc:
+            get_current_user(creds)
+        assert exc.value.status_code == 401

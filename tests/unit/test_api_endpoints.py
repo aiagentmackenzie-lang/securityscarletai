@@ -269,11 +269,12 @@ class TestAuditLogFunction:
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
         with patch("src.api.audit.get_pool", return_value=mock_pool):
-            with pytest.raises(RuntimeError, match="Audit log write failed"):
-                await log_audit_action(
-                    actor="admin",
-                    action="test",
-                )
+            # P2-23: audit never raises — it logs and returns None on DB failure.
+            result = await log_audit_action(
+                actor="admin",
+                action="test",
+            )
+            assert result is None
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

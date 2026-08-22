@@ -8,7 +8,8 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from src.api.auth import get_current_user
+from src.api.audit import log_audit_action
+from src.api.auth import get_current_user, require_role
 from src.config.logging import get_logger
 from src.db.connection import get_pool
 from src.detection.scheduler import reload_rules
@@ -57,9 +58,9 @@ class RuleResponse(BaseModel):
 @router.post("", response_model=RuleResponse, status_code=status.HTTP_201_CREATED)
 async def create_rule(
     rule: RuleCreate,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_role("admin")),
 ):
-    """Create a new detection rule."""
+    """Create a new detection rule (admin-only, P1-12)."""
     # Validate Sigma YAML
     try:
         parsed = parse_sigma_rule(rule.sigma_yaml)
@@ -88,7 +89,16 @@ async def create_rule(
             parsed.mitre_techniques,
         )
 
-        log.info("rule_created", rule_id=rule_id, name=rule.name, user=str(user))
+        log.info("rule_created", rule_id=rule_id, name=rule.name, user=user.get("sub"))
+
+        # P2-23: audit rule mutations (previously only structlog, never audit_log).
+        await log_audit_action(
+            actor=user.get("sub", "unknown"),
+            action="rule.create",
+            target_type="rule",
+            target_id=rule_id,
+            new_values={"name": rule.name, "severity": rule.severity, "enabled": rule.enabled},
+        )
 
         # Reload scheduler to pick up new rule
         await reload_rules()
@@ -128,9 +138,9 @@ async def get_rule(
 async def update_rule(
     rule_id: int,
     updates: RuleCreate,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_role("admin")),
 ):
-    """Update a detection rule."""
+    """Update a detection rule (admin-only, P1-12)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         # Check if rule exists
@@ -163,7 +173,17 @@ async def update_rule(
             rule_id,
         )
 
-        log.info("rule_updated", rule_id=rule_id, user=str(user))
+        log.info("rule_updated", rule_id=rule_id, user=user.get("sub"))
+
+        # P2-23: audit rule mutations.
+        await log_audit_action(
+            actor=user.get("sub", "unknown"),
+            action="rule.update",
+            target_type="rule",
+            target_id=rule_id,
+            new_values={"name": updates.name, "enabled": updates.enabled,
+                       "severity": updates.severity},
+        )
 
         # Reload scheduler
         await reload_rules()
@@ -174,16 +194,24 @@ async def update_rule(
 @router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_rule(
     rule_id: int,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_role("admin")),
 ):
-    """Delete a detection rule."""
+    """Delete a detection rule (admin-only, P1-12)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         result = await conn.execute("DELETE FROM rules WHERE id = $1", rule_id)
         if result == "DELETE 0":
             raise HTTPException(status_code=404, detail="Rule not found")
 
-        log.info("rule_deleted", rule_id=rule_id, user=str(user))
+        log.info("rule_deleted", rule_id=rule_id, user=user.get("sub"))
+
+        # P2-23: audit rule mutations.
+        await log_audit_action(
+            actor=user.get("sub", "unknown"),
+            action="rule.delete",
+            target_type="rule",
+            target_id=rule_id,
+        )
 
         # Reload scheduler
         await reload_rules()

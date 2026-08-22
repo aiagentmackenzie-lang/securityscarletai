@@ -287,14 +287,24 @@ async def force_change_password(
     return {"message": "Password changed successfully. You can now log in normally."}
 
 @router.post("/seed-admin")
-async def seed_admin_user():
+async def seed_admin_user(request: Request):
     """
-    Create an initial admin user if no users exist.
+    Create an initial admin user if no users exist (P1-14/P2-41 lockdown).
 
-    Race-condition safe: uses advisory lock + INSERT ... ON CONFLICT DO NOTHING
-    so concurrent requests cannot create duplicate admin accounts.
-    Default credentials: admin / admin (must be changed after first login).
+    Restricted to: (a) siem_users is empty, AND (b) the request originates
+    from localhost (127.0.0.1 / ::1). The created admin is given a known weak
+    password ('admin') but must_change_password=TRUE so the first login forces
+    a reset. In production rely on the Docker entrypoint (which creates a
+    random-password admin printed to `docker logs`). Never document admin/admin
+    as default credentials.
     """
+    client_host = request.client.host if request.client else None
+    if client_host not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Seed admin is only available from localhost.",
+        )
+
     pool = await get_pool()
     admin_hash = hash_password("admin")
 
@@ -302,11 +312,12 @@ async def seed_admin_user():
         # Advisory lock prevents race condition: only one seed at a time
         await conn.execute("SELECT pg_advisory_lock(12345)")
         try:
-            # Check + insert atomically within the same transaction + lock
+            # Check + insert atomically within the same transaction + lock.
+            # must_change_password=TRUE forces a reset on first login (P1-14).
             result = await conn.fetchrow(
                 """
-                INSERT INTO siem_users (username, email, password_hash, role)
-                SELECT $1, $2, $3, $4
+                INSERT INTO siem_users (username, email, password_hash, role, must_change_password)
+                SELECT $1, $2, $3, $4, TRUE
                 WHERE NOT EXISTS (SELECT 1 FROM siem_users)
                 ON CONFLICT DO NOTHING
                 RETURNING username
@@ -325,10 +336,12 @@ async def seed_admin_user():
             detail="Users already exist. Use the login endpoint.",
         )
 
-    log.warning("seed_admin_created", message="Default admin user created - CHANGE PASSWORD IMMEDIATELY")  # noqa: E501
+    log.warning("seed_admin_created", message="Localhost-seeded admin user created - password reset forced on first login")  # noqa: E501
     return {
-        "message": "Admin user created. Username: admin, Password: admin - CHANGE PASSWORD IMMEDIATELY",  # noqa: E501
+        "message": ("Admin user created (localhost-only seed). "
+                    "A password reset is required on first login."),
         "username": "admin",
+        "must_change_password": True,
     }
 
 

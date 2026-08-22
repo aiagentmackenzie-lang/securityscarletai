@@ -49,6 +49,38 @@ def verify_bearer_token(
     return credentials.credentials
 
 
+def _check_revocation(payload: dict) -> None:
+    """Raise 401 if the JWT payload is revoked (P1-11).
+
+    Shared by verify_jwt and get_current_user so the business API (which uses
+    get_current_user) enforces the same jti blocklist (logout) and user_revoke
+    (password change) markers as the auth-own endpoints. Fail-closed only if
+    Redis confirms; Redis being down = fail-open (degraded auth, service stays
+    available). Static bearer tokens (no jti/iat) are unaffected.
+    """
+    jti = payload.get("jti")
+    if jti:
+        from src.api.redis_client import is_jti_blocked
+
+        if is_jti_blocked(jti):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has been revoked",
+            )
+
+    sub = payload.get("sub")
+    iat = payload.get("iat")
+    if sub and iat is not None:
+        from src.api.redis_client import get_latest_user_revoke_ts
+
+        revoke_ts = get_latest_user_revoke_ts(sub)
+        if revoke_ts is not None and float(iat) < revoke_ts:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token issued before password change",
+            )
+
+
 def verify_jwt(
     credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
 ) -> dict:
@@ -73,26 +105,9 @@ def verify_jwt(
 
     # Epic 5: check blocklist (logout) and user_revoke (password change).
     # Fail-closed only if Redis is up AND confirms invalid; Redis being down = fail-open
-    # (degraded auth, but service stays available).
-    jti = payload.get("jti")
-    if jti:
-        from src.api.redis_client import is_jti_blocked
-        if is_jti_blocked(jti):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token has been revoked",
-            )
-
-    sub = payload.get("sub")
-    iat = payload.get("iat")
-    if sub and iat is not None:
-        from src.api.redis_client import get_latest_user_revoke_ts
-        revoke_ts = get_latest_user_revoke_ts(sub)
-        if revoke_ts is not None and float(iat) < revoke_ts:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token issued before password change",
-            )
+    # (degraded auth, but service stays available). Shared with get_current_user
+    # via _check_revocation (P1-11).
+    _check_revocation(payload)
 
     return cast(dict[str, Any], payload)
 
@@ -114,6 +129,10 @@ def get_current_user(
     # Try JWT first (dashboard users)
     try:
         payload = jwt.decode(token, secret, algorithms=[JWT_ALGORITHM])
+        # P1-11: enforce revocation (jti blocklist + user_revoke) on the business
+        # API too, not just the auth-own endpoints. Static bearer tokens below are
+        # unaffected (no jti/iat).
+        _check_revocation(payload)
         return cast(dict[str, Any], payload)
     except JWTError:
         pass

@@ -266,3 +266,49 @@ class TestDeleteRule:
             with pytest.raises(HTTPException) as exc_info:
                 await delete_rule(rule_id=9999, user="admin")
             assert exc_info.value.status_code == 404
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Rule mutation RBAC (P1-12)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+class TestRuleMutationRBAC:
+    """Rule create/update/delete require admin role (P1-12)."""
+
+    @pytest.mark.asyncio
+    async def test_viewer_cannot_create_rules(self):
+        from src.api.auth import require_role
+        from src.api.rules import create_rule
+
+        # require_role("admin") returns an async _check_role that calls
+        # get_current_user; patch it to return a viewer payload.
+        check_role = require_role("admin")
+        with patch("src.api.auth.get_current_user", return_value={"sub": "v", "role": "viewer"}):
+            with pytest.raises(HTTPException) as exc_info:
+                await check_role(credentials=MagicMock())
+            assert exc_info.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_admin_can_pass_role_check(self):
+        from src.api.auth import require_role
+
+        check_role = require_role("admin")
+        with patch("src.api.auth.get_current_user", return_value={"sub": "a", "role": "admin"}):
+            payload = await check_role(credentials=MagicMock())
+            assert payload["role"] == "admin"
+
+    def test_mutation_endpoints_depend_on_admin_role(self):
+        """The rule mutation endpoints are wired to require_role('admin')."""
+        import inspect
+
+        from src.api.rules import create_rule, delete_rule, update_rule
+
+        for fn in (create_rule, update_rule, delete_rule):
+            sig = inspect.signature(fn)
+            user_param = sig.parameters["user"]
+            dep = user_param.default
+            # The dependency is Depends(require_role("admin")) -> the inner
+            # dependency attribute is the _check_role closure.
+            assert hasattr(dep, "dependency")
+            assert dep.dependency.__name__ == "_check_role"

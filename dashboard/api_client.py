@@ -210,7 +210,25 @@ class ApiClient:
 
     @staticmethod
     def logout():
-        """Clear session state — L-09 fix: clear all auth-related keys."""
+        """Server-side logout then clear session state (P2-40).
+
+        POSTs the current access token to /auth/logout so the server blocklists
+        its jti (so a leaked token stops working immediately). Best-effort: any
+        error is ignored — clearing local session is always done. L-09 fix:
+        clear all auth-related keys.
+        """
+        token = st.session_state.get("access_token")
+        if token:
+            try:
+                httpx.post(
+                    f"{API_BASE_URL}/auth/logout",
+                    headers={"Authorization": f"Bearer {token}",
+                              "Content-Type": "application/json"},
+                    timeout=REQUEST_TIMEOUT,
+                )
+            except Exception:  # noqa: S110 — best-effort; never block local logout
+                # Best-effort — never block local logout on a server error.
+                pass
         for key in list(st.session_state.keys()):
             if key in ("access_token", "username", "role", "authenticated",
                        "user_verified", "last_role_verify", "api_client"):
