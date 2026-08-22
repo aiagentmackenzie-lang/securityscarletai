@@ -1055,3 +1055,6 @@ in the final pass (Phase 11); this log is the running record.
 - P1-04 — reverse_shell.yml + ssh_success_after_failures.yml duplicate-key YAML fixed (list form; ssh -> pure threshold) — 359a339
 - P2-10 — to_sql parses condition once (was double-parse leaving untyped unreferenced placeholders) — 359a339 (moved up from Phase 9; blocked data_exfiltration_volume execution)
 - INET LIKE host(col)::text + Sigma '*' -> IS NOT NULL (login_unusual_geography, impossible_travel, data_exfiltration — unflagged INET runtime bugs surfaced by execution test) — 359a339
+- P0-03 (completion) — severity column verified in detect_defense_evasion_cleanup query (executes) — 8d357de
+- P1-07 — ingest writes enrichment back to logs.enrichment JSONB (flush + UPDATE-by-tuple); LogWriter.flush() added — 8d357de
+- P1-16 — IngestEvent: process_cmdline/process_path/host_ip added; seed_realistic_data reverse-shell sets process_cmdline — 8d357de
