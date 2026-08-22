@@ -1065,3 +1065,9 @@ in the final pass (Phase 11); this log is the running record.
 - P1-09 — calculate_asset_risk exposure query moved inside async-with conn block — 6338cf0
 - P1-10 — get_top_risk_assets rewritten (joined outbound-conns subquery; catalog's logs.id premise was incomplete — subquery didn't expose id/event_category) — 6338cf0
 - P2-25 — schedule_rules schedules auto_train_check hourly — 6338cf0
+- P1-11 — get_current_user enforces jti blocklist + user_revoke via shared _check_revocation — 52ed123
+- P1-12 — rule mutations require admin role; viewer gets 403 — 52ed123
+- P1-14 / P2-41 — seed-admin localhost-only + must_change_password=TRUE; dashboard button + admin/admin text removed — 52ed123
+- P2-23 — log_audit_action no longer raises (logs+returns None); audit added to rule/alert mutations — 52ed123
+- P2-24 — alerts.py uses user.get("sub") not str(user) for author/created_by/updated_by/assigned_to — 52ed123
+- P2-40 — dashboard logout POSTs /auth/logout (server-side blocklist) before clearing session — 52ed123
