@@ -7,6 +7,30 @@ on:
     branches: [main]
 
 jobs:
+  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
+  # entrypoint, dependency install failures) is caught instead of slipping
+  # through a test-only gate. No secrets required.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t securityscarletai:ci .
+
+      - name: Verify image boots its entrypoint
+        # P0-05 class: assert the app imports without crashing at load. We run
+        # under `python -c import src.api.main` with dummy env that satisfies the
+        # Settings validators — import does NOT connect to a DB, so no service is
+        # needed. This catches stale COPYs/bad imports that `docker build` alone
+        # can't (build only checks file presence, not runtime import).
+        run: |
+          docker run --rm --entrypoint python \
+            -e DB_PASSWORD=dummypassword123456 \
+            -e API_SECRET_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+            -e API_BEARER_TOKEN=dummybearertoken1234 \
+            securityscarletai:ci -c "import src.api.main; print('import ok')"
+
   test:
     runs-on: ubuntu-latest
 
@@ -25,6 +49,19 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+    # P2-38: point the app's settings.db_* at the provisioned service and
+    # ungate the integration tests. The app reads settings.db_* (not
+    # DATABASE_URL); the integration conftest gates on RUN_INTEGRATION_TESTS.
+    env:
+      DB_HOST: localhost
+      DB_PORT: "5433"
+      DB_NAME: scarletai
+      DB_USER: scarletai
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      API_SECRET_KEY: ${{ secrets.API_SECRET_KEY }}
+      API_BEARER_TOKEN: ${{ secrets.API_BEARER_TOKEN }}
+      RUN_INTEGRATION_TESTS: "1"
+
     steps:
       - uses: actions/checkout@v4
 
@@ -34,6 +71,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
           pip install poetry
           poetry install
 
@@ -49,16 +87,26 @@ jobs:
         # This config is actually green; tighten incrementally over time.
         run: poetry run mypy src
 
+      - name: Apply schema (ON_ERROR_STOP=1)
+        # P2-30/P2-38: apply the canonical schema to the provisioned
+        # Postgres with ON_ERROR_STOP=1 so a broken/partial apply fails the
+        # job loudly instead of reporting success while tables are missing.
+        run: |
+          PGPASSWORD="$DB_PASSWORD" psql \
+            -h localhost -p 5433 -U scarletai -d scarletai \
+            -v ON_ERROR_STOP=1 -f src/db/schema.sql
+
       - name: Unit tests
         run: poetry run pytest tests/unit/ -q
-        env:
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          API_SECRET_KEY: ${{ secrets.API_SECRET_KEY }}
-          API_BEARER_TOKEN: ${{ secrets.API_BEARER_TOKEN }}
+
+      - name: Integration tests
+        # P2-38: integration tests run against the provisioned Postgres with
+        # the schema applied. Previously they silently skipped (no
+        # DATABASE_URL/RUN_INTEGRATION_TESTS) while CI stayed green — the
+        # systemic reason every P0 slipped through.
+        run: poetry run pytest tests/integration/ -v
 
       - name: Coverage
-        run: poetry run pytest tests/ --cov=src --cov-fail-under=80 --tb=short -q
-        env:
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          API_SECRET_KEY: ${{ secrets.API_SECRET_KEY }}
-          API_BEARER_TOKEN: ${{ secrets.API_BEARER_TOKEN }}
+        # Coverage over the deterministic mocked unit suite (integration is
+        # exercised in its own step above). Keeps the gate stable.
+        run: poetry run pytest tests/unit --cov=src --cov-fail-under=80 --tb=short -q

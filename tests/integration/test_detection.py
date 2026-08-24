@@ -111,8 +111,10 @@ async def test_alert_deduplication(db_pool):
         description="Duplicate alert",
     )
 
-    # Second call should return same ID (deduplicated)
-    assert alert_id_1 == alert_id_2
+    # Dedup contract (matches unit tests): the second call within the dedup
+    # window returns -1 (suppressed) rather than the existing alert's id.
+    assert alert_id_1 > 0
+    assert alert_id_2 == -1
 
     # Cleanup
     async with db_pool.acquire() as conn:
@@ -134,7 +136,7 @@ async def test_alert_stats(db_pool):
         description="Critical alert",
     )
 
-    stats = await get_alert_stats("1 hour")
+    stats = await get_alert_stats(1)
 
     assert "new_count" in stats
     assert "critical_count" in stats
