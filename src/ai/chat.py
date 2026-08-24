@@ -159,10 +159,15 @@ async def build_security_context() -> str:
 
 async def chat(
     message: str,
-    session_context: Optional[str] = None,
+    session_id: Optional[str] = None,
     user: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Process a chat message and return an AI response.
+
+    ``session_id`` is a correlation/log key only — the prompt is rebuilt fresh
+    each turn from the live DB security context, so multi-turn conversation
+    memory is NOT implemented (P2-26). ``user`` is forwarded to cost tracking
+    so authenticated calls are attributed to the analyst rather than "system".
 
     Returns a dict that always includes:
       - response       (str)   — the text to show
@@ -203,7 +208,7 @@ async def chat(
         sanitized_message=sanitized,
     )
 
-    log.info("chat_request", message=sanitized[:50])
+    log.info("chat_request", message=sanitized[:50], session_id=session_id, user=user)
 
     # 4. Build a fallback response (used if Ollama is down)
     fallback_text = generate_fallback_response(sanitized, context)

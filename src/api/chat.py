@@ -22,7 +22,8 @@ class ChatRequest(BaseModel):
         description="Security question or command",
     )
     session_id: str | None = Field(
-        None, description="Session ID for conversation continuity",
+        None,
+        description="Session ID for request correlation (multi-turn memory not yet implemented)",
     )
 
 
@@ -52,9 +53,17 @@ async def chat_endpoint(
         "chat_request",
         message=request.message[:50],
         user=_user.get("sub"),
+        session_id=request.session_id,
     )
 
-    result = await chat(request.message, request.session_id)
+    # P2-26: forward the authenticated analyst so cost tracking attributes the
+    # call to a real user (was user=None -> "system"), and thread session_id
+    # through as a correlation key.
+    result = await chat(
+        request.message,
+        session_id=request.session_id,
+        user=_user.get("sub"),
+    )
 
     return ChatResponse(
         response=result["response"],
