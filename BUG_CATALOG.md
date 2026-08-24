@@ -1102,3 +1102,4 @@ in the final pass (Phase 11); this log is the running record.
 - P2-09 — correlation as_of docstrings corrected to datetime.now(timezone.utc) (code already aware) — fa9c6fd
 - P2-12 — lifespan calls close_geoip_reader() on shutdown — fa9c6fd
 - P2-22 — FileShipper checkpoint path per-instance (defaults to legacy global) — fa9c6fd
+- P2-26 — chat forwards authenticated user to cost tracking; session_id threaded as correlation key (multi-turn memory documented as not implemented) — 39155e9
