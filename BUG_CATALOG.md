@@ -1097,3 +1097,8 @@ in the final pass (Phase 11); this log is the running record.
 - P2-36 — execute_hunt forwards actor; save_hunt_history records analyst not 'hunting_assistant' — 53cedb0
 - P2-44 — generate_attack_data brute-force fixture adds local_address so parser extracts source_ip — 53cedb0
 - P2-11 — moot (pySigma parse path deleted in P0-04) — 53cedb0
+- P1-05 — load_sigma_rules reconciles every boot (upsert by name, preserve operator state, log db-only orphans) — fa9c6fd
+- P2-08 — dead-letter writes one event per line (true JSON-Lines) — fa9c6fd
+- P2-09 — correlation as_of docstrings corrected to datetime.now(timezone.utc) (code already aware) — fa9c6fd
+- P2-12 — lifespan calls close_geoip_reader() on shutdown — fa9c6fd
+- P2-22 — FileShipper checkpoint path per-instance (defaults to legacy global) — fa9c6fd
