@@ -1103,3 +1103,4 @@ in the final pass (Phase 11); this log is the running record.
 - P2-12 — lifespan calls close_geoip_reader() on shutdown — fa9c6fd
 - P2-22 — FileShipper checkpoint path per-instance (defaults to legacy global) — fa9c6fd
 - P2-26 — chat forwards authenticated user to cost tracking; session_id threaded as correlation key (multi-turn memory documented as not implemented) — 39155e9
+- P2-38 — CI builds Docker image + applies schema (ON_ERROR_STOP=1) + runs integration tests (were skipping); fixed two wrong integration test contracts (get_alert_stats int, dedup returns -1) — 4e1b210
