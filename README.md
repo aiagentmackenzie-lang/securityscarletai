@@ -2,8 +2,8 @@
 
 **AI-Native SIEM for macOS** — Real-time log ingestion, Sigma-based detection, ML-powered alert triage, and LLM-driven investigation assistance.
 
-[![Tests](https://img.shields.io/badge/tests-1258%20passing-brightgreen)]()
-[![Coverage](https://img.shields.io/badge/coverage-85%25-green)]()
+[![Tests](https://img.shields.io/badge/tests-1213%20unit%20%2B%205%20integration-brightgreen)]()
+[![Coverage](https://img.shields.io/badge/coverage-84%25-green)]()
 [![Rules](https://img.shields.io/badge/Sigma%20rules-45-blue)]()
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow)]()
@@ -26,11 +26,11 @@
 |-------|-----------|---------|
 | **Ingestion** | FastAPI + asyncpg | High-throughput log collection (osquery, syslog, API), fire-and-forget enrichment, rate-limited per IP |
 | **Storage** | PostgreSQL 17 + Redis 7 | Time-series logs, alerts, cases, correlation matches, AI usage + cost tracking; Redis for rate-limit state and JWT blocklist |
-| **Detection** | pySigma + custom backend | 45 Sigma rules → parameterized SQL, 7-rule correlation engine with event-driven `as_of` semantics, 7 sequence patterns |
+| **Detection** | Legacy Sigma parser + custom PostgreSQL backend | 45 Sigma rules → parameterized SQL, 7-rule correlation engine with event-driven `as_of` semantics, 7 sequence patterns (exposed via `/correlation/sequences`). The pySigma backend is retained as a unit-tested module but is **off the production path** (P0-04). |
 | **Enrichment** | GeoIP2 + DNS + Threat Intel | MaxMind GeoIP (with periodic retry), AbuseIPDB, OTX, URLhaus, severity boost on TI match |
 | **AI / ML** | Ollama + sklearn | NL→SQL (7-layer safety), calibrated Random Forest triage with provenance, Isolation Forest UEBA, hunting assistant, versioned prompt templates, per-call cost tracking |
 | **Dashboard** | Streamlit + WebSocket | Real-time alerts, cases, hunting, AI chat; JWT or service-to-service bearer auth |
-| **Response** | SOAR Lite | Slack/email notifications, pf firewall, case management |
+| **Response** | Notifications + Cases | Slack alert notifications (`send_alert_notification`); case management CRUD. Email and macOS pf-firewall response were removed as unwired dead code (P2-21/P2-28). |
 | **Audit** | DB-backed middleware | Every state-changing HTTP request written to `audit_logs`; permission-hardened table |
 
 ---
@@ -39,7 +39,7 @@
 
 - **45 Sigma Detection Rules** — Authentication, process, network, file, macOS, and cloud categories with MITRE ATT&CK mapping
 - **Event-Driven Correlation Engine** — 7 correlation rules (brute force → success, payload → C2, persistence, exfiltration, privilege escalation, credential theft + exfil, defense evasion) with `as_of` time binding (no `NOW()` in queries) and persistent `correlation_matches` table
-- **ML Alert Triage** — 11-feature CalibratedClassifierCV with StratifiedKFold cross-validation, full provenance persisted to `triage_model_provenance` (run_id, model_type, source_csv, n_samples, precision/recall/f1, model_path, run_metadata); auto-trains on >20% new labels or >7d stale
+- **ML Alert Triage** — 11-feature CalibratedClassifierCV with StratifiedKFold cross-validation, full provenance persisted to `triage_model_provenance` (run_id, model_type, source_csv, n_samples, precision/recall/f1, model_path, run_metadata); auto-trains hourly when ≥100 resolved alerts exist (1-hour cooldown)
 - **Versioned Prompt Templates** — Jinja2 templates in `src/ai/prompts.py` with explicit `prompt_version` constants, surfaced in `LLMResult.prompt_version`
 - **Per-Call AI Cost Tracking** — `src/ai/cost_tracker.py` records tokens, latency, model, prompt_version to `ai_usage` table on every LLM call
 - **Natural Language → SQL** — Ask questions in plain English, get safe parameterized SQL with 7-layer injection defense
@@ -53,7 +53,7 @@
 - **Redis Rate Limiting** — Per-endpoint overrides (`/auth/login` 5/min, `/ingest` 100/min) with custom 429 handler, `X-RateLimit-*` headers, fail-open to in-memory on Redis outage
 - **DB-Backed Audit Logs** — `AuditLogMiddleware` writes one row per state-changing HTTP request to `audit_logs` (append-only, with `REVOKE UPDATE,DELETE,TRUNCATE` hardening documented)
 - **Real-time Dashboard** — Streamlit with WebSocket live updates, auto-refresh, and toast notifications; two auth modes (JWT or `DASHBOARD_API_TOKEN` service bearer)
-- **SOAR Lite** — Automated Slack/email alerts and macOS pf firewall blocking
+- **Slack Alert Notifications** — automated Slack notifications on new alerts via `send_alert_notification` (email and macOS pf-firewall response were removed as unwired dead code)
 - **Docker Bootstrap** — Idempotent `entrypoint.sh` waits for Postgres, applies schema, seeds demo data, trains models, creates admin, execs uvicorn
 
 ---
@@ -69,7 +69,7 @@
 | Migrations | `src/db/schema.sql` (idempotent, append-only) |
 | AI/ML | Ollama (LLM), scikit-learn, joblib, Jinja2 |
 | Dashboard | Streamlit + streamlit-autorefresh |
-| Detection | pySigma |
+| Detection | Legacy Sigma parser (pySigma backend retained off-path) |
 | Networking | httpx, websockets |
 | Auth | JWT (python-jose) + bcrypt + Redis blocklist |
 | Geolocation | MaxMind GeoIP2 |
@@ -120,6 +120,7 @@ curl http://localhost:8000/api/v1/health
 # {
 #   "status": "healthy",
 #   "checks": {"api": "ok", "database": "ok", "ollama": "ok|error|unreachable"},
+#   "ollama_status": "healthy|degraded|unavailable",
 #   "ollama": {"ollama_status": "healthy|degraded|unavailable", "model": "<name>|null", "error": "<msg>|null"}
 # }
 ```
@@ -175,8 +176,11 @@ Key endpoints (all under `/api/v1`):
 | `/ai/explain/{alert_id}` | POST | Get LLM explanation for an alert |
 | `/ai/ueba/{user_name}` | GET | UEBA anomaly score for a user |
 | `/query` | POST | Natural language → SQL query |
-| `/chat` | POST | AI chat assistant |
-| `/hunt/suggestions` | GET | Get hunting suggestions |
+| `/ai/chat` | POST | AI chat assistant |
+| `/hunt/templates` | GET | List pre-built hunt templates |
+| `/hunt/{hunt_id}/execute` | POST | Execute a hunt template (analyst) |
+| `/hunt/gaps` | GET | MITRE ATT&CK gap analysis |
+| `/hunt/from-alert/{alert_id}` | POST | Suggest hunts from an alert (analyst) |
 | `/threat-intel/stats` | GET | Threat intel cache + per-feed health (ok/error/no_key/never_refreshed) |
 | `/threat-intel/refresh` | POST | Force-refresh threat intel feeds |
 | `/threat-intel/lookup/ip/{ip}` | GET | Lookup IP against all feeds |
@@ -223,26 +227,24 @@ Enrichments applied (in order):
 2. **DNS reverse** — PTR record for public IPs.
 3. **Threat Intel** — match against the cached IOC database (AbuseIPDB,
    OTX, URLhaus); hits boost the event severity.
-4. **Severity boost** — high-confidence threat-intel matches upgrade the
-   event to `high` or `critical` automatically.
+4. **Severity boost** — high-confidence threat-intel matches set a
+   `severity_boost` recommendation (`critical`/`high`/`medium`) on the event's
+   enrichment dict for downstream consumers (it does not rewrite the event's own
+   severity).
 
-### GeoIP singleton retry
+### GeoIP singleton + lazy retry
 
-The pre-Epic-9 GeoIP reader set its "loaded" flag *before* the
-init try/except, so a single missing `.mmdb` (or any init failure)
-would permanently disable GeoIP for the rest of the process lifetime.
-The fix:
-
-- `_geoip_loaded` is only set to `True` after a successful `Reader()` open.
-- Init attempts are throttled to once per 60s, so a missing file doesn't
-  thrash the FS.
-- Optional `_geoip_retry_loop()` coroutine can be scheduled from
-  `main.py` to periodically re-attempt — useful when an operator drops
-  the `.mmdb` in after the API has already started.
+The GeoIP reader is a lazy singleton (`_get_geoip_reader`). Init is attempted on
+the first enrich call and re-attempted at most once per 60s if it failed, so a
+missing `.mmdb` neither permanently disables GeoIP for the process lifetime
+nor thrashes the FS on every call. `_geoip_loaded` is only set `True` after a
+successful `Reader()` open. The reader handle is closed on shutdown via
+`close_geoip_reader()` in the lifespan (P2-12) — there is no background retry
+loop.
 
 ### Correlation trigger
 
-The ingest path also fires `run_all_correlations(persist_alerts=True)`
+The ingest path also fires `run_all_correlations(persist=True)`
 as a background task, so a single batch of events can produce new
 alerts without a separate correlation sweep. The call is fire-and-forget:
 correlation errors are logged but never block the HTTP response.
@@ -333,11 +335,14 @@ access from the dashboard.
 ## Testing
 
 ```bash
-# Run the full unit suite (1258 tests, 3 warnings, ~23s)
+# Run the full unit suite (1213 tests, mocked DB, ~25s)
 poetry run pytest tests/unit/ -q --no-cov
 
-# With coverage report
+# With coverage report (gate: 80%; currently ~84%)
 poetry run pytest tests/unit/ --cov=src --cov-report=term-missing -q
+
+# Integration tests (require a live PostgreSQL with the schema applied)
+RUN_INTEGRATION_TESTS=1 poetry run pytest tests/integration/ -v
 
 # Lint
 poetry run ruff check src/ dashboard/
@@ -346,8 +351,11 @@ poetry run ruff check src/ dashboard/
 poetry run mypy src/
 ```
 
-CI runs the unit suite on every push; integration tests in `tests/integration/`
-require a live Postgres + Redis and are run on a separate job.
+CI (`.github/workflows/ci.yml`) runs on every push to `main` and `polish-and-docs`:
+it builds the Docker image, runs ruff + mypy, applies `schema.sql` to a
+provisioned Postgres 17 with `ON_ERROR_STOP=1`, then runs the unit suite, the
+integration suite, and the coverage gate. Integration tests need Postgres only
+(no Redis); they were previously silently skipping — they now run in CI.
 
 ## Security
 
@@ -405,8 +413,8 @@ securityscarletai/
 │   │   ├── alerts.py        # Alert CRUD, export, suppressions
 │   │   ├── cases.py         # Case management
 │   │   ├── ai.py            # /ai/status, /ai/train, /ai/triage, /ai/explain, /ai/ueba
-│   │   ├── chat.py          # /chat AI chat endpoint
-│   │   ├── hunt.py          # /hunt/suggestions
+│   │   ├── chat.py          # /ai/chat AI chat endpoint
+│   │   ├── hunt.py          # /hunt/templates, /hunt/gaps, /hunt/{id}/execute, /hunt/from-alert
 │   │   ├── query.py         # /query NL→SQL
 │   │   ├── correlation.py   # /correlation/rules, /run, /matches
 │   │   ├── threat_intel.py  # /threat-intel/stats|refresh|lookup
@@ -432,23 +440,25 @@ securityscarletai/
 │   │   ├── cost_tracker.py  # Per-call cost + latency → ai_usage
 │   │   └── utils.py         # Shared helpers
 │   ├── detection/           # Detection engine
-│   │   ├── sigma.py         # pySigma parser + PostgreSQL backend
+│   │   ├── sigma.py         # Legacy SigmaParser + parameterized SQL (pySigma backend retained off-path)
 │   │   ├── correlation.py   # 7 correlation rules (as_of, persist)
-│   │   ├── sequences.py     # 7 event sequence patterns
+│   │   ├── sequences.py     # 7 event sequence patterns (exposed via /correlation/sequences)
 │   │   ├── alerts.py        # Alert lifecycle management
-│   │   └── scheduler.py     # Rule scheduler
+│   │   ├── scheduler.py     # Rule scheduler + hourly auto-train check
+│   │   ├── mitre.py         # MITRE ATT&CK STIX cache + gap analysis
+│   │   ├── ai_analyzer.py   # Per-alert AI analysis (called by scheduler)
+│   │   └── backends/        # pySigma PostgreSQL backend (unit-tested, off production path)
 │   ├── enrichment/          # Event enrichment
 │   │   └── pipeline.py      # GeoIP (with retry), DNS, Threat Intel
 │   ├── intel/               # Threat intelligence
 │   │   └── threat_intel.py  # AbuseIPDB, OTX, URLhaus clients
-│   ├── ingestion/           # Log ingestion
+│   ├── ingestion/           # Log ingestion (osquery tail + ECS parsing)
 │   │   ├── parser.py        # ECS normalization
-│   │   ├── shipper.py       # File tailing (osquery)
-│   │   ├── schemas.py       # Pydantic models
-│   │   └── ingest.py        # Ingestion path with async enrichment + correlation trigger
-│   ├── response/            # SOAR Lite
-│   │   ├── soar.py          # Slack, email, pf
-│   │   └── notifications.py # Notification dispatch
+│   │   ├── shipper.py       # File tailing (polling, checkpointed, per-instance path)
+│   │   ├── schemas.py       # Pydantic NormalizedEvent model
+│   │   └── runner.py        # maybe_create_shipper() — lifespan wiring
+│   ├── response/            # Notifications
+│   │   └── notifications.py  # Slack alert notifications (send_alert_notification)
 │   ├── services/
 │   │   └── writer.py        # Batched log writer
 │   ├── config/              # Configuration
@@ -479,11 +489,18 @@ securityscarletai/
 │       ├── macOS/           # 10 rules
 │       └── cloud/           # 5 rules
 ├── scripts/
-│   ├── entrypoint.sh        # Idempotent Docker bootstrap
-│   ├── generate_training_data.py  # Synthetic alert generator for model training
-│   ├── run_osquery_demo.sh  # Live telemetry demo (osquery -> shipper -> alert)
+│   ├── entrypoint.sh             # Idempotent Docker bootstrap (wait DB, schema, seed, train, admin)
+│   ├── run_osquery_demo.sh       # Live telemetry demo (osquery -> shipper -> Sigma -> alert)
 │   ├── generate_osquery_events.py # Emits osquery result-log lines for the demo
-├── tests/                   # 1258 tests (unit + integration)
+│   ├── generate_attack_data.py   # Synthetic attack fixtures
+│   ├── generate_training_data.py # Synthetic alert generator for triage training
+│   ├── seed_demo_data.py         # Seed demo alerts (run by entrypoint)
+│   ├── seed_realistic_data.py    # Seed a realistic demo dataset
+│   ├── migrate_passwords.py      # One-off password migration helper
+│   ├── analyze_alerts.py         # Ad-hoc alert analysis helper
+│   ├── validate_config.py        # Validate .env / settings
+│   └── backup.sh                 # Reference pg_dump backup script
+├── tests/                   # 1213 unit tests + 5 integration tests
 ├── docs/                    # AI.md, RULES.md, DEPLOYMENT.md, ATTACK-SCENARIOS.md
 └── docker-compose.yml       # Postgres 17 + Redis 7 + API + dashboard
 ```
@@ -506,11 +523,12 @@ open http://localhost:8501     # dashboard (JWT login or DASHBOARD_API_TOKEN)
 
 ## Attack Simulation Walkthroughs
 
-See [docs/ATTACK-SCENARIOS.md](docs/ATTACK-SCENARIOS.md) for 3 detailed walkthroughs:
+See [docs/ATTACK-SCENARIOS.md](docs/ATTACK-SCENARIOS.md) for 4 detailed walkthroughs:
 
-1. **SSH Brute Force** — Detection → AI explanation → SOAR IP blocking
+1. **SSH Brute Force** — Detection → AI explanation → manual IP blocking
 2. **Reverse Shell** — Process detection → alert triage → case creation
 3. **Data Exfiltration** — Network detection → NL query → hunting
+4. **Insider Privilege Escalation** — sudo + log deletion → defense-evasion correlation
 
 ---
 

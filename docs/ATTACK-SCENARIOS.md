@@ -328,7 +328,7 @@ The **Suspicious Activity → Log Deletion** correlation rule (`defense_evasion_
 
 ### Step 7: Analyst Actions
 
-1. **Disable account**: `POST /auth/disable` (admin-only — when endpoint-agent integration lands, this will be automated via AD/LDAP)
+1. **Disable account**: there is no `/auth/disable` endpoint today — disable `jdoe` directly in the DB (`UPDATE siem_users SET is_active = false WHERE username = 'jdoe'`) or via a future endpoint-agent / IdP integration
 2. **Pull audit trail**: Query `audit_logs` for all actions by `jdoe` in the last 90 days
 3. **Case creation**: Use the "Insider Threat" template
 4. **Coordinate with HR/Legal**: Per organizational policy

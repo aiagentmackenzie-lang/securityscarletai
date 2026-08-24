@@ -17,7 +17,7 @@ Every Ollama call returns an `LLMResult` dataclass (`src/ai/ollama_client.py`) i
 class LLMResult:
     ok: bool                       # True iff `text` is safe to use
     text: str                      # The model output (or template fallback)
-    source: SourceType             # "ollama" | "template" | "error"
+    source: SourceType             # "ollama" | "template_library" | "error"
     model_used: Optional[str]      # The Ollama model that answered
     tokens_in: int                 # Prompt tokens (0 for templates)
     tokens_out: int                # Completion tokens (0 for templates)
@@ -37,10 +37,10 @@ All LLM prompts live in one place as Jinja2 templates with explicit version cons
 
 | Constant | Version | Used by |
 |----------|---------|---------|
-| `ALERT_EXPLANATION_PROMPT_VERSION` | `v1.0.0` | `src/ai/alert_explanation.py` |
-| `ALERT_SUMMARY_PROMPT_VERSION` | `v1.0.0` | `src/ai/alert_triage.py` (summaries) |
-| `INVESTIGATION_STEPS_PROMPT_VERSION` | `v1.0.0` | `src/ai/alert_explanation.py` (steps) |
-| `CHAT_SYSTEM_PROMPT_VERSION` | `v1.0.0` | `src/api/chat.py` |
+| `ALERT_EXPLANATION_PROMPT_VERSION` | `v1.0.0` | `src/ai/alert_explanation.py` (`explain_alert`) |
+| `ALERT_SUMMARY_PROMPT_VERSION` | `v1.0.0` | _template retained; caller `summarize_multiple_alerts` deleted as dead code (P2-28)_ |
+| `INVESTIGATION_STEPS_PROMPT_VERSION` | `v1.0.0` | _template retained; caller `suggest_investigation_steps` deleted as dead code (P2-28)_ |
+| `CHAT_SYSTEM_PROMPT_VERSION` | `v1.0.0` | `src/ai/chat.py` (via `render_chat`) |
 
 Render helpers (`render_alert_explanation`, `render_alert_summary`, etc.) return both the rendered text and a content hash. Bumping the version constant is the only edit needed to roll a prompt forward.
 
@@ -50,7 +50,7 @@ Render helpers (`render_alert_explanation`, `render_alert_summary`, etc.) return
 
 ### Graceful degradation
 
-If Ollama is unreachable, `LLMResult.source == "template"` and `fallback_used == True`. Each AI feature has a deterministic template fallback so behavior is reproducible without an LLM.
+If Ollama is unreachable, `LLMResult.source == "template_library"` and `fallback_used == True`. Each AI feature has a deterministic template fallback so behavior is reproducible without an LLM.
 
 ---
 
@@ -129,7 +129,7 @@ The `AlertTriageModel.FEATURES` list defines the input feature vector:
 1. Alerts with status `resolved` or `false_positive` are pulled from the DB as training data (positive = `true_positive`, negative = `false_positive`).
 2. For development without real labels, `scripts/generate_training_data.py` produces 1,000 stratified synthetic alerts (seed=42, deterministic).
 3. Features are extracted from each alert's context.
-4. `RandomForestClassifier(n_estimators=100, class_weight="balanced")` is wrapped in `CalibratedClassifierCV(cv=3, method="isotonic")`.
+4. `RandomForestClassifier(n_estimators=50, class_weight="balanced")` is wrapped in `CalibratedClassifierCV(cv=3, method="isotonic")`.
 5. 5-fold StratifiedKFold cross-validation computes precision, recall, and F1 on the aggregated CV predictions (not per-fold averaged — this was a V2 bugfix).
 6. The trained model is saved to `models/triage_model.joblib` with a SHA-256 integrity hash to `models/triage_model.sha256`.
 7. A provenance row is written to `triage_model_provenance` recording the model path, hyperparameters, dataset size, CV metrics, and run metadata.
@@ -193,23 +193,27 @@ The UEBA module (`src/ai/ueba.py`) builds behavioral baselines for each user usi
 When an alert is created, the system generates a human-readable explanation via `src/ai/alert_explanation.py`:
 
 1. **Context assembly** — Rule name, severity, affected host, MITRE techniques, and evidence are gathered
-2. **Jinja2 prompt render** — `render_alert_explanation()` produces the user prompt from `ALERT_EXPLANATION_PROMPT_VERSION = "v1.0.0"`; `render_investigation_steps()` produces the recommended next-steps block from `INVESTIGATION_STEPS_PROMPT_VERSION = "v1.0.0"`
+2. **Jinja2 prompt render** — `render_alert_explanation()` produces the user prompt from `ALERT_EXPLANATION_PROMPT_VERSION = "v1.0.0"`. (A `render_investigation_steps()` helper still exists in `prompts.py` but its caller `suggest_investigation_steps` was removed as dead code — P2-28.)
 3. **LLM query** — Ollama is asked to explain the alert in 2-4 sentences covering:
    - **What happened**: Brief description of detected activity
    - **Why it matters**: Risk and context assessment
    - **Next steps**: Specific investigation recommendations
-4. **Fallback** — If Ollama is unavailable, a template-based explanation is selected by `(event_category, severity)`. The fallback is recorded in the `LLMResult` (`source="template"`, `fallback_used=True`).
+4. **Fallback** — If Ollama is unavailable, a template-based explanation is selected by rule name (`get_template_explanation` matches against `TEMPLATE_EXPLANATIONS` keys like `brute_force_ssh`, `reverse_shell`, `c2_beaconing`, …). The fallback is recorded in the `LLMResult` (`source="template_library"`, `fallback_used=True`).
 
 ### Template Fallbacks (6)
 
-| Template | Trigger Condition |
-|----------|------------------|
-| Authentication template | `event_category = 'authentication'` |
-| Process template | `event_category = 'process'` |
-| Network template | `event_category = 'network'` |
-| File template | `event_category = 'file'` |
-| Critical severity template | `severity = 'critical'` |
-| Generic template | Default fallback |
+The `TEMPLATE_EXPLANATIONS` map in `src/ai/alert_explanation.py` is keyed by rule type (matched loosely by `get_template_explanation`):
+
+| Key | Triggers on |
+|-----|------------|
+| `brute_force_ssh` | SSH brute-force rule name |
+| `suspicious_tmp_process` | Process-from-/tmp rule name |
+| `launch_agent_persistence` | macOS LaunchAgent/LaunchDaemon rule name |
+| `reverse_shell` | Reverse-shell pattern rule name |
+| `c2_beaconing` | C2 beaconing rule name |
+| `data_exfiltration_volume` | Data exfiltration volume rule name |
+
+A generic fallback (`_generic_fallback`) is used when no template matches.
 
 ### Example Explanation
 
@@ -229,13 +233,13 @@ For an SSH Brute Force alert:
 
 | ID | Name | Category | MITRE |
 |----|------|----------|-------|
-| `lateral_movement_service_accounts` | Lateral Movement — New Service Accounts | Persistence | T1078, T1021 |
-| `data_staging_temp_files` | Data Staging in Temp Directories | Exfiltration | T1074 |
-| `c2_beaconing_connections` | C2 Beaconing Connection Patterns | Command & Control | T1071 |
-| `privilege_escalation_sudo` | Sudo-Based Privilege Escalation | Privilege Escalation | T1548 |
-| `credential_dumping` | Credential Dumping Tool Execution | Credential Access | T1003 |
-| `unusual_network_activity` | Unusual Outbound Network Activity | Command & Control | T1071 |
-| `persistence_launch_agents` | LaunchAgent Persistence Creation | Persistence | T1547 |
+| `lateral_movement_service_accounts` | Lateral Movement — New Service Accounts | persistence | T1078, T1021 |
+| `data_staging_temp_files` | Data Staging — Large File Operations | collection | T1560, T1074 |
+| `c2_beaconing_connections` | C2 Beaconing — Regular Connections | command_and_control | T1071, T1573 |
+| `privilege_escalation_sudo` | Privilege Escalation — Sudo Pattern | privilege_escalation | T1548 |
+| `credential_dumping` | Credential Dumping Indicators | credential_access | T1003, T1055 |
+| `unusual_network_activity` | Unusual Outbound Network Activity | exfiltration | T1048, T1041 |
+| `persistence_launch_agents` | Persistence — LaunchAgent Creation | persistence | T1547, T1037 |
 
 Each template includes a ready-to-execute parameterized SQL query.
 
@@ -258,11 +262,10 @@ Given an alert, the hunting assistant:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/v1/hunt/suggestions` | GET | Get hunting suggestions |
-| `/api/v1/hunt/execute` | POST | Execute a hunt query |
-| `/api/v1/hunt/from-alert/{alert_id}` | GET | Generate hunts from an alert |
-| `/api/v1/hunt/mitre-gaps` | GET | MITRE ATT&CK coverage gaps |
-| `/api/v1/hunt/history` | GET | Hunt execution history |
+| `/api/v1/hunt/templates` | GET | List pre-built hunt templates |
+| `/api/v1/hunt/{hunt_id}/execute` | POST | Execute a hunt template (analyst) |
+| `/api/v1/hunt/gaps` | GET | MITRE ATT&CK gap analysis |
+| `/api/v1/hunt/from-alert/{alert_id}` | POST | Suggest hunts from an alert (analyst) |
 
 ---
 
@@ -293,21 +296,24 @@ All scores are capped at 100.
 
 ### API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/v1/ai/risk/alert/{alert_id}` | GET | Risk score for a specific alert |
-| `/api/v1/ai/risk/asset/{hostname}` | GET | Risk score for a host/asset |
-| `/api/v1/ai/risk/user/{username}` | GET | Risk score for a user |
+Risk scoring is currently an **internal engine** — `RiskScorer` is invoked from
+the triage/detection path (`get_top_risk_assets`, `calculate_asset_risk`,
+`calculate_user_risk`) and the alert risk path, but it is **not** exposed via a
+public API endpoint. The `/api/v1/ai/risk/*` routes previously documented here do
+not exist. Surfacing them is tracked as a follow-up.
 
 ---
 
 ## Chat Endpoint
 
-The `/api/v1/chat` endpoint exposes a conversational interface backed by the same Ollama client. The system prompt is rendered from `CHAT_SYSTEM_PROMPT_VERSION = "v1.0.0"`. The endpoint:
+The `/api/v1/ai/chat` endpoint exposes a conversational interface backed by the same Ollama client. The system prompt is rendered from `CHAT_SYSTEM_PROMPT_VERSION = "v1.0.0"`. The endpoint:
 
-1. Loads the recent alert context for the user
-2. Renders the chat system prompt with that context
-3. Calls Ollama with the user's message + history
-4. Returns the `LLMResult` (text, model, token counts, latency)
+1. Builds a live security context from the database (alert summary, top hosts, recent critical/high alerts) via `build_security_context()`
+2. Renders the chat user prompt with that context + the sanitized message
+3. Calls Ollama (template fallback if unavailable)
+4. Returns the response plus token/latency/cost metadata; cost is attributed to the authenticated analyst (`user` is forwarded, P2-26)
 
-The chat endpoint is **read-only** — it has no access to mutation routes. All responses cite the alert IDs they referenced for audit.
+**Note:** `session_id` is accepted as a correlation/log key only — multi-turn
+conversation memory is **not** implemented; the prompt is rebuilt fresh each
+turn from the live DB context (P2-26). The endpoint is **read-only** (it has no
+access to mutation routes).

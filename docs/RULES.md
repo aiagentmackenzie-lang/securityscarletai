@@ -1,6 +1,6 @@
 # Detection Rules Reference
 
-SecurityScarletAI ships with **45 Sigma rules** and **7 event-driven correlation rules**, covering authentication, process, network, file, macOS, and cloud attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL via our custom pySigma PostgreSQL backend.
+SecurityScarletAI ships with **45 Sigma rules** and **7 event-driven correlation rules**, covering authentication, process, network, file, macOS, and cloud attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL by the legacy `SigmaParser` + custom PostgreSQL backend in `src/detection/sigma.py`. (A pySigma-backed `PostgreSQLBackend` is retained as a unit-tested module but is off the production detection path — see P0-01/P0-04.)
 
 ---
 
@@ -196,12 +196,12 @@ The timeframe sets the rolling window for the detection query.
 Use the Sigma compiler directly to verify a rule compiles to safe SQL:
 
 ```python
-from src.detection.sigma import compile_sigma_rule
+from src.detection.sigma import sigma_to_sql
 
 with open("rules/sigma/process/my_new_rule.yml") as f:
     rule_yaml = f.read()
 
-sql, params = compile_sigma_rule(rule_yaml)
+sql, params = sigma_to_sql(rule_yaml)
 print(sql)       # Parameterized SQL (no string interpolation)
 print(params)    # Bound parameters
 ```
@@ -212,7 +212,7 @@ Unit tests under `tests/unit/test_sigma.py` exercise the compiler across all 45 
 
 ## Rule Lifecycle
 
-- **Loading**: `src/detection/sigma.py` loads all `.yml` files under `rules/sigma/` at API startup.
+- **Loading**: `src/api/main.py::load_sigma_rules` reconciles all `.yml` files under `rules/sigma/` into the `rules` table on **every boot** (upsert by name; operator-set state like `enabled`/`last_run` is preserved). New/edited Sigma YAML is no longer silently ignored after first boot (P1-05).
 - **Evaluation**: The detection scheduler ticks periodically and runs each rule against recent `logs` rows.
 - **Alert creation**: Matching rows are inserted into the `alerts` table via `create_alert()`.
 - **Suppression**: Per-rule suppression rules in the `alert_suppressions` table allow tuning false-positive rates without modifying rule YAML.

@@ -74,7 +74,7 @@ openssl rand -base64 32
 | `API_HOST` | `127.0.0.1` | API bind address |
 | `API_PORT` | `8000` | API bind port |
 | `API_CORS_ORIGINS` | `http://localhost:8501` | Comma-separated allowed CORS origins |
-| `ACCESS_TOKEN_TTL_MINUTES` | `60` | JWT access token lifetime |
+| `ACCESS_TOKEN_TTL_MINUTES` | `15` | JWT access token lifetime (minutes) |
 
 ### Dashboard Configuration
 
@@ -181,10 +181,10 @@ poetry run uvicorn src.api.main:app --reload
 
 ### Add the dashboard
 
-The dashboard runs as an optional Streamlit service. Enable it by uncommenting the `dashboard` service in `docker-compose.yml` and setting `DASHBOARD_API_TOKEN` in `.env`:
+The dashboard runs as an optional Streamlit service. It is a regular (non-profile) service in `docker-compose.yml`, so it starts with the rest of the stack. Set `DASHBOARD_API_TOKEN` in `.env` for headless/service-to-service auth, or leave it blank to require manual JWT login:
 
 ```bash
-docker compose --profile dashboard up -d
+docker compose up -d dashboard
 # Then open http://localhost:8501
 ```
 
@@ -196,7 +196,7 @@ SecurityScarletAI uses a **single canonical schema path**: `src/db/schema.sql`.
 
 ### `src/db/schema.sql` (canonical, idempotent)
 
-The raw SQL file is the source of truth. All `CREATE TABLE` statements use `IF NOT EXISTS`. This file is what `scripts/entrypoint.sh` and `docker-entrypoint-initdb.d/10-create-db.sql` apply on first run, and what `scripts/run_osquery_demo.sh` / `scripts/demo.sh` apply for local dev.
+The raw SQL file is the source of truth. All `CREATE TABLE` statements use `IF NOT EXISTS`. This file is what `scripts/entrypoint.sh` applies on first run, and what `scripts/run_osquery_demo.sh` applies for local dev. (The compose `postgres` service also mounts it as `docker-entrypoint-initdb.d/01-schema.sql` for a fresh volume.)
 
 When you need to add a new column or table, **append** to this file rather than rewriting existing statements. This keeps the file diff-friendly across merges and safe to re-run on a live database.
 
@@ -305,8 +305,8 @@ The API includes Redis-backed rate limiting via SlowAPI (`src/api/rate_limit.py`
 | Endpoint | Default Limit |
 |----------|---------------|
 | `POST /auth/login` | 5/minute per IP |
-| `POST /ingest` | 60/minute per API token |
-| All other endpoints | 120/minute per user |
+| `POST /ingest` | 100/minute per IP |
+| All other endpoints | 200/minute per IP |
 
 For production, also add external rate limiting at the reverse proxy level.
 
@@ -324,7 +324,7 @@ For production, also add external rate limiting at the reverse proxy level.
 - Use `LOG_LEVEL=WARNING` or higher in production to reduce log volume
 - Enable SMTP STARTTLS for email notifications
 - Restrict CORS origins to your actual dashboard URL
-- Run the API as a non-root user (the Docker image creates a `scarletai` user)
+- Run the API as a non-root user (the Docker image creates an `appuser` user)
 - Keep dependencies updated: `poetry update`
 
 ---
@@ -476,7 +476,7 @@ docker compose logs api | grep -A 2 "admin user created"
 
 # If locked out, reset via psql
 psql -h localhost -p 5433 -U scarletai -d scarletai -c \
-  "UPDATE siem_users SET failed_attempts = 0, locked_until = NULL WHERE username = 'admin';"
+  "UPDATE siem_users SET failed_login_attempts = 0, locked_until = NULL WHERE username = 'admin';"
 
 # Force-invalidate all JWTs (rotates the secret)
 redis-cli FLUSHDB
