@@ -380,7 +380,7 @@ async def _suggest_hunts_for_alert(alert_data: Dict) -> List[Dict]:
                 "description": "",
             })
 
-    return suggestions if suggestions else [{"name": "Custom Hunt", "description": response}]
+    return suggestions if suggestions else [{"name": "Custom Hunt", "description": response.text}]
 
 
 # ---------------------------------------------------------------------------
