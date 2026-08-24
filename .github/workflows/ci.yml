@@ -70,10 +70,13 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
+        # --no-root matches the Dockerfile: the project is an app (src-layout,
+        # package-mode=false), not a distributable package, so we install only
+        # the locked dependencies and import `src` by path.
         run: |
           sudo apt-get update && sudo apt-get install -y postgresql-client
           pip install poetry
-          poetry install
+          poetry install --no-root
 
       - name: Lint
         # Full pyproject config (E,F,W,I,S,B with S608/B008 ignored).
