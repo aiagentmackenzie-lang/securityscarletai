@@ -19,11 +19,18 @@ CHECKPOINT_FILE = Path.home() / ".scarletai_shipper_checkpoint"
 
 
 class FileShipper:
-    """Tail a log file and ship events to the database."""
+    """Tail a log file and ship events to the database.
 
-    def __init__(self, log_path: str, writer: LogWriter):
+    P2-22: the checkpoint file is per-instance (``checkpoint_path``) so multiple
+    shippers watching different logs don't clobber each other's offset. Defaults
+    to the legacy single global path for backward compatibility — the
+    single-shipper deployment (``maybe_create_shipper``) is unaffected.
+    """
+
+    def __init__(self, log_path: str, writer: LogWriter, checkpoint_path: Path | None = None):
         self.log_path = Path(log_path)
         self.writer = writer
+        self.checkpoint_path = Path(checkpoint_path) if checkpoint_path else CHECKPOINT_FILE
         self._offset = self._load_checkpoint()
         self._inode = self._get_inode()  # H-15: track inode for rotation detection
         self._running = False
@@ -96,7 +103,7 @@ class FileShipper:
     def _load_checkpoint(self) -> int:
         """Load the byte offset from the checkpoint file."""
         try:
-            return int(CHECKPOINT_FILE.read_text().strip())
+            return int(self.checkpoint_path.read_text().strip())
         except (FileNotFoundError, ValueError):
             return 0
 
@@ -106,10 +113,10 @@ class FileShipper:
         M-20 fix: Use atomic write via temp file + os.replace()
         to prevent corruption from crash mid-write.
         """
-        temp_file = CHECKPOINT_FILE.with_suffix(".tmp")
+        temp_file = self.checkpoint_path.with_suffix(".tmp")
         try:
             temp_file.write_text(str(self._offset))
-            os.replace(temp_file, CHECKPOINT_FILE)
+            os.replace(temp_file, self.checkpoint_path)
         except OSError as e:
             log.error("checkpoint_save_failed", error=str(e))
 

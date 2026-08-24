@@ -29,11 +29,16 @@ def _decode_actor_from_request(request: Request) -> tuple[dict | None, str | Non
         return None, None
     token = auth[7:]
     try:
-        import jwt
+        from jose import jwt
+
         from src.api.auth import JWT_ALGORITHM
         from src.config.settings import settings
 
-        payload = jwt.decode(token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(
+            token,
+            settings.api_secret_key.get_secret_value(),
+            algorithms=[JWT_ALGORITHM],
+        )
         return payload, payload.get("role") if isinstance(payload, dict) else None
     except Exception:
         return None, None

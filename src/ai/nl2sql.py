@@ -514,7 +514,6 @@ def add_safety_limits(sql: str) -> str:
             # ')	SELECT' / ')  SELECT' / ')\nSELECT').
             paren_select_match = list(re.finditer(r'\)\s+SELECT', sql, re.IGNORECASE))
             if paren_select_match:
-                last_paren_select = paren_select_match[-1].start()
                 # Insert LIMIT after the final SELECT's ORDER BY or before end
                 insert_pos = paren_select_match[-1].end() - len('SELECT')  # at SELECT start
                 remainder = sql[insert_pos:].strip()

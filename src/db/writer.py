@@ -159,7 +159,10 @@ class LogWriter:
     async def _write_to_dead_letter(self, batch: list, error: str) -> None:
         """Write failed batch to dead letter queue for later retry.
 
-        H-14 fix: Enforce max file size and clean up old files.
+        P2-08: writes one event per line (true JSON-Lines) so the file honors its
+        `.jsonl` extension and is replayable line-by-line. Each line is a
+        self-describing record carrying the error and the originating event.
+        H-14 fix: enforce max file size and clean up old files.
         """
         DEAD_LETTER_DIR.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
@@ -175,18 +178,21 @@ class LogWriter:
                 n += 1
             dead_letter_file = DEAD_LETTER_DIR / f"{timestamp}_{n}.jsonl"
 
+        now_iso = datetime.now(tz=timezone.utc).isoformat()
         try:
             with open(dead_letter_file, "a") as f:
-                f.write(json.dumps({
-                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-                    "error": error,
-                    "batch_size": len(batch),
-                    "events": [
-                        e.model_dump(mode="json") if hasattr(e, "model_dump")
+                for e in batch:
+                    payload = (
+                        e.model_dump(mode="json")
+                        if hasattr(e, "model_dump")
                         else e.__dict__
-                        for e in batch
-                    ],
-                }, default=str) + "\n")
+                    )
+                    f.write(json.dumps({
+                        "dead_letter": True,
+                        "written_at": now_iso,
+                        "error": error,
+                        "event": payload,
+                    }, default=str) + "\n")
             log.info("dead_letter_written", count=len(batch), file=str(dead_letter_file))
         except Exception as write_error:
             log.error("dead_letter_write_failed", error=str(write_error))

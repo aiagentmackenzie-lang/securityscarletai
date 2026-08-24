@@ -697,7 +697,7 @@ async def run_all_correlations(
 
     Args:
         as_of: Point-in-time upper bound. If None, defaults to
-            `datetime.utcnow()`. All SQL queries use this as $1::timestamptz.
+            `datetime.now(timezone.utc)`. All SQL queries use this as $1::timestamptz.
         persist: If True, write each match into `correlation_matches`
             with a fresh `correlation_id` (uuid).
 
@@ -864,7 +864,7 @@ async def persist_match(
         trigger_event_id: Optional FK to the logs row that triggered the
             correlation.
         as_of: Point-in-time timestamp for the created_at field. Defaults
-            to datetime.utcnow() if not provided.
+            to datetime.now(timezone.utc) if not provided.
     """
     if as_of is None:
         as_of = datetime.now(timezone.utc)

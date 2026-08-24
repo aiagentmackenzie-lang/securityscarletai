@@ -6,7 +6,7 @@ Covers:
 - CORS and middleware
 - Router registration
 - lifespan (startup/shutdown via mock)
-- load_sigma_rules (already loaded, yaml error)
+- load_sigma_rules (reconcile/upsert every boot, yaml error)
 """
 
 from pathlib import Path
@@ -51,10 +51,14 @@ class TestAppConfiguration:
 
 class TestLoadSigmaRules:
     @pytest.mark.asyncio
-    async def test_rules_already_loaded(self):
-        """Should skip loading if rules already exist."""
+    async def test_rules_reconcile_upserts_every_boot(self):
+        """P1-05: rules are reconciled (upserted) even when rules already exist —
+        no early return. execute is called once per disk file; fetch is called
+        once for orphan (db-only) detection; the COUNT(*) fetchval probe is gone."""
         mock_conn = AsyncMock()
-        mock_conn.fetchval = AsyncMock(return_value=50)  # 50 rules already exist
+        # asyncpg-style command tag for a fresh insert.
+        mock_conn.execute = AsyncMock(return_value="INSERT 0 1")
+        mock_conn.fetch = AsyncMock(return_value=[])
 
         class AsyncCtx:
             async def __aenter__(self):
@@ -66,19 +70,43 @@ class TestLoadSigmaRules:
         mock_pool = AsyncMock()
         mock_pool.acquire = MagicMock(return_value=AsyncCtx())
 
-        with patch("src.api.main.get_pool", AsyncMock(return_value=mock_pool)):
-            await load_sigma_rules()
+        import tempfile
 
-        mock_conn.fetchval.assert_called_once()
-        # Should not call execute since rules already exist
-        mock_conn.execute.assert_not_called()
+        rule_yaml = (
+            "title: Test Rule\n"
+            "description: a test rule\n"
+            "level: high\n"
+            "tags:\n"
+            "  - attack.t1059\n"
+            "logsource:\n"
+            "  category: process_creation\n"
+            "detection:\n"
+            "  selection:\n"
+            "    process_name: test.exe\n"
+            "  condition: selection\n"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "rule_a.yml").write_text(rule_yaml)
+            (Path(tmpdir) / "rule_b.yml").write_text(rule_yaml)
+            with (
+                patch("src.api.main.get_pool", AsyncMock(return_value=mock_pool)),
+                patch("src.api.main.RULES_DIR", Path(tmpdir)),
+            ):
+                await load_sigma_rules()
+
+        # one upsert execute per disk rule
+        assert mock_conn.execute.await_count == 2
+        # orphan-detection fetch runs once after the loop
+        mock_conn.fetch.assert_awaited_once()
+        # the old early-return COUNT(*) probe is gone
+        mock_conn.fetchval.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_load_rules_yaml_error(self):
-        """Should handle invalid YAML gracefully."""
+        """Should handle invalid YAML gracefully (per-file try/except)."""
         mock_conn = AsyncMock()
-        mock_conn.fetchval = AsyncMock(return_value=0)
-        mock_conn.execute = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value="INSERT 0 1")
+        mock_conn.fetch = AsyncMock(return_value=[])
 
         class AsyncCtx:
             async def __aenter__(self):
@@ -102,6 +130,11 @@ class TestLoadSigmaRules:
             ):
                 # Should not raise, just log error
                 await load_sigma_rules()
+
+        # bad file skipped — no execute for it
+        assert mock_conn.execute.await_count == 0
+        # but the orphan-detection fetch still runs after the loop
+        mock_conn.fetch.assert_awaited_once()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

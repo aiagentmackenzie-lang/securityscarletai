@@ -45,41 +45,65 @@ RULES_DIR = Path(__file__).parent.parent.parent / "rules" / "sigma"
 
 
 async def load_sigma_rules():
-    """Load Sigma YAML rules from disk into the database if not already present."""
+    """Reconcile Sigma YAML rules on disk into the rules table (P1-05).
+
+    Runs on every boot. Upserts by name: new disk rules are inserted (enabled);
+    existing rules have their content fields refreshed (sigma_yaml, description,
+    severity, mitre_*, run_interval, lookback, threshold) while operator-set
+    state (enabled, last_run, last_match, match_count) is preserved. DB rows not
+    present on disk are left untouched — they may be operator-created via the
+    rules API and cannot be distinguished from disk rules that were removed.
+    """
+    from datetime import timedelta
+
     import yaml
 
     from src.detection.sigma import _extract_mitre_tags
+
+    # alert_severity enum values; clamp unknown Sigma levels to 'medium'.
+    _VALID_SEVERITIES = {"info", "low", "medium", "high", "critical"}
+
     pool = await get_pool()
     async with pool.acquire() as conn:
-        existing = await conn.fetchval("SELECT COUNT(*) FROM rules")
-        if existing > 0:
-            log.info("rules_already_loaded", count=existing)
-            return
-
-        loaded = 0
+        disk_names: set[str] = set()
+        inserted = 0
+        updated = 0
         for rule_file in sorted(RULES_DIR.rglob("*.yml")):
             try:
                 yaml_content = rule_file.read_text()
                 data = yaml.safe_load(yaml_content)
 
-                # Extract MITRE tags (tactics vs techniques properly)
+                name = data.get("title", rule_file.stem)
+                disk_names.add(name)
+
                 tags = data.get("tags", [])
                 mitre_tactics, mitre_techniques = _extract_mitre_tags(tags)
 
-                from datetime import timedelta
+                level = str(data.get("level", "medium")).lower()
+                if level not in _VALID_SEVERITIES:
+                    level = "medium"
 
-                await conn.execute(
+                result = await conn.execute(
                     """
                     INSERT INTO rules (
                         name, description, sigma_yaml, severity, enabled,
                         run_interval, lookback, threshold, mitre_tactics, mitre_techniques
                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                    ON CONFLICT (name) DO NOTHING
+                    ON CONFLICT (name) DO UPDATE SET
+                        description      = EXCLUDED.description,
+                        sigma_yaml       = EXCLUDED.sigma_yaml,
+                        severity         = EXCLUDED.severity,
+                        run_interval     = EXCLUDED.run_interval,
+                        lookback         = EXCLUDED.lookback,
+                        threshold        = EXCLUDED.threshold,
+                        mitre_tactics    = EXCLUDED.mitre_tactics,
+                        mitre_techniques = EXCLUDED.mitre_techniques,
+                        updated_at       = NOW()
                     """,
-                    data.get("title", rule_file.stem),
+                    name,
                     data.get("description", ""),
                     yaml_content,
-                    data.get("level", "medium"),
+                    level,
                     True,
                     timedelta(seconds=60),
                     timedelta(minutes=5),
@@ -87,11 +111,30 @@ async def load_sigma_rules():
                     mitre_tactics,
                     mitre_techniques,
                 )
-                loaded += 1
+                # asyncpg command tag: 'INSERT 0 1' vs 'UPDATE 1'.
+                if result.startswith("UPDATE"):
+                    updated += 1
+                else:
+                    inserted += 1
             except Exception as e:
                 log.error("rule_load_failed", file=str(rule_file), error=str(e))
 
-        log.info("rules_loaded", count=loaded)
+        db_names = {r["name"] for r in await conn.fetch("SELECT name FROM rules")}
+        orphaned = db_names - disk_names
+        log.info(
+            "rules_reconciled",
+            inserted=inserted,
+            updated=updated,
+            on_disk=len(disk_names),
+            in_db=len(db_names),
+            db_only=len(orphaned),
+        )
+        if orphaned:
+            log.warning(
+                "rules_in_db_not_on_disk",
+                count=len(orphaned),
+                names=sorted(orphaned)[:10],
+            )
 
 
 @asynccontextmanager
@@ -152,6 +195,10 @@ async def lifespan(app: FastAPI):
     # Stop threat intel scheduler
     from src.intel.threat_intel import stop_threat_intel_scheduler
     await stop_threat_intel_scheduler()
+
+    # P2-12: close the MaxMind GeoIP reader handle on shutdown.
+    from src.enrichment.pipeline import close_geoip_reader
+    close_geoip_reader()
 
     await writer.stop()
     await close_pool()
