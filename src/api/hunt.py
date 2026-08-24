@@ -5,7 +5,6 @@ POST /api/v1/hunt/{hunt_id}/execute    — Execute a hunt template
 GET  /api/v1/hunt/templates              — List available hunt templates
 GET  /api/v1/hunt/gaps                   — MITRE ATT&CK gap analysis
 POST /api/v1/hunt/from-alert/{alert_id}  — Suggest hunts from an alert
-GET  /api/v1/hunt/history                — Get hunt execution history
 """
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -75,7 +74,7 @@ async def execute_hunt_template(
     """Execute a hunt template by ID."""
     log.info("hunt_execute_request", hunt_id=hunt_id, user=_user.get("sub"))
 
-    result = await execute_hunt(hunt_id)
+    result = await execute_hunt(hunt_id, actor=_user.get("sub"))
 
     return HuntExecuteResponse(
         success=result.get("success", False),

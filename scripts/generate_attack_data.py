@@ -35,6 +35,7 @@ def generate_brute_force(host: str = "test-mac.local", attacker_ip: str = None) 
                 "type": "failed",
                 "user": "admin",
                 "host": attacker_ip,
+                "local_address": attacker_ip,
             },
             "action": "added",
         })
@@ -49,6 +50,7 @@ def generate_brute_force(host: str = "test-mac.local", attacker_ip: str = None) 
             "type": "user",
             "user": "admin",
             "host": attacker_ip,
+            "local_address": attacker_ip,
         },
         "action": "added",
     })

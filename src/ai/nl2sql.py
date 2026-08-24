@@ -474,7 +474,12 @@ def validate_sql_structure(sql: str) -> tuple[bool, str]:
         if remaining:  # Stuff after semicolon = stacking
             return False, "Multiple statements not allowed"
 
-    # Check for comments (potential obfuscation)
+    # Check for comments (potential obfuscation).
+    # P2-19 limitation: this is a naive substring check — it rejects
+    # '/*'/'*/'/'--' anywhere, including inside single-quoted string
+    # literals (e.g. WHERE host_name = 'web--01'). A literal-aware check
+    # is deferred; the injection surface is bounded because values are
+    # still parameterized downstream and this layer is defense-in-depth.
     if "/*" in sql or "*/" in sql or "--" in sql:
         return False, "SQL comments not allowed"
 
@@ -504,12 +509,14 @@ def add_safety_limits(sql: str) -> str:
     if "LIMIT" not in sql_upper:
         if has_cte:
             # Find the last top-level SELECT (the main query after all CTEs)
-            # Strategy: find the last ') SELECT' or ') ... SELECT' pattern
-            # which marks the end of CTE definitions and start of main query
-            last_paren_select = sql_upper.rfind(') SELECT')
-            if last_paren_select >= 0:
+            # Strategy: find the last ') SELECT' (allowing any whitespace between
+            # the ')' and SELECT, P2-19 — was a literal ') SELECT' that missed
+            # ')	SELECT' / ')  SELECT' / ')\nSELECT').
+            paren_select_match = list(re.finditer(r'\)\s+SELECT', sql, re.IGNORECASE))
+            if paren_select_match:
+                last_paren_select = paren_select_match[-1].start()
                 # Insert LIMIT after the final SELECT's ORDER BY or before end
-                insert_pos = last_paren_select + 1  # after the ')'
+                insert_pos = paren_select_match[-1].end() - len('SELECT')  # at SELECT start
                 remainder = sql[insert_pos:].strip()
                 if 'ORDER BY' in remainder.upper():
                     # Find end of ORDER BY clause and insert LIMIT after it
@@ -550,6 +557,12 @@ async def estimate_query_cost(sql: str) -> tuple[int, str]:
     Returns: (estimated_rows, plan_summary)
     If EXPLAIN fails, returns (0, "unknown") and allows execution.
     M-06: Added 5s timeout to prevent EXPLAIN itself from being expensive.
+    P2-19: the cost gate is best-effort — when EXPLAIN itself errors (e.g. a
+    column does not exist, a syntax issue the validator missed), this returns
+    (0, "unknown") and the caller allows the query (0 < MAX_QUERY_COST_ROWS).
+    Rejecting on EXPLAIN failure would block legitimate queries the planner
+    cannot estimate; the primary guards are the structure validator and
+    parameterized execution.
     """
     try:
         pool = await get_pool()

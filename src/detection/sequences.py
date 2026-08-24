@@ -11,7 +11,6 @@ Each sequence defines:
 - confidence: Base confidence score when the full chain is detected
 """
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -144,14 +143,6 @@ SEQUENCE_DEFINITIONS: list[EventSequence] = [
         confidence_base=75,
     ),
 ]
-
-
-def get_sequence(name: str) -> Optional[EventSequence]:
-    """Get a sequence definition by name."""
-    for seq in SEQUENCE_DEFINITIONS:
-        if seq.name == name:
-            return seq
-    return None
 
 
 def list_sequences() -> list[dict]:

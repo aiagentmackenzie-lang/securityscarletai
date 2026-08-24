@@ -18,7 +18,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.enrichment.pipeline import (
-    calculate_severity_boost,
     enrich_dns_reverse,
     enrich_event,
     enrich_event_dict,
@@ -365,55 +364,3 @@ class TestEnrichEventDict:
 # calculate_severity_boost
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-
-class TestCalculateSeverityBoost:
-    def test_no_boost(self):
-        """Should return original severity when no boost."""
-        result = calculate_severity_boost("medium", {})
-        assert result == "medium"
-
-    def test_no_severity_boost_key(self):
-        """Should return original severity when no severity_boost key."""
-        result = calculate_severity_boost("low", {"geo": {"country": "US"}})
-        assert result == "low"
-
-    def test_critical_boost(self):
-        """Should boost to critical when severity_boost is critical."""
-        result = calculate_severity_boost("medium", {"severity_boost": "critical"})
-        assert result == "critical"
-
-    def test_high_boost(self):
-        """Should boost to high when severity_boost is high."""
-        result = calculate_severity_boost("low", {"severity_boost": "high"})
-        assert result == "high"
-
-    def test_medium_boost(self):
-        """Should boost to medium when severity_boost is medium."""
-        result = calculate_severity_boost("low", {"severity_boost": "medium"})
-        assert result == "medium"
-
-    def test_boost_lower_than_current(self):
-        """Should keep current severity if boost is lower."""
-        result = calculate_severity_boost("critical", {"severity_boost": "low"})
-        assert result == "critical"
-
-    def test_unknown_severity_defaults_to_medium(self):
-        """Unknown severity should default to index 2 (medium)."""
-        result = calculate_severity_boost("unknown", {"severity_boost": "high"})
-        assert result == "high"
-
-    def test_info_severity(self):
-        """Info severity should be boostable."""
-        result = calculate_severity_boost("info", {"severity_boost": "medium"})
-        assert result == "medium"
-
-    def test_all_severity_boosts(self):
-        """Test all combinations of severity + boost."""
-        severities = ["info", "low", "medium", "high", "critical"]
-        for sev in severities:
-            for boost in ["info", "low", "medium", "high", "critical"]:
-                result = calculate_severity_boost(sev, {"severity_boost": boost})
-                # Result should be the maximum of current and boost
-                severity_order = ["info", "low", "medium", "high", "critical"]
-                expected_idx = max(severity_order.index(sev), severity_order.index(boost))
-                assert result == severity_order[expected_idx]

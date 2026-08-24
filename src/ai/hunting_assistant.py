@@ -190,7 +190,7 @@ HUNT_TIMEOUT_SECONDS = 10
 HUNT_MAX_ROWS = 500
 
 
-async def execute_hunt(hunt_id: str) -> Dict[str, Any]:
+async def execute_hunt(hunt_id: str, actor: str | None = None) -> Dict[str, Any]:
     """
     Execute a pre-defined hunt template by ID.
 
@@ -228,7 +228,7 @@ async def execute_hunt(hunt_id: str) -> Dict[str, Any]:
                     row[key] = value.isoformat()
 
         # Save to hunt history
-        await save_hunt_history(hunt_id, template["name"], len(results))
+        await save_hunt_history(hunt_id, template["name"], len(results), actor=actor)
 
         # Analyze results with LLM if we have data
         analysis = None
@@ -490,76 +490,6 @@ async def mitre_gap_analysis() -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-async def suggest_hunting_queries(
-    alert_summary: Dict,
-    top_hosts: List[str],
-    top_users: List[str],
-    recent_iocs: List[str],
-) -> List[Dict]:
-    """
-    Suggest threat hunting queries based on current environment.
-
-    Args:
-        alert_summary: Stats about recent alerts
-        top_hosts: Most active hosts
-        top_users: Most active users
-        recent_iocs: Recently discovered IOCs
-
-    Returns:
-        List of hunting query suggestions
-    """
-    context = (
-        f"Security Environment Summary:\n"
-        f"- Critical alerts (24h): {alert_summary.get('critical', 0)}\n"
-        f"- High alerts (24h): {alert_summary.get('high', 0)}\n"
-        f"- Total alerts (24h): {alert_summary.get('total', 0)}\n\n"
-        f"Top Hosts by Activity: {', '.join(top_hosts[:5])}\n"
-        f"Top Users: {', '.join(top_users[:5])}\n"
-        f"Recent IOCs: {', '.join(recent_iocs[:10]) if recent_iocs else 'None detected'}\n"
-    )
-
-    prompt = (
-        f"Based on this security environment, suggest 5 threat hunting queries:\n\n"
-        f"{context}\n"
-        f"Provide specific, actionable queries for:\n"
-        f"1. Lateral movement detection\n"
-        f"2. Persistence mechanisms\n"
-        f"3. Data exfiltration\n"
-        f"4. Command & control\n"
-        f"5. Insider threats"
-    )
-
-    log.info("generating_hunting_suggestions")
-
-    response = await query_llm(
-        prompt=prompt,
-        system_prompt=HUNTING_SYSTEM_PROMPT,
-        temperature=0.3,
-        max_tokens=800,
-    )
-
-    if response.source == "template_library" or response.source == "error":
-        # Return template suggestions as fallback
-        return [
-            {"name": t["name"], "description": t["description"]}
-            for t in HUNTING_QUERY_TEMPLATES[:5]
-        ]
-
-    # Parse suggestions
-    suggestions = []
-    for line in response.text.split("\n"):
-        line = line.strip()
-        if line and line[0].isdigit() and "." in line[:3]:
-            suggestions.append({
-                "name": line.split(".", 1)[1].strip(),
-                "description": "",
-            })
-
-    return suggestions if suggestions else [
-        {"name": "Custom Hunting", "description": response.text[:200]}
-    ]
-
-
 async def analyze_hunting_results(
     query_name: str,
     result_count: int,
@@ -626,10 +556,13 @@ async def save_hunt_history(
     hunt_id: str,
     hunt_name: str,
     result_count: int,
+    actor: str | None = None,
 ) -> None:
     """Save hunt execution to audit log for history tracking.
 
-    H-13 fix: Actually INSERT into audit_log so get_hunt_history() returns data.
+    H-13 fix: INSERT into audit_log so hunt history is retrievable from there.
+    P2-36: actor defaults to "hunting_assistant" but should be the authenticated
+    analyst when called from an endpoint.
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -638,7 +571,7 @@ async def save_hunt_history(
             INSERT INTO audit_log (actor, action, new_values, created_at)
             VALUES ($1, $2, $3, NOW())
             """,
-            "hunting_assistant",
+            actor or "hunting_assistant",
             "hunt.execute",
             json.dumps({
                 "hunt_id": hunt_id,
@@ -652,45 +585,6 @@ async def save_hunt_history(
         hunt_name=hunt_name,
         result_count=result_count,
     )
-
-
-async def get_hunt_history(limit: int = 20) -> List[Dict]:
-    """
-    Get recent hunt execution history from audit log.
-
-    Returns list of hunt execution records.
-    """
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT actor, action, new_values, created_at
-            FROM audit_log
-            WHERE action = 'hunt.execute'
-            ORDER BY created_at DESC
-            LIMIT $1
-            """,
-            limit,
-        )
-
-    if not rows:
-        return []
-
-    # Also include template-based history
-    history = []
-    for row in rows:
-        history.append({
-            "actor": row["actor"],
-            "action": row["action"],
-            "details": row["new_values"],
-            "timestamp": (
-                row["created_at"].isoformat()
-                if hasattr(row["created_at"], "isoformat")
-                else str(row["created_at"])
-            ),
-        })
-
-    return history
 
 
 def get_hunting_templates() -> List[Dict]:

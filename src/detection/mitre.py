@@ -13,7 +13,10 @@ from src.config.logging import get_logger
 
 log = get_logger("detection.mitre")
 
-# MITRE ATT&CK STIX data URL
+# MITRE ATT&CK STIX data URL (P2-18 doc drift: the source URL points at the
+# unversioned `master` branch while the cache filename is pinned to v14, so a
+# re-download can drift from the cached bundle. Pin to a release tag when MITRE
+# publishes one, or accept the cache is refreshed wholesale on miss.)
 ATTACK_STIX_URL = "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack.json"
 # M-14 fix: Move cache to project-local data/ directory with version
 CACHE_DIR = Path(__file__).parent.parent.parent / "data"

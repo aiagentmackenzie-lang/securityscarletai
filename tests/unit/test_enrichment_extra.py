@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.enrichment.pipeline import calculate_severity_boost, enrich_event
+from src.enrichment.pipeline import enrich_event
 
 
 class TestEnrichEvent:
@@ -90,40 +90,6 @@ class TestEnrichmentPipeline:
         assert enrich_event is not None
         assert enrich_geoip is not None
         assert enrich_with_threat_intel is not None
-
-
-class TestSeverityBoost:
-    """Test severity boost calculation."""
-
-    def test_critical_severity_no_boost(self):
-        """Critical severity with no boost should stay critical."""
-        result = calculate_severity_boost("critical", {})
-        assert result == "critical"
-
-    def test_low_severity_with_high_boost(self):
-        """Low severity with high boost should become high."""
-        result = calculate_severity_boost("low", {"severity_boost": "high"})
-        assert result == "high"
-
-    def test_medium_severity_with_critical_boost(self):
-        """Medium severity with critical boost should become critical."""
-        result = calculate_severity_boost("medium", {"severity_boost": "critical"})
-        assert result == "critical"
-
-    def test_same_severity_as_boost(self):
-        """Same severity as boost should stay the same."""
-        result = calculate_severity_boost("high", {"severity_boost": "high"})
-        assert result == "high"
-
-    def test_no_enrichment_no_boost(self):
-        """Empty enrichment should not change severity."""
-        result = calculate_severity_boost("medium", {})
-        assert result == "medium"
-
-    def test_unknown_severity_defaults_to_medium(self):
-        """Unknown severity should default to medium."""
-        result = calculate_severity_boost("unknown", {})
-        assert result == "unknown"  # stays as-is when no boost
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

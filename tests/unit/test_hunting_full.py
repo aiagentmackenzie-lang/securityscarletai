@@ -23,12 +23,10 @@ from src.ai.hunting_assistant import (
     _suggest_hunts_for_alert,
     analyze_hunting_results,
     execute_hunt,
-    get_hunt_history,
     get_hunting_templates,
     hunt_from_alert,
     mitre_gap_analysis,
     save_hunt_history,
-    suggest_hunting_queries,
 )
 from src.ai.ollama_client import LLMResult
 
@@ -358,52 +356,6 @@ class TestMitreGapAnalysis:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-class TestSuggestHuntingQueries:
-    @pytest.mark.asyncio
-    async def test_suggest_with_llm(self):
-        """Should return parsed suggestions from LLM."""
-        mock_response = (
-            "1. Check lateral movement patterns\n"
-            "2. Investigate persistence mechanisms\n"
-            "3. Look for data staging in temp directories\n"
-            "4. Monitor C2 beaconing\n"
-            "5. Check for insider threat indicators"
-        )
-
-        with patch("src.ai.hunting_assistant.query_llm", AsyncMock(return_value=LLMResult(
-            ok=True, text=mock_response, source="ollama",
-            model_used="mistral:7b", tokens_in=20, tokens_out=15,
-            latency_ms=300, fallback_used=False, prompt_version="v1.0.0",
-        ))):
-            result = await suggest_hunting_queries(
-                alert_summary={"critical": 5, "high": 10, "total": 50},
-                top_hosts=["server-01", "ws-02"],
-                top_users=["admin", "jsmith"],
-                recent_iocs=["1.2.3.4"],
-            )
-
-        assert len(result) >= 1
-
-    @pytest.mark.asyncio
-    async def test_suggest_fallback(self):
-        """Should return template suggestions when LLM is unavailable."""
-        with patch("src.ai.hunting_assistant.query_llm", AsyncMock(return_value=LLMResult(
-            ok=True, text="", source="template_library", model_used=None,
-            tokens_in=0, tokens_out=0, latency_ms=0, fallback_used=True,
-            warning="Ollama not responding", prompt_version="v1.0.0",
-        ))):
-            result = await suggest_hunting_queries(
-                alert_summary={"critical": 2, "high": 5, "total": 20},
-                top_hosts=["server-01"],
-                top_users=["admin"],
-                recent_iocs=[],
-            )
-
-        assert len(result) > 0
-        # Should be template-based
-        assert any("name" in r for r in result)
-
-
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # analyze_hunting_results
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -544,57 +496,3 @@ class TestHuntHistory:
         with patch("src.ai.hunting_assistant.get_pool", AsyncMock(return_value=mock_pool)):
             await save_hunt_history("test_hunt", "Test Hunt", 5)
         mock_conn.execute.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_get_hunt_history_empty(self):
-        """Should return empty list when no history."""
-        mock_conn = AsyncMock()
-        mock_conn.fetch = AsyncMock(return_value=[])
-
-        class AsyncCtx:
-            async def __aenter__(self):
-                return mock_conn
-
-            async def __aexit__(self, *args):
-                pass
-
-        mock_pool = AsyncMock()
-        mock_pool.acquire = MagicMock(return_value=AsyncCtx())
-
-        with patch("src.ai.hunting_assistant.get_pool", AsyncMock(return_value=mock_pool)):
-            result = await get_hunt_history()
-
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_get_hunt_history_with_data(self):
-        """Should return formatted hunt history."""
-        from datetime import datetime
-
-        mock_rows = [
-            {
-                "actor": "admin",
-                "action": "hunt.execute",
-                "new_values": {"hunt_id": "c2_beaconing", "count": 5},
-                "created_at": datetime(2024, 1, 1, 12, 0, 0),
-            }
-        ]
-
-        mock_conn = AsyncMock()
-        mock_conn.fetch = AsyncMock(return_value=mock_rows)
-
-        class AsyncCtx:
-            async def __aenter__(self):
-                return mock_conn
-
-            async def __aexit__(self, *args):
-                pass
-
-        mock_pool = AsyncMock()
-        mock_pool.acquire = MagicMock(return_value=AsyncCtx())
-
-        with patch("src.ai.hunting_assistant.get_pool", AsyncMock(return_value=mock_pool)):
-            result = await get_hunt_history()
-
-        assert len(result) == 1
-        assert result[0]["actor"] == "admin"

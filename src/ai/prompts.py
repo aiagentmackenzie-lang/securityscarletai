@@ -115,7 +115,7 @@ CHAT_USER_TEMPLATE = _env.from_string(
 
 
 def _hash(rendered: str, version: str) -> str:
-    """Stable hash of (rendered_text, version, rendered_at_minute) for provenance."""
+    """Stable hash of (rendered_text, version) for provenance."""
     bucket = f"{version}|{rendered}"
     return hashlib.sha256(bucket.encode("utf-8")).hexdigest()[:16]
 

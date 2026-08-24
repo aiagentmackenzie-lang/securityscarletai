@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from src.enrichment.pipeline import (
-    calculate_severity_boost,
     enrich_dns_reverse,
     is_public_ip,
 )
@@ -68,52 +67,6 @@ class TestDNSReverseLookup:
         """Empty IP should return empty dict."""
         result = enrich_dns_reverse("")
         assert result == {}
-
-
-class TestSeverityBoost:
-    """Test severity boost calculation from enrichment data."""
-
-    def test_no_boost(self):
-        """No threat intel match should not boost severity."""
-        result = calculate_severity_boost("medium", {})
-        assert result == "medium"
-
-    def test_no_threat_intel_key(self):
-        """Missing threat_intel key should not boost."""
-        result = calculate_severity_boost("low", {"geo": {"country": "US"}})
-        assert result == "low"
-
-    def test_threat_intel_no_match(self):
-        """No threat intel match should not boost."""
-        result = calculate_severity_boost("medium", {"threat_intel": {"match": False}})
-        assert result == "medium"
-
-    def test_high_confidence_boost(self):
-        """High confidence threat match should boost to critical."""
-        result = calculate_severity_boost(
-            "high",
-            {"threat_intel": {"match": True, "confidence": 85}, "severity_boost": "critical"},
-        )
-        assert result == "critical"
-
-    def test_medium_confidence_boost(self):
-        """Medium confidence threat match should boost to high."""
-        result = calculate_severity_boost(
-            "medium", {"threat_intel": {"match": True, "confidence": 60}, "severity_boost": "high"}
-        )
-        assert result == "high"
-
-    def test_low_confidence_boost(self):
-        """Low confidence threat match should boost to medium."""
-        result = calculate_severity_boost(
-            "low", {"threat_intel": {"match": True, "confidence": 30}, "severity_boost": "medium"}
-        )
-        assert result == "medium"
-
-    def test_boost_doesnt_lower(self):
-        """Boost should never lower severity."""
-        result = calculate_severity_boost("critical", {"severity_boost": "medium"})
-        assert result == "critical"
 
 
 class TestEnrichmentPipeline:

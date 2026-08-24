@@ -12,7 +12,6 @@ from src.detection.correlation import (
 )
 from src.detection.sequences import (
     SEQUENCE_DEFINITIONS,
-    get_sequence,
     list_sequences,
 )
 
@@ -48,17 +47,6 @@ class TestSequenceDefinitions:
         names = [seq.name for seq in SEQUENCE_DEFINITIONS]
         assert len(names) == len(set(names)), f"Duplicate sequence names: {names}"
 
-    def test_get_sequence_found(self):
-        """get_sequence should return a sequence when name matches."""
-        seq = get_sequence("brute_force_success")
-        assert seq is not None
-        assert seq.title == "Brute Force → Successful Login"
-
-    def test_get_sequence_not_found(self):
-        """get_sequence should return None for unknown names."""
-        seq = get_sequence("nonexistent_sequence")
-        assert seq is None
-
     def test_list_sequences(self):
         """list_sequences should return all sequences as dicts."""
         seqs = list_sequences()
@@ -70,24 +58,6 @@ class TestSequenceDefinitions:
             assert "mitre_tactics" in s
             assert "mitre_techniques" in s
             assert "confidence_base" in s
-
-    def test_brute_force_sequence(self):
-        """Brute force sequence should have correct MITRE mapping."""
-        seq = get_sequence("brute_force_success")
-        assert "TA0006" in seq.mitre_tactics
-        assert "T1110" in seq.mitre_techniques
-        assert seq.severity == "critical"
-
-    def test_payload_callback_sequence(self):
-        """Payload callback sequence should cover execution and C2."""
-        seq = get_sequence("payload_callback")
-        assert "TA0002" in seq.mitre_tactics
-        assert "TA0011" in seq.mitre_tactics
-
-    def test_persistence_sequence(self):
-        """Persistence sequence should detect LaunchAgent patterns."""
-        seq = get_sequence("persistence_activated")
-        assert "T1547" in seq.mitre_techniques
 
 
 class TestCorrelationRules:

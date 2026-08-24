@@ -1,8 +1,9 @@
 """
 Log shipper — tails osquery result logs and feeds them to the ingestion pipeline.
 
-Uses watchfiles (Rust-based) for efficient file watching on macOS.
-Stores a checkpoint (byte offset) so restarts don't re-ingest old data.
+Polls the result log every ~1s (seek/tell based, not a file-watcher) and stores a
+checkpoint (byte offset) so restarts don't re-ingest old data. (P2-07: the
+earlier docstring claimed watchfiles, but the implementation is polling.)
 """
 import asyncio
 import os

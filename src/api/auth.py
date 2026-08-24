@@ -32,7 +32,6 @@ bearer_scheme = HTTPBearer()
 BCRYPT_ROUNDS = 12
 
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRY_HOURS = 8
 
 # Role hierarchy: admin > analyst > viewer
 ROLE_HIERARCHY = {"admin": 3, "analyst": 2, "viewer": 1}

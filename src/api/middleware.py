@@ -17,6 +17,28 @@ from src.config.logging import get_logger
 log = get_logger("api.middleware")
 
 
+def _decode_actor_from_request(request: Request) -> tuple[dict | None, str | None]:
+    """Best-effort decode the JWT from the Authorization header (P2-15).
+
+    Returns (payload, role) or (None, None). Used by AuditLogMiddleware to
+    attribute the actor when no auth dependency set request.state.user. Never
+    raises — audit must never break the request.
+    """
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None, None
+    token = auth[7:]
+    try:
+        import jwt
+        from src.api.auth import JWT_ALGORITHM
+        from src.config.settings import settings
+
+        payload = jwt.decode(token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM])
+        return payload, payload.get("role") if isinstance(payload, dict) else None
+    except Exception:
+        return None, None
+
+
 class RequestValidationMiddleware(BaseHTTPMiddleware):
     """
     Middleware for request validation:
@@ -95,10 +117,13 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
             path = request.url.path
             # Skip health checks and docs
             if "/health" not in path and "/docs" not in path and "/redoc" not in path:
-                # Best-effort: try to extract user from response state if
-                # verify_jwt() set it; otherwise leave user as None.
+                # P2-15: attribute the actor. request.state.user may be set by an
+                # auth dependency; otherwise best-effort decode the JWT from the
+                # Authorization header so audit_logs.user/role are populated.
                 user = getattr(request.state, "user", None) or None
                 role = None
+                if not isinstance(user, dict):
+                    user, role = _decode_actor_from_request(request)
                 if isinstance(user, dict):
                     role = user.get("role")
                     user = user.get("sub") or user.get("user")

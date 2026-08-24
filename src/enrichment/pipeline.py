@@ -10,7 +10,6 @@ Enrichments applied (in order):
 Designed to be called from the ingestion pipeline (writer.py)
 for automatic enrichment of every incoming event.
 """
-import asyncio
 import ipaddress
 import socket
 import time
@@ -69,28 +68,6 @@ def _get_geoip_reader():
         _geoip_reader = None
         # Do NOT set _geoip_loaded=True — we want to retry next time
         return None
-
-
-async def _geoip_retry_loop():
-    """Background coroutine that periodically attempts to (re)open the
-    GeoIP database. Useful if the operator drops the .mmdb file in after
-    the API has already started — we'll pick it up on the next cycle.
-
-    Runs forever; intended to be cancelled via ``asyncio.CancelledError``
-    on shutdown. Failures are logged at debug and swallowed.
-    """
-    while True:
-        await asyncio.sleep(_GEOIP_RETRY_INTERVAL_SEC)
-        if _geoip_loaded:
-            continue
-        # Throttle: only attempt one init per cycle, and respect the
-        # last-attempt gate in _get_geoip_reader.
-        try:
-            reader = _get_geoip_reader()
-            if reader is not None:
-                log.info("geoip_db_loaded_via_retry_loop")
-        except Exception as e:  # pragma: no cover — defensive
-            log.debug("geoip_retry_loop_error", error=str(e))
 
 
 def close_geoip_reader():
@@ -254,20 +231,3 @@ async def enrich_event_dict(event_data: dict) -> dict:
     return await enrich_event(event)
 
 
-def calculate_severity_boost(event_severity: str, enrichment: dict) -> str:
-    """
-    Calculate the final severity for an event considering enrichment data.
-
-    If threat intel found a match, bump the severity accordingly.
-    """
-    boost = enrichment.get("severity_boost")
-    if not boost:
-        return event_severity
-
-    severity_order = ["info", "low", "medium", "high", "critical"]
-    current_idx = severity_order.index(event_severity) if event_severity in severity_order else 2
-    boost_idx = severity_order.index(boost) if boost in severity_order else 2
-
-    # Take the higher of current and boost
-    new_idx = max(current_idx, boost_idx)
-    return severity_order[new_idx]

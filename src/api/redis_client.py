@@ -8,6 +8,10 @@ Design notes:
   This is the correct trade-off: in a production SOC, you'd want Redis HA.
   Here, we err on the side of "service stays up if Redis flaps."
 - All keys are namespaced with a version prefix to allow future schema migration.
+- P2-32: this uses the SYNC `redis` client from async auth paths (is_jti_blocked,
+  get_latest_user_revoke_ts run per authenticated request). Acceptable for the
+  single-process deployment (socket_timeout=1.0 bounds blocking); for scale-out,
+  switch to redis.asyncio and await these. Tracked as a follow-up, not blocking.
 """
 from __future__ import annotations
 

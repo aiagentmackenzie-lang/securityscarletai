@@ -1,7 +1,6 @@
 """
 Notification handlers for Slack and Email alerts.
 """
-from email.mime.text import MIMEText
 from typing import Optional
 
 import httpx
@@ -74,73 +73,5 @@ async def send_alert_notification(alert: dict) -> bool:
 *Description:* {alert.get('description', 'No description')}
 
 View in Dashboard: http://localhost:8501"""
-
-    return await send_slack_notification(message)
-
-
-async def send_email_notification(
-    subject: str,
-    body: str,
-    to_email: Optional[str] = None,
-) -> bool:
-    """
-    Send email notification via SMTP.
-
-    Args:
-        subject: Email subject
-        body: Email body (plain text)
-        to_email: Override recipient (default uses settings.alert_email_to)
-
-    Returns:
-        True if sent successfully
-    """
-    smtp_user = settings.smtp_user
-    if not (settings.smtp_host and smtp_user and settings.smtp_password):
-        log.warning("smtp_not_configured")
-        return False
-
-    recipient = to_email or settings.alert_email_to
-    if not recipient:
-        log.warning("email_no_recipient")
-        return False
-
-    try:
-        import aiosmtplib
-
-        msg = MIMEText(body)
-        msg["Subject"] = f"[SecurityScarletAI] {subject}"
-        msg["From"] = smtp_user
-        msg["To"] = recipient
-
-        await aiosmtplib.send(
-            msg,
-            hostname=settings.smtp_host,
-            port=settings.smtp_port,
-            username=settings.smtp_user,
-            password=settings.smtp_password,
-            start_tls=True,
-        )
-
-        log.info("email_notification_sent", to=recipient)
-        return True
-
-    except Exception as e:
-        log.error("email_notification_failed", error=str(e))
-        return False
-
-
-async def send_daily_summary(
-    alert_count: int,
-    critical_count: int,
-    new_rules: int,
-) -> bool:
-    """Send daily summary notification."""
-    message = f"""📊 *Daily Security Summary*
-
-• Total Alerts: {alert_count}
-• Critical Alerts: {critical_count}
-• New Rules Added: {new_rules}
-
-Review in Dashboard: http://localhost:8501"""
 
     return await send_slack_notification(message)
