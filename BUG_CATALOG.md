@@ -1083,3 +1083,17 @@ in the final pass (Phase 11); this log is the running record.
 - P2-34 — /health caches Ollama probe (60s TTL) — 3a4897a
 - P2-16 — startup validate_ollama_model warns on result (was discarded) — 3a4897a
 - P2-35 — cases link/unlink/note + alerts link_to_case use atomic SQL (array_append/remove, notes || jsonb) — 3a4897a
+- P2-07 — FileShipper docstring corrected (polling, not watchfiles) — 53cedb0
+- P2-13/28 — dead code deleted (get_sequence, suggest_hunting_queries, get_hunt_history, summarize_multiple_alerts, suggest_investigation_steps, calculate_severity_boost, send_email_notification, send_daily_summary) — 53cedb0
+- P2-14 — unused JWT_EXPIRY_HOURS removed — 53cedb0
+- P2-15 — AuditLogMiddleware best-effort decodes JWT to attribute actor/role — 53cedb0
+- P2-18 — MITRE STIX master-vs-v14 drift documented (accept) — 53cedb0
+- P2-19 — nl2sql add_safety_limits whitespace-tolerant )\s+SELECT; comment-check + EXPLAIN-failure limits documented — 53cedb0
+- P2-27 — GET /hunt/history removed from hunt.py docstring (function already deleted) — 53cedb0
+- P2-29 — stale/broken scripts/demo.sh deleted (port conflict, unreferenced by make demo) — 53cedb0
+- P2-30 — make migrate uses psql -v ON_ERROR_STOP=1 — 53cedb0
+- P2-32 — sync redis in async auth paths documented as follow-up (socket_timeout=1.0 bounds; switch to redis.asyncio at scale) — 53cedb0
+- P2-33 — correlation _unwrap/_parse_as_of left as-is (acceptable test-coupling) — 53cedb0
+- P2-36 — execute_hunt forwards actor; save_hunt_history records analyst not 'hunting_assistant' — 53cedb0
+- P2-44 — generate_attack_data brute-force fixture adds local_address so parser extracts source_ip — 53cedb0
+- P2-11 — moot (pySigma parse path deleted in P0-04) — 53cedb0
