@@ -186,7 +186,10 @@ def render_ai_chat():
                         # P2-43: API returns {id, description, keywords}.
                         description = tmpl.get("description", "Unknown")
                         if st.button(description, key=f"tmpl_{tmpl.get('id', i)}"):
-                            st.session_state.nl_query = description
+                            # Pre-fill the question box (the widget key) and run
+                            # immediately — a template click executes the query.
+                            st.session_state.nl_query_input = description
+                            st.session_state.run_query = True
                 else:
                     st.info(
                         "No templates available — Ollama may be down. "
@@ -201,11 +204,14 @@ def render_ai_chat():
         key="nl_query_input",
     )
 
-    if "nl_query" in st.session_state and st.session_state.nl_query:
-        nl_query = st.session_state.nl_query
-        st.session_state.nl_query = None
+    # A template click pre-fills the box (via the widget key above) and sets
+    # run_query=True; the Execute Query button also triggers a run. Either way
+    # we execute the current value of the question box.
+    run_now = st.session_state.pop("run_query", False)
+    if st.button("Execute Query", key="execute_query_btn"):
+        run_now = True
 
-    if st.button("Execute Query", key="execute_query_btn") and nl_query:
+    if run_now and nl_query.strip():
         with st.status("Generating and executing query...", expanded=True) as status:
             try:
                 result = api.query(nl_query)
