@@ -51,6 +51,21 @@ class ApiError(Exception):
         super().__init__(f"API error {status_code}: {detail}")
 
 
+class PasswordChangeRequiredError(ApiError):
+    """Raised when login succeeds but the account must change its password.
+
+    The /auth/login endpoint returns 401 with code=PASSWORD_CHANGE_REQUIRED and
+    a force_change_token (a JWT) when must_change_password is true. This
+    exception carries that token so the dashboard can prompt for a new
+    password, call /auth/force-change-password, then log in again.
+    """
+
+    def __init__(self, force_change_token: str, username: str):
+        self.force_change_token = force_change_token
+        self.username = username
+        super().__init__(401, "Password change required before login")
+
+
 class ApiClient:
     """
     Synchronous HTTP client for the SecurityScarletAI API.
@@ -191,13 +206,79 @@ class ApiClient:
     # ───────────────────────────────────────────────────────────
 
     def login(self, username: str, password: str) -> dict:
-        """Authenticate and store JWT in session state."""
-        data = self._post("/auth/login", {"username": username, "password": password})
-        if data:
+        """Authenticate and store JWT in session state.
+
+        Raises PasswordChangeRequiredError if the account has
+        must_change_password set (the API returns 401 with a
+        force_change_token); the caller should prompt for a new password,
+        call force_change_password(), then login() again. We call httpx
+        directly (not self._post) because _handle_response discards 401
+        bodies, and the force_change_token lives in that body.
+        """
+        try:
+            r = httpx.post(
+                f"{self.base_url}/auth/login",
+                headers=self._headers,
+                json={"username": username, "password": password},
+                timeout=REQUEST_TIMEOUT,
+            )
+        except httpx.ConnectError:
+            raise ApiError(0, "Cannot connect to API server. Is it running?") from None
+        except httpx.TimeoutException:
+            raise ApiError(0, "API request timed out") from None
+
+        if r.status_code in (200, 201):
+            data = r.json()
             st.session_state.access_token = data["access_token"]
             st.session_state.username = data["username"]
             st.session_state.role = data["role"]
-        return data
+            return data
+
+        if r.status_code == 401:
+            # Distinguish "must change password" (carries a force_change_token)
+            # from a plain bad-credentials 401.
+            try:
+                body = r.json()
+                detail = body.get("detail", {}) if isinstance(body, dict) else {}
+                if isinstance(detail, dict) and detail.get("code") == "PASSWORD_CHANGE_REQUIRED":
+                    raise PasswordChangeRequiredError(
+                        force_change_token=detail.get("force_change_token", ""),
+                        username=username,
+                    )
+            except ValueError:
+                pass
+            raise ApiError(401, "Invalid username or password")
+
+        # Other non-2xx (e.g. 429 rate limited) — surface the detail.
+        try:
+            detail = r.json().get("detail", r.text[:200])
+        except Exception:
+            detail = r.text[:200]
+        raise ApiError(r.status_code, detail)
+
+    def force_change_password(self, force_change_token: str, new_password: str) -> dict:
+        """Set a new password using the force_change_token from a
+        PasswordChangeRequiredError. Does not require the current password.
+
+        POSTs to /auth/force-change-password with the force_change_token as the
+        Bearer (not the session token — the force_change_token is a one-off JWT
+        with force_password_change=true). Returns {"message": ...} on success.
+        """
+        try:
+            r = httpx.post(
+                f"{self.base_url}/auth/force-change-password",
+                headers={
+                    "Authorization": f"Bearer {force_change_token}",
+                    "Content-Type": "application/json",
+                },
+                json={"new_password": new_password},
+                timeout=REQUEST_TIMEOUT,
+            )
+        except httpx.ConnectError:
+            raise ApiError(0, "Cannot connect to API server. Is it running?") from None
+        except httpx.TimeoutException:
+            raise ApiError(0, "API request timed out") from None
+        return self._handle_response(r)
 
     def get_me(self) -> dict:
         """Get current user info."""

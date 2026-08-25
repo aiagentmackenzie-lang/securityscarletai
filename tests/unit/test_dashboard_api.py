@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from dashboard.api_client import ApiClient, ApiError
+from dashboard.api_client import ApiClient, ApiError, PasswordChangeRequiredError
 
 
 class _SessionState(dict):
@@ -391,3 +391,83 @@ class TestAuthSessionState:
             assert mock_state.get("access_token") is None
             assert mock_state.get("username") is None
             assert mock_state.get("role") is None
+
+
+class TestLoginForcePasswordChange:
+    """login() captures the 401 PASSWORD_CHANGE_REQUIRED body (which
+    _handle_response would discard) and force_change_password() posts with
+    the one-off force_change_token as Bearer."""
+
+    @pytest.fixture
+    def client(self):
+        return ApiClient()
+
+    def _mock_resp(self, status_code, body, body_bytes=None):
+        m = MagicMock()
+        m.status_code = status_code
+        m.content = body_bytes or (str(body).encode())
+        m.json.return_value = body
+        return m
+
+    def test_login_success_stores_session(self, client):
+        body = {"access_token": "tok", "username": "admin", "role": "admin"}
+        mock_resp = self._mock_resp(200, body)
+        mock_state = _SessionState()
+        with patch("httpx.post", return_value=mock_resp):
+            with patch("streamlit.session_state", mock_state):
+                result = client.login("admin", "pw")
+        assert result["access_token"] == "tok"
+        assert mock_state["access_token"] == "tok"
+        assert mock_state["username"] == "admin"
+        assert mock_state["role"] == "admin"
+
+    def test_login_password_change_required_raises_with_token(self, client):
+        body = {"detail": {
+            "message": "Password change required before login",
+            "code": "PASSWORD_CHANGE_REQUIRED",
+            "force_change_token": "FORCE.JWT.TOKEN",
+        }}
+        mock_resp = self._mock_resp(401, body)
+        with patch("httpx.post", return_value=mock_resp):
+            with patch("streamlit.session_state", _SessionState()):
+                with pytest.raises(PasswordChangeRequiredError) as exc_info:
+                    client.login("admin", "admin")
+        assert exc_info.value.force_change_token == "FORCE.JWT.TOKEN"
+        assert exc_info.value.username == "admin"
+        assert exc_info.value.status_code == 401
+
+    def test_login_plain_401_raises_invalid_credentials(self, client):
+        body = {"detail": "Invalid credentials"}
+        mock_resp = self._mock_resp(401, body)
+        with patch("httpx.post", return_value=mock_resp):
+            with patch("streamlit.session_state", _SessionState()):
+                with pytest.raises(ApiError) as exc_info:
+                    client.login("admin", "wrong")
+        assert exc_info.value.status_code == 401
+        assert "Invalid username or password" in exc_info.value.detail
+
+    def test_login_401_without_password_change_code_is_invalid(self, client):
+        # 401 body whose detail is a string (no code field) -> not a force-change.
+        body = {"detail": "Bad password"}
+        mock_resp = self._mock_resp(401, body)
+        with patch("httpx.post", return_value=mock_resp):
+            with patch("streamlit.session_state", _SessionState()):
+                with pytest.raises(ApiError) as exc_info:
+                    client.login("admin", "x")
+        assert not isinstance(exc_info.value, PasswordChangeRequiredError)
+        assert exc_info.value.status_code == 401
+
+    def test_force_change_password_uses_force_token_as_bearer(self, client):
+        body = {"message": "Password changed successfully."}
+        mock_resp = self._mock_resp(200, body)
+        with patch("httpx.post", return_value=mock_resp) as mock_post:
+            result = client.force_change_password("FORCE.JWT.TOKEN", "newpass123")
+        assert result["message"].startswith("Password changed")
+        call_args = mock_post.call_args
+        headers = call_args.kwargs.get("headers") or call_args[1].get("headers")
+        assert headers["Authorization"] == "Bearer FORCE.JWT.TOKEN"
+        json_data = call_args.kwargs.get("json") or call_args[1].get("json")
+        assert json_data == {"new_password": "newpass123"}
+        # URL must hit the force-change endpoint, not /auth/login
+        url = call_args.args[0] if call_args.args else call_args[0][0]
+        assert url.endswith("/auth/force-change-password")
