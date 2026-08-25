@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import Response
 
 from src.api.auth import JWT_ALGORITHM, create_jwt
 from tests.unit._test_request import make_test_request
@@ -101,7 +102,7 @@ class TestLoginEndpoint:
                 from src.api.auth_login import LoginRequest, login
 
                 request = LoginRequest(username="testadmin", password="testpass123")
-                result = await login(make_test_request(), request)
+                result = await login(make_test_request(), response=Response(), login_request=request)
 
                 assert result.access_token is not None
                 assert result.username == "testadmin"
@@ -123,7 +124,7 @@ class TestLoginEndpoint:
                 request = LoginRequest(username="testadmin", password="wrongpassword")
 
                 with pytest.raises(HTTPException) as exc_info:
-                    await login(make_test_request(), request)
+                    await login(make_test_request(), response=Response(), login_request=request)
                 assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
@@ -147,7 +148,7 @@ class TestLoginEndpoint:
                 request = LoginRequest(username="ghost", password="whatever")
 
                 with pytest.raises(HTTPException) as exc_info:
-                    await login(make_test_request(), request)
+                    await login(make_test_request(), response=Response(), login_request=request)
                 assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
@@ -164,7 +165,7 @@ class TestLoginEndpoint:
             request = LoginRequest(username="testadmin", password="testpass123")
 
             with pytest.raises(HTTPException) as exc_info:
-                await login(make_test_request(), request)
+                await login(make_test_request(), response=Response(), login_request=request)
             assert exc_info.value.status_code == 401
             assert "disabled" in exc_info.value.detail.lower()
 

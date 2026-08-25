@@ -4,6 +4,7 @@ All settings are validated at startup. Missing required values cause immediate f
 with a clear error message — not a silent None that blows up later.
 """
 from typing import Optional
+from urllib.parse import quote_plus
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -27,7 +28,15 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        return f"postgresql+asyncpg://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
+        # URL-encode user/password so special chars (e.g. '/' in the rotated
+        # DB password) don't break the DSN. Callers that pass this to asyncpg
+        # strip the "+asyncpg" driver suffix; raw asyncpg DSNs accept the
+        # percent-encoded form. get_pool() uses keyword args instead, but any
+        # DSN consumer (seeders, scripts) needs this to be safe.
+        return (
+            f"postgresql+asyncpg://{quote_plus(self.db_user)}:{quote_plus(self.db_password)}"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+        )
 
     # --- Redis ---
     redis_url: str = "redis://localhost:6379/0"

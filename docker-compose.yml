@@ -56,10 +56,15 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: 8000
       API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:8501}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      # Hardcoded for the compose network: .env's REDIS_URL is the host-mode
+      # value (for `poetry run`), and must NOT leak into the container via
+      # ${REDIS_URL:-...} or the API can't reach Redis (rate-limit middleware crash).
+      REDIS_URL: redis://redis:6379/0
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: ${LOG_FORMAT:-json}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      # Hardcoded: Ollama runs on the host, reached via host.docker.internal from
+      # the container. .env's http://localhost:11434 is the host-mode value.
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:8b}
     volumes:
       # Epic 7: persist model artifacts and runtime data across restarts.

@@ -11,7 +11,7 @@ Users are stored in the siem_users table with bcrypt-hashed passwords.
 """
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
 from src.api.auth import (
@@ -86,6 +86,7 @@ class ForceChangePasswordRequest(BaseModel):
 @limiter.limit(LIMIT_LOGIN)
 async def login(
     request: Request,  # slowapi requires this exact name; it's the connection object
+    response: Response,  # slowapi injects X-RateLimit-* headers here
     login_request: LoginRequest,  # the JSON body
 ):  # noqa: ARG001
     """Authenticate a user and return a JWT token.

@@ -89,7 +89,7 @@ async def main():
     await pool.close()
     print(n)
 asyncio.run(main())
-")
+" | tail -n1)
 if [ "${ALERT_COUNT}" = "0" ]; then
     echo "[entrypoint] alerts table empty — seeding demo data..."
     python -m scripts.seed_demo_data
@@ -147,7 +147,7 @@ async def main():
     await pool.close()
     print(n)
 asyncio.run(main())
-")
+" | tail -n1)
 if [ "${USER_COUNT}" = "0" ]; then
     ADMIN_PW=$(python -c "import secrets; print(secrets.token_urlsafe(24))")
     echo "[entrypoint] No users — creating admin..."
