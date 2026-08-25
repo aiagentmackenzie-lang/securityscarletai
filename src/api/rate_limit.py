@@ -61,9 +61,10 @@ limiter = _build_limiter()
 
 
 # Per-endpoint limit strings — referenced by decorators in auth_login.py
-# and ingest.py. Keep these as constants so they're easy to audit.
-LIMIT_LOGIN = "5/minute"
-LIMIT_INGEST = "100/minute"
+# and ingest.py. Env-configurable via settings (LOGIN_RATE_LIMIT /
+# INGEST_RATE_LIMIT); defaults stay aggressive for production.
+LIMIT_LOGIN = settings.login_rate_limit
+LIMIT_INGEST = settings.ingest_rate_limit
 
 
 # ───────────────────────────────────────────────────────────────

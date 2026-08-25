@@ -30,6 +30,7 @@ from src.api.rate_limit import (
     RateLimitHeadersMiddleware,
     rate_limit_exceeded_handler,
 )
+from src.config.settings import settings
 from slowapi.errors import RateLimitExceeded
 from tests.unit._test_request import make_test_request
 
@@ -41,10 +42,14 @@ from tests.unit._test_request import make_test_request
 
 class TestConfig:
     def test_limit_login_constant(self):
-        assert LIMIT_LOGIN == "5/minute"
+        # Env-configurable via LOGIN_RATE_LIMIT; assert the wiring + the
+        # secure default (so a test run with the default env still pins it).
+        assert LIMIT_LOGIN == settings.login_rate_limit
+        assert settings.login_rate_limit == "5/minute"
 
     def test_limit_ingest_constant(self):
-        assert LIMIT_INGEST == "100/minute"
+        assert LIMIT_INGEST == settings.ingest_rate_limit
+        assert settings.ingest_rate_limit == "100/minute"
 
     def test_default_limit_includes_200_per_minute(self):
         # The production limiter should default to 200/minute. We don't dig
@@ -163,8 +168,10 @@ class TestLoginRateLimit:
         )
         limits = limiter._route_limits["src.api.auth_login.login"]
         limit_strs = [str(lim.limit) for lim in limits]
-        assert any("5" in s and "minute" in s for s in limit_strs), (
-            f"Expected 5/minute on /login, got {limit_strs}"
+        # slowapi normalises "5/minute" -> "5 per 1 minute"; compare amount+unit.
+        _amount, _, _unit = LIMIT_LOGIN.partition("/")
+        assert any(_amount in s and _unit in s for s in limit_strs), (
+            f"Expected {LIMIT_LOGIN} on /login, got {limit_strs}"
         )
 
 
@@ -184,8 +191,9 @@ class TestIngestRateLimit:
         )
         limits = limiter._route_limits["src.api.ingest.ingest_events"]
         limit_strs = [str(lim.limit) for lim in limits]
-        assert any("100" in s and "minute" in s for s in limit_strs), (
-            f"Expected 100/minute on /ingest, got {limit_strs}"
+        _amount, _, _unit = LIMIT_INGEST.partition("/")
+        assert any(_amount in s and _unit in s for s in limit_strs), (
+            f"Expected {LIMIT_INGEST} on /ingest, got {limit_strs}"
         )
 
 

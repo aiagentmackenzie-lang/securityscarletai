@@ -83,6 +83,12 @@ class Settings(BaseSettings):
     access_token_ttl_minutes: int = 15
     refresh_token_ttl_days: int = 7
 
+    # --- Rate limits (slowapi limit strings; env-configurable so the login
+    # brute-force limit can be relaxed for interactive/demo use without a
+    # code change. Defaults stay aggressive for production.) ---
+    login_rate_limit: str = "5/minute"
+    ingest_rate_limit: str = "100/minute"
+
     @field_validator("db_password")
     @classmethod
     def password_not_default(cls, v: str) -> str:
