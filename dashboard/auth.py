@@ -12,7 +12,7 @@ import time
 
 import streamlit as st
 
-from dashboard.api_client import ApiClient, ApiError
+from dashboard.api_client import ApiClient, ApiError, PasswordChangeRequiredError
 from dashboard.ui_utils import BG_SURFACE, BORDER_SUBTLE
 
 ROLE_REVERIFY_INTERVAL = 300
@@ -61,6 +61,66 @@ def is_admin() -> bool:
     return st.session_state.get("role") == "admin"
 
 
+def render_force_password_change_form():
+    """Render the set-new-password form for a must_change_password account.
+
+    Shown when a login returned PASSWORD_CHANGE_REQUIRED. Uses the
+    force_change_token (a one-off JWT) to call /auth/force-change-password,
+    then logs in with the new password.
+    """
+    fpc = st.session_state["force_pw_change"]
+    username = fpc["username"]
+    force_change_token = fpc["force_change_token"]
+
+    st.info(
+        f"Welcome, **{username}**. Your account requires a new password "
+        f"before first login."
+    )
+    with st.form("force_pw_form"):
+        new_password = st.text_input(
+            "New password", type="password", placeholder="At least 8 characters"
+        )
+        confirm = st.text_input("Confirm new password", type="password")
+        submitted = st.form_submit_button(
+            "Set new password & sign in", use_container_width=True
+        )
+        if submitted:
+            if not new_password.strip() or len(new_password) < 8:
+                st.error("Password must be at least 8 characters.")
+            elif new_password != confirm:
+                st.error("Passwords do not match.")
+            else:
+                with st.spinner("Updating password...", show_time=True):
+                    api = get_api_client()
+                    try:
+                        api.force_change_password(force_change_token, new_password)
+                        # Password changed and must_change_password cleared —
+                        # log in normally with the new password.
+                        result = api.login(username, new_password)
+                        st.session_state.authenticated = True
+                        st.session_state.username = result["username"]
+                        st.session_state.role = result["role"]
+                        st.session_state.access_token = result["access_token"]
+                        st.session_state.pop("force_pw_change", None)
+                        st.toast("Password updated — welcome!")
+                        st.rerun()
+                    except PasswordChangeRequiredError:
+                        # Shouldn't happen after a successful change, but
+                        # surface it clearly if it does.
+                        st.error(
+                            "Password changed but the reset flag is still set. "
+                            "Contact an admin."
+                        )
+                    except ApiError as e:
+                        st.error(f"Could not change password: {e.detail}")
+                    except Exception as e:
+                        st.error(f"Unexpected error: {e}")
+
+    if st.button("Back to login"):
+        st.session_state.pop("force_pw_change", None)
+        st.rerun()
+
+
 def render_login_page():
     """Render the login form."""
     st.markdown(f"""
@@ -83,6 +143,12 @@ def render_login_page():
     </div>
     """, unsafe_allow_html=True)
 
+    # If a prior login returned PASSWORD_CHANGE_REQUIRED, show the
+    # change-password form instead of the login form.
+    if st.session_state.get("force_pw_change"):
+        render_force_password_change_form()
+        return False
+
     with st.form("login_form"):
         username = st.text_input("Username", placeholder="admin")
         password = st.text_input("Password", type="password", placeholder="Enter password")
@@ -99,6 +165,14 @@ def render_login_page():
                     st.session_state.access_token = result["access_token"]
                     st.toast(f"Welcome, {result['username']}!")
                     st.success(f"Welcome, {result['username']}!")
+                    st.rerun()
+                except PasswordChangeRequiredError as e:
+                    # Account must change password — capture the force_change_token
+                    # + username and rerun into the change-password form.
+                    st.session_state.force_pw_change = {
+                        "force_change_token": e.force_change_token,
+                        "username": e.username,
+                    }
                     st.rerun()
                 except ApiError as e:
                     if e.status_code == 401:
