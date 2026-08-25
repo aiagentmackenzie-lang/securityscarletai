@@ -111,6 +111,16 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    healthcheck:
+      # The shared image's HEALTHCHECK pings :8000/api/v1/health (the API),
+      # but this container runs Streamlit on 8501 — so the inherited check
+      # always fails and the container shows (unhealthy) in `docker ps`.
+      # Override with Streamlit's own health endpoint.
+      test: ["CMD-SHELL", "curl -f --max-time 5 http://localhost:8501/_stcore/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
 
 volumes:
