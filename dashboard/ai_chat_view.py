@@ -97,7 +97,9 @@ def render_ai_chat():
     for i, action in enumerate(QUICK_ACTIONS):
         with cols[i % 3]:
             if st.button(action, key=f"quick_{i}", use_container_width=True):
-                st.session_state.chat_input = action
+                # Pre-fill the inline chat input (the form's text_input key).
+                # Setting the widget key before the form renders pre-fills it.
+                st.session_state.chat_input_field = action
 
     st.divider()
 
@@ -117,16 +119,24 @@ def render_ai_chat():
         else:
             st.chat_message("assistant").markdown(msg["content"])
 
-    user_input = st.chat_input(
-        "Ask a security question...",
-        key="chat_input_field",
-    )
+    # Inline input — replaces the pinned st.chat_input footer.
+    # The footer was called mid-script (before the NL→SQL section), so
+    # Streamlit pinned it to the viewport bottom and obscured the NL→SQL
+    # widgets below it; it also rendered the AI reply up in the Conversation
+    # section, far from where the user typed. A form with clear_on_submit
+    # clears the box after Send without manual session_state juggling, and
+    # Quick Actions pre-fill via the widget key (set before the form renders).
+    with st.form("chat_form", clear_on_submit=True):
+        _cols = st.columns([8, 1])
+        user_input = _cols[0].text_input(
+            "Ask a security question...",
+            key="chat_input_field",
+            placeholder="e.g., What should I investigate first?",
+            label_visibility="collapsed",
+        )
+        submitted = _cols[1].form_submit_button("Send", use_container_width=True)
 
-    if "chat_input" in st.session_state and st.session_state.chat_input:
-        user_input = st.session_state.chat_input
-        st.session_state.chat_input = None
-
-    if user_input:
+    if submitted and user_input.strip():
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         st.chat_message("user").markdown(user_input)
 
@@ -134,28 +144,13 @@ def render_ai_chat():
             with st.status("Thinking...", expanded=False) as status:
                 try:
                     result = api.ai_chat(user_input)
-                    response = result.get(
-                        "response", result.get("message", "No response available")
-                    )
+                    response = result.get("response", "No response available")
 
-                    query_results = result.get("query_results")
-                    if query_results:
-                        status.update(label="Response with query results", state="complete")
-                    else:
-                        status.update(label="Response ready", state="complete")
-
+                    status.update(label="Response ready", state="complete")
                     st.markdown(response)
-
-                    if query_results:
-                        with st.expander("Query Results"):
-                            import pandas as pd
-                            if isinstance(query_results, list) and query_results:
-                                df = pd.DataFrame(query_results)
-                                st.dataframe(df, use_container_width=True, hide_index=True)
-                            else:
-                                st.json(query_results)
-
-                    st.session_state.chat_history.append({"role": "assistant", "content": response})
+                    st.session_state.chat_history.append(
+                        {"role": "assistant", "content": response}
+                    )
 
                 except ApiError as e:
                     status.update(label="Request failed", state="error")
