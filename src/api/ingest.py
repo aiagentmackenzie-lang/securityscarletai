@@ -11,7 +11,7 @@ Security:
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
 
 from src.api.auth import get_current_user
@@ -63,6 +63,7 @@ class IngestResponse(BaseModel):
 @limiter.limit(LIMIT_INGEST)
 async def ingest_events(
     request: Request,  # slowapi needs Request to derive the rate-limit key
+    response: Response,  # slowapi injects X-RateLimit-* headers here
     events: list[IngestEvent],
     _token: Annotated[dict, Depends(get_current_user)],
 ):

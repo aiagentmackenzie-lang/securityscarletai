@@ -34,8 +34,9 @@ COPY config/ ./config/
 # service can `streamlit run dashboard/main.py` from this same image.
 COPY dashboard/ ./dashboard/
 
-# Copy entrypoint script (Epic 7)
-COPY scripts/entrypoint.sh /app/scripts/entrypoint.sh
+# Copy entrypoint script (Epic 7) and the rest of scripts/ (seeders used by the
+# entrypoint's demo-data step — the image is otherwise missing them).
+COPY scripts/ ./scripts/
 RUN chmod +x /app/scripts/entrypoint.sh
 
 # Create data and models directories
