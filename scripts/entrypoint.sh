@@ -170,6 +170,11 @@ fi
 
 # ───────────────────────────────────────────────────────────────
 # 6. Create admin user if no users exist
+#
+# The random password is written to data/admin_initial_password (chmod 600,
+# owned by the container user) and printed to stdout ONCE on first boot.
+# It is NOT left in `docker logs` indefinitely — the file is the durable
+# copy; rotate the password after first login and remove the file. (P2-4)
 # ───────────────────────────────────────────────────────────────
 USER_COUNT=$(run_async "
 import asyncio
@@ -207,14 +212,24 @@ async def main():
 
 asyncio.run(main())
 "
-    unset ADMIN_PW
-    # Surface the password so the operator can grab it from `docker logs`.
+    # Durable copy: data/admin_initial_password, owner-only readable (chmod 600).
+    # The container runs as non-root appuser, so the file is owned by appuser;
+    # chmod 600 keeps it world-unreadable. Rotate the password after first login
+    # and remove this file. (P2-4) The password is NOT left in `docker logs`
+    # beyond the single first-boot stdout echo below.
+    mkdir -p data
+    printf 'admin:%s\n' "${ADMIN_PW}" > data/admin_initial_password
+    chmod 600 data/admin_initial_password
+    # Surface the password ONCE to stdout so the operator sees it on first boot,
+    # then unset the env var so it does not linger in the process environment.
     echo "================================================================"
     echo "  ADMIN USER CREATED"
     echo "  username: admin"
     echo "  password: ${ADMIN_PW}"
-    echo "  CHANGE THIS PASSWORD IMMEDIATELY on first login."
+    echo "  Written to data/admin_initial_password (chmod 600)."
+    echo "  CHANGE THIS PASSWORD IMMEDIATELY on first login, then remove the file."
     echo "================================================================"
+    unset ADMIN_PW
 else
     echo "[entrypoint] ${USER_COUNT} user(s) present — skipping admin seed."
 fi

@@ -99,7 +99,8 @@ docker compose up -d
 #   - wait for Postgres to be ready
 #   - apply the canonical schema (src/db/schema.sql)
 #   - seed demo data and train the triage model
-#   - create the admin user (password surfaced in `docker logs`)
+#   - create the admin user (random password written to data/admin_initial_password,
+#     chmod 600, printed to stdout once on first boot)
 #   - start uvicorn
 
 # 4. (Dev only) Or run the API outside Docker:
@@ -299,8 +300,12 @@ on `http://api:8000`.
 The dashboard supports two auth flows:
 
 1. **Interactive JWT login** (default). Visit `http://localhost:8501`,
-   enter username/password (the API's `seed-admin` endpoint creates
-   the first admin). The JWT is stored in `st.session_state`.
+   enter username/password. In a Docker deploy the entrypoint creates the
+   first admin with a random password written to `data/admin_initial_password`
+   (chmod 600, printed to stdout once on first boot). Without Docker, the
+   dev-only `POST /auth/seed-admin` endpoint (gated by `SEED_ADMIN_ENABLED=true`,
+   off by default) creates an admin with the known weak password `admin`
+   (must_change_password=true). The JWT is stored in `st.session_state`.
 
 2. **Service-to-service bearer** (headless / docker). Set
    `DASHBOARD_API_TOKEN` in `.env` to a valid API token (typically

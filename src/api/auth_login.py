@@ -303,13 +303,27 @@ async def seed_admin_user(request: Request):
     """
     Create an initial admin user if no users exist (P1-14/P2-41 lockdown).
 
-    Restricted to: (a) siem_users is empty, AND (b) the request originates
-    from localhost (127.0.0.1 / ::1). The created admin is given a known weak
-    password ('admin') but must_change_password=TRUE so the first login forces
-    a reset. In production rely on the Docker entrypoint (which creates a
-    random-password admin printed to `docker logs`). Never document admin/admin
-    as default credentials.
+    Dev-only bootstrap, gated behind SEED_ADMIN_ENABLED (default false). When
+    disabled the endpoint returns 404 so it is not a second weak-password
+    bootstrap path in prod. Production bootstrap is the Docker entrypoint,
+    which creates a random-password admin and writes the password to
+    data/admin_initial_password (chmod 600) -- never the known "admin"
+    password, never in `docker logs` indefinitely.
+
+    When enabled, restricted to: (a) siem_users is empty, AND (b) the request
+    originates from localhost (127.0.0.1 / ::1). The created admin is given a
+    known weak password ('admin') but must_change_password=TRUE so the first
+    login forces a reset. Never document admin/admin as default credentials.
     """
+    from src.config.settings import settings as _seed_settings
+
+    if not _seed_settings.seed_admin_enabled:
+        # 404, not 403, so the endpoint's existence is hidden when disabled.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not found.",
+        )
+
     client_host = request.client.host if request.client else None
     if client_host not in ("127.0.0.1", "::1", "localhost"):
         raise HTTPException(
