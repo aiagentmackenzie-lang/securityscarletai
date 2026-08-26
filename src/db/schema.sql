@@ -377,11 +377,13 @@ ALTER TABLE triage_model_provenance
 -- captures every state-changing HTTP request (POST/PUT/PATCH/DELETE)
 -- with method, path, IP, user, status code, and request duration.
 -- ============================================================
--- Permission hardening (run as superuser, NOT as the app role):
---   REVOKE UPDATE, DELETE, TRUNCATE ON audit_logs FROM scarletai;
---   GRANT  INSERT, SELECT            ON audit_logs TO   scarletai;
--- This prevents a compromised app from rewriting or deleting its own
--- audit trail. Documented here because the table is append-only by design.
+-- Permission hardening is NOT applied by this schema (the app role that
+-- applies this file owns the tables, and owners bypass REVOKE). To enforce
+-- append-only audit, run scripts/harden_audit.sql as a superuser with a
+-- separate non-owner app role, then verify with
+-- `python -m scripts.check_audit_grants --strict`. See docs/DEPLOYMENT.md
+-- -> Audit immutability. Without that two-role setup, audit_logs is
+-- append-only BY CONVENTION (the app only INSERTs/SELECTs it).
 CREATE TABLE IF NOT EXISTS audit_logs (
     id                BIGSERIAL PRIMARY KEY,
     timestamp         TIMESTAMPTZ DEFAULT NOW(),

@@ -75,18 +75,36 @@ fi
 unset PGPASSWORD
 echo "[entrypoint] schema OK"
 
-# ───────────────────────────────────┐
-# 2b. Replay the dead-letter queue (P1-E, best-effort, non-fatal).         │
-#     Failed write batches from a prior run are persisted to               │
-#     data/dead_letter/*.jsonl by src/db/writer.py. Replay them now so      │
-#     stranded events survive a restart. Never halts the container.       │
-# ───────────────────────────────────┘
+# --- 2c. Audit append-only hardening (P1-C, optional, needs a superuser) ---
+# If DATABASE_SUPERUSER_URL is set, run scripts/harden_audit.sql as a
+# superuser to REVOKE UPDATE/DELETE/TRUNCATE on the audit tables from the
+# app role. If NOT set, the audit tables are append-only BY CONVENTION
+# (the app only INSERTs/SELECTs them) -- not DB-enforced. The default
+# single-role deploy (app role = owner) cannot enforce it; see
+# docs/DEPLOYMENT.md -> Audit immutability.
+if [ -n "${DATABASE_SUPERUSER_URL:-}" ]; then
+    echo "[entrypoint] Applying audit append-only hardening (superuser)..."
+    if psql "${DATABASE_SUPERUSER_URL}" -v ON_ERROR_STOP=1 \
+            -v app_role="${DB_USER}" -f scripts/harden_audit.sql; then
+        echo "[entrypoint] audit hardening applied"
+        python -m scripts.check_audit_grants --app-role "${DB_USER}" || true
+    else
+        echo "[entrypoint] WARNING: audit hardening failed -- audit is convention-only" >&2
+    fi
+else
+    echo "[entrypoint] DATABASE_SUPERUSER_URL not set -- audit tables are append-only by convention only (not DB-enforced). See docs/DEPLOYMENT.md -> Audit immutability."
+fi
+
+# --- 3. Replay the dead-letter queue (P1-E, best-effort, non-fatal) ---
+# Failed write batches from a prior run are persisted to
+# data/dead_letter/*.jsonl by src/db/writer.py. Replay them now so
+# stranded events survive a restart. Never halts the container.
 if [ -d data/dead_letter ] && ls data/dead_letter/*.jsonl >/dev/null 2>&1; then
     echo "[entrypoint] Replaying dead-letter queue (best-effort)..."
     if python -m scripts.replay_dead_letter 2>&1; then
         echo "[entrypoint] dead-letter replay attempted"
     else
-        echo "[entrypoint] WARNING: dead-letter replay failed — continuing (non-fatal)" >&2
+        echo "[entrypoint] WARNING: dead-letter replay failed -- continuing (non-fatal)" >&2
     fi
 else
     echo "[entrypoint] no dead-letter queue to replay"
