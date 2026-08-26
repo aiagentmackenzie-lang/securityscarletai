@@ -23,6 +23,9 @@ services:
     environment:
       LOG_FORMAT: json
       LOG_LEVEL: ${LOG_LEVEL:-WARNING}
+      # Prod: do not serve OpenAPI/Swagger/ReDoc. The schema + interactive
+      # docs are an unauthenticated attack-surface map; disable them.
+      DOCS_ENABLED: "false"
     deploy:
       resources:
         limits:

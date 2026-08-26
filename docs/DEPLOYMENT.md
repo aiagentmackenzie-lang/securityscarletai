@@ -51,6 +51,12 @@ openssl rand -base64 32
 
 ### Database Configuration
 
+The Postgres DSN is **derived** in `src/config/settings.py` from the parts
+below (URL-encoded so a rotated `DB_PASSWORD` containing `/`, `@`, `:` etc.
+can't break the connection string). There is **no `DATABASE_URL` setting** —
+do not add one to `.env`; it is not read and a hand-edited DSN becomes a
+stale-DSN footgun after a password rotation.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DB_HOST` | `localhost` | PostgreSQL host |
@@ -59,7 +65,6 @@ openssl rand -base64 32
 | `DB_USER` | `scarletai` | Database user |
 | `DB_POOL_MIN` | `2` | Min asyncpg connection pool size |
 | `DB_POOL_MAX` | `10` | Max asyncpg connection pool size |
-| `DATABASE_URL` | _(derived)_ | Full `postgresql://` URL — overrides the parts above if set |
 
 ### Redis Configuration
 
@@ -75,6 +80,7 @@ openssl rand -base64 32
 | `API_PORT` | `8000` | API bind port |
 | `API_CORS_ORIGINS` | `http://localhost:8501` | Comma-separated allowed CORS origins |
 | `ACCESS_TOKEN_TTL_MINUTES` | `15` | JWT access token lifetime (minutes) |
+| `DOCS_ENABLED` | `true` | When `false`, the Swagger UI (`/api/docs`), ReDoc (`/api/redoc`) and `/openapi.json` are not served. The prod overlay sets this to `false` so the unauthenticated API schema + interactive docs are not exposed. |
 
 ### Dashboard Configuration
 
@@ -110,7 +116,7 @@ When the token is set, the dashboard prints a startup warning to stderr
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API URL |
-| `OLLAMA_MODEL` | `llama3.2:8b` | Model name |
+| `OLLAMA_MODEL` | `mistral:7b` | Model name (the model installed in the reference deploy; pull it with `ollama pull mistral:7b`). Override per deployment. |
 | `OLLAMA_TIMEOUT` | `30` | Request timeout (seconds) |
 
 AI features degrade gracefully when Ollama is unavailable — template fallbacks and rule-based responses are used instead. The `/health` endpoint's `ollama_status` reports `healthy | degraded | unavailable`.
@@ -526,7 +532,7 @@ supersedes the BRIN index too.
   "ollama_status": "healthy",
   "ollama": {
     "ollama_status": "healthy",
-    "model": "llama3.2:8b",
+    "model": "mistral:7b",
     "error": null
   }
 }
@@ -556,7 +562,7 @@ docker compose logs postgres
 Common issues:
 - **Port 5433 in use**: Stop Homebrew PostgreSQL (`brew services stop postgresql`) or change `DB_PORT`
 - **Authentication failed**: Verify `DB_PASSWORD` matches in `.env` and the postgres container's init script
-- **Migration errors**: The schema is `src/db/schema.sql`, applied idempotently — re-run `psql "$DATABASE_URL" -f src/db/schema.sql`. There is no Alembic chain.
+- **Migration errors**: The schema is `src/db/schema.sql`, applied idempotently — re-run `psql "$(python -c 'from src.config.settings import settings; print(settings.database_url)')" -f src/db/schema.sql` (the DSN is derived from `DB_*` parts; there is no `DATABASE_URL` env var). There is no Alembic chain.
 
 ### Ollama Connection Issues
 
@@ -565,7 +571,7 @@ Common issues:
 curl http://localhost:11434/api/tags
 
 # Pull the default model
-ollama pull llama3.2:8b
+ollama pull mistral:7b
 ```
 
 AI features work without Ollama using template fallbacks. Check the health endpoint:
