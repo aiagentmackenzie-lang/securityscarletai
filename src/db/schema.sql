@@ -59,6 +59,17 @@ CREATE INDEX IF NOT EXISTS idx_logs_severity ON logs (severity, time DESC) WHERE
 CREATE INDEX IF NOT EXISTS idx_logs_raw_gin ON logs USING GIN (raw_data jsonb_path_ops);
 -- GIN index for normalized JSONB column (supports process_cmdline, process_path, etc.)
 CREATE INDEX IF NOT EXISTS idx_logs_normalized_gin ON logs USING GIN (normalized jsonb_path_ops);
+-- P1-D: BRIN index on time for cheap time-range scans at scale. B-tree
+-- idx_logs_time is fine for recent-queries but BRIN is far cheaper (tiny,
+-- summary blocks) for large time-series tables — the right index when logs
+-- grows into the millions of rows. The b-tree stays for ORDER BY time DESC.
+CREATE INDEX IF NOT EXISTS idx_logs_time_brin ON logs USING BRIN (time);
+-- NOTE: for very high ingest, upgrade to TimescaleDB:
+--   CREATE EXTENSION IF NOT EXISTS timescaledb;
+--   SELECT create_hypertable('logs', 'time', chunk_time_interval => INTERVAL '1 day');
+--   SELECT create_hypertable('siem_health', 'time', chunk_time_interval => INTERVAL '1 day');
+-- TimescaleDB compression + retention policies supersede the BRIN index and
+-- the src/services/retention.py job (use a drop_chunks policy instead).
 
 
 -- ============================================================
