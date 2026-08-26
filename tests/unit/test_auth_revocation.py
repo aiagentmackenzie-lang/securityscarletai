@@ -437,3 +437,116 @@ class TestTokenTypeEnforcement:
         payload = get_current_user(creds)
         assert payload["sub"] == "api-client"
         assert payload["role"] == "admin"
+
+
+# P1-B: force_change_token scope (must_change_password control)
+# ───────────────────────────────────────────────────────────────
+
+
+class TestForceChangeTokenScope:
+    """P1-B — a force_change_token (carrying force_password_change=True) is a
+    valid admin access JWT, but it must ONLY work on /auth/force-change-password.
+    Every business endpoint (via verify_jwt / get_current_user) must reject it,
+    otherwise the must_change_password control is bypassable for the token's TTL.
+    """
+
+    def _force_token(self, username: str = "migr", role: str = "admin") -> str:
+        from src.api.auth import create_jwt
+
+        return create_jwt(username, role, extra={"force_password_change": True})
+
+    def test_verify_jwt_rejects_force_token(self):
+        from src.api.auth import verify_jwt
+
+        creds = MagicMock()
+        creds.credentials = self._force_token()
+        with pytest.raises(HTTPException) as exc:
+            verify_jwt(creds)
+        assert exc.value.status_code == 401
+        assert "password change" in exc.value.detail.lower()
+
+    def test_get_current_user_rejects_force_token(self):
+        from src.api.auth import get_current_user
+
+        creds = MagicMock()
+        creds.credentials = self._force_token()
+        with pytest.raises(HTTPException) as exc:
+            get_current_user(creds)
+        assert exc.value.status_code == 401
+        # Must NOT fall through to static bearer — the message is the scope
+        # rejection, not "Invalid or expired token".
+        assert "password change" in exc.value.detail.lower()
+
+    def test_verify_force_change_token_accepts_force_token(self):
+        from src.api.auth import verify_force_change_token
+
+        creds = MagicMock()
+        creds.credentials = self._force_token("migr", "analyst")
+        payload = verify_force_change_token(creds)
+        assert payload["sub"] == "migr"
+        assert payload["force_password_change"] is True
+
+    def test_verify_force_change_token_rejects_normal_access_token(self):
+        from src.api.auth import create_jwt, verify_force_change_token
+
+        token = create_jwt("alice", "analyst")  # no force_password_change claim
+        creds = MagicMock()
+        creds.credentials = token
+        with pytest.raises(HTTPException) as exc:
+            verify_force_change_token(creds)
+        assert exc.value.status_code == 403
+
+    def test_verify_force_change_token_rejects_non_jwt(self):
+        from src.api.auth import verify_force_change_token
+
+        creds = MagicMock()
+        creds.credentials = "not-a-jwt"
+        with pytest.raises(HTTPException) as exc:
+            verify_force_change_token(creds)
+        assert exc.value.status_code == 401
+
+    async def test_force_change_password_sets_user_revoke_marker(self, monkeypatch):
+        """P2-12 — a successful /force-change-password sets a user_revoke marker so
+        the force_change_token (and any prior tokens) die immediately."""
+        from datetime import datetime, timezone
+
+        import src.api.auth_login as mod
+        from src.api.redis_client import get_latest_user_revoke_ts
+
+        # Stub the pool + execute so the endpoint doesn't need a live DB.
+        class _Conn:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def execute(self, *args, **kwargs):
+                return None
+
+        class _Pool:
+            def acquire(self):
+                return _Conn()
+
+        async def _fake_pool():
+            return _Pool()
+
+        monkeypatch.setattr(mod, "get_pool", _fake_pool)
+        monkeypatch.setattr(mod, "hash_password", lambda pw: "HASH:" + pw)
+
+        from src.api.auth_login import ForceChangePasswordRequest, force_change_password
+
+        before = get_latest_user_revoke_ts("migr2")
+        assert before is None
+
+        payload = {"sub": "migr2", "force_password_change": True}
+        result = await force_change_password(
+            ForceChangePasswordRequest(new_password="newpass123"), payload
+        )
+        assert "changed" in result["message"].lower()
+
+        after = get_latest_user_revoke_ts("migr2")
+        assert after is not None
+        assert isinstance(after, float)
+        # The marker time is ~now.
+        assert abs(after - datetime.now(tz=timezone.utc).timestamp()) < 30

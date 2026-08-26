@@ -122,6 +122,53 @@ def verify_jwt(
     # via _check_revocation (P1-11).
     _check_revocation(payload)
 
+    # P1-B: a force_change_token (carrying force_password_change=True) is scoped
+    # to /auth/force-change-password ONLY. It must NOT work on business endpoints —
+    # otherwise the must_change_password control is bypassable for the token's TTL
+    # (the user logs in with the correct password, gets back a valid admin access
+    # JWT, and uses it on /query /alerts /ingest without ever resetting). Only
+    # verify_force_change_token (below) accepts such tokens.
+    if payload.get("force_password_change"):
+        log.warning("force_token_rejected_on_business_endpoint sub=%s", payload.get("sub"))
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Password change required",
+        )
+
+    return cast(dict[str, Any], payload)
+
+
+def verify_force_change_token(
+    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+) -> dict:
+    """Verify a force-change-password token (P1-B).
+
+    This is the ONLY auth dependency that accepts a JWT carrying
+    `force_password_change: True`. It is used by /auth/force-change-password.
+    Every other endpoint (via verify_jwt / get_current_user) rejects such
+    tokens, so the must_change_password control cannot be bypassed by using
+    the force_change_token as a regular access token.
+    """
+    try:
+        payload = jwt.decode(
+            credentials.credentials,
+            settings.api_secret_key.get_secret_value(),
+            algorithms=[JWT_ALGORITHM],
+        )
+    except JWTError as e:
+        log.warning("force_token_decode_failed error=%s", str(e))
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        ) from None
+
+    if not payload.get("force_password_change"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This endpoint requires a force_password_change token",
+        )
+
+    _check_revocation(payload)
     return cast(dict[str, Any], payload)
 
 
@@ -158,6 +205,14 @@ def get_current_user(
         # API too, not just the auth-own endpoints. Static bearer tokens below are
         # unaffected (no jti/iat).
         _check_revocation(payload)
+        # P1-B: reject force_change_tokens on the business API (same as
+        # verify_jwt above) — they are scoped to /auth/force-change-password.
+        if payload.get("force_password_change"):
+            log.warning("force_token_rejected_on_business_endpoint sub=%s", payload.get("sub"))
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Password change required",
+            )
         return cast(dict[str, Any], payload)
     except JWTError:
         pass
