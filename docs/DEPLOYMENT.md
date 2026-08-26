@@ -74,6 +74,7 @@ openssl rand -base64 32
 | `API_HOST` | `127.0.0.1` | API bind address |
 | `API_PORT` | `8000` | API bind port |
 | `API_CORS_ORIGINS` | `http://localhost:8501` | Comma-separated allowed CORS origins |
+| `PASSWORD_PEPPER` | _(empty)_ | Optional server-side secret (HMAC-SHA256) mixed into password hashing before the SHA-256 pre-hash + bcrypt. Protects against DB-only leaks (an attacker with the DB but not this secret cannot offline-crack the hashes). Leave unset to keep existing hashes validating; rotating it requires rehashing all passwords. |
 | `ACCESS_TOKEN_TTL_MINUTES` | `15` | JWT access token lifetime (minutes) |
 
 ### Dashboard Configuration

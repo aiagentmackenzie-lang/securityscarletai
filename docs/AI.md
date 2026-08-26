@@ -285,22 +285,26 @@ The risk scoring engine (`src/ai/risk_scoring.py`) combines multiple signals int
 
 ### Alert Risk Score
 
-Individual alert risk = `base_severity_score + asset_criticality_adj + threat_intel_adj + anomaly_adj`
+Individual alert risk = `base_severity_score + threat_intel_adj + anomaly_adj`
 
 - Base severity: Critical=50, High=40, Medium=25, Low=10, Info=0
-- Asset criticality: Up to +20 (based on host vulnerability/exposure)
 - Threat intel match: +15 if source IP is in any feed
 - User anomaly: Up to +15 (from UEBA baseline deviation)
 
-All scores are capped at 100.
+An "asset criticality" term was previously listed but has been removed — it
+was a fixed 0.5 default no caller overrode, backed by an `assets` table that
+was never populated (dropped from the schema, P2-8). All scores are capped at
+100. (The triage model retains an `asset_risk_score` feature as a constant
+50.0 placeholder so the 11-feature vector shape is unchanged; wiring real
+asset criticality would require an asset inventory + a model retrain.)
 
 ### API Endpoints
 
 Risk scoring is currently an **internal engine** — `RiskScorer` is invoked from
-the triage/detection path (`get_top_risk_assets`, `calculate_asset_risk`,
-`calculate_user_risk`) and the alert risk path, but it is **not** exposed via a
-public API endpoint. The `/api/v1/ai/risk/*` routes previously documented here do
-not exist. Surfacing them is tracked as a follow-up.
+the triage/detection path (`calculate_asset_risk`, `calculate_user_risk`) and
+the alert risk path, but it is **not** exposed via a public API endpoint. The
+`/api/v1/ai/risk/*` routes previously documented here do not exist. Surfacing
+them is tracked as a follow-up.
 
 ---
 

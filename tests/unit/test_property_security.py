@@ -122,18 +122,16 @@ class TestRiskScoringProperties:
 
     @given(
         severity=st.sampled_from(["critical", "high", "medium", "low", "info"]),
-        asset_criticality=st.floats(min_value=0.0, max_value=1.0),
         threat_intel=st.booleans(),
         anomaly_score=st.floats(min_value=0.0, max_value=1.0),
     )
     @settings(max_examples=100)
     def test_alert_risk_always_bounded(
-        self, severity, asset_criticality, threat_intel, anomaly_score
+        self, severity, threat_intel, anomaly_score
     ):
         """Risk score should always be between 0 and 100."""
         score = RiskScorer.calculate_alert_risk(
             severity=severity,
-            asset_criticality=asset_criticality,
             threat_intel_match=threat_intel,
             user_anomaly_score=anomaly_score,
         )

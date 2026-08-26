@@ -410,7 +410,6 @@ class TestExtractFeatures:
             side_effect=[
                 50,  # rule_hits
                 3,  # host_alerts
-                75.0,  # asset_risk
                 dt(2024, 6, 15, 12, 0, 0),  # last_similar
                 14.0,  # typical_hour (MODE)
             ]
@@ -489,7 +488,6 @@ class TestExtractFeatures:
             side_effect=[
                 10,  # rule_hits
                 2,  # host_alerts
-                40.0,  # asset_risk
                 None,  # last_similar
                 None,  # typical_hour (MODE)
             ]
