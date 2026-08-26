@@ -536,6 +536,50 @@ async def list_suppression_rules() -> list[dict]:
         return [dict(r) for r in rows]
 
 
+async def set_suppression_enabled(suppression_id: int, enabled: bool) -> bool:
+    """Enable or disable a suppression rule by id.
+
+    Returns True if a row was updated, False if the id did not exist. The
+    detection path's _is_suppressed only matches rules with enabled = TRUE,
+    so disabling takes effect immediately (no restart needed).
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE alert_suppressions SET enabled = $1 WHERE id = $2",
+            enabled,
+            suppression_id,
+        )
+        updated = result.startswith("UPDATE") and not result.startswith("UPDATE 0")
+        log.info(
+            "suppression_rule_toggled",
+            suppression_id=suppression_id,
+            enabled=enabled,
+            updated=updated,
+        )
+        return updated
+
+
+async def delete_suppression_rule(suppression_id: int) -> bool:
+    """Delete a suppression rule by id.
+
+    Returns True if a row was deleted, False if the id did not exist.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "DELETE FROM alert_suppressions WHERE id = $1",
+            suppression_id,
+        )
+        deleted = result.startswith("DELETE") and not result.startswith("DELETE 0")
+        log.info(
+            "suppression_rule_deleted",
+            suppression_id=suppression_id,
+            deleted=deleted,
+        )
+        return deleted
+
+
 # ───────────────────────────────────────────────────────────────
 # Alert export
 # ───────────────────────────────────────────────────────────────

@@ -452,6 +452,59 @@ class TestSuppressionRules:
         assert result["id"] == 1
         assert result["status"] == "created"
 
+    @pytest.mark.asyncio
+    async def test_toggle_suppression_enables(self):
+        """PATCH /suppressions/{id} with enabled=True returns updated."""
+        from src.api.alerts import SuppressionEnabledUpdate, toggle_suppression
+
+        with patch("src.api.alerts.set_suppression_enabled", AsyncMock(return_value=True)):
+            update = SuppressionEnabledUpdate(enabled=True)
+            result = await toggle_suppression(
+                suppression_id=5, update=update, user={"sub": "admin", "role": "admin"}
+            )
+        assert result == {"id": 5, "enabled": True, "status": "updated"}
+
+    @pytest.mark.asyncio
+    async def test_toggle_suppression_404_when_missing(self):
+        """PATCH returns 404 when the suppression id does not exist."""
+        from fastapi import HTTPException
+
+        from src.api.alerts import SuppressionEnabledUpdate, toggle_suppression
+
+        with patch("src.api.alerts.set_suppression_enabled", AsyncMock(return_value=False)):
+            with pytest.raises(HTTPException) as exc_info:
+                await toggle_suppression(
+                    suppression_id=999,
+                    update=SuppressionEnabledUpdate(enabled=False),
+                    user={"sub": "admin", "role": "admin"},
+                )
+        assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_remove_suppression_deletes(self):
+        """DELETE /suppressions/{id} returns deleted."""
+        from src.api.alerts import remove_suppression
+
+        with patch("src.api.alerts.delete_suppression_rule", AsyncMock(return_value=True)):
+            result = await remove_suppression(
+                suppression_id=7, user={"sub": "admin", "role": "admin"}
+            )
+        assert result == {"id": 7, "status": "deleted"}
+
+    @pytest.mark.asyncio
+    async def test_remove_suppression_404_when_missing(self):
+        """DELETE returns 404 when the suppression id does not exist."""
+        from fastapi import HTTPException
+
+        from src.api.alerts import remove_suppression
+
+        with patch("src.api.alerts.delete_suppression_rule", AsyncMock(return_value=False)):
+            with pytest.raises(HTTPException) as exc_info:
+                await remove_suppression(
+                    suppression_id=999, user={"sub": "admin", "role": "admin"}
+                )
+        assert exc_info.value.status_code == 404
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Add note endpoint logic

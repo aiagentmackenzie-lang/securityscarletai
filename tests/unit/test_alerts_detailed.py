@@ -34,10 +34,12 @@ from src.detection.alerts import (
     bulk_resolve,
     create_alert,
     create_suppression_rule,
+    delete_suppression_rule,
     export_alerts_csv,
     export_alerts_stix,
     get_alert_stats,
     list_suppression_rules,
+    set_suppression_enabled,
     update_alert_status,
 )
 
@@ -513,6 +515,93 @@ class TestSuppressionRules:
 
         assert len(result) == 2
         assert result[0]["rule_name"] == "noisy_rule"
+
+    @pytest.mark.asyncio
+    async def test_set_suppression_enabled_returns_true_when_updated(self):
+        """A row exists -> UPDATE returns 'UPDATE 1' -> function returns True."""
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value="UPDATE 1")
+
+        class AsyncCtx:
+            async def __aenter__(self):
+                return mock_conn
+
+            async def __aexit__(self, *args):
+                pass
+
+        mock_pool = AsyncMock()
+        mock_pool.acquire = MagicMock(return_value=AsyncCtx())
+
+        with patch("src.detection.alerts.get_pool", AsyncMock(return_value=mock_pool)):
+            updated = await set_suppression_enabled(suppression_id=3, enabled=False)
+        assert updated is True
+        # The UPDATE must parameterize both the enabled flag and the id.
+        sql_arg = mock_conn.execute.await_args.args[0]
+        assert "UPDATE alert_suppressions SET enabled = $1 WHERE id = $2" == sql_arg
+        assert mock_conn.execute.await_args.args[1] is False
+        assert mock_conn.execute.await_args.args[2] == 3
+
+    @pytest.mark.asyncio
+    async def test_set_suppression_enabled_returns_false_when_missing(self):
+        """No row -> 'UPDATE 0' -> returns False."""
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value="UPDATE 0")
+
+        class AsyncCtx:
+            async def __aenter__(self):
+                return mock_conn
+
+            async def __aexit__(self, *args):
+                pass
+
+        mock_pool = AsyncMock()
+        mock_pool.acquire = MagicMock(return_value=AsyncCtx())
+
+        with patch("src.detection.alerts.get_pool", AsyncMock(return_value=mock_pool)):
+            updated = await set_suppression_enabled(suppression_id=999, enabled=True)
+        assert updated is False
+
+    @pytest.mark.asyncio
+    async def test_delete_suppression_rule_returns_true_when_deleted(self):
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value="DELETE 1")
+
+        class AsyncCtx:
+            async def __aenter__(self):
+                return mock_conn
+
+            async def __aexit__(self, *args):
+                pass
+
+        mock_pool = AsyncMock()
+        mock_pool.acquire = MagicMock(return_value=AsyncCtx())
+
+        with patch("src.detection.alerts.get_pool", AsyncMock(return_value=mock_pool)):
+            deleted = await delete_suppression_rule(suppression_id=5)
+        assert deleted is True
+        assert mock_conn.execute.await_args.args[0] == (
+            "DELETE FROM alert_suppressions WHERE id = $1"
+        )
+        assert mock_conn.execute.await_args.args[1] == 5
+
+    @pytest.mark.asyncio
+    async def test_delete_suppression_rule_returns_false_when_missing(self):
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value="DELETE 0")
+
+        class AsyncCtx:
+            async def __aenter__(self):
+                return mock_conn
+
+            async def __aexit__(self, *args):
+                pass
+
+        mock_pool = AsyncMock()
+        mock_pool.acquire = MagicMock(return_value=AsyncCtx())
+
+        with patch("src.detection.alerts.get_pool", AsyncMock(return_value=mock_pool)):
+            deleted = await delete_suppression_rule(suppression_id=999)
+        assert deleted is False
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

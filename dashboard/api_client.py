@@ -475,6 +475,35 @@ class ApiClient:
         self._delete(f"/rules/{rule_id}")
 
     # ───────────────────────────────────────────────────────────
+    # Alert suppressions (AI-triage differentiation — P4.2)
+    # ───────────────────────────────────────────────────────────
+
+    def list_suppressions(self) -> list[dict]:
+        """List all alert suppression rules (false-positive whitelist)."""
+        return self._get("/alerts/suppressions")
+
+    def create_suppression(
+        self, rule_name: str | None, host_name: str | None, reason: str
+    ) -> dict:
+        """Create a suppression for a (rule_name, host_name) pair. At least one
+        of rule_name / host_name must be set (the API rejects both-NULL)."""
+        return self._post(
+            "/alerts/suppressions",
+            {"rule_name": rule_name, "host_name": host_name, "reason": reason},
+        )
+
+    def set_suppression_enabled(self, suppression_id: int, enabled: bool) -> dict:
+        """Enable or disable a suppression rule (takes effect immediately)."""
+        return self._patch(
+            f"/alerts/suppressions/{suppression_id}", {"enabled": enabled}
+        )
+
+    def delete_suppression(self, suppression_id: int) -> dict:
+        """Permanently delete a suppression rule."""
+        return self._delete(f"/alerts/suppressions/{suppression_id}")
+
+
+    # ───────────────────────────────────────────────────────────
     # Logs
     # ───────────────────────────────────────────────────────────
 
