@@ -414,6 +414,12 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for production deployment instructi
 - Security hardening checklist
 - Backup & recovery
 
+**Air-gapped / no-egress:** SecurityScarletAI is self-hostable and air-gappable
+— local Ollama, no external threat-intel calls, offline Sigma corpus, no
+telemetry. See [docs/AIR-GAPPED.md](docs/AIR-GAPPED.md) for the
+enterprise / regulated / sovereign scenario (the differentiator vs. SaaS
+SIEMs that require constant cloud connectivity).
+
 ---
 
 ## Project Structure

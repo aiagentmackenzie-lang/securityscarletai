@@ -145,3 +145,46 @@ class TestThreatIntelStats:
             assert "by_source" in stats
             assert "last_refresh" in stats
             assert "feed_status" in stats
+
+
+class TestAirGappedScheduler:
+    """P4.3: THREAT_INTEL_ENABLED=false disables all external feed egress."""
+
+    @pytest.mark.asyncio
+    async def test_scheduler_disabled_does_not_start_or_refresh(self):
+        """When THREAT_INTEL_ENABLED is false, start_threat_intel_scheduler
+        returns early: no scheduler is started and refresh_all_feeds is not
+        fired (no external calls to URLhaus/AbuseIPDB/OTX)."""
+        from src.intel import threat_intel
+
+        threat_intel._async_scheduler = None  # reset
+        with patch.object(threat_intel.settings, "threat_intel_enabled", False):
+            with patch.object(threat_intel, "refresh_all_feeds", AsyncMock()) as mock_refresh:
+                await threat_intel.start_threat_intel_scheduler()
+                mock_refresh.assert_not_awaited()
+                assert threat_intel._async_scheduler is None
+
+    @pytest.mark.asyncio
+    async def test_scheduler_enabled_starts_and_refreshes(self):
+        """When enabled (default), the scheduler starts and the initial
+        refresh fires as a background task (existing behaviour preserved)."""
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler  # noqa: F401
+        from src.intel import threat_intel
+
+        threat_intel._async_scheduler = None  # reset
+        mock_sched = MagicMock()
+        mock_sched.add_job = MagicMock()
+        mock_sched.start = MagicMock()
+
+        with patch.object(threat_intel.settings, "threat_intel_enabled", True):
+            with patch(
+                "apscheduler.schedulers.asyncio.AsyncIOScheduler",
+                return_value=mock_sched,
+            ):
+                with patch.object(threat_intel, "refresh_all_feeds", AsyncMock()) as mock_refresh:
+                    with patch.object(threat_intel.asyncio, "create_task") as mock_create_task:
+                        await threat_intel.start_threat_intel_scheduler()
+                        mock_sched.add_job.assert_called_once()
+                        mock_sched.start.assert_called_once()
+                        mock_create_task.assert_called_once()
+                        mock_refresh.assert_not_awaited()  # create_task wraps it

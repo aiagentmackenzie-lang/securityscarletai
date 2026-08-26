@@ -633,7 +633,18 @@ _async_scheduler = None
 
 
 async def start_threat_intel_scheduler():
-    """Start the periodic threat intel refresh (every 6 hours)."""
+    """Start the periodic threat intel refresh (every 6 hours).
+
+    Air-gapped / no-egress mode (THREAT_INTEL_ENABLED=false): the scheduler is
+    NOT started and refresh_all_feeds is NOT fired, so no external feed calls
+    (URLhaus/AbuseIPDB/OTX) are made. IOC enrichment still matches the local
+    threat_intel cache; pre-load IOCs offline before going dark. See
+    docs/AIR-GAPPED.md.
+    """
+    if not settings.threat_intel_enabled:
+        log.info("threat_intel_disabled_air_gapped_mode")
+        return
+
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
     from apscheduler.triggers.interval import IntervalTrigger
 

@@ -134,10 +134,13 @@ AI features degrade gracefully when Ollama is unavailable — template fallbacks
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `THREAT_INTEL_ENABLED` | `true` | When `false`, the threat-intel refresh scheduler is not started and no external feed calls are made (URLhaus/AbuseIPDB/OTX). IOC enrichment matches the local `threat_intel` cache only. The air-gapped / no-egress switch — see `docs/AIR-GAPPED.md`. |
 | `ABUSEIPDB_API_KEY` | _(empty)_ | AbuseIPDB API key for IP reputation lookups |
 | `OTX_API_KEY` | _(empty)_ | AlienVault OTX API key |
 
-If both are empty, threat-intel enrichment silently skips and `configured: false` is returned by `/threat-intel/status`. The pipeline does not error.
+If both feed keys are empty, keyed enrichment silently skips and `configured: false` is returned by `/threat-intel/status`. (URLhaus needs no key and would still call out every 6 h — set `THREAT_INTEL_ENABLED=false` to close that path too.) The pipeline does not error.
+
+For an **air-gapped / no-egress** deployment, set `THREAT_INTEL_ENABLED=false` and leave both keys empty; see [`docs/AIR-GAPPED.md`](AIR-GAPPED.md).
 
 ### Notifications (Optional)
 
