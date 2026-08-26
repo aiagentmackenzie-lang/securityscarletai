@@ -175,6 +175,71 @@ class TestValidateSQLStructure:
         is_valid, reason = validate_sql_structure(sql)
         assert not is_valid
 
+    # ------------------------------------------------------------------
+    # P0-A: table allowlist (NL→SQL may only read logs + alerts)
+    # ------------------------------------------------------------------
+
+    def test_siem_users_password_dump_rejected(self):
+        """The headline P0-A exploit: an analyst asking the LLM to dump
+        password hashes must be rejected before execution."""
+        sql = (
+            "SELECT username, password_hash FROM siem_users "
+            "ORDER BY username DESC LIMIT 100"
+        )
+        is_valid, reason = validate_sql_structure(sql)
+        assert not is_valid
+        assert "siem_users" in reason
+
+    def test_audit_logs_rejected(self):
+        sql = "SELECT * FROM audit_logs LIMIT 10"
+        is_valid, reason = validate_sql_structure(sql)
+        assert not is_valid
+        assert "audit_logs" in reason
+
+    def test_ai_usage_rejected(self):
+        sql = "SELECT user_id, endpoint FROM ai_usage LIMIT 10"
+        is_valid, reason = validate_sql_structure(sql)
+        assert not is_valid
+
+    def test_cases_rejected(self):
+        sql = "SELECT * FROM cases LIMIT 10"
+        is_valid, reason = validate_sql_structure(sql)
+        assert not is_valid
+
+    def test_subquery_into_siem_users_rejected(self):
+        """Exfil via subquery: outer FROM logs, inner FROM siem_users."""
+        sql = (
+            "SELECT * FROM logs WHERE host_name IN "
+            "(SELECT host_name FROM siem_users) LIMIT 10"
+        )
+        is_valid, reason = validate_sql_structure(sql)
+        assert not is_valid
+        assert "siem_users" in reason
+
+    def test_scalar_subquery_exfil_rejected(self):
+        """Scalar subquery in the SELECT list pulling from a forbidden table."""
+        sql = "SELECT (SELECT password_hash FROM siem_users) FROM logs LIMIT 10"
+        is_valid, reason = validate_sql_structure(sql)
+        assert not is_valid
+
+    def test_allowed_logs_passes(self):
+        sql = "SELECT * FROM logs LIMIT 10"
+        is_valid, reason = validate_sql_structure(sql)
+        assert is_valid, reason
+
+    def test_allowed_alerts_passes(self):
+        sql = "SELECT id, rule_name, severity FROM alerts LIMIT 10"
+        is_valid, reason = validate_sql_structure(sql)
+        assert is_valid, reason
+
+    def test_join_of_two_allowed_tables_passes(self):
+        sql = (
+            "SELECT a.id, a.rule_name, l.time FROM alerts a JOIN logs l "
+            "ON l.host_name = a.host_name LIMIT 50"
+        )
+        is_valid, reason = validate_sql_structure(sql)
+        assert is_valid, reason
+
 
 # ---------------------------------------------------------------------------
 # Safety limits tests
