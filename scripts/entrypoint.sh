@@ -75,6 +75,23 @@ fi
 unset PGPASSWORD
 echo "[entrypoint] schema OK"
 
+# ───────────────────────────────────┐
+# 2b. Replay the dead-letter queue (P1-E, best-effort, non-fatal).         │
+#     Failed write batches from a prior run are persisted to               │
+#     data/dead_letter/*.jsonl by src/db/writer.py. Replay them now so      │
+#     stranded events survive a restart. Never halts the container.       │
+# ───────────────────────────────────┘
+if [ -d data/dead_letter ] && ls data/dead_letter/*.jsonl >/dev/null 2>&1; then
+    echo "[entrypoint] Replaying dead-letter queue (best-effort)..."
+    if python -m scripts.replay_dead_letter 2>&1; then
+        echo "[entrypoint] dead-letter replay attempted"
+    else
+        echo "[entrypoint] WARNING: dead-letter replay failed — continuing (non-fatal)" >&2
+    fi
+else
+    echo "[entrypoint] no dead-letter queue to replay"
+fi
+
 # ───────────────────────────────────────────────────────────────
 # 3. Seed demo data if alerts table is empty
 # ───────────────────────────────────────────────────────────────

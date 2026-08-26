@@ -23,9 +23,15 @@ log = get_logger("db.writer")
 
 BATCH_SIZE = 100
 FLUSH_INTERVAL = 2.0  # seconds — flush even if batch isn't full
+# P1-E: cap the in-memory buffer so a slow/down DB can't grow it unbounded
+# to OOM. When the buffer hits the cap, write() flushes first (backpressure —
+# the ingest caller slows down rather than piling up events in RAM). 10x the
+# batch size = up to ~1000 events buffered under pressure before flushing.
+MAX_BUFFER = 10 * BATCH_SIZE
 DEAD_LETTER_DIR = Path("data/dead_letter")
 DEAD_LETTER_MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB per daily file
 DEAD_LETTER_RETENTION_DAYS = 30
+DEAD_LETTER_PROCESSED_DIR = Path("data/dead_letter/processed")
 
 
 class LogWriter:
@@ -35,11 +41,13 @@ class LogWriter:
         self._buffer: list[NormalizedEvent] = []
         self._batch_size = batch_size
         self._flush_interval = flush_interval
+        self._max_buffer = MAX_BUFFER
         self._lock = asyncio.Lock()
         self._flush_task: Optional[asyncio.Task] = None
 
         self._total_written = 0
         self._total_errors = 0
+        self._backpressure_events = 0
 
     async def start(self) -> None:
         """Start the periodic flush loop."""
@@ -58,8 +66,29 @@ class LogWriter:
         )
 
     async def write(self, event: NormalizedEvent) -> None:
-        """Add an event to the buffer. Flushes automatically when full."""
+        """Add an event to the buffer. Flushes automatically when full.
+
+        P1-E: bounds the buffer. If the buffer is at the cap (DB slower than
+        ingest, or DB down), flush first — this applies backpressure to the
+        caller (write() takes longer) instead of growing _buffer to OOM. A
+        warning fires when the buffer crosses half the cap so the operator
+        sees pressure before it bites.
+        """
         async with self._lock:
+            if len(self._buffer) >= self._max_buffer:
+                log.warning(
+                    "writer_buffer_full_backpressure",
+                    buffer=len(self._buffer),
+                    cap=self._max_buffer,
+                )
+                self._backpressure_events += 1
+                await self._flush_unlocked()
+            elif len(self._buffer) >= self._max_buffer // 2:
+                log.warning(
+                    "writer_buffer_high",
+                    buffer=len(self._buffer),
+                    cap=self._max_buffer,
+                )
             self._buffer.append(event)
             if len(self._buffer) >= self._batch_size:
                 await self._flush_unlocked()
