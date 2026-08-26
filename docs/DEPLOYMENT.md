@@ -82,6 +82,29 @@ openssl rand -base64 32
 |----------|---------|---------|
 | `DASHBOARD_API_TOKEN` | _(empty)_ | Static bearer token for headless dashboard → API auth. Leave blank to require manual JWT login via the dashboard. When set, the dashboard can call the API without a user login (service-to-service). |
 
+#### Dashboard exposure — read before exposing the dashboard to a network
+
+`DASHBOARD_API_TOKEN` grants **admin** API access (the API's static bearer
+falls back to `role: admin`). When it is set, the dashboard **skips its
+login screen** and acts as an admin client. Anyone who can reach the
+dashboard URL then has full admin SIEM access — read all alerts, run NL→SQL
+queries, manage rules/cases, ingest. **Never expose the dashboard
+unauthenticated with `DASHBOARD_API_TOKEN` set.**
+
+Two safe production options:
+
+1. **JWT-only (default, recommended).** Leave `DASHBOARD_API_TOKEN` empty
+   (the prod overlay defaults it to `${DASHBOARD_API_TOKEN:-}` = empty). The
+   dashboard forces an interactive JWT login. This is the safest default.
+2. **Service token behind a gateway (headless/automated use).** Keep the
+   token set AND gate the dashboard behind Caddy `basicauth`, an
+   identity-aware proxy (OAuth/IAP), or an IP allowlist. A commented
+   `basicauth` block is in `deploy/Caddyfile`; generate a hash with
+   `caddy hash-password`.
+
+When the token is set, the dashboard prints a startup warning to stderr
+(visible in `docker logs scarletai-dashboard`) reminding you to gate it.
+
 ### Ollama (AI Features)
 
 | Variable | Default | Description |

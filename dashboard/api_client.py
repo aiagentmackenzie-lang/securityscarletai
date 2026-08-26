@@ -41,6 +41,35 @@ DASHBOARD_API_TOKEN: str | None = os.environ.get("DASHBOARD_API_TOKEN") or None
 if DASHBOARD_API_TOKEN is not None and not DASHBOARD_API_TOKEN.strip():
     DASHBOARD_API_TOKEN = None  # treat empty string as unset
 
+# P0-B: warn loudly when the dashboard is running in service-token mode.
+# DASHBOARD_API_TOKEN grants admin API access and makes the dashboard skip
+# its login screen, so anyone who can reach the dashboard URL gets full
+# admin SIEM access. This is safe ONLY behind an auth-gating proxy (Caddy
+# basicauth / an identity-aware proxy / an IP allowlist). In production the
+# prod overlay defaults this to empty (JWT-only); this warning fires when
+# someone sets it without the gateway auth.
+if DASHBOARD_API_TOKEN is not None:
+    import sys
+    import warnings
+
+    warnings.warn(
+        "DASHBOARD_API_TOKEN is set — the dashboard will skip login and act "
+        "as an admin client. This is only safe behind an auth-gating proxy "
+        "(Caddy basicauth / IAP / IP allowlist). Expose the dashboard "
+        "unauthenticated with this token set and anyone reaching it gets "
+        "full admin SIEM access. Leave DASHBOARD_API_TOKEN empty to force "
+        "JWT login.",
+        stacklevel=1,
+    )
+    print(
+        "⚠️  DASHBOARD_API_TOKEN is set — the dashboard skips login and acts "
+        "as an admin client. Gate it behind an auth proxy (Caddy basicauth / "
+        "IAP / IP allowlist) or anyone reaching the dashboard URL gets full "
+        "admin SIEM access. Leave it empty to force JWT login.",
+        file=sys.stderr,
+        flush=True,
+    )
+
 
 class ApiError(Exception):
     """Raised when the API returns a non-200 response."""

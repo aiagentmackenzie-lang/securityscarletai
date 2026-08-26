@@ -386,7 +386,12 @@ integration suite, and the coverage gate. Integration tests need Postgres only
   history rewrite not justified).
 - **Dashboard auth**: Two modes — interactive JWT login (default) or
   `DASHBOARD_API_TOKEN` service-to-service bearer (set in `.env`). The API's
-  unified auth dependency accepts either form.
+  unified auth dependency accepts either form. `DASHBOARD_API_TOKEN` grants
+  **admin** API access and makes the dashboard skip its login screen, so it
+  must NEVER be exposed unauthenticated with the token set — gate it behind
+  Caddy `basicauth` / an identity-aware proxy / an IP allowlist, or leave the
+  token empty (the prod overlay default) to force JWT login. See
+  `docs/DEPLOYMENT.md` → Dashboard exposure.
 
 ---
 

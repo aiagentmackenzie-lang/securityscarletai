@@ -29,7 +29,24 @@
 	}
 
 	# Dashboard — everything else -> scarletai-dashboard:8501
+	#
+	# SECURITY: the dashboard must NOT be exposed unauthenticated when
+	# DASHBOARD_API_TOKEN is set. That token grants admin API access and the
+	# dashboard skips its login screen when it's present, so anyone who can
+	# reach the dashboard URL gets full admin SIEM access (P0-B). Two safe
+	# options:
+	#   1. Leave DASHBOARD_API_TOKEN empty (prod overlay default) so the
+	#      dashboard forces a JWT login.
+	#   2. Keep the token (headless/automated use) AND gate the dashboard
+	#      behind basicauth / an identity-aware proxy / an IP allowlist.
+	# Uncomment the basicauth block below for option 2. Generate a hash with:
+	#   caddy hash-password --plaintext 'your-shared-secret'
+	# and replace the example hash. NEVER ship the dashboard with the token
+	# set and no gateway auth in front.
 	handle {
+		# basicauth {
+		# 	admin $2a$14$...your.argon2.or.bcrypt.hash...
+		# }
 		reverse_proxy scarletai-dashboard:8501 {
 			header_up X-Forwarded-Proto https
 			header_up Host {host}
