@@ -162,13 +162,33 @@ The API container runs `entrypoint.sh` before starting Uvicorn. The script perfo
 
 1. **Wait for Postgres** to be reachable (retry with exponential backoff)
 2. **Apply schema** via `psql -f src/db/schema.sql` (all `CREATE TABLE IF NOT EXISTS`)
-3. **Seed demo data** if the `alerts` table is empty (first run only)
-4. **Train the triage model** if `models/triage_model.joblib` is missing
-5. **Train the UEBA model** if `models/ueba_model.joblib` is missing
-6. **Create an admin user** if no users exist; print credentials to stdout **once**
-7. **`exec uvicorn`** so it becomes PID 1 and receives signals
+3. **Replay the dead-letter queue** (best-effort, non-fatal) — see below
+4. **Seed demo data** if the `alerts` table is empty (first run only)
+5. **Train the triage model** if `models/triage_model.joblib` is missing
+6. **Train the UEBA model** if `models/ueba_model.joblib` is missing
+7. **Create an admin user** if no users exist; print credentials to stdout **once**
+8. **`exec uvicorn`** so it becomes PID 1 and receives signals
 
-Failure policy: `set -e` halts the container on any failed step. This is intentional — better to crash and let Compose restart than to start the API against an uninitialised DB.
+Failure policy: `set -e` halts the container on any failed step. This is intentional — better to crash and let Compose restart than to start the API against an uninitialised DB. The dead-letter replay (step 3) is the one exception: it is wrapped so a failure logs a warning and continues (a stuck replay must not block API startup).
+
+#### Dead-letter queue & replay (P1-E)
+
+When a write batch fails (DB down, transient error), `src/db/writer.py`
+persists the events to `data/dead_letter/<date>.jsonl` (one event per line,
+true JSON-Lines) so nothing is silently dropped. Two gaps used to make this
+half a guarantee: the file lived on a path that could be ephemeral, and
+nothing ever read it back. Both are now closed:
+
+- **Persistence:** the dev compose bind-mounts `./data:/app/data` so dead
+  letters survive `docker compose down`/`up`. In production, ensure `./data`
+  is on persistent storage (or swap the API service's volume to a named
+  `scarlet_data` volume) — otherwise dead letters are lost when the deploy
+  dir is wiped.
+- **Replay:** `scripts/replay_dead_letter.py` reads every `*.jsonl` in
+  `data/dead_letter/`, reconstructs each event, and re-ingests it via the
+  writer. The entrypoint runs it on boot (best-effort). Replayed files move
+  to `data/dead_letter/processed/` so a re-run doesn't double-ingest. Run it
+  manually any time: `python -m scripts.replay_dead_letter`.
 
 ### Run only infrastructure (for local dev)
 
