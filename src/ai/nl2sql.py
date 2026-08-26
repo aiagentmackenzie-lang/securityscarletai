@@ -19,7 +19,9 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, cast
 
-import sqlparse  # noqa: F401 — used in validate_sql_structure below
+import sqlparse
+from sqlparse import tokens as _T
+from sqlparse.sql import Identifier, IdentifierList, Parenthesis
 
 from src.ai.ollama_client import query_llm
 from src.config.logging import get_logger
@@ -37,6 +39,143 @@ QUERY_TIMEOUT_SECONDS = 5
 MAX_INPUT_LENGTH = 500
 MAX_CONVERSATION_TURNS = 10
 CONVERSATION_TTL_SECONDS = 1800  # 30 minutes
+
+# P0-A fix: the only tables the NL→SQL path is permitted to read. Matches the
+# schema context shown to the LLM (logs + alerts only). Everything else —
+# siem_users (password_hash!), audit_logs, ai_usage, cases, etc. — is rejected
+# before execution. This is the real defense; FORBIDDEN_PATTERNS only blocks
+# system schemas. CTE names defined in the same query are allowed as aliases.
+ALLOWED_NL2SQL_TABLES = frozenset({"logs", "alerts"})
+
+# FROM / JOIN keywords that introduce a table reference.
+_FROM_JOIN_KEYWORDS = {"FROM", "JOIN", "INNER JOIN", "LEFT JOIN", "RIGHT JOIN",
+                       "FULL JOIN", "CROSS JOIN", "LEFT OUTER JOIN",
+                       "RIGHT OUTER JOIN", "FULL OUTER JOIN", "NATURAL JOIN"}
+
+# Keywords that END a FROM/JOIN table-list clause (so the next Identifier is
+# NOT a table ref — it's a column/alias in WHERE/SELECT/etc.).
+_CLAUSE_ENDERS = {"WHERE", "GROUP BY", "ORDER BY", "HAVING", "LIMIT", "UNION",
+                  "EXCEPT", "INTERSECT", "WITH", "RETURNING", "WINDOW",
+                  "FETCH", "OFFSET", "FOR"}
+
+
+def _next_significant(tokens: list, idx: int):
+    """Return the next non-whitespace, non-comment token after idx, or None."""
+    j = idx + 1
+    while j < len(tokens):
+        t = tokens[j]
+        if t.is_whitespace or t.ttype in (_T.Comment, _T.Comment.Single):
+            j += 1
+            continue
+        return t
+    return None
+
+
+def _extract_table_refs(sql: str) -> tuple[set[str], set[str]]:
+    """Extract table references from FROM/JOIN clauses and CTE names.
+
+    Returns (table_refs, cte_names) — both lowercased, quotes stripped.
+    Walks the parsed statement recursively (subqueries, CTEs). Used by
+    validate_sql_structure to enforce the table allowlist (P0-A).
+    """
+    refs: set[str] = set()
+    cte_names: set[str] = set()
+
+    def _norm(tok) -> str:
+        return tok.normalized.upper() if tok.ttype is _T.Keyword else str(tok).upper()
+
+    def _real_name(tok) -> str | None:
+        try:
+            name: object = tok.get_real_name()
+        except Exception:
+            return None
+        if not name:
+            return None
+        return str(name).strip('"').lower()
+
+    def _walk(tlist) -> None:
+        tokens = list(tlist.tokens) if hasattr(tlist, "tokens") else []
+        expect_table = False
+        for _idx, tok in enumerate(tokens):
+            if tok.is_whitespace or tok.ttype in (_T.Comment, _T.Comment.Single):
+                continue
+
+            ttype = tok.ttype
+
+            # Keyword tracking
+            if ttype is _T.Keyword:
+                norm = tok.normalized.upper()
+                if norm in _FROM_JOIN_KEYWORDS or norm.endswith(" JOIN"):
+                    expect_table = True
+                    continue
+                if norm in _CLAUSE_ENDERS:
+                    expect_table = False
+                # 'AS' is handled in the Identifier branch via lookahead.
+                continue
+
+            if isinstance(tok, Identifier):
+                # CTE definition:  Identifier whose children are  name AS ( subquery )
+                # (sqlparse groups `x AS (SELECT ...)` into one Identifier.)
+                inner = list(tok.tokens) if hasattr(tok, "tokens") else []
+                has_as = any(
+                    t.ttype is _T.Keyword and t.normalized.upper() == "AS"
+                    for t in inner
+                    if not t.is_whitespace
+                )
+                inner_paren = next(
+                    (t for t in inner if isinstance(t, Parenthesis)), None
+                )
+                if has_as and inner_paren is not None:
+                    name = _real_name(tok)
+                    if name:
+                        cte_names.add(name)
+                    _walk(inner_paren)
+                    # Also keep recursing into the Identifier for any other
+                    # nested subqueries (defensive).
+                    for t in inner:
+                        if t is inner_paren or t.is_whitespace:
+                            continue
+                        if hasattr(t, "tokens") and not isinstance(t, Parenthesis):
+                            _walk(t)
+                    continue
+                if expect_table:
+                    name = _real_name(tok)
+                    if name:
+                        refs.add(name)
+                    expect_table = False
+                # Recurse in case the Identifier wraps a subquery (rare).
+                if hasattr(tok, "tokens"):
+                    _walk(tok)
+                continue
+
+            if isinstance(tok, IdentifierList):
+                if expect_table:
+                    for sub in tok.get_identifiers():
+                        name = _real_name(sub)
+                        if name:
+                            refs.add(name)
+                    expect_table = False
+                else:
+                    if hasattr(tok, "tokens"):
+                        _walk(tok)
+                continue
+
+            if isinstance(tok, Parenthesis):
+                # A parenthesis in a FROM context is a subquery; otherwise it
+                # may still contain a subquery (e.g. function args). Recurse.
+                expect_table = False
+                _walk(tok)
+                continue
+
+            # Any other TokenList (Function, Comparison, etc.) — recurse to
+            # catch nested subqueries.
+            if hasattr(tok, "tokens"):
+                _walk(tok)
+
+    for stmt in sqlparse.parse(sql):
+        _walk(stmt)
+
+    return refs, cte_names
 
 # Forbid these patterns anywhere in generated SQL (case-insensitive).
 # Uses negative lookbehind (?<![a-z_]) instead of \b so pg_ functions like
@@ -466,6 +605,22 @@ def validate_sql_structure(sql: str) -> tuple[bool, str]:
         pattern_found = forbidden_match.group(0)
         log.warning("nl2sql_forbidden_pattern", pattern=pattern_found, sql_preview=sql[:100])
         return False, f"Query contains forbidden pattern: {pattern_found}"
+
+    # P0-A: table allowlist. The LLM is only shown `logs` + `alerts` in the
+    # schema context, so any other table (siem_users, audit_logs, ai_usage,
+    # cases, …) is either an LLM hallucination or a prompt-injection-driven
+    # exfiltration attempt. Reject before execution. CTE names defined in the
+    # same query are permitted as FROM/JOIN targets (they alias allowed tables).
+    refs, cte_names = _extract_table_refs(sql)
+    allowed = ALLOWED_NL2SQL_TABLES | cte_names
+    disallowed = refs - allowed
+    if disallowed:
+        bad = sorted(disallowed)
+        log.warning("nl2sql_disallowed_table", tables=bad, sql_preview=sql[:100])
+        return False, (
+            f"Query references disallowed table(s): {bad}. "
+            f"Only {sorted(ALLOWED_NL2SQL_TABLES)} are queryable via NL→SQL."
+        )
 
     # Check for semicolons (no statement stacking)
     if ";" in sql.rstrip(";"):  # Allow trailing semicolon only
