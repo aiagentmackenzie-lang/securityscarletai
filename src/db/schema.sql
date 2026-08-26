@@ -67,7 +67,6 @@ CREATE INDEX IF NOT EXISTS idx_logs_time_brin ON logs USING BRIN (time);
 -- NOTE: for very high ingest, upgrade to TimescaleDB:
 --   CREATE EXTENSION IF NOT EXISTS timescaledb;
 --   SELECT create_hypertable('logs', 'time', chunk_time_interval => INTERVAL '1 day');
---   SELECT create_hypertable('siem_health', 'time', chunk_time_interval => INTERVAL '1 day');
 -- TimescaleDB compression + retention policies supersede the BRIN index and
 -- the src/services/retention.py job (use a drop_chunks policy instead).
 
@@ -143,21 +142,16 @@ CREATE TABLE IF NOT EXISTS alert_suppressions (
 );
 
 -- ============================================================
--- ASSETS — discovered endpoints (L-07: placeholder, not yet used in code)
+-- ASSETS / SIEM HEALTH — REMOVED (P2-8, 2026-08-26)
+--
+-- The `assets` and `siem_health` tables were never-populated placeholders
+-- (no INSERT path; the schema comments admitted they were not used). Keeping
+-- them advertised a feature ("asset criticality" risk scoring) that was never
+-- wired. They are removed for honesty. Risk scoring uses the real factors it
+-- actually computes (severity, threat-intel match, UEBA anomaly, exposure);
+-- see src/ai/risk_scoring.py. Existing deployments that already created these
+-- empty tables are unaffected (the schema is append-only / non-destructive).
 -- ============================================================
-CREATE TABLE IF NOT EXISTS assets (
-    id             SERIAL PRIMARY KEY,
-    hostname       TEXT NOT NULL UNIQUE,
-    ip_addresses   INET[],
-    os_type        TEXT,                    -- 'macOS', 'Linux', 'Windows'
-    os_version     TEXT,
-    last_seen      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    first_seen     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    risk_score     FLOAT DEFAULT 0.0,
-    alert_count    INTEGER DEFAULT 0,
-    tags           TEXT[],
-    metadata       JSONB DEFAULT '{}'::jsonb
-);
 
 
 -- ============================================================
@@ -250,26 +244,17 @@ CREATE INDEX IF NOT EXISTS idx_threat_intel_lookup ON threat_intel (ioc_type, io
 
 
 -- ============================================================
--- SIEM HEALTH — self-observability (L-08: placeholder, not yet written to in code)
--- Who watches the watchers? This table is for future health metrics collection.
+-- SIEM HEALTH — REMOVED (P2-8, 2026-08-26)
+-- The `siem_health` table was a placeholder never written to. Removed for
+-- honesty (see the ASSETS comment above). Self-observability metrics, when
+-- added, should land in a table that is actually populated.
 -- ============================================================
-CREATE TABLE IF NOT EXISTS siem_health (
-    time              TIMESTAMPTZ NOT NULL,
-    component         TEXT NOT NULL,        -- 'shipper', 'detection', 'api', 'enrichment'
-    status            TEXT NOT NULL,        -- 'healthy', 'degraded', 'down'
-    events_per_second FLOAT,
-    queue_depth       INTEGER,
-    error_count       INTEGER DEFAULT 0,
-    details           JSONB DEFAULT '{}'::jsonb
-);
-
-CREATE INDEX IF NOT EXISTS idx_health_time ON siem_health (time DESC);
-CREATE INDEX IF NOT EXISTS idx_health_component ON siem_health (component, time DESC);
 
 -- NOTE: To upgrade to TimescaleDB later, run:
 -- CREATE EXTENSION timescaledb;
 -- SELECT create_hypertable('logs', 'time', chunk_time_interval => INTERVAL '1 day');
--- SELECT create_hypertable('siem_health', 'time', chunk_time_interval => INTERVAL '1 day');
+-- TimescaleDB compression + retention policies supersede the BRIN index and
+-- the src/services/retention.py job (use a drop_chunks policy instead).
 
 
 -- ============================================================

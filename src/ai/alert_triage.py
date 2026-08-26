@@ -203,11 +203,15 @@ class AlertTriageModel:
             )
             host_alert_normalized = min((host_alerts or 0) / 20, 1.0)
 
-            # Asset risk score
-            asset_risk = await conn.fetchval(
-                "SELECT COALESCE(risk_score, 50) FROM assets WHERE hostname = $1",
-                alert["host_name"],
-            ) or 50.0
+            # Asset risk score (P2-8): the `assets` table was a never-populated
+            # placeholder and has been dropped from the schema. Asset criticality
+            # is therefore NOT modeled -- this feature is a constant 50.0 (the
+            # previous COALESCE default, which is exactly what the empty-table
+            # read always evaluated to). Keeping the constant preserves the
+            # triage feature-vector shape (11 features) without a model retrain;
+            # wiring real asset criticality would require populating an assets
+            # inventory + retraining.
+            asset_risk = 50.0
             asset_risk_normalized = asset_risk / 100.0
 
             # MITRE technique count

@@ -118,6 +118,16 @@ class Settings(BaseSettings):
     retention_interval_hours: int = 1
     retention_batch_size: int = 5000
 
+    # --- Password pepper (optional, P2-9) ---
+    # A server-side secret mixed into the password hash BEFORE the SHA-256
+    # pre-hash + bcrypt. A pepper protects against DB-only leaks: an attacker
+    # who steals the siem_users table but NOT this secret cannot offline-crack
+    # the hashes. It does NOT protect against an attacker who has both DB + env.
+    # Backward compat: when unset, hash_password/verify_password behave exactly
+    # as before (no pepper), so existing hashes keep validating. Rotating the
+    # pepper requires rehashing all passwords (password reset flow).
+    password_pepper: Optional[SecretStr] = None
+
     @field_validator("db_password")
     @classmethod
     def password_not_default(cls, v: str) -> str:

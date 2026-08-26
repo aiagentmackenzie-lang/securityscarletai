@@ -50,12 +50,17 @@ class RiskScorer:
     @staticmethod
     def calculate_alert_risk(
         severity: str,
-        asset_criticality: float = 0.5,
         threat_intel_match: bool = False,
         user_anomaly_score: float = 0.0,
     ) -> float:
         """
         Calculate risk score for an individual alert.
+
+        The real factors: severity (base), threat-intel match, UEBA anomaly
+        (user_anomaly_score). An "asset criticality" term was previously
+        included but was vapor -- it took a fixed 0.5 default that no caller
+        overrode, backed by an `assets` table that was never populated (now
+        dropped from the schema). It is removed for honesty (P2-8).
 
         Returns:
             Risk score 0-100
@@ -64,11 +69,10 @@ class RiskScorer:
         base = RiskScorer.SEVERITY_WEIGHTS.get(severity.lower(), 0.0) * 50
 
         # Adjustments
-        asset_adj = asset_criticality * 20  # Up to +20
         ti_adj = 15 if threat_intel_match else 0  # +15 if TI match
         anomaly_adj = user_anomaly_score * 15  # Up to +15
 
-        total = base + asset_adj + ti_adj + anomaly_adj
+        total = base + ti_adj + anomaly_adj
         return min(total, 100)  # Cap at 100
 
     @staticmethod
@@ -295,7 +299,7 @@ class RiskScorer:
                 """
                 SELECT
                     h.host_name,
-                    COALESCE(a.risk_score, 50.0) as base_risk,
+                    50.0 as base_risk,
                     COUNT(DISTINCT al.id) FILTER (WHERE al.severity = 'critical') as crit_alerts,
                     COUNT(DISTINCT al.id) FILTER (WHERE al.severity = 'high') as high_alerts,
                     COUNT(DISTINCT al.id) as total_alerts,
@@ -309,7 +313,6 @@ class RiskScorer:
                 LEFT JOIN alerts al
                     ON al.host_name = h.host_name
                     AND al.time > NOW() - INTERVAL '24 hours'
-                LEFT JOIN assets a ON a.hostname = h.host_name
                 LEFT JOIN (
                     SELECT host_name, COUNT(DISTINCT id) as outbound_conns
                     FROM logs
@@ -318,9 +321,9 @@ class RiskScorer:
                       AND source_ip IS NOT NULL
                     GROUP BY host_name
                 ) oc ON oc.host_name = h.host_name
-                GROUP BY h.host_name, a.risk_score, oc.outbound_conns
+                GROUP BY h.host_name, oc.outbound_conns
                 ORDER BY
-                    COALESCE(a.risk_score, 50.0)
+                    50.0
                     + COUNT(DISTINCT al.id) FILTER (WHERE al.severity = 'critical') * 20
                     + COUNT(DISTINCT al.id) FILTER (WHERE al.severity = 'high') * 10
                     DESC
@@ -371,29 +374,13 @@ class RiskScorer:
 
 
 async def update_asset_risk_scores() -> None:
+    """Deprecated no-op (P2-8).
+
+    The `assets` table was a never-populated placeholder and has been removed
+    from the schema. This function previously SELECTed hostnames from `assets`
+    and UPDATEd `assets.risk_score` -- both now reference a non-existent table.
+    It had no callers in the production code path. Retained as a documented
+    no-op so any external import does not crash; per-host risk is still
+    available via RiskScorer.calculate_asset_risk(hostname).
     """
-    Batch update risk scores for all assets.
-
-    Called periodically to refresh risk assessments.
-    """
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        # Get all assets
-        rows = await conn.fetch("SELECT hostname FROM assets")
-
-        for row in rows:
-            hostname = row["hostname"]
-            risk = await RiskScorer.calculate_asset_risk(hostname)
-
-            # Update asset record
-            await conn.execute(
-                """
-                UPDATE assets
-                SET risk_score = $1, updated_at = NOW()
-                WHERE hostname = $2
-                """,
-                risk["risk_score"],
-                hostname,
-            )
-
-    log.info("asset_risk_scores_updated", count=len(rows))
+    log.info("update_asset_risk_scores_noop_assets_table_removed")

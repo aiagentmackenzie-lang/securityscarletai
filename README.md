@@ -46,7 +46,7 @@
 - **AI Alert Explanation** — LLM-powered explanations with structured `LLMResult` contract and template fallback when Ollama is unavailable
 - **Threat Hunting Assistant** — 7 pre-built hunt templates, MITRE gap analysis, and hunt-from-alert
 - **Threat Intel Integration** — AbuseIPDB, OTX AlienVault, URLhaus with IOC caching, auto-refresh, and honest feed-status reporting (not just "key configured")
-- **Risk Scoring Engine** — Multi-factor scoring: severity, threat intel match, asset criticality, UEBA anomaly
+- **Risk Scoring Engine** — Multi-factor scoring: severity, threat intel match, UEBA anomaly (asset criticality was a never-wired placeholder and has been removed — see `src/ai/risk_scoring.py`)
 - **Case Management** — Full CRUD with assignments, notes, status tracking, and lessons learned
 - **JWT Auth with Hardening** — `jti` (UUID4) per token, refresh token rotation (7-day TTL), Redis-backed logout blocklist, password-change invalidation, `SecretStr` for secrets
 - **Redis Rate Limiting** — Per-endpoint overrides (`/auth/login` 5/min, `/ingest` 100/min) with custom 429 handler, `X-RateLimit-*` headers, fail-open to in-memory on Redis outage

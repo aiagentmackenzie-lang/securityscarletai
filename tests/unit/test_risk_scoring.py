@@ -65,12 +65,6 @@ class TestCalculateAlertRisk:
         with_ti = RiskScorer.calculate_alert_risk("medium", threat_intel_match=True)
         assert with_ti - without_ti == pytest.approx(15, abs=1)
 
-    def test_asset_criticality_adjustment(self):
-        """Higher asset criticality should increase score."""
-        low_criticality = RiskScorer.calculate_alert_risk("high", asset_criticality=0.1)
-        high_criticality = RiskScorer.calculate_alert_risk("high", asset_criticality=0.9)
-        assert high_criticality > low_criticality
-
     def test_user_anomaly_adjustment(self):
         """Higher user anomaly should increase score."""
         normal = RiskScorer.calculate_alert_risk("medium", user_anomaly_score=0.0)
@@ -81,7 +75,6 @@ class TestCalculateAlertRisk:
         """Score should never exceed 100 even with all factors maxed."""
         score = RiskScorer.calculate_alert_risk(
             "critical",
-            asset_criticality=1.0,
             threat_intel_match=True,
             user_anomaly_score=1.0,
         )
@@ -91,11 +84,10 @@ class TestCalculateAlertRisk:
         """All factors together should give a high score."""
         score = RiskScorer.calculate_alert_risk(
             "critical",
-            asset_criticality=0.8,
             threat_intel_match=True,
             user_anomaly_score=0.7,
         )
-        assert score > 70  # Should be quite high
+        assert score > 60  # Should be high
 
     def test_case_insensitive_severity(self):
         """Severity lookup should be case-insensitive."""
@@ -103,11 +95,13 @@ class TestCalculateAlertRisk:
         lower = RiskScorer.calculate_alert_risk("critical")
         assert upper == lower
 
-    def test_default_asset_criticality(self):
-        """Default asset criticality should be 0.5."""
-        with_default = RiskScorer.calculate_alert_risk("medium")
-        with_05 = RiskScorer.calculate_alert_risk("medium", asset_criticality=0.5)
-        assert with_default == with_05
+    def test_no_asset_criticality_factor(self):
+        """P2-8: the vapor `asset_criticality` factor is gone. The function
+        no longer accepts that kwarg; only severity + TI + UEBA drive the
+        score, so two calls differing only in a host's (non-existent) asset
+        criticality must produce identical scores."""
+        score = RiskScorer.calculate_alert_risk("high", threat_intel_match=True)
+        assert score == RiskScorer.calculate_alert_risk("high", threat_intel_match=True)
 
 
 class TestGetLevel:
@@ -446,59 +440,17 @@ class TestGetTopRisk:
 
 
 class TestUpdateAssetRiskScores:
-    """Test batch update_asset_risk_scores."""
+    """Test the deprecated update_asset_risk_scores no-op (P2-8)."""
 
     @pytest.mark.asyncio
-    async def test_update_loops_over_assets(self):
-        """Should calculate and update risk for each asset."""
-        mock_pool = AsyncMock()
-        conn = AsyncMock()
-
-        # First call: get assets
-        conn.fetch = AsyncMock(
-            return_value=[
-                {"hostname": "server1"},
-                {"hostname": "server2"},
-            ]
-        )
-        conn.execute = AsyncMock(return_value=None)
-
-        acquirer = MagicMock()
-        acquirer.__aenter__ = AsyncMock(return_value=conn)
-        acquirer.__aexit__ = AsyncMock(return_value=None)
-        mock_pool.acquire = MagicMock(return_value=acquirer)
-
-        with patch("src.ai.risk_scoring.get_pool", return_value=mock_pool):
+    async def test_update_is_noop_after_assets_table_removed(self):
+        """The `assets` table was removed; update_asset_risk_scores is now a
+        documented no-op -- it must not touch the DB or call calculate_asset_risk."""
+        with patch("src.ai.risk_scoring.get_pool", new_callable=AsyncMock) as mock_get_pool:
             with patch.object(
                 RiskScorer, "calculate_asset_risk", new_callable=AsyncMock
             ) as mock_calc:
-                mock_calc.side_effect = [
-                    {"hostname": "server1", "risk_score": 75.5},
-                    {"hostname": "server2", "risk_score": 32.1},
-                ]
                 await update_asset_risk_scores()
-                # Should have called calculate_asset_risk twice
-                assert mock_calc.call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_update_executes_sql(self):
-        """Should execute UPDATE for each asset."""
-        mock_pool = AsyncMock()
-        conn = AsyncMock()
-
-        conn.fetch = AsyncMock(return_value=[{"hostname": "srv1"}])
-        conn.execute = AsyncMock(return_value=None)
-
-        acquirer = MagicMock()
-        acquirer.__aenter__ = AsyncMock(return_value=conn)
-        acquirer.__aexit__ = AsyncMock(return_value=None)
-        mock_pool.acquire = MagicMock(return_value=acquirer)
-
-        with patch("src.ai.risk_scoring.get_pool", return_value=mock_pool):
-            with patch.object(
-                RiskScorer, "calculate_asset_risk", new_callable=AsyncMock
-            ) as mock_calc:
-                mock_calc.return_value = {"hostname": "srv1", "risk_score": 42.0}
-                await update_asset_risk_scores()
-                # The UPDATE should have been executed
-                assert conn.execute.called
+                # No pool acquired, no per-host risk calculated.
+                mock_get_pool.assert_not_called()
+                mock_calc.assert_not_called()

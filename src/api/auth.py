@@ -11,6 +11,7 @@ Security notes:
 - Epic 5 hardening: jti claim, Redis blocklist, user_revoke markers, refresh tokens.
 """
 import hashlib
+import hmac
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -296,14 +297,32 @@ def create_refresh_token(username: str, role: str) -> str:
     )
 
 
+def _apply_pepper(plain: str) -> str:
+    """Mix the optional PASSWORD_PEPPER into the password (P2-9).
+
+    HMAC-SHA256(key=pepper, msg=plain) -> hex digest. When no pepper is set,
+    returns the plaintext unchanged so the downstream SHA-256 pre-hash + bcrypt
+    are byte-identical to the pre-pepper behaviour (existing hashes still
+    validate). The pepper is a server-side secret: a DB-only leak is not enough
+    to offline-crack the bcrypt hashes; an attacker needs both DB + env.
+    """
+    if settings.password_pepper is None:
+        return plain
+    pepper = settings.password_pepper.get_secret_value().encode("utf-8")
+    return hmac.new(pepper, plain.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
 def hash_password(plain: str) -> str:
     """Hash a password using bcrypt.
 
     M-10 fix: SHA-256 pre-hash before bcrypt to handle passwords >72 bytes.
     This prevents silent truncation while keeping bcrypt's salt + cost factor.
+    P2-9: an optional pepper is HMAC-SHA256'd into the password BEFORE the
+    SHA-256 pre-hash when PASSWORD_PEPPER is set.
     """
-    # SHA-256 pre-hash: always 32 bytes regardless of input length
-    prehashed = hashlib.sha256(plain.encode("utf-8")).hexdigest()
+    # Pepper first (no-op when unset), then SHA-256 pre-hash (always 32 bytes).
+    peppered = _apply_pepper(plain)
+    prehashed = hashlib.sha256(peppered.encode("utf-8")).hexdigest()
     password_bytes = prehashed.encode("utf-8")[:72]  # hex digest is 64 chars, well under 72
     salt = _bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
     return _bcrypt.hashpw(password_bytes, salt).decode("utf-8")
@@ -313,8 +332,10 @@ def verify_password(plain: str, hashed: str) -> bool:
     """Verify a password against a bcrypt hash.
 
     M-10 fix: Must use same SHA-256 pre-hash as hash_password().
+    P2-9: Must also apply the same pepper as hash_password().
     """
-    prehashed = hashlib.sha256(plain.encode("utf-8")).hexdigest()
+    peppered = _apply_pepper(plain)
+    prehashed = hashlib.sha256(peppered.encode("utf-8")).hexdigest()
     password_bytes = prehashed.encode("utf-8")[:72]
     hashed_bytes = hashed.encode("utf-8")
     return _bcrypt.checkpw(password_bytes, hashed_bytes)
