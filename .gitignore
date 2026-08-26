@@ -76,3 +76,7 @@ docker-compose.override.yml
 # Internal state/roadmap doc — private, not for the public repo.
 /CURRENT_VS_PRODUCTION.md
 
+# Internal bug catalog — kept locally for reference, NOT in the public repo.
+# The public changelog is docs/CHANGELOG.md (fixes shipped, not open bugs).
+docs/internal/
+
