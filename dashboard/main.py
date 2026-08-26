@@ -745,7 +745,7 @@ def main():
     # Footer
     st.divider()
     st.caption(
-        "SecurityScarletAI v0.4.1 — AI-Native SIEM | "
+        "SecurityScarletAI v0.1.0 — AI-Native SIEM | "
         "All data via authenticated API — No direct DB access"
     )
 
