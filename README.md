@@ -2,7 +2,7 @@
 
 **AI-Native SIEM for macOS** — Real-time log ingestion, Sigma-based detection, ML-powered alert triage, and LLM-driven investigation assistance.
 
-> **Status (verified 2026-08-26):** CI green on `main` · 1263 tests passing (5 skipped — need live Postgres/Redis/Ollama) · 84% coverage (CI-enforced ≥80%) · 100 Sigma rules. Counts are hand-verified against the code; no auto-updating badge.
+> **Status (verified 2026-08-26):** CI green on `main` · 1283 tests passing (5 skipped — need live Postgres/Redis/Ollama) · 84% coverage (CI-enforced ≥80%) · 100 Sigma rules. Counts are hand-verified against the code; no auto-updating badge.
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow)]()
@@ -339,7 +339,7 @@ access from the dashboard.
 ## Testing
 
 ```bash
-# Run the full unit suite (1213 tests, mocked DB, ~25s)
+# Run the full unit suite (1283 tests, mocked DB, ~30s)
 poetry run pytest tests/unit/ -q --no-cov
 
 # With coverage report (gate: 80%; currently ~84%)
@@ -521,7 +521,7 @@ securityscarletai/
 │   ├── analyze_alerts.py         # Ad-hoc alert analysis helper
 │   ├── validate_config.py        # Validate .env / settings
 │   └── backup.sh                 # Reference pg_dump backup script
-├── tests/                   # 1213 unit tests + 5 integration tests
+├── tests/                   # 1283 unit tests + 5 integration tests (skipped w/o live services)
 ├── docs/                    # AI.md, RULES.md, DEPLOYMENT.md, ATTACK-SCENARIOS.md
 └── docker-compose.yml       # Postgres 17 + Redis 7 + API + dashboard
 ```
