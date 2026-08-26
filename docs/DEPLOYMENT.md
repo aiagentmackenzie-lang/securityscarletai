@@ -282,7 +282,7 @@ The project includes JWT hardening (jti blocklist, refresh-token rotation, passw
 - **Redis-backed blocklist** — revoked tokens are written to Redis with TTL = remaining lifetime
 - **`SecretStr` for secrets** — `API_SECRET_KEY` and `API_BEARER_TOKEN` are stored as Pydantic `SecretStr` so they don't leak into logs or tracebacks
 - **Account lockout** — `POST /auth/login` rate-limits failed attempts per user and locks the account after threshold
-- **Audit log hardening** — all mutating requests are recorded in the DB-backed `audit_logs` table with `REVOKE`d grants for non-admin roles (see `src/db/schema.sql` for the `REVOKE` statements)
+- **Audit log** — all mutating requests are recorded in the DB-backed `audit_logs` table. Append-only **by convention** (the app only INSERTs/SELECTs). DB-enforced immutability via `REVOKE` requires a two-role deploy — see [Audit immutability](#audit-immutability-p1-c) below and `scripts/harden_audit.sql`. The default single-role deploy is convention-only.
 
 ### Network Isolation
 
@@ -376,6 +376,53 @@ Model files (`models/*.joblib`, `models/*.sha256`) are gitignored and should be 
 - Back up the entire `models/` directory if you have trained custom models
 
 ---
+
+## Audit immutability (P1-C)
+
+The audit tables (`audit_logs`, HTTP-level; `audit_log`, action-level) are
+append-only **by convention** — the application only INSERTs and SELECTs
+them. DB-enforced immutability (so a compromised app cannot rewrite or
+delete its own audit trail) requires REVOKEing UPDATE/DELETE/TRUNCATE from
+the app role, and that only binds when the app role is **not the table
+owner**.
+
+### The default single-role deploy is convention-only
+
+In the default deploy, `DB_USER` applies `schema.sql` and so owns all
+tables. Owners bypass GRANT/REVOKE on their own tables, so REVOKE from the
+owner is a no-op. The entrypoint prints a notice when
+`DATABASE_SUPERUSER_URL` is not set. `scripts/check_audit_grants.py`
+reports the real state:
+
+```bash
+python -m scripts.check_audit_grants            # informational
+python -m scripts.check_audit_grants --strict   # exit 1 if mutable
+```
+
+### Enforcing immutability (two-role deploy)
+
+1. Create a dedicated non-owner app role (e.g. `scarletai_app`) and grant
+   it the CRUD privileges it needs on the business tables.
+2. Apply `schema.sql` as a superuser/owner (so the owner, not the app
+   role, owns the tables).
+3. Run the hardening script as a superuser:
+   ```bash
+   psql "$DATABASE_SUPERUSER_URL" -v app_role=scarletai_app \
+       -f scripts/harden_audit.sql
+   ```
+   This REVOKEs UPDATE/DELETE/TRUNCATE on `audit_logs` and `audit_log`
+   from the app role (and PUBLIC) and grants INSERT/SELECT.
+4. Point the app at the restricted role (`DB_USER=scarletai_app` + its
+   password) and set `DATABASE_SUPERUSER_URL` so the entrypoint re-applies
+   the hardening on every boot.
+5. Verify: `python -m scripts.check_audit_grants --strict` exits 0.
+
+**Retention interaction:** the retention job deletes old `audit_logs` rows.
+Once you REVOKE DELETE from the app role, the retention job can no longer
+prune `audit_logs` and will log `retention_sweep_failed` for that table
+(result sentinel `-2`) — it never crashes. In a hardened deploy, prune
+`audit_logs` past `AUDIT_RETENTION_DAYS` with a separate superuser-owned
+cron job instead.
 
 ## Monitoring Endpoints
 

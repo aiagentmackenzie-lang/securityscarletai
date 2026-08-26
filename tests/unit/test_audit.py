@@ -71,10 +71,17 @@ class TestAuditLogsTable:
         assert "idx_audit_logs_timestamp" in schema
 
     def test_grant_revoke_documented(self, schema: str):
-        # The hardening commands must be present as a comment so a DBA
-        # can apply them in the order they appear in the file.
-        assert "REVOKE" in schema and "audit_logs" in schema
-        assert "GRANT" in schema and "audit_logs" in schema
+        # P1-C: the schema points to the real hardening path. The actual
+        # REVOKE/GRANT live in scripts/harden_audit.sql (applied by a
+        # superuser with a separate app role); schema.sql must NOT claim to
+        # apply them (the app role that applies this file owns the tables and
+        # owners bypass REVOKE). The schema comment must reference the script
+        # and the honest 'convention-only' default.
+        assert "harden_audit.sql" in schema
+        assert "check_audit_grants" in schema
+        assert "convention" in schema.lower()
+        # The misleading 'applied here' framing must be gone.
+        assert "Permission hardening is NOT applied by this schema" in schema
 
     def test_user_column_quoted(self, schema: str):
         # "user" is a reserved word in Postgres; the column must be quoted.

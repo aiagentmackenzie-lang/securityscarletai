@@ -51,7 +51,7 @@
 - **Case Management** — Full CRUD with assignments, notes, status tracking, and lessons learned
 - **JWT Auth with Hardening** — `jti` (UUID4) per token, refresh token rotation (7-day TTL), Redis-backed logout blocklist, password-change invalidation, `SecretStr` for secrets
 - **Redis Rate Limiting** — Per-endpoint overrides (`/auth/login` 5/min, `/ingest` 100/min) with custom 429 handler, `X-RateLimit-*` headers, fail-open to in-memory on Redis outage
-- **DB-Backed Audit Logs** — `AuditLogMiddleware` writes one row per state-changing HTTP request to `audit_logs` (append-only, with `REVOKE UPDATE,DELETE,TRUNCATE` hardening documented)
+- **DB-Backed Audit Logs** — `AuditLogMiddleware` writes one row per state-changing HTTP request to `audit_logs`. Append-only **by convention** (the app only INSERTs/SELECTs audit tables). DB-enforced immutability (`REVOKE UPDATE,DELETE,TRUNCATE`) requires a two-role deploy (owner + restricted app role) via `scripts/harden_audit.sql` — see `docs/DEPLOYMENT.md` → Audit immutability. The default single-role deploy is convention-only.
 - **Real-time Dashboard** — Streamlit with WebSocket live updates, auto-refresh, and toast notifications; two auth modes (JWT or `DASHBOARD_API_TOKEN` service bearer)
 - **Slack Alert Notifications** — automated Slack notifications on new alerts via `send_alert_notification` (email and macOS pf-firewall response were removed as unwired dead code)
 - **Docker Bootstrap** — Idempotent `entrypoint.sh` waits for Postgres, applies schema, seeds demo data, trains models, creates admin, execs uvicorn
@@ -368,12 +368,18 @@ integration suite, and the coverage gate. Integration tests need Postgres only
   (with a startup warning). Custom 429 JSON handler emits `Retry-After` and
   `X-RateLimit-*` headers.
 - **Audit**: `AuditLogMiddleware` writes one row to `audit_logs` for every
-  state-changing HTTP request. The `audit_logs` table is append-only by
-  design — documented hardening:
+  state-changing HTTP request. The `audit_logs` table is append-only **by
+  convention** (the app only INSERTs/SELECTs it). DB-enforced immutability is
+  available but requires a two-role deploy — a superuser applies
+  `scripts/harden_audit.sql` to `REVOKE UPDATE,DELETE,TRUNCATE` from the app
+  role, and the app runs as a non-owner role so the REVOKE actually binds:
   ```sql
-  REVOKE UPDATE, DELETE, TRUNCATE ON audit_logs FROM scarletai;
-  GRANT  INSERT, SELECT            ON audit_logs TO   scarletai;
+  REVOKE UPDATE, DELETE, TRUNCATE ON audit_logs FROM scarletai_app;
+  GRANT  INSERT, SELECT            ON audit_logs TO   scarletai_app;
   ```
+  `scripts/check_audit_grants.py --strict` verifies it. The default
+  single-role deploy (app role = table owner) is convention-only — owners
+  bypass REVOKE. See `docs/DEPLOYMENT.md` → Audit immutability.
 - **SQL safety**: All user-supplied values flow through parameterized queries
   (`$1`, `$2`, …) — no string interpolation in SQL. NL→SQL pipeline has
   7 layers of injection defense. `correlation.py` uses `as_of: $1::timestamptz`
