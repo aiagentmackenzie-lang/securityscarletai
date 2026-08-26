@@ -55,6 +55,14 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.2:8b"
     ollama_timeout: int = 30
 
+    # --- Bootstrap ---
+    # POST /auth/seed-admin is a localhost-only dev bootstrap that creates an
+    # admin with the known weak password "admin" (must_change_password=true).
+    # It must NOT be reachable in prod -- the Docker entrypoint is the prod
+    # bootstrap (random password written to data/admin_initial_password, not
+    # a second weak-password path). Default false; enable explicitly for dev.
+    seed_admin_enabled: bool = False
+
     # --- osquery ---
     osquery_log_path: str = "/opt/homebrew/var/log/osquery/osqueryd.results.log"
     osquery_config_path: str = "/opt/homebrew/etc/osquery/osquery.conf"

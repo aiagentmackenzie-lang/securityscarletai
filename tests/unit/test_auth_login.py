@@ -174,8 +174,24 @@ class TestSeedAdmin:
     """Tests for POST /auth/seed-admin."""
 
     @pytest.mark.asyncio
+    async def test_seed_admin_disabled_by_default_returns_404(self):
+        """P2-4: seed-admin is gated behind SEED_ADMIN_ENABLED (default
+        false). When disabled it returns 404 so it is not a second
+        weak-password bootstrap path in prod."""
+        with patch("src.config.settings.settings.seed_admin_enabled", False):
+            from fastapi import HTTPException
+
+            from src.api.auth_login import seed_admin_user
+
+            request = MagicMock()
+            request.client.host = "127.0.0.1"
+            with pytest.raises(HTTPException) as exc_info:
+                await seed_admin_user(request=request)
+            assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
     async def test_seed_admin_creates_user(self):
-        """Test that seed-admin creates user when none exist."""
+        """Test that seed-admin creates user when none exist (enabled)."""
         pool = AsyncMock()
         conn = AsyncMock()
         conn.fetchval = AsyncMock(return_value=0)  # No users
@@ -188,17 +204,18 @@ class TestSeedAdmin:
 
         with patch("src.api.auth_login.get_pool", return_value=pool):
             with patch("src.api.auth_login.hash_password", return_value="hashed_admin"):
-                from src.api.auth_login import seed_admin_user
+                with patch("src.config.settings.settings.seed_admin_enabled", True):
+                    from src.api.auth_login import seed_admin_user
 
-                request = MagicMock()
-                request.client.host = "127.0.0.1"
-                result = await seed_admin_user(request=request)
-                assert "admin" in result["message"].lower()
-                assert result["username"] == "admin"
+                    request = MagicMock()
+                    request.client.host = "127.0.0.1"
+                    result = await seed_admin_user(request=request)
+                    assert "admin" in result["message"].lower()
+                    assert result["username"] == "admin"
 
     @pytest.mark.asyncio
     async def test_seed_admin_rejects_when_users_exist(self):
-        """Test that seed-admin rejects when users already exist."""
+        """Test that seed-admin rejects when users already exist (enabled)."""
         pool = AsyncMock()
         conn = AsyncMock()
         # Code uses fetchrow (INSERT ... ON CONFLICT DO NOTHING RETURNING username)
@@ -212,15 +229,16 @@ class TestSeedAdmin:
         pool.acquire = MagicMock(return_value=acquirer)
 
         with patch("src.api.auth_login.get_pool", return_value=pool):
-            from fastapi import HTTPException
+            with patch("src.config.settings.settings.seed_admin_enabled", True):
+                from fastapi import HTTPException
 
-            from src.api.auth_login import seed_admin_user
+                from src.api.auth_login import seed_admin_user
 
-            with pytest.raises(HTTPException) as exc_info:
-                request = MagicMock()
-                request.client.host = "127.0.0.1"
-                await seed_admin_user(request=request)
-            assert exc_info.value.status_code == 409
+                with pytest.raises(HTTPException) as exc_info:
+                    request = MagicMock()
+                    request.client.host = "127.0.0.1"
+                    await seed_admin_user(request=request)
+                assert exc_info.value.status_code == 409
 
 
 class TestChangePassword:

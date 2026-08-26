@@ -75,6 +75,7 @@ openssl rand -base64 32
 | `API_PORT` | `8000` | API bind port |
 | `API_CORS_ORIGINS` | `http://localhost:8501` | Comma-separated allowed CORS origins |
 | `ACCESS_TOKEN_TTL_MINUTES` | `15` | JWT access token lifetime (minutes) |
+| `SEED_ADMIN_ENABLED` | `false` | When `true`, the localhost-only `POST /auth/seed-admin` bootstrap is enabled (creates an admin with the known weak password `admin`, must_change_password=true). Default false so it is not a second weak-password bootstrap path in prod. Production bootstrap is the Docker entrypoint. |
 
 ### Dashboard Configuration
 
@@ -189,7 +190,7 @@ The API container runs `entrypoint.sh` before starting Uvicorn. The script perfo
 4. **Seed demo data** if the `alerts` table is empty (first run only)
 5. **Train the triage model** if `models/triage_model.joblib` is missing
 6. **Train the UEBA model** if `models/ueba_model.joblib` is missing
-7. **Create an admin user** if no users exist; print credentials to stdout **once**
+7. **Create an admin user** if no users exist; write the random password to `data/admin_initial_password` (chmod 600, owned by the container user) and print it to stdout **once** on first boot — not left in `docker logs` indefinitely
 8. **`exec uvicorn`** so it becomes PID 1 and receives signals
 
 Failure policy: `set -e` halts the container on any failed step. This is intentional — better to crash and let Compose restart than to start the API against an uninitialised DB. The dead-letter replay (step 3) is the one exception: it is wrapped so a failure logs a warning and continues (a stuck replay must not block API startup).
@@ -595,16 +596,29 @@ docker compose logs api
 ### Login / Authentication Issues
 
 ```bash
-# Check the admin user was created (printed once on first run)
-docker compose logs api | grep -A 2 "admin user created"
+# The admin password is written to data/admin_initial_password (chmod 600)
+# on first boot and echoed to stdout once. It is NOT re-printed later.
+# If the file is gone and you can't log in, reset the password via psql:
+cat data/admin_initial_password   # the first-boot copy, if still present
 
-# If locked out, reset via psql
+# If locked out, reset via psql (generate a new hash with the API's
+# hash_password, or just clear the lockout fields):
 psql -h localhost -p 5433 -U scarletai -d scarletai -c \
   "UPDATE siem_users SET failed_login_attempts = 0, locked_until = NULL WHERE username = 'admin';"
 
 # Force-invalidate all JWTs (rotates the secret)
 redis-cli FLUSHDB
 ```
+
+### seed-admin endpoint
+
+`POST /auth/seed-admin` is a **dev-only** localhost bootstrap that creates an
+admin with the known weak password `admin` (must_change_password=true). It is
+gated behind `SEED_ADMIN_ENABLED` (default **false**); when disabled the
+endpoint returns 404 so it is not a second weak-password bootstrap path in
+production. Production bootstrap is the Docker entrypoint above (random
+password → `data/admin_initial_password`). Enable `SEED_ADMIN_ENABLED=true`
+only for local first-run setup without Docker.
 
 ### Dashboard Issues
 

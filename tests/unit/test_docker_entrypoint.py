@@ -72,6 +72,22 @@ class TestEntrypointContents:
         assert "hash_password" in contents
         assert "secrets.token_urlsafe" in contents
 
+    def test_admin_password_written_to_file_not_just_logs(self, contents: str):
+        """P2-4: the random admin password is written to
+        data/admin_initial_password (chmod 600) so it survives beyond the
+        first-boot stdout echo and isn't only in `docker logs`."""
+        assert "data/admin_initial_password" in contents
+        assert "chmod 600 data/admin_initial_password" in contents
+        # The env var is unset AFTER the stdout echo (was the latent bug: unset
+        # before echo printed an empty password). Assert the ordering: the
+        # `unset ADMIN_PW` line comes after the password echo line.
+        echo_idx = contents.index("  password: ${ADMIN_PW}")
+        unset_idx = contents.index("unset ADMIN_PW")
+        assert unset_idx > echo_idx, (
+            "unset ADMIN_PW must come AFTER the stdout echo of the password, "
+            "otherwise the printed password is empty"
+        )
+
     def test_execs_uvicorn_as_final_step(self, contents: str):
         # exec uvicorn must be the last step (so signals work)
         assert re.search(r"^exec uvicorn", contents, re.MULTILINE), (
