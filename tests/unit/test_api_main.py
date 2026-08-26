@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.api.main import RULES_DIR, app, load_sigma_rules
+from src.api.main import RULES_DIR, app, load_sigma_rules, _docs_urls
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # App configuration
@@ -42,6 +42,36 @@ class TestAppConfiguration:
     def test_rules_dir_path(self):
         """RULES_DIR should point to a valid path."""
         assert isinstance(RULES_DIR, Path)
+
+    def test_cors_allow_headers_restricted(self):
+        """P2-5: CORS must not advertise allow_headers=['*']. Only the two
+        headers the API actually uses (Authorization for bearer tokens,
+        Content-Type for JSON bodies) should be permitted."""
+        cors = next(
+            (m for m in app.user_middleware if m.cls.__name__ == "CORSMiddleware"),
+            None,
+        )
+        assert cors is not None, "CORSMiddleware not registered"
+        assert cors.kwargs["allow_headers"] == ["Authorization", "Content-Type"]
+
+    def test_docs_enabled_default_true_serves_docs(self):
+        """P2-6: by default (dev/CI) the interactive docs ARE served."""
+        assert app.docs_url == "/api/docs"
+        assert app.redoc_url == "/api/redoc"
+        assert app.openapi_url == "/openapi.json"
+
+    def test_docs_urls_helper_disabled(self):
+        """When docs are disabled, all three URLs are None — no Swagger/ReDoc,
+        no openapi.json schema. The helper gates the app construction; test it
+        directly so the disabled branch is exercised without rebuilding app."""
+        with patch("src.api.main.settings") as mock_settings:
+            mock_settings.docs_enabled = False
+            assert _docs_urls() == (None, None, None)
+
+    def test_docs_urls_helper_enabled(self):
+        with patch("src.api.main.settings") as mock_settings:
+            mock_settings.docs_enabled = True
+            assert _docs_urls() == ("/api/docs", "/api/redoc", "/openapi.json")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

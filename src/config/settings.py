@@ -52,8 +52,17 @@ class Settings(BaseSettings):
 
     # --- Ollama ---
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.2:8b"
+    # Default is the model actually installed in the reference deploy
+    # (`mistral:7b`, verified 2026-08-26). Override per deployment.
+    ollama_model: str = "mistral:7b"
     ollama_timeout: int = 30
+
+    # --- OpenAPI docs exposure ---
+    # When False, docs_url/redoc_url/openapi_url are all disabled so the
+    # Swagger/ReDoc UI and the openapi.json schema are not served (prod).
+    # Default True so dev/CI keeps the interactive docs. The prod overlay
+    # sets DOCS_ENABLED=false.
+    docs_enabled: bool = True
 
     # --- osquery ---
     osquery_log_path: str = "/opt/homebrew/var/log/osquery/osqueryd.results.log"

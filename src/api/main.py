@@ -44,6 +44,18 @@ log = get_logger("api")
 RULES_DIR = Path(__file__).parent.parent.parent / "rules" / "sigma"
 
 
+def _docs_urls() -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Return (docs_url, redoc_url, openapi_url) gated by settings.docs_enabled.
+
+    When docs are disabled (prod), all three are None so FastAPI serves no
+    Swagger UI, no ReDoc, and no openapi.json schema. Extracted to a helper so
+    the gating is unit-testable without rebuilding the module-level app.
+    """
+    if settings.docs_enabled:
+        return ("/api/docs", "/api/redoc", "/openapi.json")
+    return (None, None, None)
+
+
 async def load_sigma_rules():
     """Reconcile Sigma YAML rules on disk into the rules table (P1-05).
 
@@ -215,13 +227,16 @@ async def lifespan(app: FastAPI):
     log.info("api_shutdown_complete")
 
 
+_docs_url, _redoc_url, _openapi_url = _docs_urls()
+
 app = FastAPI(
     title="SecurityScarletAI",
     description="AI-Native SIEM — Log Ingestion & Detection API",
     version="0.1.0",
     lifespan=lifespan,
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
+    docs_url=_docs_url,
+    redoc_url=_redoc_url,
+    openapi_url=_openapi_url,
 )
 
 app.add_middleware(
@@ -229,7 +244,10 @@ app.add_middleware(
     allow_origins=settings.api_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
-    allow_headers=["*"],
+    # Restrict request headers to the two the API actually uses. Bearer
+    # tokens (not cookies) so CSRF is moot, but tighten anyway — never
+    # advertise "any header" in a security product.
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(ingest_router, prefix="/api/v1")
