@@ -1,0 +1,18 @@
+title: NTLM Relay Attempt
+id: 87159ecc-f7e3-538d-b9d5-35971f91fd37
+status: stable
+description: Detects SMB/NTLM authentication to an unexpected internal destination (relay indicator)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: network
+detection:
+    selection:
+        event_action: ntlm_auth
+        destination_port: 445
+    condition: selection
+level: high
+tags:
+    - attack.credential_access
+    - attack.ta0006
+    - attack.t1557

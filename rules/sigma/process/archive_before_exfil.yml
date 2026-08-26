@@ -1,0 +1,25 @@
+title: Archive Created Before Transfer
+id: 55edf4a4-79d5-5882-bb36-b7f2e577669a
+status: stable
+description: Detects creation of a compressed archive (staging for exfiltration)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_name:
+            - tar
+            - zip
+            - 7z
+            - gzip
+        process_cmdline|contains:
+            - -c
+            - -a
+            - create
+    condition: selection
+level: medium
+tags:
+    - attack.exfiltration
+    - attack.ta0010
+    - attack.t1560

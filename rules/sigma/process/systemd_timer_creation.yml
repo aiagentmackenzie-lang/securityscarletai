@@ -1,0 +1,19 @@
+title: Systemd Timer Creation
+id: 40291761-93dc-53d6-a3be-9dfb689a62c6
+status: stable
+description: Detects creation of a systemd timer unit (persistence)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_cmdline|contains:
+            - .timer
+            - systemctl enable
+    condition: selection
+level: medium
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1543

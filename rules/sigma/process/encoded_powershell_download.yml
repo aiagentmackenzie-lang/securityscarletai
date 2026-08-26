@@ -1,0 +1,21 @@
+title: Encoded PowerShell Download Cradle
+id: 8c5e19ea-22a0-515b-99aa-348f7698af68
+status: stable
+description: Detects base64-encoded PowerShell download cradels (obfuscated execution)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_cmdline|contains:
+            - -enc 
+            - -encodedcommand
+            - IEX(
+            - DownloadString
+    condition: selection
+level: high
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1027

@@ -1,0 +1,18 @@
+title: File Timestomping via touch -r
+id: 678cad40-9418-569b-beed-6eba288f0ef4
+status: stable
+description: Detects use of touch -r to clone file timestamps (timestomping)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_name: touch
+        process_cmdline|contains: -r
+    condition: selection
+level: low
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1070

@@ -1,0 +1,20 @@
+title: Systemd Service Creation
+id: b6a74d6b-b0a1-558e-989f-68b59c1e0cb9
+status: stable
+description: Detects creation of a systemd service unit (persistence)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_cmdline|contains:
+            - .service
+            - systemctl enable
+            - systemd-run
+    condition: selection
+level: medium
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1543

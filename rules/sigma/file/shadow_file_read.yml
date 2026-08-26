@@ -1,0 +1,17 @@
+title: Shadow Password File Read
+id: 1ab2966b-d64b-518d-aa1e-1bbe003384af
+status: stable
+description: Detects reads of /etc/shadow by a non-root process (credential access)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: file
+detection:
+    selection:
+        file_path|contains: /etc/shadow
+    condition: selection
+level: high
+tags:
+    - attack.credential_access
+    - attack.ta0006
+    - attack.t1003

@@ -1,0 +1,20 @@
+title: SMTP Exfiltration
+id: 0dc84180-4ad8-5c1a-a006-f831135833df
+status: stable
+description: Detects outbound SMTP sessions (email-based exfiltration channel)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: network
+detection:
+    selection:
+        destination_port:
+            - 25
+            - 587
+            - 465
+    condition: selection
+level: medium
+tags:
+    - attack.exfiltration
+    - attack.ta0010
+    - attack.t1048

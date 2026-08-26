@@ -1,0 +1,17 @@
+title: High-Volume DNS (Exfil Indicator)
+id: a4eaec90-80c5-5b6e-9099-5f0330042b68
+status: stable
+description: Detects a host issuing an elevated volume of DNS queries (possible DNS exfil channel)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: network
+detection:
+    selection:
+        event_action: dns_query
+    condition: selection | count(destination_ip) by source_ip > 100
+level: medium
+tags:
+    - attack.exfiltration
+    - attack.ta0010
+    - attack.t1048

@@ -1,0 +1,20 @@
+title: SSH Private Key File Access
+id: f52827a4-f4e8-5f6a-b732-1c825982fb40
+status: stable
+description: Detects reads of SSH private key files from a non-owner process
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: file
+detection:
+    selection:
+        file_path|contains:
+            - .ssh/id_rsa
+            - .ssh/id_ecdsa
+            - .ssh/id_ed25519
+    condition: selection
+level: high
+tags:
+    - attack.credential_access
+    - attack.ta0006
+    - attack.t1552

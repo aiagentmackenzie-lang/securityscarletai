@@ -1,0 +1,20 @@
+title: Secure File Deletion (shred)
+id: a81bc3d5-40e2-596e-85f8-d5839d361a8c
+status: stable
+description: Detects use of shred to securely delete files (artifact destruction)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_name: shred
+        process_cmdline|contains:
+            - -u
+            - -z
+    condition: selection
+level: medium
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1070

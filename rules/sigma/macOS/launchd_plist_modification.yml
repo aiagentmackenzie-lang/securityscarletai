@@ -1,0 +1,20 @@
+title: LaunchDaemon Plist Modification
+id: a449c242-f5c0-54f9-9dbc-c0e4a7144f10
+status: stable
+description: Detects modification of macOS LaunchDaemon/LaunchAgent plists (persistence)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        file_path|contains:
+            - /Library/LaunchDaemons/
+            - /Library/LaunchAgents/
+            - ~/Library/LaunchAgents/
+    condition: selection
+level: high
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1543

@@ -1,0 +1,20 @@
+title: Shell Profile Modification
+id: fe2052a1-fb07-54c8-8c76-6c8eea39cc8a
+status: stable
+description: Detects modification of bash/shell profile files (persistence via login hook)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: file
+detection:
+    selection:
+        file_path|contains:
+            - .bash_profile
+            - .bashrc
+            - /.profile
+    condition: selection
+level: medium
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1546

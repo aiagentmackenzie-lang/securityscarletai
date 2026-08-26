@@ -1,0 +1,21 @@
+title: Data Exfil to Cloud Storage
+id: ecfb41c3-752e-5513-a108-6566dfc8bf7a
+status: stable
+description: Detects cloud-storage CLI upload commands (exfiltration via cloud object stores)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_cmdline|contains:
+            - aws s3 cp
+            - aws s3 sync
+            - gsutil cp
+            - azcopy
+    condition: selection
+level: high
+tags:
+    - attack.exfiltration
+    - attack.ta0010
+    - attack.t1567

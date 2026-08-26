@@ -1,0 +1,20 @@
+title: Alternative Authentication Package Loaded
+id: 888557d8-9012-5757-be10-0648bf25422e
+status: stable
+description: Detects loading of a non-standard auth package (token theft / lateral movement)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_cmdline|contains:
+            - ssp
+            - msv1_0
+            - negotiate
+    condition: selection
+level: medium
+tags:
+    - attack.lateral_movement
+    - attack.ta0008
+    - attack.t1550

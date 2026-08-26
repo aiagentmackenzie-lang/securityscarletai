@@ -1,0 +1,19 @@
+title: Scheduled Task Creation
+id: 3302ad04-c9c8-5c1d-b2db-17649dd72324
+status: stable
+description: Detects creation of a scheduled task (persistence)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_cmdline|contains:
+            - schtasks /create
+            - crontab
+    condition: selection
+level: medium
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1053

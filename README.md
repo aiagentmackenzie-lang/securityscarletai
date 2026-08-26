@@ -2,7 +2,7 @@
 
 **AI-Native SIEM for macOS** — Real-time log ingestion, Sigma-based detection, ML-powered alert triage, and LLM-driven investigation assistance.
 
-> **Status (verified 2026-08-26):** CI green on `main` · 1263 tests passing (5 skipped — need live Postgres/Redis/Ollama) · 84% coverage (CI-enforced ≥80%) · 45 Sigma rules. Counts are hand-verified against the code; no auto-updating badge.
+> **Status (verified 2026-08-26):** CI green on `main` · 1263 tests passing (5 skipped — need live Postgres/Redis/Ollama) · 84% coverage (CI-enforced ≥80%) · 100 Sigma rules. Counts are hand-verified against the code; no auto-updating badge.
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow)]()
@@ -14,7 +14,7 @@
 ```
  Logs ──▶ Parser ──▶ Enrichment ──▶ Detection ──▶ Alerts ──▶ AI Triage ──▶ Dashboard
                │                            │                              │
-          ECS Normalize              45 Sigma Rules                LLM Explanation
+          ECS Normalize              100 Sigma Rules                LLM Explanation
           GeoIP + DNS               Correlation Engine              NL→SQL Queries
           Threat Intel              Sequence Detection              Hunt Suggestions
                               │                                        │
@@ -25,7 +25,7 @@
 |-------|-----------|---------|
 | **Ingestion** | FastAPI + asyncpg | High-throughput log collection (osquery, syslog, API), fire-and-forget enrichment, rate-limited per IP |
 | **Storage** | PostgreSQL 17 + Redis 7 | Time-series logs, alerts, cases, correlation matches, AI usage + cost tracking; Redis for rate-limit state and JWT blocklist |
-| **Detection** | Legacy Sigma parser + custom PostgreSQL backend | 45 Sigma rules → parameterized SQL, 7-rule correlation engine with event-driven `as_of` semantics, 7 sequence patterns (exposed via `/correlation/sequences`). The pySigma backend is retained as a unit-tested module but is **off the production path** (P0-04). |
+| **Detection** | Legacy Sigma parser + custom PostgreSQL backend | 100 Sigma rules → parameterized SQL, 7-rule correlation engine with event-driven `as_of` semantics, 7 sequence patterns (exposed via `/correlation/sequences`). The pySigma backend is retained as a unit-tested module but is **off the production path** (P0-04). |
 | **Enrichment** | GeoIP2 + DNS + Threat Intel | MaxMind GeoIP (with periodic retry), AbuseIPDB, OTX, URLhaus, severity boost on TI match |
 | **AI / ML** | Ollama + sklearn | NL→SQL (7-layer safety), calibrated Random Forest triage with provenance, Isolation Forest UEBA, hunting assistant, versioned prompt templates, per-call cost tracking |
 | **Dashboard** | Streamlit + WebSocket | Real-time alerts, cases, hunting, AI chat; JWT or service-to-service bearer auth |
@@ -36,7 +36,7 @@
 
 ## Features
 
-- **45 Sigma Detection Rules** — Authentication, process, network, file, macOS, and cloud categories with MITRE ATT&CK mapping
+- **100 Sigma Detection Rules** — Authentication, process, network, file, macOS, and cloud categories with MITRE ATT&CK mapping
 - **Event-Driven Correlation Engine** — 7 correlation rules (brute force → success, payload → C2, persistence, exfiltration, privilege escalation, credential theft + exfil, defense evasion) with `as_of` time binding (no `NOW()` in queries) and persistent `correlation_matches` table
 - **ML Alert Triage** — 11-feature CalibratedClassifierCV with StratifiedKFold cross-validation, full provenance persisted to `triage_model_provenance` (run_id, model_type, source_csv, n_samples, precision/recall/f1, model_path, run_metadata); auto-trains hourly when ≥100 resolved alerts exist (1-hour cooldown)
 - **Versioned Prompt Templates** — Jinja2 templates in `src/ai/prompts.py` with explicit `prompt_version` constants, surfaced in `LLMResult.prompt_version`
@@ -195,7 +195,7 @@ Key endpoints (all under `/api/v1`):
 
 ## Detection Rules
 
-See [docs/RULES.md](docs/RULES.md) for the complete reference of all 45 Sigma rules and 7 correlation rules, organized by category with MITRE ATT&CK mappings.
+See [docs/RULES.md](docs/RULES.md) for the complete reference of all 100 Sigma rules and 7 correlation rules, organized by category with MITRE ATT&CK mappings.
 
 ---
 
@@ -496,7 +496,7 @@ securityscarletai/
 │   ├── auth.py              # JWT auth (3 roles: admin/analyst/viewer)
 │   └── ui_utils.py          # Shared UI helpers
 ├── rules/
-│   └── sigma/               # 45 Sigma YAML rules
+│   └── sigma/               # 100 Sigma YAML rules
 │       ├── authentication/  # 9 rules
 │       ├── process/         # 8 rules
 │       ├── network/         # 7 rules

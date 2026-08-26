@@ -1,0 +1,19 @@
+title: ADFS Token Signing Key Modification
+id: 36b9afd3-cd50-5ad7-a72a-578d78ec26ec
+status: stable
+description: Detects modification of federation token-signing key material (token forgery)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_cmdline|contains:
+            - Set-AdfsCertificate
+            - TokenSigning
+    condition: selection
+level: high
+tags:
+    - attack.credential_access
+    - attack.ta0006
+    - attack.t1606

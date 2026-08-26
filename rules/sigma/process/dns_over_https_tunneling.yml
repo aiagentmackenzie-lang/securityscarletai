@@ -1,0 +1,21 @@
+title: DNS-over-HTTPS Tunneling Indicator
+id: c0477c74-32fd-51a5-87b9-49cb33888ed9
+status: stable
+description: Detects a process configured to use a DoH resolver (potential covert channel)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_cmdline|contains:
+            - cloudflare-dns.com
+            - dns.google
+            - --doh-url
+            - dns-over-https
+    condition: selection
+level: medium
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1071

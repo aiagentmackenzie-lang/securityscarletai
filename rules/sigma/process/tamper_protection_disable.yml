@@ -1,0 +1,20 @@
+title: Tamper Protection Disabled
+id: 78af9350-9823-5ead-87f8-2dca4626d2fd
+status: stable
+description: Detects attempts to disable tamper protection on EDR/AV agents
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_cmdline|contains:
+            - tamper-protect disable
+            - uninstall-agent
+            - protection off
+    condition: selection
+level: high
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1562

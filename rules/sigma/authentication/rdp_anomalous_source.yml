@@ -1,0 +1,17 @@
+title: RDP Login From Anomalous Source
+id: ceb73210-ff4e-5926-b10c-f3372903547e
+status: stable
+description: Detects an RDP authentication worth investigating for lateral movement
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: authentication
+detection:
+    selection:
+        event_action: rdp_login
+    condition: selection
+level: high
+tags:
+    - attack.lateral_movement
+    - attack.ta0008
+    - attack.t1021

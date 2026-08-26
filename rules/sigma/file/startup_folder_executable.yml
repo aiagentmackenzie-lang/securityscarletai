@@ -1,0 +1,20 @@
+title: Executable in Startup Folder
+id: af03d0b6-0bcd-5776-b33b-749b0a6873e1
+status: stable
+description: Detects an executable dropped in a startup folder (persistence)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: file
+detection:
+    selection:
+        file_path|contains:
+            - /Startup/
+            - /Autostart/
+            - autostart
+    condition: selection
+level: high
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1547

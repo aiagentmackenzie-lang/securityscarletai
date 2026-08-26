@@ -1,0 +1,19 @@
+title: WinRM Remote Execution
+id: 338e2650-8db4-56d2-ba25-d1f79ffcaea8
+status: stable
+description: Detects WinRM-based remote command execution (lateral movement)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: network
+detection:
+    selection:
+        destination_port:
+            - 5985
+            - 5986
+    condition: selection
+level: medium
+tags:
+    - attack.lateral_movement
+    - attack.ta0008
+    - attack.t1021

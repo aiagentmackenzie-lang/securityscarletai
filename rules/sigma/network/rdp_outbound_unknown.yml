@@ -1,0 +1,17 @@
+title: Outbound RDP to Unknown Host
+id: 3c3a0dff-47ab-5e74-a837-96ac325ecd78
+status: stable
+description: Detects outbound RDP sessions (lateral movement / exfil indicator)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: network
+detection:
+    selection:
+        destination_port: 3389
+    condition: selection
+level: medium
+tags:
+    - attack.lateral_movement
+    - attack.ta0008
+    - attack.t1021

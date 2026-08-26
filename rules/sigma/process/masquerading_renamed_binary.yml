@@ -1,0 +1,20 @@
+title: Renamed System Binary (Masquerading)
+id: ee9ba5d6-0623-54a8-8675-94944259e4f3
+status: stable
+description: Detects renamed copies of system utilities executing from non-standard paths
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_path|contains:
+            - /tmp/
+            - /dev/shm/
+            - /var/tmp/
+    condition: selection
+level: medium
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1036

@@ -1,6 +1,6 @@
 # Detection Rules Reference
 
-SecurityScarletAI ships with **45 Sigma rules** and **7 event-driven correlation rules**, covering authentication, process, network, file, macOS, and cloud attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL by the legacy `SigmaParser` + custom PostgreSQL backend in `src/detection/sigma.py`. (A pySigma-backed `PostgreSQLBackend` is retained as a unit-tested module but is off the production detection path — see P0-01/P0-04.)
+SecurityScarletAI ships with **100 Sigma rules** and **7 event-driven correlation rules**, covering authentication, process, network, file, macOS, and cloud attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL by the legacy `SigmaParser` + custom PostgreSQL backend in `src/detection/sigma.py`. (A pySigma-backed `PostgreSQLBackend` is retained as a unit-tested module but is off the production detection path — see P0-01/P0-04.)
 
 ---
 
@@ -206,7 +206,7 @@ print(sql)       # Parameterized SQL (no string interpolation)
 print(params)    # Bound parameters
 ```
 
-Unit tests under `tests/unit/test_sigma.py` exercise the compiler across all 45 bundled rules.
+Unit tests under `tests/unit/test_sigma.py` exercise the compiler across all 100 bundled rules.
 
 ---
 

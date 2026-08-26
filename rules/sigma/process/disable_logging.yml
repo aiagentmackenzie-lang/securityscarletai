@@ -1,0 +1,20 @@
+title: Logging Disabled
+id: 27b2fd38-c99a-5f6c-9a4c-dcb9cc26e929
+status: stable
+description: Detects commands disabling audit/syslog logging (defense evasion)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_cmdline|contains:
+            - service rsyslog stop
+            - auditctl -e 0
+            - systemctl stop rsyslog
+    condition: selection
+level: high
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1562

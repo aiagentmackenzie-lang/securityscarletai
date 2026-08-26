@@ -1,0 +1,17 @@
+title: Bulk Transfer to External IP
+id: 876310e5-161b-5587-8566-29137202b0b1
+status: stable
+description: Detects an elevated count of outbound connections to a single external IP (exfil)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: network
+detection:
+    selection:
+        event_action: outbound_connection
+    condition: selection | count(destination_ip) by destination_ip > 200
+level: high
+tags:
+    - attack.exfiltration
+    - attack.ta0010
+    - attack.t1041

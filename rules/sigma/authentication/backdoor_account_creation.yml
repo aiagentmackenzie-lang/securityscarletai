@@ -1,0 +1,17 @@
+title: New Account Created
+id: 57f8a8b5-a495-5ac4-b3e9-337fe0f03903
+status: stable
+description: Detects creation of a new user account (possible persistence backdoor)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: authentication
+detection:
+    selection:
+        event_action: user_create
+    condition: selection
+level: medium
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1136

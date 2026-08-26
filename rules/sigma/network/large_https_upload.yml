@@ -1,0 +1,18 @@
+title: Large Outbound HTTPS Transfer
+id: bd4bbe12-8d52-5eb5-93e4-aa3d1b3f9808
+status: stable
+description: Detects a large outbound HTTPS data transfer (possible exfiltration)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: network
+detection:
+    selection:
+        event_action: https_upload
+        destination_port: 443
+    condition: selection
+level: medium
+tags:
+    - attack.exfiltration
+    - attack.ta0010
+    - attack.t1048
