@@ -1,0 +1,20 @@
+title: Cron Job Creation
+id: e30fe978-4807-5123-a026-fc5547cf84cc
+status: stable
+description: Detects creation or modification of cron jobs (persistence)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_name: crontab
+        process_cmdline|contains:
+            - -e
+            - /etc/cron
+    condition: selection
+level: medium
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1053

@@ -1,0 +1,20 @@
+title: Security Tool Disabled
+id: 33b85b51-4548-5dd7-96ec-29936553d786
+status: stable
+description: Detects commands disabling security tooling (defense evasion)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_cmdline|contains:
+            - systemctl stop auditd
+            - kill -9 osquery
+            - setenforce 0
+    condition: selection
+level: high
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1562

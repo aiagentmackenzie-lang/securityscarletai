@@ -1,0 +1,20 @@
+title: Data Staged in Temporary Directory
+id: 5600eb7d-21b2-51fb-8c30-7cc08bae249f
+status: stable
+description: Detects bulk data staged under /tmp or /var/tmp (exfil staging)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: file
+detection:
+    selection:
+        file_path|contains:
+            - /tmp/stage
+            - /var/tmp/exfil
+            - /tmp/.exfil
+    condition: selection
+level: medium
+tags:
+    - attack.exfiltration
+    - attack.ta0010
+    - attack.t1074

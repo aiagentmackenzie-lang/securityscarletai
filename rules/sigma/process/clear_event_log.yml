@@ -1,0 +1,20 @@
+title: Event Log Cleared
+id: c982dcdf-36e1-54a9-8a4b-b70cb12dd87c
+status: stable
+description: Detects clearing of system event logs (defense evasion)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_cmdline|contains:
+            - wevtutil cl
+            - journalctl --vacuum
+            - rm /var/log/
+    condition: selection
+level: high
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1070

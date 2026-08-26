@@ -1,0 +1,20 @@
+title: Hidden Directory Created
+id: 6c0bb489-3cca-5f83-8615-18f1568a1c8c
+status: stable
+description: Detects creation of dot-prefixed directories in unexpected locations (stealth)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: file
+detection:
+    selection:
+        file_path|contains:
+            - /.cache/
+            - /.local/
+            - /.config/
+    condition: selection
+level: low
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1564

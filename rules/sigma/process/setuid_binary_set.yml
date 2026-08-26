@@ -1,0 +1,21 @@
+title: Setuid Bit Set on Binary
+id: 5d116661-5bd3-5ecf-a862-474d7320e16a
+status: stable
+description: Detects chmod setuid on a binary (persistence/privilege path)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_name: chmod
+        process_cmdline|contains:
+            - u+s
+            - 4755
+            - 4754
+    condition: selection
+level: medium
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1548

@@ -1,0 +1,19 @@
+title: PAM Module Modification
+id: 8e0687f9-2fbb-5d0c-8826-b1a1963564e6
+status: stable
+description: Detects modification of PAM config (auth backdoor persistence)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: file
+detection:
+    selection:
+        file_path|contains:
+            - /etc/pam.d/
+            - /lib/security/
+    condition: selection
+level: high
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1547

@@ -1,0 +1,18 @@
+title: ADMIN$ / IPC$ Share Access
+id: cc2ead41-cafa-5b0b-bc08-ce86a630e645
+status: stable
+description: Detects access to administrative SMB shares (lateral movement indicator)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: network
+detection:
+    selection:
+        event_action: admin_share_access
+        destination_port: 445
+    condition: selection
+level: high
+tags:
+    - attack.lateral_movement
+    - attack.ta0008
+    - attack.t1021

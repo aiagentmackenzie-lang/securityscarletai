@@ -1,0 +1,20 @@
+title: PsExec Service Creation
+id: 8d10730b-249f-5251-a773-81f9a648e09f
+status: stable
+description: Detects PsExec-style remote service creation (lateral movement)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_cmdline|contains:
+            - PSEXESVC
+            - svcctl
+            - CreateRemoteService
+    condition: selection
+level: high
+tags:
+    - attack.lateral_movement
+    - attack.ta0008
+    - attack.t1021

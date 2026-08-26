@@ -1,0 +1,18 @@
+title: macOS Keychain Dump
+id: 4763c282-e5bc-5722-ab8e-072582a08834
+status: stable
+description: Detects attempts to dump the macOS keychain (credential theft)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_name: security
+        process_cmdline|contains: dump-keychain
+    condition: selection
+level: high
+tags:
+    - attack.credential_access
+    - attack.ta0006
+    - attack.t1555

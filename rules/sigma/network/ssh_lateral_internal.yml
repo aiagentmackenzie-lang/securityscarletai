@@ -1,0 +1,18 @@
+title: Outbound SSH (Lateral Movement Indicator)
+id: 943cad68-6cf8-5558-9e69-a56bd83b3a2c
+status: stable
+description: Detects outbound SSH connections worth investigating for lateral movement
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: network
+detection:
+    selection:
+        destination_port: 22
+        event_action: outbound_connection
+    condition: selection
+level: low
+tags:
+    - attack.lateral_movement
+    - attack.ta0008
+    - attack.t1021

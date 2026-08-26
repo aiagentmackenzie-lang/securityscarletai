@@ -1,0 +1,19 @@
+title: Cloud Access Key Leaked in Logs
+id: 558fc73e-e4c6-5bd1-a29c-396ee22c29c0
+status: stable
+description: Detects AWS access key patterns appearing in process command lines (leaked credentials)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: authentication
+detection:
+    selection:
+        process_cmdline|contains:
+            - AKIA
+            - aws_access_key_id
+    condition: selection
+level: medium
+tags:
+    - attack.credential_access
+    - attack.ta0006
+    - attack.t1552

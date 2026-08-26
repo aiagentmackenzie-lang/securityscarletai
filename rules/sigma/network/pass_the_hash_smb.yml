@@ -1,0 +1,18 @@
+title: Pass-the-Hash SMB Authentication
+id: 5f627691-a9f5-5181-97ac-96b0a976745b
+status: stable
+description: Detects SMB authentication with an NTLM hash (pass-the-hash indicator)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: network
+detection:
+    selection:
+        event_action: ntlm_auth
+        destination_port: 445
+    condition: selection
+level: high
+tags:
+    - attack.lateral_movement
+    - attack.ta0008
+    - attack.t1550

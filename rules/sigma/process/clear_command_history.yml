@@ -1,0 +1,20 @@
+title: Command History Cleared
+id: 5f04bd79-d6fc-555a-8a52-59714268af5c
+status: stable
+description: Detects truncation/deletion of shell history (defense evasion)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_cmdline|contains:
+            - history -c
+            - rm .bash_history
+            - unset HISTFILE
+    condition: selection
+level: medium
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1070

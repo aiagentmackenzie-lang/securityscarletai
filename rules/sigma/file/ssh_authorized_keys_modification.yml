@@ -1,0 +1,17 @@
+title: authorized_keys Modification
+id: e5dbff1e-85b3-5969-bd24-d78a924c57e1
+status: stable
+description: Detects modification of SSH authorized_keys (persistence via key backdoor)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: file
+detection:
+    selection:
+        file_path|contains: authorized_keys
+    condition: selection
+level: medium
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1098

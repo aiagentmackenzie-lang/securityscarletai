@@ -1,0 +1,20 @@
+title: Webshell Deployed
+id: 5f491147-308a-5ec2-9928-403a186d8be1
+status: stable
+description: Detects a script file written under a web root (webshell persistence)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: file
+detection:
+    selection:
+        file_path|contains:
+            - /var/www/
+            - /htdocs/
+            - /public_html/
+    condition: selection
+level: high
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1505

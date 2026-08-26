@@ -1,0 +1,17 @@
+title: Kerberoasting Service Ticket Request
+id: a8b40006-12a3-523f-bce8-27496f66c08e
+status: stable
+description: Detects an unusual volume of TGS requests for SPNs (kerberoasting indicator)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: authentication
+detection:
+    selection:
+        event_action: tgs_request
+    condition: selection | count(user_name) by user_name > 20
+level: high
+tags:
+    - attack.credential_access
+    - attack.ta0006
+    - attack.t1558

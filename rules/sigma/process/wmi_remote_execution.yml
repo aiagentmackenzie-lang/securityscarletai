@@ -1,0 +1,20 @@
+title: WMI Remote Execution
+id: 7aaacfba-1109-51e2-8790-bab98bf75a6d
+status: stable
+description: Detects WMI-based remote process execution (lateral movement)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_cmdline|contains:
+            - wmic 
+            - Invoke-WmiMethod
+            - /node:
+    condition: selection
+level: medium
+tags:
+    - attack.lateral_movement
+    - attack.ta0008
+    - attack.t1047

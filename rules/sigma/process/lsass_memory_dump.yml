@@ -1,0 +1,20 @@
+title: LSASS Memory Dump Attempt
+id: bd3e63a3-7897-5d7f-b9bd-1412b1369adb
+status: stable
+description: Detects process command lines attempting to dump LSASS memory (credential theft)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_name: procdump
+        process_cmdline|contains:
+            - lsass
+            - -ma
+    condition: selection
+level: critical
+tags:
+    - attack.credential_access
+    - attack.ta0006
+    - attack.t1003

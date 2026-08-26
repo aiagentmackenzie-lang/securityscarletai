@@ -1,0 +1,21 @@
+title: SCP Transfer to External Host
+id: c381f83b-6260-55a0-a123-65ac1374d5d6
+status: stable
+description: Detects scp/sftp transferring data to an external host (exfiltration)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_name:
+            - scp
+            - sftp
+            - rsync
+        process_cmdline|contains: external
+    condition: selection
+level: high
+tags:
+    - attack.exfiltration
+    - attack.ta0010
+    - attack.t1048

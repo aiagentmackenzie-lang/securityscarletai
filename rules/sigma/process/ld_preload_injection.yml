@@ -1,0 +1,19 @@
+title: LD_PRELOAD Process Injection
+id: 904f9abc-29ba-549c-b483-bd199663c39c
+status: stable
+description: Detects LD_PRELOAD used to inject a shared object into a process (injection)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_cmdline|contains:
+            - LD_PRELOAD=
+            - ld_preload
+    condition: selection
+level: high
+tags:
+    - attack.defense_evasion
+    - attack.ta0005
+    - attack.t1055

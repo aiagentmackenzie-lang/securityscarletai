@@ -1,0 +1,20 @@
+title: Hidden File Creation in Sensitive Path
+id: d2d657c9-0abd-5673-933a-579d3ac8ec8b
+status: stable
+description: Detects creation of dotfile/hidden files in sensitive directories (stealth persistence)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: file
+detection:
+    selection:
+        file_path|contains:
+            - /etc/.
+            - /tmp/.
+            - /var/tmp/.
+    condition: selection
+level: low
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1564

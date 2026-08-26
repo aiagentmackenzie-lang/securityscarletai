@@ -1,0 +1,21 @@
+title: Upload to File-Sharing Service
+id: f13f4c2e-ac98-5f7e-a75c-34b2735ef9dc
+status: stable
+description: Detects uploads to consumer file-sharing services via CLI (exfiltration channel)
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_cmdline|contains:
+            - transfer.sh
+            - file.io
+            - 0x0.st
+            - uploadfiles.io
+    condition: selection
+level: medium
+tags:
+    - attack.exfiltration
+    - attack.ta0010
+    - attack.t1567
