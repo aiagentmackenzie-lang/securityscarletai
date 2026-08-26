@@ -81,6 +81,12 @@ class Settings(BaseSettings):
     enable_ingestion_shipper: bool = False
 
     # --- Threat Intel ---
+    # When False, the threat-intel refresh scheduler is NOT started and no
+    # external feed calls are made (URLhaus/AbuseIPDB/OTX). IOC enrichment
+    # still matches against the local threat_intel cache (pre-load IOCs
+    # offline before going dark). Set THREAT_INTEL_ENABLED=false for
+    # air-gapped / no-egress deployments (see docs/AIR-GAPPED.md).
+    threat_intel_enabled: bool = True
     abuseipdb_api_key: Optional[str] = None
     otx_api_key: Optional[str] = None
 
