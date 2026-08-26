@@ -407,6 +407,7 @@ PAGES = {
     "Overview": "overview",
     "Live Logs": "logs",
     "Alerts": "alerts",
+    "Suppressions": "suppressions",
     "Rules": "rules",
     "Cases": "cases",
     "AI Chat": "ai_chat",
@@ -422,6 +423,7 @@ PAGE_REFRESH_MS = {
     "overview": 30000,
     "logs": 15000,
     "alerts": 30000,
+    "suppressions": 120000,
     "rules": 120000,
     "cases": 60000,
     "ai_chat": 0,       # Never auto-refresh (chat context matters)
@@ -720,6 +722,9 @@ def main():
     elif page_key == "alerts":
         from dashboard.alerts_view import render_alert_list
         render_alert_list()
+    elif page_key == "suppressions":
+        from dashboard.suppressions_view import render_suppressions_view
+        render_suppressions_view()
     elif page_key == "rules":
         from dashboard.rules_view import render_rules_view
         render_rules_view()
