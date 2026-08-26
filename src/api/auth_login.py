@@ -19,6 +19,7 @@ from src.api.auth import (
     create_jwt,
     create_refresh_token,
     hash_password,
+    verify_force_change_token,
     verify_jwt,
     verify_password,
 )
@@ -257,20 +258,17 @@ async def change_password(
 @router.post("/force-change-password")
 async def force_change_password(
     request: ForceChangePasswordRequest,
-    payload: dict = Depends(verify_jwt),
+    payload: dict = Depends(verify_force_change_token),
 ):
     """Force password change when must_change_password is true.
 
     This endpoint is called with the force_change_token from the 403 response.
     It does NOT require the current password - used for migration flow only.
-    The token must contain 'force_password_change': True.
+    The token must carry 'force_password_change': True (enforced by the
+    verify_force_change_token dependency — P1-B). Every other endpoint rejects
+    such tokens, so the force_change_token cannot be reused as a regular
+    access token to bypass the must_change_password control.
     """
-    if not payload.get("force_password_change"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This endpoint requires a force_password_change token",
-        )
-
     new_hash = hash_password(request.new_password)
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -283,6 +281,19 @@ async def force_change_password(
             new_hash,
             payload["sub"],
         )
+
+    # P1-B/P2-12: invalidate the force_change_token (and any prior tokens) by
+    # setting a user_revoke marker. Without this the force_change_token stays
+    # valid for its remaining TTL after a successful reset — inconsistent with
+    # /auth/change-password which already does this. Best-effort: if Redis is
+    # down, the DB password is changed but old tokens remain valid until expiry.
+    from datetime import datetime, timezone
+
+    from src.api.redis_client import set_user_revoke_marker
+    from src.config.settings import settings as _settings
+
+    revoke_ttl = (_settings.refresh_token_ttl_days + 1) * 24 * 3600
+    set_user_revoke_marker(payload["sub"], datetime.now(tz=timezone.utc), revoke_ttl)
 
     log.info("force_password_changed", username=payload["sub"])
     return {"message": "Password changed successfully. You can now log in normally."}
