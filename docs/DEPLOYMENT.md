@@ -389,6 +389,40 @@ Model files (`models/*.joblib`, `models/*.sha256`) are gitignored and should be 
 | `/api/v1/auth/me` | GET | Current user info from JWT |
 | `/api/v1/auth/change-password` | POST | Change own password |
 
+## Data Retention (P1-D)
+
+Without retention, `logs`, `alerts`, `audit_logs`, `correlation_matches` and
+`ai_usage` grow without bound and query performance collapses. The retention
+job (`src/services/retention.py`) runs on an APScheduler every
+`RETENTION_INTERVAL_HOURS` (default 1) and deletes rows older than the
+configured window in **batched parameterized DELETEs** (CTE + LIMIT +
+`FOR UPDATE SKIP LOCKED`, `RETENTION_BATCH_SIZE` rows per iteration) so a
+large delete never takes a long table lock. A backlog drains across several
+runs (capped at 100 batches per table per run).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LOGS_RETENTION_DAYS` | 30 | Days to keep raw logs. 0 = keep forever. |
+| `ALERTS_RETENTION_DAYS` | 180 | Days to keep alerts. 0 = keep forever. |
+| `AUDIT_RETENTION_DAYS` | 365 | Days to keep both `audit_logs` (HTTP) and `audit_log` (action). 0 = keep forever. |
+| `CORRELATION_RETENTION_DAYS` | 90 | Days to keep `correlation_matches`. |
+| `AI_USAGE_RETENTION_DAYS` | 90 | Days to keep `ai_usage` cost-tracking rows. |
+| `RETENTION_INTERVAL_HOURS` | 1 | How often the retention job runs. |
+| `RETENTION_BATCH_SIZE` | 5000 | Rows deleted per batch iteration. |
+
+**Audit + append-only hardening interaction:** if you apply the audit
+append-only hardening (`scripts/harden_audit.sql` revokes `DELETE` on
+`audit_logs` from the app role), the app role can no longer delete old
+`audit_logs` rows and the retention job will log `retention_sweep_failed`
+for that table (result sentinel `-2`) rather than crash. In that case, run a
+separate superuser-owned cron job to prune `audit_logs` past
+`AUDIT_RETENTION_DAYS`. The job reports the outcome honestly in its log.
+
+**Scale upgrade:** for very high ingest, switch to TimescaleDB hypertables
+(`logs`, `siem_health`) and use a `drop_chunks` retention policy instead of
+this job — see the note in `src/db/schema.sql`. TimescaleDB compression then
+supersedes the BRIN index too.
+
 ### Health Response Shape
 
 ```json

@@ -164,6 +164,12 @@ async def lifespan(app: FastAPI):
     from src.intel.threat_intel import start_threat_intel_scheduler
     await start_threat_intel_scheduler()
 
+    # P1-D: start the data-retention scheduler (bounded storage). Hourly by
+    # default; deletes rows older than env-configured windows in batched
+    # parameterized DELETEs. 0 retention = keep forever.
+    from src.services.retention import start_retention_scheduler
+    await start_retention_scheduler()
+
     # P2-16: warn (don't block) if the configured Ollama model isn't available.
     # /health caches the probe (P2-34); this is a one-time startup notice so a
     # misconfigured model is surfaced to the operator instead of silently
@@ -195,6 +201,10 @@ async def lifespan(app: FastAPI):
     # Stop threat intel scheduler
     from src.intel.threat_intel import stop_threat_intel_scheduler
     await stop_threat_intel_scheduler()
+
+    # P1-D: stop the retention scheduler.
+    from src.services.retention import stop_retention_scheduler
+    await stop_retention_scheduler()
 
     # P2-12: close the MaxMind GeoIP reader handle on shutdown.
     from src.enrichment.pipeline import close_geoip_reader

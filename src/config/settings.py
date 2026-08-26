@@ -89,6 +89,18 @@ class Settings(BaseSettings):
     login_rate_limit: str = "5/minute"
     ingest_rate_limit: str = "100/minute"
 
+    # --- Retention (P1-D). 0 = keep forever (the pre-retention behaviour).
+    # Defaults are conservative hot-retention windows; tune per deployment.
+    # The retention job runs hourly and deletes rows older than the window in
+    # batched parameterized DELETEs (no table-wide lock). ---
+    logs_retention_days: int = 30
+    alerts_retention_days: int = 180
+    audit_retention_days: int = 365
+    correlation_retention_days: int = 90
+    ai_usage_retention_days: int = 90
+    retention_interval_hours: int = 1
+    retention_batch_size: int = 5000
+
     @field_validator("db_password")
     @classmethod
     def password_not_default(cls, v: str) -> str:
