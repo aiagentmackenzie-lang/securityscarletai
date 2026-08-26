@@ -11,7 +11,6 @@ Security notes:
 - Epic 5 hardening: jti claim, Redis blocklist, user_revoke markers, refresh tokens.
 """
 import hashlib
-import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -22,9 +21,10 @@ from fastapi import HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
+from src.config.logging import get_logger
 from src.config.settings import settings
 
-log = logging.getLogger(__name__)
+log = get_logger("api.auth")
 
 bearer_scheme = HTTPBearer()
 
@@ -88,6 +88,9 @@ def verify_jwt(
     Epic 5 hardening:
     - Checks Redis blocklist for the jti (logout invalidates).
     - Checks user_revoke markers (password change invalidates older tokens).
+    - P1-A: rejects tokens whose type != 'access' (prevents a refresh token,
+      type=refresh with a 7-day TTL, from being used as an access token on
+      every business endpoint — token confusion).
     """
     try:
         payload = jwt.decode(
@@ -96,11 +99,22 @@ def verify_jwt(
             algorithms=[JWT_ALGORITHM],
         )
     except JWTError as e:
-        log.warning("jwt_verify_failed", error=str(e), token_preview=credentials.credentials[:20])  # type: ignore[call-arg]  # structlog event-dict kwargs
+        log.warning("jwt_verify_failed", error=str(e), token_preview=credentials.credentials[:20])
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
         ) from None
+
+    # P1-A: enforce token type. Only access tokens are valid for the business
+    # API. Refresh tokens (type=refresh, 7-day TTL) must be used ONLY at
+    # /auth/refresh. Pre-hardening tokens without a type claim are rejected —
+    # every token issued by create_jwt carries type=access.
+    if payload.get("type") != "access":
+        log.warning("jwt_wrong_type", token_type=payload.get("type"))
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not an access token",
+        )
 
     # Epic 5: check blocklist (logout) and user_revoke (password change).
     # Fail-closed only if Redis is up AND confirms invalid; Redis being down = fail-open
@@ -128,6 +142,18 @@ def get_current_user(
     # Try JWT first (dashboard users)
     try:
         payload = jwt.decode(token, secret, algorithms=[JWT_ALGORITHM])
+        # P1-A: only access tokens are valid here. A refresh token must NOT
+        # work as an access token on business endpoints (token confusion).
+        # Pre-hardening tokens without a type claim are rejected. The
+        # HTTPException raised here is NOT a JWTError, so the except below
+        # does not catch it — it propagates and the refresh token is rejected
+        # (rather than silently falling through to the static-bearer compare).
+        if payload.get("type") != "access":
+            log.warning("jwt_wrong_type", token_type=payload.get("type"))
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not an access token",
+            )
         # P1-11: enforce revocation (jti blocklist + user_revoke) on the business
         # API too, not just the auth-own endpoints. Static bearer tokens below are
         # unaffected (no jti/iat).

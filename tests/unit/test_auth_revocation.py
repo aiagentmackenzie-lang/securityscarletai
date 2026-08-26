@@ -352,3 +352,88 @@ class TestBusinessAPIRevocation:
         with pytest.raises(HTTPException) as exc:
             get_current_user(creds)
         assert exc.value.status_code == 401
+
+
+# ───────────────────────────────────────────────────────────────
+# P1-A: token-type enforcement (refresh tokens must NOT work as access)
+# ───────────────────────────────────────────────────────────────
+
+
+class TestTokenTypeEnforcement:
+    """P1-A — a refresh token (type=refresh, 7-day TTL) must be rejected by
+    verify_jwt and get_current_user on every business endpoint. Only
+    type=access tokens are valid. Pre-hardening tokens without a type are
+    rejected too."""
+
+    def test_verify_jwt_accepts_access_token(self):
+        from src.api.auth import create_jwt, verify_jwt
+
+        token = create_jwt("alice", "analyst")
+        creds = MagicMock()
+        creds.credentials = token
+        payload = verify_jwt(creds)
+        assert payload["sub"] == "alice"
+        assert payload["type"] == "access"
+
+    def test_verify_jwt_rejects_refresh_token(self):
+        from src.api.auth import create_refresh_token, verify_jwt
+
+        token = create_refresh_token("alice", "analyst")
+        creds = MagicMock()
+        creds.credentials = token
+        with pytest.raises(HTTPException) as exc:
+            verify_jwt(creds)
+        assert exc.value.status_code == 401
+        assert "access" in exc.value.detail.lower()
+
+    def test_verify_jwt_rejects_typeless_token(self):
+        """A token with no `type` claim (e.g. a pre-hardening token) is rejected."""
+        from jose import jwt as jose_jwt
+
+        from src.api.auth import JWT_ALGORITHM, verify_jwt
+        from src.config.settings import settings
+
+        token = jose_jwt.encode(
+            {"sub": "alice", "role": "analyst", "jti": "x"},
+            settings.api_secret_key.get_secret_value(),
+            algorithm=JWT_ALGORITHM,
+        )
+        creds = MagicMock()
+        creds.credentials = token
+        with pytest.raises(HTTPException) as exc:
+            verify_jwt(creds)
+        assert exc.value.status_code == 401
+
+    def test_get_current_user_accepts_access_token(self):
+        from src.api.auth import create_jwt, get_current_user
+
+        token = create_jwt("bob", "admin")
+        creds = MagicMock()
+        creds.credentials = token
+        payload = get_current_user(creds)
+        assert payload["sub"] == "bob"
+        assert payload["role"] == "admin"
+
+    def test_get_current_user_rejects_refresh_token(self):
+        from src.api.auth import create_refresh_token, get_current_user
+
+        token = create_refresh_token("bob", "admin")
+        creds = MagicMock()
+        creds.credentials = token
+        with pytest.raises(HTTPException) as exc:
+            get_current_user(creds)
+        assert exc.value.status_code == 401
+        # Must NOT fall through to the static-bearer compare (detail is the
+        # type-check message, not "Invalid or expired token").
+        assert "access" in exc.value.detail.lower()
+
+    def test_get_current_user_still_accepts_static_bearer(self):
+        """The static bearer fallback still works for non-JWT bearer tokens."""
+        from src.api.auth import get_current_user
+        from src.config.settings import settings
+
+        creds = MagicMock()
+        creds.credentials = settings.api_bearer_token.get_secret_value()
+        payload = get_current_user(creds)
+        assert payload["sub"] == "api-client"
+        assert payload["role"] == "admin"
