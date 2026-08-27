@@ -138,6 +138,67 @@ async def alert_statistics(
 
 
 # ───────────────────────────────────────────────────────────────
+# Alert suppression rules
+#
+# NOTE: these MUST stay declared ABOVE the /{alert_id} routes below.
+# FastAPI matches routes in declaration order; declared after
+# GET /{alert_id}, the literal path /suppressions is captured as
+# alert_id="suppressions" and 422s (fix/suppressions-route-shadowing).
+# ───────────────────────────────────────────────────────────────
+
+@router.get("/suppressions")
+async def list_suppressions(
+    user: str = Depends(require_role("analyst")),
+):
+    """List all alert suppression rules."""
+    return await list_suppression_rules()
+
+
+@router.post("/suppressions")
+async def create_suppression(
+    rule: SuppressionRuleCreate,
+    user: dict = Depends(require_role("admin")),
+):
+    """Create a new alert suppression rule. Admin only."""
+    suppression_id = await create_suppression_rule(
+        rule_name=rule.rule_name,
+        host_name=rule.host_name,
+        reason=rule.reason,
+        created_by=user.get("sub", "unknown"),
+    )
+    return {"id": suppression_id, "status": "created"}
+
+
+class SuppressionEnabledUpdate(BaseModel):
+    enabled: bool
+
+
+@router.patch("/suppressions/{suppression_id}")
+async def toggle_suppression(
+    suppression_id: int,
+    update: SuppressionEnabledUpdate,
+    user: dict = Depends(require_role("admin")),
+):
+    """Enable or disable an alert suppression rule. Admin only."""
+    updated = await set_suppression_enabled(suppression_id, update.enabled)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Suppression rule not found.")
+    return {"id": suppression_id, "enabled": update.enabled, "status": "updated"}
+
+
+@router.delete("/suppressions/{suppression_id}")
+async def remove_suppression(
+    suppression_id: int,
+    user: dict = Depends(require_role("admin")),
+):
+    """Delete an alert suppression rule. Admin only."""
+    deleted = await delete_suppression_rule(suppression_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Suppression rule not found.")
+    return {"id": suppression_id, "status": "deleted"}
+
+
+# ───────────────────────────────────────────────────────────────
 # Single alert operations
 # ───────────────────────────────────────────────────────────────
 
@@ -404,57 +465,3 @@ async def export_stix(
     return await export_alerts_stix(hours=hours)
 
 
-# ───────────────────────────────────────────────────────────────
-# Alert suppression rules
-# ───────────────────────────────────────────────────────────────
-
-@router.get("/suppressions")
-async def list_suppressions(
-    user: str = Depends(require_role("analyst")),
-):
-    """List all alert suppression rules."""
-    return await list_suppression_rules()
-
-
-@router.post("/suppressions")
-async def create_suppression(
-    rule: SuppressionRuleCreate,
-    user: dict = Depends(require_role("admin")),
-):
-    """Create a new alert suppression rule. Admin only."""
-    suppression_id = await create_suppression_rule(
-        rule_name=rule.rule_name,
-        host_name=rule.host_name,
-        reason=rule.reason,
-        created_by=user.get("sub", "unknown"),
-    )
-    return {"id": suppression_id, "status": "created"}
-
-
-class SuppressionEnabledUpdate(BaseModel):
-    enabled: bool
-
-
-@router.patch("/suppressions/{suppression_id}")
-async def toggle_suppression(
-    suppression_id: int,
-    update: SuppressionEnabledUpdate,
-    user: dict = Depends(require_role("admin")),
-):
-    """Enable or disable an alert suppression rule. Admin only."""
-    updated = await set_suppression_enabled(suppression_id, update.enabled)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Suppression rule not found.")
-    return {"id": suppression_id, "enabled": update.enabled, "status": "updated"}
-
-
-@router.delete("/suppressions/{suppression_id}")
-async def remove_suppression(
-    suppression_id: int,
-    user: dict = Depends(require_role("admin")),
-):
-    """Delete an alert suppression rule. Admin only."""
-    deleted = await delete_suppression_rule(suppression_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Suppression rule not found.")
-    return {"id": suppression_id, "status": "deleted"}

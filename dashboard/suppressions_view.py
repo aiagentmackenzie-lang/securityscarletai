@@ -34,7 +34,7 @@ def render_suppressions_view() -> None:
     try:
         suppressions: list[dict] = client.list_suppressions()
     except ApiError as e:
-        st.error(f"Failed to load suppressions: {e.message}")
+        st.error(f"Failed to load suppressions: {e.detail}")
         return
 
     if not suppressions:
@@ -80,7 +80,7 @@ def render_suppressions_view() -> None:
                     )
                     st.rerun()
                 except ApiError as e:
-                    st.error(f"Toggle failed: {e.message}")
+                    st.error(f"Toggle failed: {e.detail}")
 
             if c7.button(
                 "Delete",
@@ -92,7 +92,7 @@ def render_suppressions_view() -> None:
                     st.toast(f"Suppression #{sup['id']} deleted")
                     st.rerun()
                 except ApiError as e:
-                    st.error(f"Delete failed: {e.message}")
+                    st.error(f"Delete failed: {e.detail}")
 
     st.divider()
 
@@ -135,4 +135,4 @@ def render_suppressions_view() -> None:
                     st.toast(f"Suppression #{res.get('id')} created")
                     st.rerun()
                 except ApiError as e:
-                    st.error(f"Create failed: {e.message}")
+                    st.error(f"Create failed: {e.detail}")
