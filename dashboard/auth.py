@@ -90,6 +90,29 @@ LOGIN_CARD_CSS = f"""
         letter-spacing: 0.08em;
         margin-bottom: 0.3rem;
     }}
+    /* Symmetric inputs: Streamlit puts the password eye-toggle INSIDE the
+       input wrapper, shrinking the password <input> ~50px vs the username
+       input (both wrappers are equal width). Overlay the toggle instead:
+       full-width input, eye button absolutely positioned over its right
+       edge, padding keeps typed text clear of the icon. */
+    [data-testid="stForm"] [data-testid="stTextInputRootElement"] {{
+        position: relative;
+    }}
+    [data-testid="stForm"] [data-testid="stTextInputRootElement"] input {{
+        width: 100% !important;
+        padding-right: 2.75rem !important;
+    }}
+    [data-testid="stForm"] [data-testid="stTextInputRootElement"] button {{
+        position: absolute !important;
+        right: 0.375rem;
+        top: 50%;
+        transform: translateY(-50%);
+        margin: 0 !important;
+        padding: 0.35rem !important;
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+    }}
     [data-testid="stFormSubmitButton"] {{
         margin-top: 1.1rem;
     }}

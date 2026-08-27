@@ -128,6 +128,16 @@ class TestAuthCardCss:
         assert "#1e2636" in LOGIN_CARD_CSS  # BORDER_SUBTLE
         assert "#090c14" in LOGIN_CARD_CSS  # BG_APP (brand glow)
 
+    def test_inputs_are_symmetric_eye_overlay(self):
+        """Raphael 2026-08-27: the password input rendered ~50px shorter than
+        the username input (eye-toggle consumed width inside the wrapper).
+        The toggle must overlay the field, not shrink it."""
+        from dashboard.auth import LOGIN_CARD_CSS
+
+        assert "stTextInputRootElement\"] input" in LOGIN_CARD_CSS
+        assert "width: 100% !important" in LOGIN_CARD_CSS
+        assert "position: absolute" in LOGIN_CARD_CSS
+
     def test_labels_are_white(self):
         """Raphael 2026-08-27: grey labels were hard to read — field labels
         must be white."""
