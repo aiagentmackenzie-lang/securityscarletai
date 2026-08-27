@@ -97,6 +97,7 @@ LOGIN_CARD_CSS = f"""
        edge, padding keeps typed text clear of the icon. */
     [data-testid="stForm"] [data-testid="stTextInputRootElement"] {{
         position: relative;
+        padding-right: 0 !important;  /* Streamlit reserves 14px for the eye */
     }}
     [data-testid="stForm"] [data-testid="stTextInputRootElement"] input {{
         width: 100% !important;
