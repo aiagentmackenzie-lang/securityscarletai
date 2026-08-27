@@ -18,6 +18,12 @@ BG_ELEVATED = "#161d2e"
 BG_INPUT = "#1a2236"
 ACCENT = "#00bcd4"
 ACCENT_GLOW = "rgba(0,188,212,0.18)"
+
+# Brand scarlet (the shield mark) — used for the auth front door: wordmark
+# and the Sign In button. The app-wide functional accent stays cyan.
+BRAND_SCARLET = "#e11d48"         # rose-600 — shield mid, button base
+BRAND_SCARLET_BRIGHT = "#f43f5e"  # rose-400 — shield top, wordmark
+BRAND_SCARLET_DEEP = "#be123c"    # rose-700 — button gradient end/hover
 TEXT_PRIMARY = "#e8ecf1"
 TEXT_SECONDARY = "#8b95a5"
 TEXT_MUTED = "#5a6578"
@@ -115,8 +121,7 @@ def brand_header_html(id_prefix: str = "login") -> str:
         </div>
         <h1 style="margin:0;font-size:1.45rem;letter-spacing:-0.02em;
             color:{TEXT_PRIMARY};">
-            Security<span style="color:#f43f5e;">Scarlet</span>\
-<span style="color:{ACCENT};">AI</span>
+            Security<span style="color:{BRAND_SCARLET_BRIGHT};">ScarletAI</span>
         </h1>
         <p style="margin:0.4rem 0 0 0;color:{TEXT_SECONDARY};font-size:0.78rem;
             text-transform:uppercase;letter-spacing:0.14em;">

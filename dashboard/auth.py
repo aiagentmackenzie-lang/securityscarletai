@@ -18,6 +18,9 @@ from dashboard.ui_utils import (
     BG_APP,
     BG_SURFACE,
     BORDER_SUBTLE,
+    BRAND_SCARLET,
+    BRAND_SCARLET_BRIGHT,
+    BRAND_SCARLET_DEEP,
     TEXT_MUTED,
     TEXT_SECONDARY,
     brand_header_html,
@@ -90,6 +93,30 @@ LOGIN_CARD_CSS = f"""
     }}
     [data-testid="stFormSubmitButton"] {{
         margin-top: 1.1rem;
+    }}
+    /* Brand scarlet Sign In — white-on-scarlet (AA contrast), scoped to the
+       auth card so app-wide primary buttons keep the cyan accent. Covers
+       both kind="primary" and kind="primaryForm" (form submit widgets). */
+    [data-testid="stForm"] button[kind="primary"],
+    [data-testid="stForm"] button[kind="primaryForm"] {{
+        background: linear-gradient(135deg, {BRAND_SCARLET} 0%,
+            {BRAND_SCARLET_DEEP} 100%) !important;
+        background-color: {BRAND_SCARLET} !important;
+        color: #ffffff !important;
+        border: 1px solid {BRAND_SCARLET_DEEP} !important;
+        font-weight: 700;
+        font-size: 0.95rem;
+        letter-spacing: 0.02em;
+        box-shadow: 0 4px 16px rgba(225,29,72,0.35);
+        text-shadow: 0 1px 2px rgba(0,0,0,0.25);
+    }}
+    [data-testid="stForm"] button[kind="primary"]:hover,
+    [data-testid="stForm"] button[kind="primaryForm"]:hover {{
+        background: linear-gradient(135deg, {BRAND_SCARLET_BRIGHT} 0%,
+            {BRAND_SCARLET} 100%) !important;
+        background-color: {BRAND_SCARLET_BRIGHT} !important;
+        border-color: {BRAND_SCARLET} !important;
+        box-shadow: 0 6px 20px rgba(225,29,72,0.45);
     }}
     .auth-card-footer {{
         text-align: center;

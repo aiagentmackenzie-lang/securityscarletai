@@ -66,13 +66,23 @@ class TestBrandHeader:
         assert "Scarlet" in html
         assert "AI-Native SIEM" in html
 
-    def test_wordmark_has_no_space_between_scarlet_and_ai(self):
+    def test_wordmark_renders_scarletai_contiguous(self):
         from dashboard.ui_utils import brand_header_html
 
         html = brand_header_html("bh2")
-        # The two spans must be adjacent — a newline between them would
-        # render as "Scarlet AI" instead of "ScarletAI".
-        assert "</span><span" in html
+        # "ScarletAI" must be one contiguous run — a newline/space between
+        # spans would render as "Scarlet AI".
+        assert "ScarletAI" in html
+        assert "Scarlet AI" not in html
+
+    def test_wordmark_ai_is_scarlet_not_cyan(self):
+        """Raphael 2026-08-27: the cyan 'AI' in the heading was rejected —
+        the whole wordmark brand run is scarlet now."""
+        from dashboard.ui_utils import brand_header_html
+
+        html = brand_header_html("bh3")
+        assert '#f43f5e;"\u003eScarletAI</span>' in html
+        assert "#00bcd4" not in html.split("ScarletAI")[0].split("Security")[1]
 
     def test_brand_header_uses_given_id_prefix(self):
         from dashboard.ui_utils import brand_header_html
@@ -113,6 +123,22 @@ class TestAuthCardCss:
         """Sign In must be type="primary" to pick up the accent button CSS."""
         source = (DASHBOARD_DIR / "auth.py").read_text()
         assert 'type="primary"' in source
+
+    def test_sign_in_button_scarlet_with_white_text(self):
+        """Raphael 2026-08-27: black-on-cyan Sign In was hard to read —
+        the auth-card primary button is white-on-scarlet, scoped to the
+        auth card (app-wide primaries stay cyan)."""
+        from dashboard.auth import LOGIN_CARD_CSS
+
+        # Scoped to the auth card, both Streamlit kind variants covered
+        assert '[data-testid="stForm"] button[kind="primary"]' in LOGIN_CARD_CSS
+        assert 'button[kind="primaryForm"]' in LOGIN_CARD_CSS
+        # White text + scarlet gradient (not cyan/black)
+        assert "color: #ffffff" in LOGIN_CARD_CSS
+        assert "#e11d48" in LOGIN_CARD_CSS
+        assert "linear-gradient" in LOGIN_CARD_CSS
+        # The gradient must NOT be the cyan accent
+        assert "#00bcd4" not in LOGIN_CARD_CSS
 
     def test_no_double_welcome_on_success(self):
         """The st.toast + st.success + rerun flash is gone."""

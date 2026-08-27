@@ -470,8 +470,7 @@ def render_sidebar():
             <div>
                 <p style="margin:0;font-size:1.02rem;font-weight:700;
                     color:{TEXT_PRIMARY};letter-spacing:-0.01em;">
-                    Security<span style="color:#f43f5e;">Scarlet</span>\
-<span style="color:{ACCENT};">AI</span>
+                    Security<span style="color:#f43f5e;">ScarletAI</span>
                 </p>
                 <p style="margin:0.1rem 0 0 0;color:{TEXT_SECONDARY};font-size:0.7rem;
                     text-transform:uppercase;letter-spacing:0.12em;">
