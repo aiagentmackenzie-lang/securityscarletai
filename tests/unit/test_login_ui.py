@@ -130,9 +130,11 @@ class TestAuthCardCss:
         auth card (app-wide primaries stay cyan)."""
         from dashboard.auth import LOGIN_CARD_CSS
 
-        # Scoped to the auth card, both Streamlit kind variants covered
-        assert '[data-testid="stForm"] button[kind="primary"]' in LOGIN_CARD_CSS
-        assert 'button[kind="primaryForm"]' in LOGIN_CARD_CSS
+        # The hook that actually matches the live DOM: Streamlit 1.40
+        # renders the form submit with kind="primaryFormSubmit" inside
+        # [data-testid=stFormSubmitButton] (verified via CDP 2026-08-27).
+        assert '[data-testid="stFormSubmitButton"] button' in LOGIN_CARD_CSS
+        assert 'button[kind="primaryFormSubmit"]' in LOGIN_CARD_CSS
         # White text + scarlet gradient (not cyan/black)
         assert "color: #ffffff" in LOGIN_CARD_CSS
         assert "#e11d48" in LOGIN_CARD_CSS

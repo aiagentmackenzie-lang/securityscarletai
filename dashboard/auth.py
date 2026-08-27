@@ -95,8 +95,12 @@ LOGIN_CARD_CSS = f"""
         margin-top: 1.1rem;
     }}
     /* Brand scarlet Sign In — white-on-scarlet (AA contrast), scoped to the
-       auth card so app-wide primary buttons keep the cyan accent. Covers
-       both kind="primary" and kind="primaryForm" (form submit widgets). */
+       auth card so app-wide primary buttons keep the cyan accent.
+       Streamlit 1.40 renders the form submit with kind="primaryFormSubmit"
+       inside [data-testid=stFormSubmitButton] — verified in the live DOM
+       via CDP 2026-08-27. Legacy kind variants kept for robustness. */
+    [data-testid="stFormSubmitButton"] button,
+    [data-testid="stForm"] button[kind="primaryFormSubmit"],
     [data-testid="stForm"] button[kind="primary"],
     [data-testid="stForm"] button[kind="primaryForm"] {{
         background: linear-gradient(135deg, {BRAND_SCARLET} 0%,
@@ -110,8 +114,8 @@ LOGIN_CARD_CSS = f"""
         box-shadow: 0 4px 16px rgba(225,29,72,0.35);
         text-shadow: 0 1px 2px rgba(0,0,0,0.25);
     }}
-    [data-testid="stForm"] button[kind="primary"]:hover,
-    [data-testid="stForm"] button[kind="primaryForm"]:hover {{
+    [data-testid="stFormSubmitButton"] button:hover,
+    [data-testid="stForm"] button[kind="primaryFormSubmit"]:hover {{
         background: linear-gradient(135deg, {BRAND_SCARLET_BRIGHT} 0%,
             {BRAND_SCARLET} 100%) !important;
         background-color: {BRAND_SCARLET_BRIGHT} !important;
