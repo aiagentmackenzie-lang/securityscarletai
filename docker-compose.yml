@@ -93,7 +93,7 @@ services:
     # required. When unset, the dashboard falls back to the JWT login flow.
     build: .
     container_name: scarletai-dashboard
-    command: ["streamlit", "run", "dashboard/main.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true", "--browser.gatherUsageStats=false"]
+    command: ["streamlit", "run", "dashboard/main.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true", "--browser.gatherUsageStats=false", "--theme.base=dark", "--theme.primaryColor=#00bcd4", "--theme.backgroundColor=#090c14", "--theme.secondaryBackgroundColor=#0f1420", "--theme.textColor=#e8ecf1"]
     ports:
       - "8501:8501"
     environment:
@@ -101,6 +101,9 @@ services:
       SCARLET_API_URL: http://api:8000/api/v1
       # Optional static bearer. If blank, the dashboard requires user login.
       DASHBOARD_API_TOKEN: ${DASHBOARD_API_TOKEN:-}
+      # Operator bootstrap notes on the login screen (default off — keep the
+      # front door clean). Set to 1/true to show the "Initial setup" expander.
+      DASHBOARD_SHOW_SETUP_HELP: ${DASHBOARD_SHOW_SETUP_HELP:-}
       # Streamlit settings — make the container reachable from the host browser
       STREAMLIT_SERVER_HEADLESS: "true"
       STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"

@@ -18,6 +18,12 @@ BG_ELEVATED = "#161d2e"
 BG_INPUT = "#1a2236"
 ACCENT = "#00bcd4"
 ACCENT_GLOW = "rgba(0,188,212,0.18)"
+
+# Brand scarlet (the shield mark) — used for the auth front door: wordmark
+# and the Sign In button. The app-wide functional accent stays cyan.
+BRAND_SCARLET = "#e11d48"         # rose-600 — shield mid, button base
+BRAND_SCARLET_BRIGHT = "#f43f5e"  # rose-400 — shield top, wordmark
+BRAND_SCARLET_DEEP = "#be123c"    # rose-700 — button gradient end/hover
 TEXT_PRIMARY = "#e8ecf1"
 TEXT_SECONDARY = "#8b95a5"
 TEXT_MUTED = "#5a6578"
@@ -72,6 +78,57 @@ def sev_badge(severity: str) -> str:
 def status_badge(status: str) -> str:
     css = STATUS_CSS_MAP.get(status.lower().replace(" ", "_"), "badge-closed")
     return badge(status.replace("_", " ").upper(), css)
+
+
+def logo_svg(size: int = 64, id_prefix: str = "ss") -> str:
+    """SecurityScarletAI mark: scarlet-gradient shield + cyan EKG pulse.
+
+    Inline SVG (no binary assets, crisp at any size). id_prefix keeps
+    gradient ids unique when the mark is rendered more than once per page
+    (login card + sidebar).
+    """
+    return (
+        f'<svg width="{size}" height="{size}" viewBox="0 0 64 64" '
+        'fill="none" xmlns="http://www.w3.org/2000/svg">'
+        '<defs>'
+        f'<linearGradient id="{id_prefix}-shield" x1="10" y1="4" x2="54" y2="60" '
+        'gradientUnits="userSpaceOnUse">'
+        '<stop offset="0" stop-color="#f43f5e"/>'
+        '<stop offset="0.55" stop-color="#e11d48"/>'
+        '<stop offset="1" stop-color="#9f1239"/>'
+        '</linearGradient>'
+        '</defs>'
+        '<path d="M32 3 L55 11 V29 C55 44.5 45.5 55.5 32 61 '
+        'C18.5 55.5 9 44.5 9 29 V11 Z" '
+        f'fill="url(#{id_prefix}-shield)"/>'
+        '<path d="M32 3 L55 11 V29 C55 44.5 45.5 55.5 32 61 '
+        'C18.5 55.5 9 44.5 9 29 V11 Z" '
+        'stroke="rgba(255,255,255,0.22)" stroke-width="1" fill="none"/>'
+        '<path d="M17 33 h9 l3.5-7.5 5.5 13 3.5-5.5 H49" stroke="#00e5ff" '
+        'stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" '
+        'fill="none"/>'
+        '<circle cx="49" cy="33" r="1.6" fill="#00e5ff"/>'
+        '</svg>'
+    )
+
+
+def brand_header_html(id_prefix: str = "login") -> str:
+    """Centered logo + wordmark block for the top of the auth card."""
+    return f"""
+    <div style="text-align:center;margin:0.5rem 0 1.4rem 0;">
+        <div style="display:flex;justify-content:center;margin-bottom:0.9rem;">
+            {logo_svg(64, id_prefix)}
+        </div>
+        <h1 style="margin:0;font-size:1.45rem;letter-spacing:-0.02em;
+            color:{TEXT_PRIMARY};">
+            Security<span style="color:{BRAND_SCARLET_BRIGHT};">ScarletAI</span>
+        </h1>
+        <p style="margin:0.4rem 0 0 0;color:{TEXT_PRIMARY};font-size:0.78rem;
+            text-transform:uppercase;letter-spacing:0.14em;">
+            AI-Native SIEM
+        </p>
+    </div>
+    """
 
 
 def esc(text: str) -> str:

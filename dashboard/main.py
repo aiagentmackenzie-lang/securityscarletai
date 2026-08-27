@@ -30,6 +30,7 @@ from dashboard.auth import (
     render_login_page,
     render_sidebar_user_info,
 )
+from dashboard.ui_utils import logo_svg
 
 # ───────────────────────────────────────────────────────────
 # Auto-refresh — graceful fallback if component not installed
@@ -361,13 +362,17 @@ def status_badge(status: str) -> str:
     css = STATUS_CSS_MAP.get(status.lower().replace(" ", "_"), "badge-closed")
     return badge(status.replace("_", " ").upper(), css)
 
+# Brand favicon (scarlet shield mark). Falls back to the emoji if the
+# asset is missing (e.g. a stripped checkout).
+_FAVICON = Path(__file__).parent / "assets" / "favicon.png"
+
 # ───────────────────────────────────────────────────────────
 # Page Configuration
 # ───────────────────────────────────────────────────────────
 
 st.set_page_config(
     page_title="SecurityScarletAI — SIEM Dashboard",
-    page_icon="🛡️",
+    page_icon=str(_FAVICON) if _FAVICON.exists() else "🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -457,8 +462,25 @@ def _sidebar_p(color: str, icon: str, text: str, bold: bool = False) -> str:
 
 def render_sidebar():
     """Render the sidebar with navigation and status info."""
-    st.sidebar.title("SecurityScarletAI")
-    st.sidebar.caption("AI-Native SIEM")
+    # Brand: shield mark + wordmark (replaces the plain text title)
+    st.sidebar.markdown(
+        f"""
+        <div style="display:flex;align-items:center;gap:0.6rem;padding:0.35rem 0 0.1rem 0;">
+            {logo_svg(30, "side")}
+            <div>
+                <p style="margin:0;font-size:1.02rem;font-weight:700;
+                    color:{TEXT_PRIMARY};letter-spacing:-0.01em;">
+                    Security<span style="color:#f43f5e;">ScarletAI</span>
+                </p>
+                <p style="margin:0.1rem 0 0 0;color:{TEXT_SECONDARY};font-size:0.7rem;
+                    text-transform:uppercase;letter-spacing:0.12em;">
+                    AI-Native SIEM
+                </p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     st.sidebar.markdown(_SIDEBAR_HR, unsafe_allow_html=True)
 
     # Page navigation
