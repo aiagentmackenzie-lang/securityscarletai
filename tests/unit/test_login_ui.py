@@ -166,6 +166,13 @@ class TestAuthCardCss:
         assert 'button[kind="primaryFormSubmit"]' in LOGIN_CARD_CSS
         # White text + scarlet gradient (not cyan/black)
         assert "color: #ffffff" in LOGIN_CARD_CSS
+        assert "-webkit-text-fill-color: #ffffff" in LOGIN_CARD_CSS
+        # The dark text-shadow (which made white glyphs read grey on scarlet)
+        # must be gone; the span layer pins text-shadow: none.
+        assert "text-shadow: none" in LOGIN_CARD_CSS
+        assert "rgba(0,0,0,0.25)" not in LOGIN_CARD_CSS
+        # Inner text layers (div > span) explicitly pinned white
+        assert "button span" in LOGIN_CARD_CSS
         assert "#e11d48" in LOGIN_CARD_CSS
         assert "linear-gradient" in LOGIN_CARD_CSS
         # The gradient must NOT be the cyan accent

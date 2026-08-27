@@ -108,10 +108,20 @@ LOGIN_CARD_CSS = f"""
         color: #ffffff !important;
         border: 1px solid {BRAND_SCARLET_DEEP} !important;
         font-weight: 700;
-        font-size: 0.95rem;
+        font-size: 1rem;
         letter-spacing: 0.02em;
         box-shadow: 0 4px 16px rgba(225,29,72,0.35);
-        text-shadow: 0 1px 2px rgba(0,0,0,0.25);
+    }}
+    /* Pin white on every text layer — Streamlit renders the label inside
+       div > span, so the button-level color alone is not enough if a
+       future Streamlit version sets an explicit color on the span. */
+    [data-testid="stFormSubmitButton"] button div,
+    [data-testid="stFormSubmitButton"] button span,
+    [data-testid="stForm"] button[kind="primaryFormSubmit"] div,
+    [data-testid="stForm"] button[kind="primaryFormSubmit"] span {{
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+        text-shadow: none !important;
     }}
     [data-testid="stFormSubmitButton"] button:hover,
     [data-testid="stForm"] button[kind="primaryFormSubmit"]:hover {{
