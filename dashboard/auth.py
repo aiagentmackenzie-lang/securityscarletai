@@ -8,12 +8,20 @@ Three roles:
 
 This module uses the API client for authentication — NO direct DB access.
 """
+import os
 import time
 
 import streamlit as st
 
 from dashboard.api_client import ApiClient, ApiError, PasswordChangeRequiredError
-from dashboard.ui_utils import BG_SURFACE, BORDER_SUBTLE
+from dashboard.ui_utils import (
+    BG_APP,
+    BG_SURFACE,
+    BORDER_SUBTLE,
+    TEXT_MUTED,
+    TEXT_SECONDARY,
+    brand_header_html,
+)
 
 ROLE_REVERIFY_INTERVAL = 300
 
@@ -31,6 +39,67 @@ ROLES = {
         "permissions": ["read"],
     },
 }
+
+
+def _setup_help_enabled() -> bool:
+    """Operator setup notes on the login screen only when explicitly enabled.
+
+    Off by default: login is the front door — operator bootstrap instructions
+    (docker logs, seed-admin) don't belong there unless the operator asks
+    (DASHBOARD_SHOW_SETUP_HELP=1).
+    """
+    return os.environ.get("DASHBOARD_SHOW_SETUP_HELP", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+LOGIN_CARD_CSS = f"""
+<style>
+    /* Subtle brand glow on the app background (auth screens only) */
+    [data-testid="stAppViewContainer"] {{
+        background:
+            radial-gradient(1100px 480px at 50% -8%, rgba(225,29,72,0.07), transparent 62%),
+            radial-gradient(900px 420px at 85% 110%, rgba(0,188,212,0.05), transparent 60%),
+            {BG_APP};
+    }}
+    /* The auth card: one bordered surface holding brand + form + button.
+       Header HTML is rendered INSIDE the form so the card is a single
+       visual unit (inputs and title can never drift apart). */
+    [data-testid="stForm"] {{
+        width: 100%;
+        max-width: 430px;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        margin-top: 7vh;
+        background: {BG_SURFACE};
+        border: 1px solid {BORDER_SUBTLE};
+        border-radius: 16px;
+        padding: 2.4rem 2.25rem 1.6rem !important;
+        box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+    }}
+    [data-testid="stForm"] label {{
+        color: {TEXT_SECONDARY} !important;
+        font-size: 0.78rem !important;
+        font-weight: 600 !important;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 0.3rem;
+    }}
+    [data-testid="stFormSubmitButton"] {{
+        margin-top: 1.1rem;
+    }}
+    .auth-card-footer {{
+        text-align: center;
+        color: {TEXT_MUTED};
+        font-size: 0.72rem;
+        letter-spacing: 0.05em;
+        margin: 1.2rem 0 0 0;
+    }}
+</style>
+"""
 
 
 def get_api_client() -> ApiClient:
@@ -72,17 +141,20 @@ def render_force_password_change_form():
     username = fpc["username"]
     force_change_token = fpc["force_change_token"]
 
-    st.info(
-        f"Welcome, **{username}**. Your account requires a new password "
-        f"before first login."
-    )
+    # Card treatment: same auth card CSS applies (injected by
+    # render_login_page). Brand header + notice + fields inside ONE form.
     with st.form("force_pw_form"):
+        st.markdown(brand_header_html("forcepw"), unsafe_allow_html=True)
+        st.info(
+            f"Welcome, **{username}**. Your account requires a new password "
+            f"before first login."
+        )
         new_password = st.text_input(
             "New password", type="password", placeholder="At least 8 characters"
         )
         confirm = st.text_input("Confirm new password", type="password")
         submitted = st.form_submit_button(
-            "Set new password & sign in", use_container_width=True
+            "Set new password & sign in", use_container_width=True, type="primary"
         )
         if submitted:
             if not new_password.strip() or len(new_password) < 8:
@@ -122,26 +194,8 @@ def render_force_password_change_form():
 
 
 def render_login_page():
-    """Render the login form."""
-    st.markdown(f"""
-    <div style="display:flex;justify-content:center;padding-top:12vh;">
-        <div style="
-            max-width:400px;
-            width:100%;
-            background:{BG_SURFACE};
-            border:1px solid {BORDER_SUBTLE};
-            border-radius:0.75rem;
-            padding:2rem;
-        ">
-            <h1 style="text-align:center;color:#e8ecf1;margin:0 0 0.25rem 0;">
-                SecurityScarletAI
-            </h1>
-            <p style="text-align:center;color:#8b95a5;margin:0 0 1.5rem 0;font-size:0.9rem;">
-                AI-Native SIEM Dashboard
-            </p>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    """Render the login form as a single centered auth card."""
+    st.markdown(LOGIN_CARD_CSS, unsafe_allow_html=True)
 
     # If a prior login returned PASSWORD_CHANGE_REQUIRED, show the
     # change-password form instead of the login form.
@@ -150,9 +204,18 @@ def render_login_page():
         return False
 
     with st.form("login_form"):
+        st.markdown(brand_header_html("login"), unsafe_allow_html=True)
         username = st.text_input("Username", placeholder="admin")
         password = st.text_input("Password", type="password", placeholder="Enter password")
-        submitted = st.form_submit_button("Sign In", use_container_width=True)
+        submitted = st.form_submit_button(
+            "Sign In", use_container_width=True, type="primary"
+        )
+        st.markdown(
+            '<p class="auth-card-footer">'
+            "JWT authentication &middot; Role-based access control"
+            "</p>",
+            unsafe_allow_html=True,
+        )
 
         if submitted and username and password:
             with st.spinner("Authenticating...", show_time=True):
@@ -164,7 +227,6 @@ def render_login_page():
                     st.session_state.role = result["role"]
                     st.session_state.access_token = result["access_token"]
                     st.toast(f"Welcome, {result['username']}!")
-                    st.success(f"Welcome, {result['username']}!")
                     st.rerun()
                 except PasswordChangeRequiredError as e:
                     # Account must change password — capture the force_change_token
@@ -182,20 +244,22 @@ def render_login_page():
                 except Exception as e:
                     st.error(f"Connection error: {e}")
 
-    st.divider()
-    with st.expander("Initial Setup"):
-        st.markdown("""
-        If this is a fresh install, an admin user is created automatically by
-        the Docker entrypoint — the one-time password is printed to
-        `docker logs scarletai-api` (look for the `ADMIN USER CREATED` block).
-
-        Alternatively, bootstrap from the API host **only** (localhost-restricted):
-        ```bash
-        curl -X POST http://localhost:8000/api/v1/auth/seed-admin
-        ```
-        A password reset is forced on first login. Do **not** use a default
-        password in production.
-        """)
+    if _setup_help_enabled():
+        st.divider()
+        with st.expander("Initial setup (operators)"):
+            st.markdown(
+                "Fresh installs: the Docker entrypoint creates an admin "
+                "automatically — the one-time password is written to "
+                "`data/admin_initial_password` (mode 600) and echoed once to "
+                "`docker logs scarletai-api`.\n\n"
+                "Optional bootstrap: run the API with `SEED_ADMIN_ENABLED=true`, "
+                "then from the API host **only** (localhost-restricted):\n"
+                "```bash\n"
+                "curl -X POST http://localhost:8000/api/v1/auth/seed-admin\n"
+                "```\n"
+                "A password reset is forced on first login. Do **not** use a "
+                "default password in production."
+            )
 
     return False
 
