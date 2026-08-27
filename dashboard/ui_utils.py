@@ -123,7 +123,7 @@ def brand_header_html(id_prefix: str = "login") -> str:
             color:{TEXT_PRIMARY};">
             Security<span style="color:{BRAND_SCARLET_BRIGHT};">ScarletAI</span>
         </h1>
-        <p style="margin:0.4rem 0 0 0;color:{TEXT_SECONDARY};font-size:0.78rem;
+        <p style="margin:0.4rem 0 0 0;color:{TEXT_PRIMARY};font-size:0.78rem;
             text-transform:uppercase;letter-spacing:0.14em;">
             AI-Native SIEM
         </p>

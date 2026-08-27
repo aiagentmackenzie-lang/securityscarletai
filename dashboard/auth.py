@@ -21,8 +21,7 @@ from dashboard.ui_utils import (
     BRAND_SCARLET,
     BRAND_SCARLET_BRIGHT,
     BRAND_SCARLET_DEEP,
-    TEXT_MUTED,
-    TEXT_SECONDARY,
+    TEXT_PRIMARY,
     brand_header_html,
 )
 
@@ -84,7 +83,7 @@ LOGIN_CARD_CSS = f"""
         box-shadow: 0 12px 40px rgba(0,0,0,0.35);
     }}
     [data-testid="stForm"] label {{
-        color: {TEXT_SECONDARY} !important;
+        color: #ffffff !important;
         font-size: 0.78rem !important;
         font-weight: 600 !important;
         text-transform: uppercase;
@@ -124,7 +123,7 @@ LOGIN_CARD_CSS = f"""
     }}
     .auth-card-footer {{
         text-align: center;
-        color: {TEXT_MUTED};
+        color: {TEXT_PRIMARY};
         font-size: 0.72rem;
         letter-spacing: 0.05em;
         margin: 1.2rem 0 0 0;

@@ -89,6 +89,15 @@ class TestBrandHeader:
 
         assert 'id="pp-shield"' in brand_header_html("pp")
 
+    def test_tagline_is_white(self):
+        """Raphael 2026-08-27: the AI-NATIVE SIEM tagline must not be grey."""
+        from dashboard.ui_utils import brand_header_html
+
+        html = brand_header_html("bh4")
+        tagline = html.split("AI-Native SIEM")[0]
+        para_start = tagline.rfind("<p")
+        assert "#e8ecf1" in tagline[para_start:]  # TEXT_PRIMARY, not #8b95a5
+
 
 class TestAuthCardCss:
     """The login card: one bordered surface holding brand + form + button."""
@@ -118,6 +127,26 @@ class TestAuthCardCss:
         assert "#0f1420" in LOGIN_CARD_CSS  # BG_SURFACE
         assert "#1e2636" in LOGIN_CARD_CSS  # BORDER_SUBTLE
         assert "#090c14" in LOGIN_CARD_CSS  # BG_APP (brand glow)
+
+    def test_labels_are_white(self):
+        """Raphael 2026-08-27: grey labels were hard to read — field labels
+        must be white."""
+        from dashboard.auth import LOGIN_CARD_CSS
+
+        assert '[data-testid="stForm"] label' in LOGIN_CARD_CSS
+        assert "color: #ffffff" in LOGIN_CARD_CSS
+        # The old grey secondary must be gone from the label rule
+        label_block = LOGIN_CARD_CSS.split("[data-testid=\"stForm\"] label")[1]
+        label_block = label_block[: label_block.find("}}")]
+        assert "#8b95a5" not in label_block
+
+    def test_trust_footer_is_not_muted(self):
+        from dashboard.auth import LOGIN_CARD_CSS
+
+        footer_block = LOGIN_CARD_CSS.split(".auth-card-footer")[1]
+        footer_block = footer_block[: footer_block.find("}}")]
+        assert "#e8ecf1" in footer_block  # TEXT_PRIMARY
+        assert "#5a6578" not in footer_block  # old TEXT_MUTED
 
     def test_primary_sign_in_button(self):
         """Sign In must be type="primary" to pick up the accent button CSS."""
