@@ -3,7 +3,7 @@
 # Common dev/demo targets. Run `make help` to list them.
 # Requires Docker + Poetry (with `poetry install` already run).
 
-.PHONY: help install up down logs migrate demo test lint lint-tests format mypy clean
+.PHONY: help install up down logs migrate demo demo-refresh test lint lint-tests format mypy clean
 
 PYTHON := poetry run python3
 SCHEMA := src/db/schema.sql
@@ -31,6 +31,9 @@ migrate: ## Apply the canonical schema (src/db/schema.sql) to the running Postgr
 
 demo: ## Live telemetry demo: osquery log -> shipper -> Sigma -> alert (needs Docker + .env)
 	./scripts/run_osquery_demo.sh
+
+demo-refresh: ## Slide demo-data timestamps to now (see docs/DEMO.md — fixes stale/empty demo pages)
+	docker compose exec -T api python -m scripts.refresh_demo_timestamps
 
 test: ## Run the unit test suite
 	poetry run pytest tests/unit/ -q
