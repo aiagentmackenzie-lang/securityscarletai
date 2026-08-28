@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:17-alpine
-    platform: linux/arm64
+    # (platform pin removed — F-26: it forced arm64 and broke x86 hosts.)
     container_name: scarletai-db
     environment:
       POSTGRES_USER: scarletai
@@ -23,8 +23,13 @@ services:
   redis:
     # Epic 4: Redis service for rate-limit storage and JWT blocklist.
     # 6379 inside the compose network; not exposed to host by default.
+    # (platform pin removed — F-26: it forced linux/arm64 and broke x86 hosts.)
+    #
+    # DEV note: no password here (local single-user dev, port published for
+    # host-mode `poetry run`). PRODUCTION MUST SET A PASSWORD — the prod
+    # overlay enforces --requirepass and rewrites REDIS_URL accordingly
+    # (see docker-compose.prod.yml + DEPLOYMENT.md "Redis auth").
     image: redis:7-alpine
-    platform: linux/arm64
     container_name: scarletai-redis
     command: ["redis-server", "--appendonly", "yes"]
     ports:

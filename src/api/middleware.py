@@ -28,6 +28,22 @@ def _decode_actor_from_request(request: Request) -> tuple[dict | None, str | Non
     if not auth.startswith("Bearer "):
         return None, None
     token = auth[7:]
+
+    # F-21 (plan phase 4): the STATIC bearer used to produce user=NULL audit
+    # rows — an attribution gap for exactly the account with admin rights.
+    # Attribute service-token calls explicitly: "static-bearer" / admin, via
+    # the conventional service-account convention. Constant-time compare.
+    try:
+        import hmac as _hmac
+
+        from src.config.settings import settings
+
+        api_bearer = settings.api_bearer_token.get_secret_value()
+        if token and _hmac.compare_digest(token, api_bearer):
+            return {"sub": "static-bearer", "role": "admin"}, "admin"
+    except Exception as e:  # pragma: no cover — defensive; audit must not break
+        log.debug('static_bearer_check_failed', error=str(e))
+
     try:
         from jose import jwt
 

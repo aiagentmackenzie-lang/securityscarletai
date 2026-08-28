@@ -18,11 +18,31 @@
 # `docker compose version`.
 
 services:
+  postgres:
+    # F-04: the database must not be reachable from outside the compose
+    # network. The base compose publishes :5433 for host-mode dev; the
+    # overlay revokes it. Only Caddy publishes ports in prod (80/443).
+    ports: !reset []
+
+  redis:
+    # F-04: the prod base publishes :6379 and runs WITHOUT a password — a LAN
+    # attacker could FLUSHALL the JWT blocklist and rate-limit buckets. The
+    # overlay revokes the port AND enforces auth. REDIS_PASSWORD is required
+    # (fail fast if unset).
+    ports: !reset []
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env (generate: openssl rand -base64 32)}"]
+
   api:
     ports: !reset []
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
       LOG_FORMAT: json
       LOG_LEVEL: ${LOG_LEVEL:-WARNING}
+      # Redis auth (F-04): the API talks to a requirepass'd redis in prod.
+      REDIS_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}@redis:6379/0
       # Prod: do not serve OpenAPI/Swagger/ReDoc. The schema + interactive
       # docs are an unauthenticated attack-surface map; disable them.
       DOCS_ENABLED: "false"
@@ -36,6 +56,10 @@ services:
     # Remove the dev live-reload mount — bake the dashboard into the image.
     volumes: !reset []
     ports: !reset []
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
       SCARLET_API_URL: http://api:8000/api/v1
       DASHBOARD_API_TOKEN: ${DASHBOARD_API_TOKEN:-}
@@ -50,7 +74,13 @@ services:
     image: caddy:2-alpine
     container_name: scarletai-caddy
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
+      # Only 80/443 EVER publish in prod. Postgres/Redis publish NOTHING
+      # (ports: !reset [] above); confirm with `docker compose ... ps`.
       - "80:80"
       - "443:443"
     volumes:

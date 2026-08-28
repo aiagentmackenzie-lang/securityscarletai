@@ -238,4 +238,11 @@ fi
 # 7. Hand off to uvicorn
 # ───────────────────────────────────────────────────────────────
 echo "[entrypoint] Starting uvicorn on 0.0.0.0:8000"
-exec uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+# F-07: trust proxy headers ONLY from private/docker networks. Behind Caddy
+# (prod overlay) this makes slowapi rate-limit keys and audit_logs.ip reflect
+# the REAL client (X-Forwarded-For) instead of the proxy IP — without it, all
+# clients share one rate-limit bucket and audit_rows.ip is useless. Private
+# ranges only: a non-proxied direct client cannot spoof XFF into the key.
+exec uvicorn src.api.main:app --host 0.0.0.0 --port 8000 \
+  --proxy-headers \
+  --forwarded-allow-ips "${UVICORN_FORWARDED_ALLOW_IPS:-172.16.0.0/12,10.0.0.0/8,192.168.0.0/16}"
