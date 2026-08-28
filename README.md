@@ -113,6 +113,10 @@ poetry run uvicorn src.api.main:app --host 127.0.0.1 --port 8000
 poetry run streamlit run dashboard/main.py --server.port 8501
 ```
 
+**Running a demo of the project?** Follow [docs/DEMO.md](docs/DEMO.md) — the
+full spin-up sequence including the demo-data freshness step (`make
+demo-refresh`) that keeps seeded data inside the dashboard's time windows.
+
 Verify it's running:
 ```bash
 curl http://localhost:8000/api/v1/health
