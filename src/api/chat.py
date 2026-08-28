@@ -32,6 +32,7 @@ class ChatResponse(BaseModel):
     response: str
     context_used: bool
     warnings: list[str] | None = None
+    ai_generated: bool = False
 
 
 @router.post(
@@ -69,4 +70,5 @@ async def chat_endpoint(
         response=result["response"],
         context_used=result["context_used"],
         warnings=result.get("warnings"),
+        ai_generated=result.get("ai_generated", False),
     )

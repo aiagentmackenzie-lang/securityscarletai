@@ -27,6 +27,7 @@ from src.ai.prompts import (
     ALERT_EXPLANATION_SYSTEM,
     render_alert_explanation,
 )
+from src.ai.untrusted import fence
 from src.config.logging import get_logger
 
 log = get_logger("ai.alert_explanation")
@@ -107,15 +108,21 @@ async def explain_alert(
         rule_name, rule_description, severity, host_name
     )
 
-    # Build prompt via Jinja2 (versioned)
+    # Build prompt via Jinja2 (versioned).
+    # LLM01 fencing: evidence JSON and host_name are attacker-influenced
+    # (log fields) — both are fenced as untrusted telemetry before entering
+    # the prompt (see src/ai/untrusted.py for the trust-boundary rationale).
     evidence_str = ""
     if evidence:
-        evidence_str = json.dumps(evidence, indent=2, default=str)[:500]
+        evidence_str = fence(
+            json.dumps(evidence, indent=2, default=str)[:500],
+            label="alert evidence JSON (ingest-fed log data)",
+        )
     prompt, prompt_version, _version_hash = render_alert_explanation(
         rule_name=rule_name,
         rule_description=rule_description,
         severity=severity,
-        host_name=host_name,
+        host_name=fence(host_name, label="host name (ingest-fed, attacker-influenced)"),
         mitre_techniques=mitre_techniques,
         evidence_str=evidence_str,
         related_logs_count=related_logs_count,
@@ -143,6 +150,7 @@ async def explain_alert(
         "model": result.model_used,
         "fallback_used": result.fallback_used,
         "warning": result.warning,
+        "ai_generated": result.source == "ollama",
         "tokens_in": result.tokens_in,
         "tokens_out": result.tokens_out,
         "latency_ms": result.latency_ms,

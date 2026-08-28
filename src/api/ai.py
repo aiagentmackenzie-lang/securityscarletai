@@ -71,6 +71,7 @@ class ExplainResponse(BaseModel):
     model: str | None = None
     fallback_used: bool = False
     warning: str | None = None
+    ai_generated: bool = False
     tokens_in: int = 0
     tokens_out: int = 0
     latency_ms: int = 0
@@ -279,6 +280,7 @@ async def explain_alert_endpoint(
         model=explanation.get("model"),
         fallback_used=explanation.get("fallback_used", False),
         warning=explanation.get("warning"),
+        ai_generated=explanation.get("ai_generated", False),
         tokens_in=explanation.get("tokens_in", 0),
         tokens_out=explanation.get("tokens_out", 0),
         latency_ms=explanation.get("latency_ms", 0),

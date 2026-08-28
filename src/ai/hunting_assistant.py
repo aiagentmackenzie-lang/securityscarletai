@@ -21,6 +21,7 @@ import json
 from typing import Any, Dict, List
 
 from src.ai.ollama_client import query_llm
+from src.ai.untrusted import fence
 from src.config.logging import get_logger
 from src.db.connection import get_pool
 
@@ -500,11 +501,17 @@ async def analyze_hunting_results(
 
     Falls back to template analysis when Ollama is down.
     """
+    # LLM01 fencing: sample results are ingest-fed (attacker-influenced log
+    # fields) — fenced as untrusted telemetry before entering the prompt.
+    fenced_samples = fence(
+        json.dumps(sample_results[:3], indent=2, default=str)[:500],
+        label="hunting sample results (ingest-fed log data)",
+    )
     context = (
         f"Hunting Query: {query_name}\n"
         f"Results Found: {result_count}\n\n"
         f"Sample Results:\n"
-        f"{json.dumps(sample_results[:3], indent=2, default=str)[:500]}\n"
+        f"{fenced_samples}\n"
     )
 
     prompt = (
