@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Awaitable, Callable
 
 from fastapi import Request, Response
+from jose import jwt
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -66,6 +67,46 @@ limiter = _build_limiter()
 LIMIT_LOGIN = settings.login_rate_limit
 LIMIT_INGEST = settings.ingest_rate_limit
 
+# Per-USER LLM quota (F-14) — /ai/*, /query, hunt execute. Keyed by the
+# authenticated sub (unverified parse for KEYING only — FastAPI's require_role
+# dependency runs before the limiter and enforces the signature), falling
+# back to IP. Without this, one analyst can pin the single local model
+# (OWASP LLM Top 10 2026: LLM10 unbounded consumption).
+LIMIT_LLM = settings.llm_rate_limit
+
+
+def user_or_ip_key(request: Request) -> str:
+    """Rate-key: authenticated username when a bearer token carries a sub
+    claim, else the client IP.
+
+    The sub is parsed UNVERIFIED — strictly for keying/quota separation, not
+    authorization: the request still has to pass require_role dependencies
+    (signature-verified) before the endpoint runs. This gives per-user
+    fairness without a live DB lookup in the hot path.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[len("Bearer "):].strip()
+        try:
+            # Unverified parse strictly for KEYING — the throwaway key plus
+            # signature/expire checks disabled mean we never trust this for
+            # authorization (require_role deps run before the limiter).
+            payload = jwt.decode(
+                token,
+                "",
+                options={
+                    "verify_signature": False,
+                    "verify_exp": False,
+                    "verify_aud": False,
+                },
+            )
+            sub = payload.get("sub")
+            if sub:
+                return f"user:{sub}"
+        except Exception:
+            log.debug("rate_limit_key_jwt_parse_failed")
+    return get_remote_address(request)
+
 
 # ───────────────────────────────────────────────────────────────
 # Custom 429 handler — JSON shape + Retry-After header
@@ -80,19 +121,24 @@ def rate_limit_exceeded_handler(
     Default slowapi handler returns plain text; SOC tooling expects JSON.
     """
     # Extract retry-after seconds from the limit string when possible.
-    # Format examples: "5/minute", "100/minute", "200/minute".
+    # Format examples: "5/minute", "100/minute", "30/5minutes" (compound).
     retry_after = 60  # default
     try:
+        import re as _re
+
         limit_str = str(exc.detail) if exc.detail else "60"
-        # slowapi's detail is usually the raw limit string
         n_str, _, unit = limit_str.partition("/")
         n = int(n_str.strip())
-        if "minute" in unit:
-            retry_after = 60
+        compound = _re.match(r"(\d+)(minutes?|seconds?|hours?)", unit.strip())
+        if compound:
+            factor = {"s": 1, "m": 60, "h": 3600}[compound.group(2)[0]]
+            retry_after = max(1, int(compound.group(1)) * factor)
         elif "second" in unit:
             retry_after = max(1, 60 // max(n, 1))
         elif "hour" in unit:
             retry_after = 3600
+        elif "minute" in unit:
+            retry_after = 60
     except Exception:
         retry_after = 60
 

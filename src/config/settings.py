@@ -111,6 +111,10 @@ class Settings(BaseSettings):
     # code change. Defaults stay aggressive for production.) ---
     login_rate_limit: str = "5/minute"
     ingest_rate_limit: str = "100/minute"
+    # Per-user LLM quota (F-14): /ai/* + /query + hunt execute. One analyst
+    # can otherwise pin the single local model (OWASP LLM10 unbounded
+    # consumption). limits-grammar string; 30 per 5 minutes per user.
+    llm_rate_limit: str = "30/5minutes"
 
     # --- Retention (P1-D). 0 = keep forever (the pre-retention behaviour).
     # Defaults are conservative hot-retention windows; tune per deployment.

@@ -6,7 +6,7 @@ GET  /api/v1/query/templates — List available query templates
 """
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from src.ai.nl2sql import (
@@ -15,6 +15,7 @@ from src.ai.nl2sql import (
     nl_to_sql,
 )
 from src.api.auth import require_role
+from src.api.rate_limit import LIMIT_LLM, limiter
 from src.config.logging import get_logger
 
 log = get_logger("api.query")
@@ -70,25 +71,28 @@ class TemplateResponse(BaseModel):
     summary="Natural Language → SQL Query",
     description=(
         "Ask a security question in plain English. "
-        "The system converts it to safe SQL and returns results."
+        "The system converts it to safe SQL and returns results. "
+        "Per-user LLM quota applies."
     ),
 )
+@limiter.limit(LIMIT_LLM)
 async def query_nl(
-    request: NLQueryRequest,
+    request: Request,  # slowapi requires this exact name
+    query_request: NLQueryRequest,
     _user: dict = Depends(require_role("analyst")),
 ):
     """Convert natural language question to SQL and execute."""
     log.info(
         "nl_query_request",
-        question=request.question[:50],
-        session_id=request.session_id,
+        question=query_request.question[:50],
+        session_id=query_request.session_id,
     )
 
-    if request.execute:
-        result = await nl_query(request.question, request.session_id)
+    if query_request.execute:
+        result = await nl_query(query_request.question, query_request.session_id)
     else:
         # Dry run — generate SQL but don't execute
-        result = await nl_to_sql(request.question, request.session_id)
+        result = await nl_to_sql(query_request.question, query_request.session_id)
 
     return NLQueryResponse(
         **{k: v for k, v in result.items() if k in NLQueryResponse.model_fields}
