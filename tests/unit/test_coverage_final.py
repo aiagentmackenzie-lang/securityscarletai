@@ -153,7 +153,7 @@ class TestAiStatusEndpoint:
 class TestAiTriageEndpoint:
     @pytest.mark.asyncio
     async def test_triage_alert_not_found(self):
-        from fastapi import HTTPException
+        from fastapi import HTTPException, Response
 
         from src.api.ai import triage_alert
 
@@ -181,7 +181,7 @@ class TestAiExplainEndpoint:
     async def test_explain_alert_not_found(self):
         from unittest.mock import patch
 
-        from fastapi import HTTPException
+        from fastapi import HTTPException, Response
 
         from src.api.ai import explain_alert_endpoint
 
@@ -202,6 +202,7 @@ class TestAiExplainEndpoint:
             with pytest.raises(HTTPException) as exc_info:
                 await explain_alert_endpoint(
                     request=make_test_request(path="/api/v1/ai/explain/9999"),
+                    response=Response(),
                     alert_id=9999, _user={"sub": "analyst1", "role": "analyst"},
                 )
             assert exc_info.value.status_code == 404

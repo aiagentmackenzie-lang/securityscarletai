@@ -3,7 +3,7 @@ AI Chat API endpoint.
 
 POST /api/v1/ai/chat — Context-aware security chat
 """
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 
 from src.ai.chat import chat
@@ -49,6 +49,7 @@ class ChatResponse(BaseModel):
 @limiter.limit(LIMIT_LLM)
 async def chat_endpoint(
     request: Request,  # slowapi requires this exact name
+    response: Response,  # slowapi injects X-RateLimit-* headers here
     chat_request: ChatRequest,
     _user: dict = Depends(require_role("analyst")),
 ):

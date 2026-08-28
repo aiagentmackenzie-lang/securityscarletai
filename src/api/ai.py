@@ -9,7 +9,7 @@ POST /api/v1/ai/explain/{id}  — Generate AI explanation for alert
 """
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from src.ai.alert_explanation import explain_alert
@@ -219,6 +219,7 @@ async def get_ueba_score(
 @limiter.limit(LIMIT_LLM)
 async def explain_alert_endpoint(
     request: Request,  # slowapi requires this exact name
+    response: Response,  # slowapi injects X-RateLimit-* headers here
     alert_id: int,
     _user: dict = Depends(require_role("analyst")),
 ):

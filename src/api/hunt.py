@@ -6,7 +6,7 @@ GET  /api/v1/hunt/templates              — List available hunt templates
 GET  /api/v1/hunt/gaps                   — MITRE ATT&CK gap analysis
 POST /api/v1/hunt/from-alert/{alert_id}  — Suggest hunts from an alert
 """
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
 
 from src.ai.hunting_assistant import (
@@ -71,6 +71,7 @@ class GapAnalysisResponse(BaseModel):
 @limiter.limit(LIMIT_LLM)
 async def execute_hunt_template(
     request: Request,  # slowapi requires this exact name
+    response: Response,  # slowapi injects X-RateLimit-* headers here
     hunt_id: str,
     _user: dict = Depends(require_role("analyst")),
 ):
