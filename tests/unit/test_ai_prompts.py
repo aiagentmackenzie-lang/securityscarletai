@@ -9,7 +9,6 @@ Covers:
 - all_versions() returns all prompt versions
 """
 
-import pytest
 
 from src.ai.prompts import (
     ALERT_EXPLANATION_PROMPT_VERSION,

@@ -138,3 +138,39 @@ commits are the `sha` prefixes. Grouped by the pass that shipped them.
 ### Pass 10 — chat / CI (`39155e9`, `4e1b210`)
 - **P2-26** — chat forwards the authenticated user to cost tracking; `session_id` threaded as correlation key (multi-turn memory documented as not implemented).
 - **P2-38** — CI builds the Docker image + applies schema (`ON_ERROR_STOP=1`) + runs integration tests (were skipping); fixed two wrong integration test contracts (`get_alert_stats` int, dedup returns -1).
+## 2026-08-28 — Post-audit remediation (8 branches, dashboard + AI + auth + deploy + resilience + hygiene)
+
+Phase 1–6 of the 08-28 double-sweep remediation plan (findings F-01…F-26).
+Each phase shipped on its own branch, gated (ruff src+dashboard · mypy src ·
+pytest) and merged `--no-ff`. Tests 1343 → 1438.
+
+- **`fix/dashboard-esc-sweep`** — every data-derived value rendered inside
+  `unsafe_allow_html=True` is escaped (case titles/notes/assignments, metric
+  labels incl. ingestion-fed host names, badge labels, sidebar username);
+  logout() now posts to the client's own base_url (F-01/F-02/F-19).
+- **`fix/llm-content-fencing`** — NEW `src/ai/untrusted.py`: untrusted log
+  data enters prompts only inside explicit data fences with
+  neutralized escape sequences (OWASP LLM01:2026); `ai_generated` labeling
+  end-to-end (F-06).
+- **`fix/llm-rate-quota`** — per-user LLM quota (30/5min default,
+  `LLM_RATE_LIMIT`) on /ai/chat, /ai/explain, /query, /hunt execute, keyed
+  by authenticated sub (OWASP LLM10) (F-14).
+- **`fix/lockout-and-revocation-robustness`** — composite login lockout
+  (per-(user,ip) counters, exponential 15m→1h→6h, distributed-noise no-lock)
+  replaces the flat renewing lockout DoS; Redis client bounded-retry +
+  cooldown; user_revoke fixed-key (O(1) read); /auth/refresh honors
+  must_change_password; disabled/locked login branches burn bcrypt
+  (F-05/F-08/F-09/F-11/F-15).
+- **`fix/prod-deploy-hardening`** — prod overlay revokes DB/redis host
+  ports (only Caddy publishes 80/443), redis requirepass enforced, uvicorn
+  trusts XFF from private ranges, static-bearer audit rows attributed,
+  platform pins removed, containers capped (F-04/F-07/F-21/F-26).
+- **`fix/ingest-pipeline-backpressure`** — reverse-DNS off the event loop
+  (bounded pool); correlation capped/coalesced/deduped; WS filters honored
+  + registry capped; fire-and-forget tasks GC-referenced; enrichment
+  write-back IP-keyed; sigma missing selection parses FALSE (F-03/F-10/
+  F-16/F-17/F-18/F-20).
+- **`fix/hygiene-deps-ci`** — dead deps dropped (passlib, sqlalchemy, black);
+  redis pinned >=6,<9; CI gains a scripts/+tests/ lint gate (was a 195-error
+  blind spot); README gains an honest Limitations section; PyJWT migration
+  filed as backlog (F-25).

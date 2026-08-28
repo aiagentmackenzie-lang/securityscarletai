@@ -12,7 +12,6 @@ Verifies:
 from __future__ import annotations
 
 import importlib
-import os
 import sys
 from unittest.mock import MagicMock
 

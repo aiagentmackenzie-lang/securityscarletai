@@ -10,20 +10,19 @@ Covers:
 """
 from __future__ import annotations
 
-import os
-from unittest.mock import MagicMock
-
 import pytest
-from fastapi import FastAPI, Request
+from fastapi import Request
+from slowapi.errors import RateLimitExceeded
 from starlette.responses import Response
 
 # Force-import the modules that register route limits with slowapi, BEFORE
 # the test bodies run. Otherwise test_rate_limit.py in isolation may import
 # only rate_limit, and slowapi._route_limits stays empty.
-from src.api import rate_limit  # noqa: F401
-from src.api import auth_login  # noqa: F401
-from src.api import ingest  # noqa: F401
-
+from src.api import (
+    auth_login,  # noqa: F401
+    ingest,  # noqa: F401
+    rate_limit,  # noqa: F401
+)
 from src.api.rate_limit import (
     LIMIT_INGEST,
     LIMIT_LOGIN,
@@ -31,9 +30,7 @@ from src.api.rate_limit import (
     rate_limit_exceeded_handler,
 )
 from src.config.settings import settings
-from slowapi.errors import RateLimitExceeded
 from tests.unit._test_request import make_test_request
-
 
 # ───────────────────────────────────────────────────────────────
 # Configuration sanity
@@ -68,7 +65,6 @@ class TestConfig:
 
 class TestRateLimitExceededHandler:
     def test_returns_json_429(self):
-        from slowapi.errors import RateLimitExceeded
         from slowapi.extension import Limit
         from slowapi.util import get_remote_address
 
@@ -92,7 +88,6 @@ class TestRateLimitExceededHandler:
         assert '"retry_after":60' in body
 
     def test_includes_retry_after_header(self):
-        from slowapi.errors import RateLimitExceeded
         from slowapi.extension import Limit
         from slowapi.util import get_remote_address
 

@@ -10,7 +10,7 @@ Covers:
 - The scheduler start/stop helpers wire APScheduler without error.
 """
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 

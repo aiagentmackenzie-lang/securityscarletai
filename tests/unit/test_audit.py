@@ -11,18 +11,14 @@ Covers:
 """
 from __future__ import annotations
 
-import hashlib
 import re
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
-from starlette.requests import Request
 
 from src.api.audit import log_request_audit
 from tests.unit._test_request import make_test_request
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

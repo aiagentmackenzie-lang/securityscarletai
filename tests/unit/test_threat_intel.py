@@ -169,6 +169,7 @@ class TestAirGappedScheduler:
         """When enabled (default), the scheduler starts and the initial
         refresh fires as a background task (existing behaviour preserved)."""
         from apscheduler.schedulers.asyncio import AsyncIOScheduler  # noqa: F401
+
         from src.intel import threat_intel
 
         threat_intel._async_scheduler = None  # reset

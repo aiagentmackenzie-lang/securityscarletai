@@ -6,9 +6,9 @@ Generates logs that match the DB schema and trigger detection rules.
 SECURITY: Reads API token from environment variable, never hardcoded.
 """
 import os
-import httpx
-import json
 from datetime import datetime, timedelta, timezone
+
+import httpx
 
 API_BASE = os.environ.get("SCARLET_API_URL", "http://localhost:8000/api/v1/ingest")
 TOKEN = os.environ.get("SCARLET_API_TOKEN", "")

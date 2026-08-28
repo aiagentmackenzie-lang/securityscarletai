@@ -9,9 +9,9 @@ import asyncio
 import json
 import random
 from datetime import timedelta
-from typing import Any
 
 import asyncpg
+
 from src.config.settings import settings
 
 # Deterministic seed for reproducibility
@@ -565,7 +565,7 @@ async def seed() -> None:
         now = datetime.now(timezone.utc)
         alert_ids = []
 
-        for i, tmpl in enumerate(ALERT_TEMPLATES):
+        for _idx, tmpl in enumerate(ALERT_TEMPLATES):
             alert_time = now - timedelta(hours=random.randint(1, 48), minutes=random.randint(0, 59))
             row = await conn.fetchrow(
                 """
@@ -741,7 +741,6 @@ async def seed() -> None:
                 if tmpl["rule_name"] in case_tmpl.get("alert_rule_names", []):
                     case_alert_ids.append(alert_ids[j])
 
-            severity_map = {"critical": "critical", "high": "high", "medium": "medium"}
             status_map = {0: "open", 1: "in_progress", 2: "resolved"}
 
             case_row = await conn.fetchrow(
