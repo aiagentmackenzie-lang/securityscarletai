@@ -42,6 +42,13 @@ class _FakeRedis:
         self._kv[key] = value
         self._ttls[key] = ttl
 
+    def get(self, key: str) -> str | None:
+        # F-09: single-key revoke reads via GET
+        return self._kv.get(key)
+
+    def ttl(self, key: str) -> int:
+        return self._ttls.get(key, -2)
+
     def exists(self, key: str) -> int:
         return 1 if key in self._kv else 0
 
