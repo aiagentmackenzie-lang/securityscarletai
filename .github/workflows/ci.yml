@@ -80,9 +80,14 @@ jobs:
 
       - name: Lint
         # Full pyproject config (E,F,W,I,S,B with S608/B008 ignored).
-        # Gates the product code (src + dashboard); tests/scripts are
-        # tooling and linted separately if desired.
+        # Gates the product code (src + dashboard).
         run: poetry run ruff check src/ dashboard/
+
+      - name: Lint tooling (scripts + tests)
+        # F-23: scripts/ + tests/ were a 158-error blind spot — they now gate
+        # with the per-file-ignores in pyproject (S311/S108 seeding, E501 data
+        # lines, S603/S607 test subprocess).
+        run: poetry run ruff check scripts/ tests/
 
       - name: Type check
         # Pragmatic mypy config (see [tool.mypy] in pyproject.toml). Not

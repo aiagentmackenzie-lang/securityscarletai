@@ -28,10 +28,8 @@ Requires: asyncpg, dotenv
 
 import argparse
 import asyncio
-import hashlib
 import os
 import sys
-from datetime import datetime, timezone
 
 # Add project root to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

@@ -279,7 +279,6 @@ class TestRuleMutationRBAC:
     @pytest.mark.asyncio
     async def test_viewer_cannot_create_rules(self):
         from src.api.auth import require_role
-        from src.api.rules import create_rule
 
         # require_role("admin") returns an async _check_role that calls
         # get_current_user; patch it to return a viewer payload.

@@ -153,7 +153,7 @@ class TestAiStatusEndpoint:
 class TestAiTriageEndpoint:
     @pytest.mark.asyncio
     async def test_triage_alert_not_found(self):
-        from fastapi import HTTPException, Response
+        from fastapi import HTTPException
 
         from src.api.ai import triage_alert
 

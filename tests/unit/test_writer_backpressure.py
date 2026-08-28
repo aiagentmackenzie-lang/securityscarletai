@@ -1,5 +1,4 @@
 """Tests for LogWriter backpressure (P1-E)."""
-from unittest.mock import AsyncMock, patch
 
 import pytest
 

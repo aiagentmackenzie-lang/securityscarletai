@@ -418,6 +418,31 @@ integration suite, and the coverage gate. Integration tests need Postgres only
 
 ---
 
+
+
+## Limitations (honest)
+
+Deliberate constraints, written down instead of hidden:
+
+- **Single uvicorn worker.** The WS-token store and the connection registry
+  are in-memory — scaling to multiple workers requires moving both to Redis
+  first (documented scale boundary; do NOT just raise `--workers`).
+- **Audit immutability is convention-only by default.** DB-enforced
+  (REVOKE-based) immutability requires the two-role deploy in
+  `scripts/harden_audit.sql`; single-role deploys can't bind it.
+- **JWT library** is `python-jose 3.5.0` (clears known CVEs, but the project
+  is unmaintained) — tracked as backlog F-25 (PyJWT migration), see
+  `docs/internal/BACKLOG_PYJWT_MIGRATION.md`.
+- **Dashboard logout is meaningful for 15 minutes.** Access-token TTL is
+  short by design (server-side logout blocklists the token); the dashboard
+  does not currently auto-rotate via the refresh endpoint, so long sessions
+  re-login after ~15 minutes (UX trade-off for tighter blast radius).
+- **LLM trust boundary status (verified in code):** untrusted log data is
+  data-fenced before prompts (`src/ai/untrusted.py`; LLM01) and `/ai/*` +
+  `/query` carry a per-user quota (LLM10, 30/5min default). These are
+  soft+structural defenses — an LLM is still a probabilistic component;
+  treat AI output as unverified (the UI labels it as such).
+
 ## Deployment
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for production deployment instructions including:

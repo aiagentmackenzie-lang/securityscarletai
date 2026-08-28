@@ -9,21 +9,20 @@ Scenarios:
 5. Privilege escalation (sudo to root)
 6. Data staging in /tmp
 """
+import argparse
 import json
 import random
-import argparse
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
 
 
 def generate_brute_force(host: str = "test-mac.local", attacker_ip: str = None) -> list[dict]:
     """Generate 10 failed SSH logins followed by 1 success."""
     if attacker_ip is None:
         attacker_ip = f"185.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
-    
+
     events = []
     base_time = datetime.now(tz=timezone.utc) - timedelta(minutes=5)
-    
+
     # Failed attempts
     for i in range(10):
         events.append({
@@ -39,7 +38,7 @@ def generate_brute_force(host: str = "test-mac.local", attacker_ip: str = None) 
             },
             "action": "added",
         })
-    
+
     # Successful login
     events.append({
         "name": "logged_in_users",
@@ -54,7 +53,7 @@ def generate_brute_force(host: str = "test-mac.local", attacker_ip: str = None) 
         },
         "action": "added",
     })
-    
+
     return events
 
 
@@ -62,7 +61,7 @@ def generate_reverse_shell(host: str = "test-mac.local") -> list[dict]:
     """Generate reverse shell process events."""
     events = []
     base_time = datetime.now(tz=timezone.utc) - timedelta(minutes=2)
-    
+
     # Bash process with /dev/tcp
     events.append({
         "name": "processes",
@@ -78,7 +77,7 @@ def generate_reverse_shell(host: str = "test-mac.local") -> list[dict]:
         },
         "action": "added",
     })
-    
+
     # Socket connection
     events.append({
         "name": "open_sockets",
@@ -95,7 +94,7 @@ def generate_reverse_shell(host: str = "test-mac.local") -> list[dict]:
         },
         "action": "added",
     })
-    
+
     return events
 
 
@@ -103,7 +102,7 @@ def generate_data_exfiltration(host: str = "test-mac.local") -> list[dict]:
     """Generate data exfiltration network events."""
     events = []
     base_time = datetime.now(tz=timezone.utc) - timedelta(minutes=10)
-    
+
     # Multiple connections to rare external IP
     for i in range(50):
         events.append({
@@ -121,7 +120,7 @@ def generate_data_exfiltration(host: str = "test-mac.local") -> list[dict]:
             },
             "action": "added",
         })
-    
+
     return events
 
 
@@ -129,7 +128,7 @@ def generate_persistence(host: str = "test-mac.local") -> list[dict]:
     """Generate LaunchAgent persistence events."""
     events = []
     base_time = datetime.now(tz=timezone.utc) - timedelta(minutes=3)
-    
+
     # File event for LaunchAgent creation
     events.append({
         "name": "file_events",
@@ -144,7 +143,7 @@ def generate_persistence(host: str = "test-mac.local") -> list[dict]:
         },
         "action": "added",
     })
-    
+
     # Process event for launchctl
     events.append({
         "name": "processes",
@@ -160,7 +159,7 @@ def generate_persistence(host: str = "test-mac.local") -> list[dict]:
         },
         "action": "added",
     })
-    
+
     return events
 
 
@@ -168,7 +167,7 @@ def generate_privilege_escalation(host: str = "test-mac.local") -> list[dict]:
     """Generate privilege escalation via sudo."""
     events = []
     base_time = datetime.now(tz=timezone.utc) - timedelta(minutes=2)
-    
+
     commands = [
         "sudo -l",
         "sudo whoami",
@@ -177,7 +176,7 @@ def generate_privilege_escalation(host: str = "test-mac.local") -> list[dict]:
         "sudo cp /bin/bash /tmp/rootbash",
         "sudo chown root:root /tmp/rootbash",
     ]
-    
+
     for i, cmd in enumerate(commands):
         events.append({
             "name": "shell_history",
@@ -191,7 +190,7 @@ def generate_privilege_escalation(host: str = "test-mac.local") -> list[dict]:
             },
             "action": "added",
         })
-    
+
     return events
 
 
@@ -199,7 +198,7 @@ def generate_tmp_staging(host: str = "test-mac.local") -> list[dict]:
     """Generate suspicious process from /tmp."""
     events = []
     base_time = datetime.now(tz=timezone.utc) - timedelta(minutes=1)
-    
+
     events.append({
         "name": "processes",
         "hostIdentifier": host,
@@ -214,7 +213,7 @@ def generate_tmp_staging(host: str = "test-mac.local") -> list[dict]:
         },
         "action": "added",
     })
-    
+
     return events
 
 
@@ -239,44 +238,44 @@ def main():
     parser.add_argument("--output", default="/var/log/osquery/attack_simulation.log",
                         help="Output file path")
     parser.add_argument("--host", default="test-mac.local", help="Target hostname")
-    
+
     args = parser.parse_args()
-    
+
     print(f"Generating {args.scenario} attack scenario...")
-    
+
     all_events = []
-    
+
     if args.scenario in ["brute-force", "all"]:
         all_events.extend(generate_brute_force(args.host))
         print("  + Brute force events")
-    
+
     if args.scenario in ["reverse-shell", "all"]:
         all_events.extend(generate_reverse_shell(args.host))
         print("  + Reverse shell events")
-    
+
     if args.scenario in ["exfiltration", "all"]:
         all_events.extend(generate_data_exfiltration(args.host))
         print("  + Data exfiltration events")
-    
+
     if args.scenario in ["persistence", "all"]:
         all_events.extend(generate_persistence(args.host))
         print("  + Persistence events")
-    
+
     if args.scenario in ["privilege-escalation", "all"]:
         all_events.extend(generate_privilege_escalation(args.host))
         print("  + Privilege escalation events")
-    
+
     if args.scenario in ["tmp-staging", "all"]:
         all_events.extend(generate_tmp_staging(args.host))
         print("  + /tmp staging events")
-    
+
     # Write to file
     write_events_to_file(all_events, args.output)
-    
+
     print(f"\nGenerated {len(all_events)} events to {args.output}")
     print("\nTo ingest these events, either:")
     print(f"  1. Copy to osquery log: sudo cp {args.output} /var/log/osquery/osqueryd.results.log")
-    print(f"  2. Use HTTP API: curl -X POST http://localhost:8000/api/v1/ingest ...")
+    print("  2. Use HTTP API: curl -X POST http://localhost:8000/api/v1/ingest ...")
 
 
 if __name__ == "__main__":

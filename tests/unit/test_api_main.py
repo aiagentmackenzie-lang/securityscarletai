@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.api.main import RULES_DIR, app, load_sigma_rules, _docs_urls
+from src.api.main import RULES_DIR, _docs_urls, app, load_sigma_rules
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # App configuration

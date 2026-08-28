@@ -16,7 +16,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.ai.ollama_client import FALLBACK_MESSAGE, LLMResult
-from src.detection.ai_analyzer import _parse_json_response, analyze_alert, build_prompt, enrich_alert
+from src.detection.ai_analyzer import (
+    _parse_json_response,
+    analyze_alert,
+    build_prompt,
+    enrich_alert,
+)
 
 
 def _llm_result(text: str, fallback: bool = False) -> LLMResult:

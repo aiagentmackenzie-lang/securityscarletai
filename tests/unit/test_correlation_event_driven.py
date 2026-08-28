@@ -177,7 +177,7 @@ class TestNoNowInQueryStrings:
         # NOW() should not appear in actual code
         assert "NOW()" not in cleaned, (
             f"NOW() found in code. Brief requires 0 NOW() in query strings. "
-            f"Lines with NOW(): {[l for l in cleaned.split(chr(10)) if 'NOW(' in l]}"
+            f"Lines with NOW(): {[ln for ln in cleaned.split(chr(10)) if 'NOW(' in ln]}"
         )
 
 

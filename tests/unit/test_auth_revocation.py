@@ -133,6 +133,7 @@ class TestLogout:
         token = create_jwt("user1", "analyst")
         # Decode to get jti
         from jose import jwt as jose_jwt
+
         from src.api.auth import JWT_ALGORITHM
         from src.config.settings import settings
 
@@ -152,7 +153,7 @@ class TestLogout:
     async def test_verify_jwt_rejects_blocked(self):
         from jose import jwt as jose_jwt
 
-        from src.api.auth import JWT_ALGORITHM, create_jwt, verify_jwt
+        from src.api.auth import JWT_ALGORITHM, create_jwt
         from src.api.auth_login import logout
         from src.api.redis_client import is_jti_blocked
         from src.config.settings import settings
@@ -239,9 +240,7 @@ class TestRefresh:
     @pytest.mark.asyncio
     async def test_refresh_returns_new_tokens(self):
         from src.api.auth import create_refresh_token
-        from src.api.auth_login import LoginResponse, refresh_token
-        from src.api.auth_login import RefreshRequest
-        from src.config.settings import settings
+        from src.api.auth_login import LoginResponse, RefreshRequest, refresh_token
 
         refresh = create_refresh_token("dave", "analyst")
 
@@ -323,6 +322,7 @@ class TestBusinessAPIRevocation:
 
         token = create_jwt("bizuser", "analyst")
         from jose import jwt as jose_jwt
+
         from src.api.auth import JWT_ALGORITHM
         from src.config.settings import settings
 
@@ -342,6 +342,7 @@ class TestBusinessAPIRevocation:
         from datetime import datetime, timedelta, timezone
 
         from jose import jwt as jose_jwt
+
         from src.api.auth import JWT_ALGORITHM, create_jwt, get_current_user
         from src.api.redis_client import set_user_revoke_marker
         from src.config.settings import settings

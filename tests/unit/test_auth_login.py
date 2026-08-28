@@ -14,8 +14,8 @@ import pytest
 from fastapi import Response
 
 from src.api.auth import JWT_ALGORITHM, create_jwt
-from tests.unit._test_request import make_test_request
 from src.config.settings import settings
+from tests.unit._test_request import make_test_request
 
 # Pre-computed bcrypt hash for "testpass123" with SHA-256 pre-hash (M-10 fix).
 # Generated via: hash_password('testpass123') which does SHA-256 then bcrypt.
