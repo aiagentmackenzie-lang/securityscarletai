@@ -11,6 +11,30 @@ import streamlit as st
 from dashboard.api_client import ApiError
 from dashboard.auth import get_api_client
 
+# Time-range options for the Log Viewer. "All time" maps to None → the API
+# omits time_minutes entirely and returns the most recent rows up to `limit`.
+# Widened past 24h so seeded/demo data older than a day stays visible
+# (feat/logs-viewer-time-ranges) — no real SIEM caps its log explorer at 24h.
+LOG_TIME_RANGES = [
+    "Last 15 minutes",
+    "Last 1 hour",
+    "Last 6 hours",
+    "Last 24 hours",
+    "Last 3 days",
+    "Last 7 days",
+    "All time",
+]
+
+LOG_TIME_MINUTES: dict[str, int | None] = {
+    "Last 15 minutes": 15,
+    "Last 1 hour": 60,
+    "Last 6 hours": 360,
+    "Last 24 hours": 1440,
+    "Last 3 days": 4320,
+    "Last 7 days": 10080,
+    "All time": None,
+}
+
 
 def render_log_viewer():
     """Render the log viewer page."""
@@ -25,8 +49,8 @@ def render_log_viewer():
         with col1:
             time_range = st.selectbox(
                 "Time Range",
-                ["Last 15 minutes", "Last 1 hour", "Last 6 hours", "Last 24 hours"],
-                index=1,
+                LOG_TIME_RANGES,
+                index=LOG_TIME_RANGES.index("All time"),
                 key="log_time_range",
             )
 
@@ -54,13 +78,7 @@ def render_log_viewer():
     category = None if category_filter == "All" else category_filter
     host = host_filter if host_filter else None
 
-    time_map = {
-        "Last 15 minutes": 15,
-        "Last 1 hour": 60,
-        "Last 6 hours": 360,
-        "Last 24 hours": 1440,
-    }
-    time_minutes = time_map.get(time_range, 60)
+    time_minutes = LOG_TIME_MINUTES.get(time_range)
 
     with st.spinner("Loading log entries...", show_time=True):
         try:
