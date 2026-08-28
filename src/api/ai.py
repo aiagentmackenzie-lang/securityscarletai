@@ -9,13 +9,14 @@ POST /api/v1/ai/explain/{id}  — Generate AI explanation for alert
 """
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from src.ai.alert_explanation import explain_alert
 from src.ai.alert_triage import AlertTriageModel, check_auto_train, get_triage_model
 from src.ai.ueba import get_ueba
 from src.api.auth import require_role
+from src.api.rate_limit import LIMIT_LLM, limiter, user_or_ip_key
 from src.config.logging import get_logger
 from src.db.connection import get_pool
 
@@ -215,7 +216,10 @@ async def get_ueba_score(
     summary="Explain Alert",
     description="Generate AI explanation for an alert. Falls back to templates if LLM unavailable.",
 )
+@limiter.limit(LIMIT_LLM, key_func=user_or_ip_key)
 async def explain_alert_endpoint(
+    request: Request,  # slowapi requires this exact name
+    response: Response,  # slowapi injects X-RateLimit-* headers here
     alert_id: int,
     _user: dict = Depends(require_role("analyst")),
 ):
