@@ -267,6 +267,49 @@ psql "$DATABASE_URL" -f src/db/schema.sql
 
 ---
 
+## Ports discipline (prod — plan phase 4, F-04)
+
+**Only 80/443 ever publish in production.** The prod overlay revokes the
+dev-only host ports on postgres and redis (`ports: !reset []`); before this
+overlay the DB (:5433) and Redis (:6379, no password) were LAN-reachable —
+Redis unauthenticated means any host could FLUSHALL the JWT blocklist and
+rate-limit buckets. In the merged config only Caddy publishes ports:
+
+```bash
+REDIS_PASSWORD=<gen> DOMAIN=scarlet.example.com   docker compose -f docker-compose.yml -f docker-compose.prod.yml config | grep published
+# expect exactly: 80 and 443
+```
+
+## Redis auth (prod — F-04)
+
+The production overlay runs redis with `--requirepass ${REDIS_PASSWORD}`
+(required — compose fails fast if unset) and rewrites the API's
+`REDIS_URL` to `redis://:$REDIS_PASSWORD@redis:6379/0`. DEV compose keeps
+redis password-less (localhost-only). Generate with
+`openssl rand -base64 32` and put it in `.env`. Health checks use
+`redis-cli ping` — with requirepass, ping still works unauthenticated
+(no-op PING allowed), so no healthcheck change is needed.
+
+## Proxy headers (F-07)
+
+The entrypoint starts uvicorn with `--proxy-headers
+--forwarded-allow-ips=$UVICORN_FORWARDED_ALLOW_IPS` (default: docker
+private ranges). Behind Caddy this is what makes slowapi rate-limit keys
+and `audit_logs.ip` carry the REAL client (X-Forwarded-For) instead of the
+proxy IP. Without it, one abusive client 429s the whole organization
+(one global bucket) and the audit trail's ip column is useless. Only
+private ranges are trusted by default; a client that bypasses Caddy
+cannot spoof XFF into the key. Override the default with
+`UVICORN_FORWARDED_ALLOW_IPS` if your ingress sits elsewhere.
+
+## Container hardening (container hygiene)
+
+api, dashboard and caddy run with `security_opt: no-new-privileges:true`
+and `cap_drop: [ALL]`. Postgres keeps the official image's default caps:
+the entrypoint legitimately needs chown/setuid to initialize the data
+directory — shipping it cap-less requires a custom image and is out of
+scope (documented tradeoff).
+
 ## Security Hardening
 
 ### TLS Termination

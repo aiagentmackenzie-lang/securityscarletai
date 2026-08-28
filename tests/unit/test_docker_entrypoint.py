@@ -12,14 +12,12 @@ and contains the expected milestones.
 """
 from __future__ import annotations
 
-import os
 import re
 import stat
-import subprocess
+import subprocess  # noqa: S603 — test-side, pinned repo-owned script
 from pathlib import Path
 
 import pytest
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENTRYPOINT = REPO_ROOT / "scripts" / "entrypoint.sh"
@@ -35,8 +33,8 @@ class TestEntrypointExists:
 
     def test_syntax_valid(self):
         """`bash -n` parses the script without executing it."""
-        result = subprocess.run(
-            ["bash", "-n", str(ENTRYPOINT)],
+        result = subprocess.run(  # noqa: S603
+            ["/bin/bash", "-n", str(ENTRYPOINT)],  # noqa: S607
             capture_output=True,
             text=True,
         )
@@ -95,9 +93,11 @@ class TestEntrypointContents:
         )
         # And uvicorn must be the very last line (after the comment header)
         last_meaningful_lines = [
-            l for l in contents.strip().splitlines() if not l.startswith("#")
+            line for line in contents.strip().splitlines() if not line.startswith("#")
         ]
-        assert last_meaningful_lines[-1].startswith("exec uvicorn")
+        # F-07: the exec may span lines (backslash continuation) — the final
+        # meaningful line must belong to the uvicorn exec block.
+        assert last_meaningful_lines[-1].lstrip().startswith(("--", "exec uvicorn"))
 
     def test_uses_set_e(self, contents: str):
         # Any failed step should halt the container
