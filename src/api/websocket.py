@@ -18,9 +18,15 @@ from src.ingestion.schemas import NormalizedEvent
 router = APIRouter(tags=["websocket"])
 log = get_logger("api.websocket")
 
-# Connected clients for broadcasting
+# Connected clients for broadcasting.
+# F-16 (plan phase 5): each client's QUERY FILTERS are kept with the socket
+# so broadcast only delivers matching events (it used to broadcast everything
+# to everyone, ignoring the filters the dashboard set).
+# MAX_CLIENTS caps the registry (LLM10-style unbounded-consumption bounds).
 _connected_clients: list[WebSocket] = []
+_client_filters: dict[WebSocket, dict[str, Optional[str]]] = {}
 _clients_lock = asyncio.Lock()
+MAX_WEBSOCKET_CLIENTS = 100
 
 # In-memory store for short-lived WS tokens (5 min TTL)
 # Key: token string, Value: {"username": ..., "role": ..., "expires": float}
@@ -88,10 +94,21 @@ async def websocket_logs(
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    await websocket.accept()
-
     async with _clients_lock:
+        # F-16: bound the registry — a flood of connections cannot grow it
+        # unbounded; the 101st concurrent client is rejected with 1008.
+        if len(_connected_clients) >= MAX_WEBSOCKET_CLIENTS:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            log.warning("ws_rejected_at_capacity", count=len(_connected_clients))
+            return
         _connected_clients.append(websocket)
+        _client_filters[websocket] = {
+            "host_filter": host_filter,
+            "category_filter": category_filter,
+            "severity_filter": severity_filter,
+        }
+
+    await websocket.accept()
 
     log.info(
         "websocket_connected",
@@ -123,6 +140,7 @@ async def websocket_logs(
         async with _clients_lock:
             if websocket in _connected_clients:
                 _connected_clients.remove(websocket)
+            _client_filters.pop(websocket, None)
 
 
 async def broadcast_event(event: NormalizedEvent) -> None:
@@ -137,6 +155,9 @@ async def broadcast_event(event: NormalizedEvent) -> None:
     if not clients:
         return
 
+    # F-16: honor each client's per-connection filters. host_filter is
+    # substring, severity/category exact — same semantics the socket pushed
+    # its filter status with.
     message = {
         "type": "log",
         "timestamp": event.timestamp.isoformat(),
@@ -155,6 +176,16 @@ async def broadcast_event(event: NormalizedEvent) -> None:
 
     disconnected = []
     for client in clients:
+        filters = _client_filters.get(client, {})
+        host_f = filters.get("host_filter")
+        cat_f = filters.get("category_filter")
+        sev_f = filters.get("severity_filter")
+        if host_f and host_f.lower() not in (event.host_name or "").lower():
+            continue
+        if cat_f and cat_f.lower() != (event.event_category or "").lower():
+            continue
+        if sev_f and sev_f.lower() != (event.severity or "").lower():
+            continue
         try:
             if client.client_state == WebSocketState.CONNECTED:
                 await client.send_json(message)

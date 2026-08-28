@@ -8,6 +8,7 @@ Security:
 - No raw SQL — everything goes through the writer
 - Rate limited (Epic 4) to LIMIT_INGEST per IP
 """
+import asyncio
 from datetime import datetime
 from typing import Annotated
 
@@ -21,6 +22,21 @@ from src.ingestion.schemas import NormalizedEvent
 
 router = APIRouter(tags=["ingestion"])
 log = get_logger("api.ingest")
+
+# F-10 (plan phase 5): bounds for the background post-processing work.
+# run_all_correlations hits the DB with 7 heavy window/JOIN queries per
+# batch, fire-and-forget, with NO cap: an ingest burst collapses the pool.
+# - Semaphore: at most CORRELATION_MAX_CONCURRENT runs at once.
+# - Coalescing: while a run is in flight, new batches skip their own run —
+#   every run scans the whole lookback anyway, so queued duplicates only
+#   pile up queries and rows.
+# F-17: module-level references keep the fire-and-forget tasks GC-alive
+# (an unreferenced task can be garbage-collected mid-flight by CPython).
+CORRELATION_MAX_CONCURRENT = 2
+_correlation_semaphore = asyncio.Semaphore(CORRELATION_MAX_CONCURRENT)
+_correlation_inflight = False
+_correlation_inflight_lock = asyncio.Lock()
+_post_process_tasks: set["asyncio.Task[None]"] = set()
 
 
 class IngestEvent(BaseModel):
@@ -108,12 +124,15 @@ async def ingest_events(
     # log and move on.
     if count > 0:
         try:
-            import asyncio
-
-            from src.detection.correlation import run_all_correlations
             from src.enrichment.pipeline import enrich_event_dict
 
-            async def _enrich_and_correlate():
+            async def _enrich_and_writeback():
+                """Enrich the batch and write back, keyed on the natural key
+                plus BOTH endpoint ips (F-18: the tuple-only UPDATE could land
+                one event's enrichment on a later, different-IP event sharing
+                the same natural key. The inputs to enrichment ARE the ips —
+                keying on them leaves an overlap only between fully-identical
+                events, which share enrichment legitimately)."""
                 try:
                     # Persist the just-written batch so the enrichment
                     # write-back below can find the rows. The writer is batched
@@ -126,11 +145,9 @@ async def ingest_events(
 
                     pool = await get_pool()
                     # Enrichment pipeline (GeoIP, DNS, threat intel) for public
-                    # IPs in the batch. Writes back into the logs.enrichment
-                    # JSONB column by matching the writer's unique-ish tuple
-                    # (time, host_name, source, event_category, event_type).
-                    # Best-effort: a failure here never affects ingestion — the
-                    # events are already persisted and the HTTP 202 is on the wire.
+                    # IPs in the batch. Writes into logs.enrichment. Best-effort:
+                    # a failure here never affects ingestion — the events are
+                    # already persisted and the HTTP 202 is on the wire.
                     async with pool.acquire() as conn:
                         for event_data in events:
                             try:
@@ -142,13 +159,20 @@ async def ingest_events(
                                         """UPDATE logs SET enrichment = $1::jsonb
                                            WHERE time = $2 AND host_name = $3
                                              AND source = $4 AND event_category = $5
-                                             AND event_type = $6""",
+                                             AND event_type = $6
+                                             AND source_ip::text
+                                               = COALESCE($7::text, source_ip::text)
+                                             AND destination_ip::text
+                                               = COALESCE($8::text,
+                                                          destination_ip::text)""",
                                         _json.dumps(enrichment),
                                         event_data.timestamp,
                                         event_data.host_name,
                                         event_data.source,
                                         event_data.event_category,
                                         event_data.event_type,
+                                        event_data.source_ip,
+                                        event_data.destination_ip,
                                     )
                                     log.debug(
                                         "ingest_enrichment_persisted",
@@ -161,20 +185,45 @@ async def ingest_events(
                                     host=getattr(event_data, "host_name", None),
                                     error=str(e),
                                 )
+                except Exception as e:  # pragma: no cover — defensive
+                    log.warning("ingest_enrichment_loop_failed", error=str(e))
 
-                    # Correlation seam (Agent A owns correlation.py; this
-                    # call is the integration point). Runs across all rules
-                    # and persists any matches as alerts.
+            async def _run_correlation_coalesced():
+                """F-10: cap concurrency AND coalesce — while one run is in
+                flight, new batches skip (each run covers the full lookback)."""
+                from src.detection.correlation import run_all_correlations
+
+                global _correlation_inflight
+                async with _correlation_semaphore:
+                    if _correlation_inflight:
+                        log.debug("correlation_run_coalesced_skip")
+                        return
+                    async with _correlation_inflight_lock:
+                        if _correlation_inflight:
+                            return
+                        _correlation_inflight = True
+                        try:
+                            await run_all_correlations(persist=True)
+                        finally:
+                            _correlation_inflight = False
+
+            async def _post_process():
+                try:
+                    await _enrich_and_writeback()
+                    # Correlation seam (Agent A owns correlation.py; this call
+                    # is the integration point). Runs across all rules and
+                    # persists matches as alerts — under the F-10 gate.
                     if hosts_in_batch:
-                        await run_all_correlations(persist=True)
+                        await _run_correlation_coalesced()
                 except Exception as e:  # pragma: no cover — defensive
                     log.warning("ingest_post_processing_failed", error=str(e))
 
-            asyncio.create_task(_enrich_and_correlate())
+            task = asyncio.create_task(_post_process())
+            _post_process_tasks.add(task)
+            task.add_done_callback(_post_process_tasks.discard)  # F-17
         except Exception as e:
             # Best-effort — if we can't even schedule the task, log it
             # and return success to the agent (events are already written).
-            from src.config.logging import get_logger
             get_logger("api.ingest").warning(
                 "enrichment_schedule_failed", error=str(e)
             )

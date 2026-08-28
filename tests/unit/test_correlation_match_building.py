@@ -189,6 +189,8 @@ async def test_run_all_correlations_persist_creates_alerts_for_matches():
     }
     conn = AsyncMock()
     conn.execute = AsyncMock(return_value="INSERT 0 1")
+    # F-10 dedup query: no duplicate found
+    conn.fetchval = AsyncMock(return_value=None)
     acquirer = MagicMock()
     acquirer.__aenter__ = AsyncMock(return_value=conn)
     acquirer.__aexit__ = AsyncMock(return_value=None)

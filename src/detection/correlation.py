@@ -760,6 +760,36 @@ async def run_all_correlations(
         async with pool.acquire() as conn:
             for match in all_matches:
                 try:
+                    # F-10 dedup (plan phase 5): each batch re-runs every rule
+                    # over the same 24h lookback, so the SAME finding used to
+                    # INSERT again per batch — unbounded row pile-up. A match
+                    # with the same rule + trigger event + payload within the
+                    # dedup window updates nothing (matching create_alert's
+                    # dedup semantics).
+                    match_data_json = _serialize_match_data(match)
+                    trigger_id = match.get("trigger_event_id")
+                    dupe = await conn.fetchval(
+                        """
+                        SELECT 1 FROM correlation_matches
+                        WHERE correlation_rule = $1
+                          AND ($2::int IS NULL OR trigger_event_id = $2)
+                          AND match_data = $3::jsonb
+                          AND created_at
+                                > $5::timestamptz - INTERVAL '15 minutes'
+                        LIMIT 1
+                        """,
+                        match["correlation_rule"],
+                        trigger_id,
+                        _serialize_match_data(match),
+                        match.get("trigger_event_id"),
+                        as_of,
+                    )
+                    if dupe:
+                        log.debug(
+                            "correlation_match_dedupe_skip",
+                            rule=match.get("correlation_rule"),
+                        )
+                        continue
                     await conn.execute(
                         """
                         INSERT INTO correlation_matches (
@@ -770,7 +800,7 @@ async def run_all_correlations(
                         """,
                         match["correlation_rule"],
                         match.get("severity", "medium"),
-                        _serialize_match_data(match),
+                        match_data_json,
                         match.get("trigger_event_id"),
                         as_of,
                     )

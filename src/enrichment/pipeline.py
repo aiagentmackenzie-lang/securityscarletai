@@ -10,9 +10,11 @@ Enrichments applied (in order):
 Designed to be called from the ingestion pipeline (writer.py)
 for automatic enrichment of every incoming event.
 """
+import asyncio
 import ipaddress
 import socket
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from src.config.logging import get_logger
@@ -123,15 +125,51 @@ async def enrich_geoip(ip: str) -> dict[str, Any]:
         return {}
 
 
-def enrich_dns_reverse(ip: str) -> dict[str, Any]:
-    """Reverse DNS lookup. Synchronous but fast with timeout."""
-    if not is_public_ip(ip):
-        return {}
+# F-03 (plan phase 5): socket.gethostbyaddr has NO timeout and blocks the
+# event loop outright when called inline from the async ingest path — a slow
+# resolver stalls EVERY request (event-loop DoS from attacker-chosen IPs).
+# All reverse-DNS runs on a bounded thread pool instead, best-effort.
+_DNS_EXECUTOR_MAX_WORKERS = 4
+_dns_executor: ThreadPoolExecutor | None = None
+
+
+def _get_dns_executor() -> ThreadPoolExecutor:
+    global _dns_executor
+    if _dns_executor is None:
+        _dns_executor = ThreadPoolExecutor(
+            max_workers=_DNS_EXECUTOR_MAX_WORKERS, thread_name_prefix="reverse-dns"
+        )
+    return _dns_executor
+
+
+def _resolve_reverse(ip: str) -> dict[str, Any]:
+    """Blocking body of the reverse lookup (runs on a pool thread)."""
     try:
         hostname, _, _ = socket.gethostbyaddr(ip)
         return {"dns": {"reverse": hostname}}
     except (socket.herror, socket.gaierror, OSError):
         return {}
+
+
+def enrich_dns_reverse(ip: str) -> dict[str, Any]:
+    """Reverse DNS lookup — synchronous, for callers outside the loop."""
+    if not is_public_ip(ip):
+        return {}
+    return _resolve_reverse(ip)
+
+
+async def enrich_dns_reverse_async(ip: str) -> dict[str, Any]:
+    """Async reverse DNS on a bounded pool thread.
+
+    Per-call resolv timeout is NOT configurable in gethostbyaddr; the bound
+    workers cap the concurrent blast radius and the event loop never blocks.
+    Best-effort by design: a failed/timeout lookup yields no enrichment.
+    """
+    if not is_public_ip(ip):
+        return {}
+    return await asyncio.get_running_loop().run_in_executor(
+        _get_dns_executor(), _resolve_reverse, ip
+    )
 
 
 async def enrich_with_threat_intel(ip: str) -> dict[str, Any]:
@@ -164,8 +202,8 @@ async def enrich_event(event) -> dict[str, Any]:
         if geo:
             enrichment.update(geo)
 
-        # DNS reverse
-        dns = enrich_dns_reverse(event.source_ip)
+        # DNS reverse (F-03: off-loop, bounded pool)
+        dns = await enrich_dns_reverse_async(event.source_ip)
         if dns:
             enrichment.update(dns)
 
@@ -183,8 +221,8 @@ async def enrich_event(event) -> dict[str, Any]:
         if geo:
             dest_enrichment.update(geo)
 
-        # DNS
-        dns = enrich_dns_reverse(event.destination_ip)
+        # DNS (F-03: off-loop, bounded pool)
+        dns = await enrich_dns_reverse_async(event.destination_ip)
         if dns:
             dest_enrichment.update(dns)
 
