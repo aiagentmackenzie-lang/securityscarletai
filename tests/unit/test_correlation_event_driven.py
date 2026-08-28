@@ -109,6 +109,8 @@ class TestRunAllCorrelationsContract:
 
         mock_conn.fetch = AsyncMock(side_effect=fake_fetch)
         mock_conn.execute = AsyncMock(return_value=None)
+        # F-10 dedup query: no duplicate found
+        mock_conn.fetchval = AsyncMock(return_value=None)
         acquirer = MagicMock()
         acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
         acquirer.__aexit__ = AsyncMock(return_value=None)

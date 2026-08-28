@@ -288,8 +288,11 @@ class SigmaParser:
     def _parse_selection(self, name: str, detection: dict) -> str:
         """Parse a selection block into SQL."""
         if name not in detection:
-            log.warning("selection_not_found", name=name)
-            return "TRUE"
+            # F-20 (fail-safe): a typo'd selection name used to parse as TRUE
+            # — a match-everything alert storm. A missing selection now makes
+            # the rule match NOTHING and logs loudly.
+            log.warning("selection_not_found_rule_never_matches", name=name)
+            return "FALSE"
 
         selection = detection[name]
         conditions = []
