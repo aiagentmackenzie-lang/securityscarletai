@@ -147,6 +147,11 @@ def render_ai_chat():
                     response = result.get("response", "No response available")
 
                     status.update(label="Response ready", state="complete")
+                    if result.get("ai_generated"):
+                        st.caption(
+                            "\u26a0\ufe0f AI-generated — log-derived context is data-fenced; "
+                            "verify specifics against the alerts before acting."
+                        )
                     st.markdown(response)
                     st.session_state.chat_history.append(
                         {"role": "assistant", "content": response}

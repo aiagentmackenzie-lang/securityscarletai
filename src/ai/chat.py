@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 from src.ai.cost_tracker import record_usage
 from src.ai.ollama_client import LLMResult, query_llm
 from src.ai.prompts import CHAT_SYSTEM_PROMPT, render_chat
+from src.ai.untrusted import fence
 from src.config.logging import get_logger
 from src.db.connection import get_pool
 
@@ -135,24 +136,38 @@ async def build_security_context() -> str:
     else:
         lines.append("- No alerts in last 7 days")
 
+    # LLM01 fencing: rule/host names below come from INGESTED data (free-text
+    # host_name is external-attacker-writable via /ingest). The trusted
+    # aggregate counts stay outside the fence; the ingest-fed lines are
+    # fenced as untrusted telemetry (see src/ai/untrusted.py).
+    untrusted_lines: list[str] = []
+
     if top_hosts:
         host_list = ", ".join(
             f"{h['host_name']} ({h['alert_count']})" for h in top_hosts[:5]
         )
-        lines.append(f"- Top hosts by alerts: {host_list}")
+        untrusted_lines.append(f"- Top hosts by alerts: {host_list}")
 
     if recent_alerts:
-        lines.append("- Recent critical/high alerts:")
+        untrusted_lines.append("- Recent critical/high alerts:")
         for alert in recent_alerts[:5]:
             alert_time = (
                 alert["time"].isoformat()[:19]
                 if hasattr(alert["time"], "isoformat")
                 else str(alert["time"])[:19]
             )
-            lines.append(
+            untrusted_lines.append(
                 f"  * [{alert['severity'].upper()}] {alert['rule_name']} "
                 f"on {alert['host_name']} ({alert_time})"
             )
+
+    if untrusted_lines:
+        lines.append(
+            fence(
+                "\n".join(untrusted_lines),
+                label="ingest-fed alert and host names (7d lookback)",
+            )
+        )
 
     return "\n".join(lines)
 
@@ -247,6 +262,7 @@ async def chat(
         "source": result.source,
         "fallback_used": result.fallback_used,
         "warning": result.warning,
+        "ai_generated": result.source == "ollama",
         "tokens_in": result.tokens_in,
         "tokens_out": result.tokens_out,
         "latency_ms": result.latency_ms,

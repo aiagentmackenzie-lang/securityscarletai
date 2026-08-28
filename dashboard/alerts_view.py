@@ -224,6 +224,10 @@ def render_alert_detail(alert: dict, api: ApiClient):
                 """,
                 unsafe_allow_html=True,
             )
+            st.caption(
+                "\u26a0\ufe0f AI-generated content — unverified. "
+                "Validate against the raw alert evidence before acting."
+            )
         else:
             if st.button("Generate AI Explanation", key=f"explain_{alert_id}"):
                 with st.status("Generating AI explanation...", expanded=True) as status:
@@ -234,6 +238,11 @@ def render_alert_detail(alert: dict, api: ApiClient):
                             result.get("ai_summary", "No explanation available"),
                         )
                         status.update(label="AI explanation generated", state="complete")
+                        if result.get("ai_generated"):
+                            st.caption(
+                                "\u26a0\ufe0f AI-generated content — untrusted log data is fenced, "
+                                "but verify this against the raw evidence before acting."
+                            )
                         st.markdown(
                             f"""
                             <div style="background:#0f1420;border:1px solid #1e2636;
