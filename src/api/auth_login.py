@@ -112,6 +112,10 @@ async def login(
             )
 
         if not row["is_active"]:
+            # F-15: burn the same CPU path as the user-not-found branch —
+            # otherwise the response-time delta itself enumerates disabled
+            # accounts.
+            hash_password("dummy")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Account is disabled",
@@ -119,6 +123,8 @@ async def login(
 
         # M-06 fix: Check account lockout from too many failed attempts
         if row.get("locked_until") and row["locked_until"] > datetime.now(tz=timezone.utc):
+            # F-15: keep the CPU path identical on the locked branch too.
+            hash_password("dummy")
             raise HTTPException(
                 status_code=status.HTTP_423_LOCKED,
                 detail=(
@@ -128,12 +134,34 @@ async def login(
             )
 
         if not verify_password(login_request.password, row["password_hash"]):
-            # M-06 fix: Increment failed login attempts, lock after 5 failures for 15 min
+            # F-05: composite lockout gate — failures counted per (username, ip)
+            # in Redis, exponential lock duration, no lock under distributed
+            # noise (>MAX_DISTINCT_IPS). Verdict None (Redis down) falls back
+            # to the legacy DB-only rule (5 failures -> flat 15 min).
+            from src.api.login_lockout import register_failure
+
+            client_ip = request.client.host if request.client else "unknown"
+            should_lock, lock_seconds = register_failure(
+                row["username"], client_ip
+            )
+
             new_attempts = (row.get("failed_login_attempts", 0) or 0) + 1
             lock_until = None
-            if new_attempts >= 5:
+            if should_lock is True:
+                lock_until = datetime.now(tz=timezone.utc) + timedelta(
+                    seconds=lock_seconds
+                )
+            elif should_lock is None and new_attempts >= 5:
+                # legacy fallback (Redis unavailable)
                 lock_until = datetime.now(tz=timezone.utc) + timedelta(minutes=15)
-                log.warning("account_locked", username=row["username"], attempts=new_attempts)
+
+            if lock_until is not None:
+                log.warning(
+                    "account_locked",
+                    username=row["username"],
+                    attempts=new_attempts,
+                    lock_seconds=lock_seconds if should_lock is True else 900,
+                )
             await conn.execute(
                 "UPDATE siem_users SET failed_login_attempts = $1, locked_until = $2 WHERE id = $3",
                 new_attempts,
@@ -172,6 +200,15 @@ async def login(
             "SET last_login = NOW(), failed_login_attempts = 0, locked_until = NULL "
             "WHERE id = $1",
             row["id"],
+        )
+
+        # F-05: correct password — clear the composite-gate counters so an
+        # analyst's prior typos don't pre-arm an exponential lock.
+        from src.api.login_lockout import register_success
+
+        register_success(
+            row["username"],
+            request.client.host if request.client else "unknown",
         )
 
     from src.config.settings import settings
@@ -421,13 +458,38 @@ async def refresh_token(request: RefreshRequest):
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT username, role, is_active FROM siem_users WHERE username = $1",
+            "SELECT username, role, is_active, must_change_password "
+            "FROM siem_users WHERE username = $1",
             sub,
         )
     if row is None or not row["is_active"]:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User no longer active",
+        )
+
+    # F-11: must_change_password set AFTER the refresh token was issued used
+    # to sail through /auth/refresh with a clean access token — the same
+    # latent bypass class as P1-B. Enforce before issuing ANY token.
+    if row.get("must_change_password", False):
+        from src.api.auth import create_jwt as _create_jwt
+
+        force_token = _create_jwt(
+            row["username"],
+            row["role"],
+            extra={"force_password_change": True},
+        )
+        log.warning(
+            "refresh_blocked_password_reset_required",
+            username=row["username"],
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "message": "Password change required before login",
+                "code": "PASSWORD_CHANGE_REQUIRED",
+                "force_change_token": force_token,
+            },
         )
 
     # Rotate: block old refresh, issue new pair.
