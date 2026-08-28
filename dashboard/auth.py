@@ -23,6 +23,7 @@ from dashboard.ui_utils import (
     BRAND_SCARLET_DEEP,
     TEXT_PRIMARY,
     brand_header_html,
+    esc,
 )
 
 ROLE_REVERIFY_INTERVAL = 300
@@ -350,9 +351,9 @@ def render_sidebar_user_info():
             padding:0.75rem;
             margin-bottom:0.5rem;
         ">
-            <p style="margin:0;color:#e8ecf1;font-weight:600;font-size:0.9rem;">{username}</p>
+            <p style="margin:0;color:#e8ecf1;font-weight:600;font-size:0.9rem;">{esc(username)}</p>
             <p style="margin:0.15rem 0 0 0;color:#8b95a5;font-size:0.7rem;
-                text-transform:uppercase;letter-spacing:0.06em;">{role_label}</p>
+                text-transform:uppercase;letter-spacing:0.06em;">{esc(role_label)}</p>
         </div>
         """,
         unsafe_allow_html=True,
