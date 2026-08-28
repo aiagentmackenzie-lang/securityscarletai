@@ -66,8 +66,13 @@ STATUS_CSS_MAP = {
 # ─── Helpers ──────────────────────────────────────────────────
 
 def badge(label: str, css_class: str) -> str:
-    """HTML badge span.  The CSS class must exist in injected global styles."""
-    return f'<span class="badge {css_class}">{label}</span>'
+    """HTML badge span.  The CSS class must exist in injected global styles.
+
+    The label is escaped HERE — severity/status strings often come straight
+    from API payloads (ingest-fed), so the single choke point treats them as
+    untrusted (dashboard esc sweep, findings F-01/F-02).
+    """
+    return f'<span class="badge {css_class}">{esc(label)}</span>'
 
 
 def sev_badge(severity: str) -> str:
@@ -142,6 +147,8 @@ def colored_metric(label: str, value, color: str | None = None):
     """Render a metric card with an optional colored value.
 
     Must be called inside a Streamlit column or container.
+    Label and value are escaped before interpolation — data-derived strings
+    (host names come from ingested events) are untrusted (esc sweep, F-02).
     """
     import streamlit as st
 
@@ -161,13 +168,13 @@ def colored_metric(label: str, value, color: str | None = None):
             text-transform:uppercase;
             letter-spacing:0.05em;
             margin:0 0 0.35rem 0;
-        ">{label}</p>
+        ">{esc(label)}</p>
         <p style="
             font-size:1.5rem;
             font-weight:700;
             margin:0;
             {val_style}
-        ">{value}</p>
+        ">{esc(value)}</p>
     </div>
     """
     st.markdown(html, unsafe_allow_html=True)

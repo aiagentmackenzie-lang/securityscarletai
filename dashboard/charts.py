@@ -14,6 +14,7 @@ import streamlit as st
 
 from dashboard.api_client import ApiError
 from dashboard.auth import get_api_client
+from dashboard.ui_utils import esc
 
 # ───────────────────────────────────────────────────────────────
 # Design Tokens (mirror from main.py)
@@ -156,22 +157,27 @@ def cached_alerts(limit: int = 500) -> list:
 # ───────────────────────────────────────────────────────────────
 
 def _colored_metric(label: str, value, delta=None, color=None):
-    """Render a metric where the value is optionally colored."""
+    """Render a metric where the value is optionally colored.
+
+    Label/value/delta are escaped INSIDE this helper — the single choke
+    point, not per-call-site. Callers pass data-derived strings (host names
+    come from ingested events, F-02), so everything is treated as untrusted.
+    """
     style = ""
     if color:
         style = f' style="color:{color}"'
     label_html = (
         f'<p style="color:{TEXT_SECONDARY};font-size:0.75rem;font-weight:600;'
-        f'text-transform:uppercase;letter-spacing:0.04em;margin:0;{style}">{label}</p>'
+        f'text-transform:uppercase;letter-spacing:0.04em;margin:0;{style}">{esc(label)}</p>'
     )
     value_html = (
         f'<p style="color:{TEXT_PRIMARY};font-size:1.6rem;font-weight:700;'
-        f'margin:0;{style}">{value}</p>'
+        f'margin:0;{style}">{esc(value)}</p>'
     )
     if delta:
         value_html += (
             f'<p style="color:#00e676;font-size:0.75rem;'
-            f'margin:0.25rem 0 0 0;{style}">{delta}</p>'
+            f'margin:0.25rem 0 0 0;{style}">{esc(delta)}</p>'
         )
     st.markdown(
         f'<div style="background:{BG_SURFACE};border:1px solid {BORDER_SUBTLE};'

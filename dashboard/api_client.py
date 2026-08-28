@@ -318,20 +318,24 @@ class ApiClient:
         """Check if user is authenticated in session state."""
         return bool(st.session_state.get("access_token"))
 
-    @staticmethod
-    def logout():
+    def logout(self=None):
         """Server-side logout then clear session state (P2-40).
 
         POSTs the current access token to /auth/logout so the server blocklists
         its jti (so a leaked token stops working immediately). Best-effort: any
         error is ignored — clearing local session is always done. L-09 fix:
         clear all auth-related keys.
+
+        F-19: accepts an instance and posts to THAT client's base_url. The
+        historical class-level call (ApiClient.logout()) still works and uses
+        the module-default URL, as before.
         """
+        base_url = self.base_url if self is not None else API_BASE_URL
         token = st.session_state.get("access_token")
         if token:
             try:
                 httpx.post(
-                    f"{API_BASE_URL}/auth/logout",
+                    f"{base_url}/auth/logout",
                     headers={"Authorization": f"Bearer {token}",
                               "Content-Type": "application/json"},
                     timeout=REQUEST_TIMEOUT,

@@ -105,7 +105,7 @@ def _render_case_card(case: dict, api):
     alert_count = len(case.get("alert_ids") or [])
 
     expander_title = (
-        f'<span style="font-weight:600;color:#e8ecf1;">#{case_id} — {case_title}</span>'
+        f'<span style="font-weight:600;color:#e8ecf1;">#{case_id} — {esc(case_title)}</span>'
         + f' \u0026nbsp; {sev_html} \u0026nbsp; {status_html}'
         + f' \u003cspan style="color:#5a6578;"\u003e| {alert_count} alerts \u003c/span\u003e'
     )
@@ -140,17 +140,17 @@ def _render_case_card(case: dict, api):
         with col_info2:
             st.markdown(
                 f"{status_html} <span style=\"color:#8b95a5;\">Status:</span> "
-                f"<span style=\"color:#e8ecf1;\">{case_status}</span>",
+                f"<span style=\"color:#e8ecf1;\">{esc(case_status)}</span>",
                 unsafe_allow_html=True,
             )
             st.markdown(
                 f"{sev_html} <span style=\"color:#8b95a5;\">Severity:</span> "
-                f"<span style=\"color:#e8ecf1;\">{case_severity}</span>",
+                f"<span style=\"color:#e8ecf1;\">{esc(case_severity)}</span>",
                 unsafe_allow_html=True,
             )
             st.markdown(
                 f"<span style=\"color:#8b95a5;\">Assigned:</span> "
-                f"<span style=\"color:#e8ecf1;\">{assigned}</span>",
+                f"<span style=\"color:#e8ecf1;\">{esc(assigned)}</span>",
                 unsafe_allow_html=True,
             )
 
@@ -308,6 +308,28 @@ def _render_alert_linking(case_id: int, case_detail: dict, linked_alerts: list, 
                         st.error(f"Failed to unlink alert: {e.detail}")
 
 
+def _note_card_html(author: str, text: str, timestamp: str = "") -> str:
+    """Build one case-note card. Author and text come from analyst input and
+    ingested attribution — both are escaped HERE so the unsafe_allow_html
+    block can never execute stored content (esc sweep, F-01 stored XSS)."""
+    return f"""
+                <div style="
+                    background:{BG_SURFACE};
+                    border:1px solid {BORDER_SUBTLE};
+                    border-radius:0.375rem;
+                    padding:0.5rem 0.75rem;
+                    margin-bottom:0.25rem;
+                ">
+                    <p style="margin:0;color:#8b95a5;font-size:0.7rem;font-weight:600;">
+                        {esc(author)} <span style="color:#5a6578;font-weight:400;">
+                            | {esc(timestamp)}
+                        </span>
+                    </p>
+                    <p style="margin:0.25rem 0 0 0;color:#e8ecf1;font-size:0.85rem;">{esc(text)}</p>
+                </div>
+                """
+
+
 def _render_case_notes(case_id: int, api):
     """Render the case notes timeline and add note form."""
     st.markdown(
@@ -329,20 +351,7 @@ def _render_case_notes(case_id: int, api):
             text = note.get("text", "")
             timestamp = note.get("timestamp", "")[:19] if note.get("timestamp") else ""
             st.markdown(
-                f"""
-                <div style="
-                    background:{BG_SURFACE};
-                    border:1px solid {BORDER_SUBTLE};
-                    border-radius:0.375rem;
-                    padding:0.5rem 0.75rem;
-                    margin-bottom:0.25rem;
-                ">
-                    <p style="margin:0;color:#8b95a5;font-size:0.7rem;font-weight:600;">
-                        {author} <span style="color:#5a6578;font-weight:400;">| {timestamp}</span>
-                    </p>
-                    <p style="margin:0.25rem 0 0 0;color:#e8ecf1;font-size:0.85rem;">{text}</p>
-                </div>
-                """,
+                _note_card_html(author, text, timestamp),
                 unsafe_allow_html=True,
             )
     else:

@@ -392,6 +392,15 @@ integration suite, and the coverage gate. Integration tests need Postgres only
   (`$1`, `$2`, …) — no string interpolation in SQL. NL→SQL pipeline has
   7 layers of injection defense. `correlation.py` uses `as_of: $1::timestamptz`
   for every time predicate (no `NOW()` in query strings).
+- **Dashboard XSS / output escaping**: every value that originates from API
+  data — alert fields, host names, case titles/notes/assignments, usernames —
+  is treated as **untrusted** in the dashboard. Any such value rendered inside
+  `st.markdown(..., unsafe_allow_html=True)` passes through the esc()
+  helper at either the interpolation site or the component choke point
+  (`charts._colored_metric`, `ui_utils.badge`/`colored_metric`,
+  `cases_view._note_card_html`). Host names are ingestion-fed (external
+  attacker-writable via `/ingest`), so this is an external-path defense, not
+  just insider hygiene. Regression tests: `tests/unit/test_dashboard_esc_sweep.py`.
 - **Secret hygiene**: `.env` is gitignored. `.env.example` documents how to
   generate strong secrets with `openssl rand`. Local secret rotation is
   documented in `scripts/entrypoint.sh`; git history rewrite (`filter-repo` /
