@@ -128,12 +128,18 @@ def rate_limit_exceeded_handler(
 
         limit_str = str(exc.detail) if exc.detail else "60"
         n_str, _, unit = limit_str.partition("/")
-        n = int(n_str.strip())
         # limits library normalizes compound strings to 'N per X minutes'
-        # (slowapi's RateLimitExceeded.detail) — parse that FIRST, then the
-        # raw decorator form 'N/Xminutes'.
-        normalized = _re.match(r"\d+\s+per\s+(\d+)\s*(seconds?|minutes?|hours?)", limit_str)
-        compound = _re.match(r"(\d+)(minutes?|seconds?|hours?)", unit.strip())
+        # (slowapi's RateLimitExceeded.detail) — parse that FIRST: int() on
+        # the partition segments would throw for the normalized form.
+        normalized = _re.match(
+            r"\d+\s+per\s+(\d+)\s*(seconds?|minutes?|hours?)", limit_str
+        )
+        compound = (
+            _re.match(r"(\d+)(minutes?|seconds?|hours?)", unit.strip())
+            if unit else None
+        )
+        if not normalized and unit and not compound:
+            int(n_str.strip())  # validate legacy form parses
         if normalized:
             factor = {"s": 1, "m": 60, "h": 3600}[normalized.group(2)[0]]
             retry_after = max(1, int(normalized.group(1)) * factor)
@@ -141,7 +147,7 @@ def rate_limit_exceeded_handler(
             factor = {"s": 1, "m": 60, "h": 3600}[compound.group(2)[0]]
             retry_after = max(1, int(compound.group(1)) * factor)
         elif "second" in unit:
-            retry_after = max(1, 60 // max(n, 1))
+            retry_after = max(1, 60 // max(int(n_str), 1))
         elif "hour" in unit:
             retry_after = 3600
         elif "minute" in unit:
