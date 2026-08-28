@@ -92,7 +92,14 @@ class TestUserOrIpKey:
 
 
 class TestLLMQuotaWiring:
-    """All four LLM-consuming endpoints must carry the per-user limit."""
+    """All four LLM-consuming endpoints must carry the per-user limit AND the
+    per-user key function (a limit string on an IP key would not be F-14)."""
+
+    def _assert_user_keyed(self, fq_name: str) -> None:
+        for lim in limiter._route_limits.get(fq_name, []):
+            assert getattr(lim, "key_func", None) is user_or_ip_key, (
+                f"{fq_name} must be keyed by user_or_ip_key, got {lim.key_func}"
+            )
 
     def _limit_strs_for(self, fq_name: str) -> list[str]:
         limits = limiter._route_limits.get(fq_name)
@@ -102,22 +109,26 @@ class TestLLMQuotaWiring:
     def test_ai_chat_endpoint_marked(self):
         assert "src.api.chat.chat_endpoint" in limiter._route_limits
         assert "30 per 5 minute" in self._limit_strs_for("src.api.chat.chat_endpoint")
+        self._assert_user_keyed("src.api.chat.chat_endpoint")
 
     def test_ai_explain_endpoint_marked(self):
         assert "src.api.ai.explain_alert_endpoint" in limiter._route_limits
         assert "30 per 5 minute" in self._limit_strs_for(
             "src.api.ai.explain_alert_endpoint"
         )
+        self._assert_user_keyed("src.api.ai.explain_alert_endpoint")
 
     def test_query_endpoint_marked(self):
         assert "src.api.query.query_nl" in limiter._route_limits
         assert "30 per 5 minute" in self._limit_strs_for("src.api.query.query_nl")
+        self._assert_user_keyed("src.api.query.query_nl")
 
     def test_hunt_execute_endpoint_marked(self):
         assert "src.api.hunt.execute_hunt_template" in limiter._route_limits
         assert "30 per 5 minute" in self._limit_strs_for(
             "src.api.hunt.execute_hunt_template"
         )
+        self._assert_user_keyed("src.api.hunt.execute_hunt_template")
 
 
 class TestCompound429RetryAfter:

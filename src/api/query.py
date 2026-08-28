@@ -15,7 +15,7 @@ from src.ai.nl2sql import (
     nl_to_sql,
 )
 from src.api.auth import require_role
-from src.api.rate_limit import LIMIT_LLM, limiter
+from src.api.rate_limit import LIMIT_LLM, limiter, user_or_ip_key
 from src.config.logging import get_logger
 
 log = get_logger("api.query")
@@ -75,7 +75,7 @@ class TemplateResponse(BaseModel):
         "Per-user LLM quota applies."
     ),
 )
-@limiter.limit(LIMIT_LLM)
+@limiter.limit(LIMIT_LLM, key_func=user_or_ip_key)
 async def query_nl(
     request: Request,  # slowapi requires this exact name
     response: Response,  # slowapi injects X-RateLimit-* headers here

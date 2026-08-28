@@ -16,7 +16,7 @@ from src.ai.hunting_assistant import (
     mitre_gap_analysis,
 )
 from src.api.auth import require_role
-from src.api.rate_limit import LIMIT_LLM, limiter
+from src.api.rate_limit import LIMIT_LLM, limiter, user_or_ip_key
 from src.config.logging import get_logger
 
 log = get_logger("api.hunt")
@@ -68,7 +68,7 @@ class GapAnalysisResponse(BaseModel):
     summary="Execute Hunt Template",
     description="Execute a pre-defined hunt template. Requires analyst role.",
 )
-@limiter.limit(LIMIT_LLM)
+@limiter.limit(LIMIT_LLM, key_func=user_or_ip_key)
 async def execute_hunt_template(
     request: Request,  # slowapi requires this exact name
     response: Response,  # slowapi injects X-RateLimit-* headers here
