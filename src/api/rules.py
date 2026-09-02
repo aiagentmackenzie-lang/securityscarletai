@@ -7,7 +7,7 @@ from datetime import timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.api.audit import log_audit_action
 from src.api.auth import get_current_user, require_role
@@ -20,15 +20,30 @@ router = APIRouter(tags=["detection"], prefix="/rules")
 log = get_logger("api.rules")
 
 
+# P2.8: accepted severities — an off-enum value used to 500 on the DB enum.
+ALLOWED_SEVERITIES = {"info", "low", "medium", "high", "critical"}
+
+
 class RuleCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str = ""
     sigma_yaml: str
     severity: str = "medium"  # info, low, medium, high, critical
     enabled: bool = True
-    run_interval: int = 60  # seconds
-    lookback: int = 300  # seconds (5 minutes)
-    threshold: int = 1
+    # P2.8 bounds: a 1-second run_interval hammered the DB with heavy window
+    # queries; an unbounded lookback scanned the whole table per run.
+    run_interval: int = Field(default=60, ge=30)  # seconds, ≥30s
+    lookback: int = Field(default=300, le=86400)  # seconds, ≤24h
+    threshold: int = Field(default=1, ge=1)
+
+    @field_validator("severity")
+    @classmethod
+    def severity_must_be_known(cls, v: str) -> str:
+        if v not in ALLOWED_SEVERITIES:
+            raise ValueError(
+                f"severity must be one of {sorted(ALLOWED_SEVERITIES)}, got {v!r}"
+            )
+        return v
 
 
 class RulePatch(BaseModel):
@@ -40,9 +55,19 @@ class RulePatch(BaseModel):
     sigma_yaml: Optional[str] = None
     severity: Optional[str] = None
     enabled: Optional[bool] = None
-    run_interval: Optional[int] = None  # seconds
-    lookback: Optional[int] = None  # seconds
-    threshold: Optional[int] = None
+    # P2.8: same bounds as create (applied only when the field is provided).
+    run_interval: Optional[int] = Field(default=None, ge=30)
+    lookback: Optional[int] = Field(default=None, le=86400)
+    threshold: Optional[int] = Field(default=None, ge=1)
+
+    @field_validator("severity")
+    @classmethod
+    def severity_must_be_known(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in ALLOWED_SEVERITIES:
+            raise ValueError(
+                f"severity must be one of {sorted(ALLOWED_SEVERITIES)}, got {v!r}"
+            )
+        return v
 
 
 class RuleResponse(BaseModel):
