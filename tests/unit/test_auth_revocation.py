@@ -31,37 +31,41 @@ os.environ.setdefault("API_BEARER_TOKEN", "y" * 32)
 
 
 class _FakeRedis:
-    """In-memory Redis substitute. Implements the subset redis_client uses."""
+    """In-memory Redis substitute. Implements the async subset redis_client
+    uses (P2.1: the client is redis.asyncio, so every op is a coroutine)."""
 
     def __init__(self) -> None:
         self._kv: dict[str, str] = {}
         self._ttls: dict[str, int] = {}
 
-    # ops
-    def setex(self, key: str, ttl: int, value: str) -> None:
+    # ops (async — mirror redis.asyncio)
+    async def setex(self, key: str, ttl: int, value: str) -> None:
         self._kv[key] = value
         self._ttls[key] = ttl
 
-    def get(self, key: str) -> str | None:
+    async def get(self, key: str) -> str | None:
         # F-09: single-key revoke reads via GET
         return self._kv.get(key)
 
-    def ttl(self, key: str) -> int:
+    async def ttl(self, key: str) -> int:
         return self._ttls.get(key, -2)
 
-    def exists(self, key: str) -> int:
+    async def exists(self, key: str) -> int:
         return 1 if key in self._kv else 0
 
     def scan_iter(self, match: str = "*", count: int = 100):
-        # naive substring match
-        for k in list(self._kv.keys()):
-            if match.replace("*", "") in k:
-                yield k
+        # async generator over naive substring matches
+        async def _gen():
+            for k in list(self._kv.keys()):
+                if match.replace("*", "") in k:
+                    yield k
 
-    def close(self) -> None:
+        return _gen()
+
+    async def aclose(self) -> None:
         pass
 
-    def ping(self) -> bool:
+    async def ping(self) -> bool:
         return True
 
 
@@ -72,10 +76,8 @@ def _fake_redis():
 
     fake = _FakeRedis()
     redis_client._client = fake
-    redis_client._connect_attempted = True
     yield fake
     redis_client._client = None
-    redis_client._connect_attempted = False
 
 
 # ───────────────────────────────────────────────────────────────
@@ -141,13 +143,13 @@ class TestLogout:
             token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
         )
         jti = payload["jti"]
-        assert not is_jti_blocked(jti)
+        assert not await is_jti_blocked(jti)
 
         # Call logout
         from src.api.auth_login import logout
 
         await logout(payload)
-        assert is_jti_blocked(jti)
+        assert await is_jti_blocked(jti)
 
     @pytest.mark.asyncio
     async def test_verify_jwt_rejects_blocked(self):
@@ -165,11 +167,11 @@ class TestLogout:
 
         # Before logout: token works (we don't call verify_jwt via HTTP,
         # but we can call the underlying check)
-        assert not is_jti_blocked(payload["jti"])
+        assert not await is_jti_blocked(payload["jti"])
 
         # Logout
         await logout(payload)
-        assert is_jti_blocked(payload["jti"])
+        assert await is_jti_blocked(payload["jti"])
 
 
 # ───────────────────────────────────────────────────────────────
@@ -186,9 +188,9 @@ class TestUserRevoke:
 
         username = "alice"
         # No marker before
-        assert get_latest_user_revoke_ts(username) is None
-        set_user_revoke_marker(username, datetime.now(tz=timezone.utc), 3600)
-        assert get_latest_user_revoke_ts(username) is not None
+        assert await get_latest_user_revoke_ts(username) is None
+        await set_user_revoke_marker(username, datetime.now(tz=timezone.utc), 3600)
+        assert await get_latest_user_revoke_ts(username) is not None
 
     @pytest.mark.asyncio
     async def test_old_token_rejected_after_password_change(self):
@@ -209,7 +211,7 @@ class TestUserRevoke:
         from datetime import datetime, timedelta, timezone
 
         revoke_time = datetime.now(tz=timezone.utc) + timedelta(seconds=5)
-        set_user_revoke_marker("bob", revoke_time, 3600)
+        await set_user_revoke_marker("bob", revoke_time, 3600)
 
         # Now verify_jwt should reject because iat < revoke_ts
         creds = MagicMock()
@@ -227,7 +229,7 @@ class TestUserRevoke:
         creds = MagicMock()
         creds.credentials = new_token
         # No marker set for carol, so should succeed
-        result = verify_jwt(creds)  # type: ignore[arg-type]
+        result = await verify_jwt(creds)  # type: ignore[arg-type]
         assert result["sub"] == "carol"
 
 
@@ -282,7 +284,7 @@ class TestRefresh:
 
 
 class TestFailOpen:
-    def test_redis_down_does_not_break_jwt(self):
+    async def test_redis_down_does_not_break_jwt(self):
         """If Redis is unavailable, verify_jwt still accepts valid tokens.
 
         Rationale: in a SOC, availability of the auth path matters more than
@@ -305,7 +307,7 @@ class TestFailOpen:
             token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
         )
         # is_jti_blocked should return False (fail-open)
-        assert redis_client.is_jti_blocked(payload["jti"]) is False
+        assert await redis_client.is_jti_blocked(payload["jti"]) is False
 
 
 # ───────────────────────────────────────────────────────────────
@@ -329,12 +331,12 @@ class TestBusinessAPIRevocation:
         payload = jose_jwt.decode(
             token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
         )
-        blocklist_jti(payload["jti"], ttl_seconds=3600)
+        await blocklist_jti(payload["jti"], ttl_seconds=3600)
 
         creds = MagicMock()
         creds.credentials = token
         with pytest.raises(HTTPException) as exc:
-            get_current_user(creds)
+            await get_current_user(creds)
         assert exc.value.status_code == 401
 
     @pytest.mark.asyncio
@@ -353,12 +355,12 @@ class TestBusinessAPIRevocation:
         )
         # Simulate a password change after the token was issued.
         revoke_time = datetime.now(tz=timezone.utc) + timedelta(seconds=5)
-        set_user_revoke_marker("bizuser2", revoke_time, 3600)
+        await set_user_revoke_marker("bizuser2", revoke_time, 3600)
 
         creds = MagicMock()
         creds.credentials = old_token
         with pytest.raises(HTTPException) as exc:
-            get_current_user(creds)
+            await get_current_user(creds)
         assert exc.value.status_code == 401
 
 
@@ -373,28 +375,28 @@ class TestTokenTypeEnforcement:
     type=access tokens are valid. Pre-hardening tokens without a type are
     rejected too."""
 
-    def test_verify_jwt_accepts_access_token(self):
+    async def test_verify_jwt_accepts_access_token(self):
         from src.api.auth import create_jwt, verify_jwt
 
         token = create_jwt("alice", "analyst")
         creds = MagicMock()
         creds.credentials = token
-        payload = verify_jwt(creds)
+        payload = await verify_jwt(creds)
         assert payload["sub"] == "alice"
         assert payload["type"] == "access"
 
-    def test_verify_jwt_rejects_refresh_token(self):
+    async def test_verify_jwt_rejects_refresh_token(self):
         from src.api.auth import create_refresh_token, verify_jwt
 
         token = create_refresh_token("alice", "analyst")
         creds = MagicMock()
         creds.credentials = token
         with pytest.raises(HTTPException) as exc:
-            verify_jwt(creds)
+            await verify_jwt(creds)
         assert exc.value.status_code == 401
         assert "access" in exc.value.detail.lower()
 
-    def test_verify_jwt_rejects_typeless_token(self):
+    async def test_verify_jwt_rejects_typeless_token(self):
         """A token with no `type` claim (e.g. a pre-hardening token) is rejected."""
         from jose import jwt as jose_jwt
 
@@ -409,40 +411,40 @@ class TestTokenTypeEnforcement:
         creds = MagicMock()
         creds.credentials = token
         with pytest.raises(HTTPException) as exc:
-            verify_jwt(creds)
+            await verify_jwt(creds)
         assert exc.value.status_code == 401
 
-    def test_get_current_user_accepts_access_token(self):
+    async def test_get_current_user_accepts_access_token(self):
         from src.api.auth import create_jwt, get_current_user
 
         token = create_jwt("bob", "admin")
         creds = MagicMock()
         creds.credentials = token
-        payload = get_current_user(creds)
+        payload = await get_current_user(creds)
         assert payload["sub"] == "bob"
         assert payload["role"] == "admin"
 
-    def test_get_current_user_rejects_refresh_token(self):
+    async def test_get_current_user_rejects_refresh_token(self):
         from src.api.auth import create_refresh_token, get_current_user
 
         token = create_refresh_token("bob", "admin")
         creds = MagicMock()
         creds.credentials = token
         with pytest.raises(HTTPException) as exc:
-            get_current_user(creds)
+            await get_current_user(creds)
         assert exc.value.status_code == 401
         # Must NOT fall through to the static-bearer compare (detail is the
         # type-check message, not "Invalid or expired token").
         assert "access" in exc.value.detail.lower()
 
-    def test_get_current_user_still_accepts_static_bearer(self):
+    async def test_get_current_user_still_accepts_static_bearer(self):
         """The static bearer fallback still works for non-JWT bearer tokens."""
         from src.api.auth import get_current_user
         from src.config.settings import settings
 
         creds = MagicMock()
         creds.credentials = settings.api_bearer_token.get_secret_value()
-        payload = get_current_user(creds)
+        payload = await get_current_user(creds)
         assert payload["sub"] == "api-client"
         assert payload["role"] == "admin"
 
@@ -463,54 +465,54 @@ class TestForceChangeTokenScope:
 
         return create_jwt(username, role, extra={"force_password_change": True})
 
-    def test_verify_jwt_rejects_force_token(self):
+    async def test_verify_jwt_rejects_force_token(self):
         from src.api.auth import verify_jwt
 
         creds = MagicMock()
         creds.credentials = self._force_token()
         with pytest.raises(HTTPException) as exc:
-            verify_jwt(creds)
+            await verify_jwt(creds)
         assert exc.value.status_code == 401
         assert "password change" in exc.value.detail.lower()
 
-    def test_get_current_user_rejects_force_token(self):
+    async def test_get_current_user_rejects_force_token(self):
         from src.api.auth import get_current_user
 
         creds = MagicMock()
         creds.credentials = self._force_token()
         with pytest.raises(HTTPException) as exc:
-            get_current_user(creds)
+            await get_current_user(creds)
         assert exc.value.status_code == 401
         # Must NOT fall through to static bearer — the message is the scope
         # rejection, not "Invalid or expired token".
         assert "password change" in exc.value.detail.lower()
 
-    def test_verify_force_change_token_accepts_force_token(self):
+    async def test_verify_force_change_token_accepts_force_token(self):
         from src.api.auth import verify_force_change_token
 
         creds = MagicMock()
         creds.credentials = self._force_token("migr", "analyst")
-        payload = verify_force_change_token(creds)
+        payload = await verify_force_change_token(creds)
         assert payload["sub"] == "migr"
         assert payload["force_password_change"] is True
 
-    def test_verify_force_change_token_rejects_normal_access_token(self):
+    async def test_verify_force_change_token_rejects_normal_access_token(self):
         from src.api.auth import create_jwt, verify_force_change_token
 
         token = create_jwt("alice", "analyst")  # no force_password_change claim
         creds = MagicMock()
         creds.credentials = token
         with pytest.raises(HTTPException) as exc:
-            verify_force_change_token(creds)
+            await verify_force_change_token(creds)
         assert exc.value.status_code == 403
 
-    def test_verify_force_change_token_rejects_non_jwt(self):
+    async def test_verify_force_change_token_rejects_non_jwt(self):
         from src.api.auth import verify_force_change_token
 
         creds = MagicMock()
         creds.credentials = "not-a-jwt"
         with pytest.raises(HTTPException) as exc:
-            verify_force_change_token(creds)
+            await verify_force_change_token(creds)
         assert exc.value.status_code == 401
 
     async def test_force_change_password_sets_user_revoke_marker(self, monkeypatch):
@@ -544,7 +546,7 @@ class TestForceChangeTokenScope:
 
         from src.api.auth_login import ForceChangePasswordRequest, force_change_password
 
-        before = get_latest_user_revoke_ts("migr2")
+        before = await get_latest_user_revoke_ts("migr2")
         assert before is None
 
         payload = {"sub": "migr2", "force_password_change": True}
@@ -553,7 +555,7 @@ class TestForceChangeTokenScope:
         )
         assert "changed" in result["message"].lower()
 
-        after = get_latest_user_revoke_ts("migr2")
+        after = await get_latest_user_revoke_ts("migr2")
         assert after is not None
         assert isinstance(after, float)
         # The marker time is ~now.

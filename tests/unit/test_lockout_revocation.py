@@ -23,7 +23,8 @@ os.environ.setdefault("API_BEARER_TOKEN", "y" * 32)
 
 
 class _FakeRedis:
-    """In-memory Redis substitute covering login_lockout + redis_client ops."""
+    """In-memory Redis substitute covering login_lockout + redis_client ops.
+    P2.1: ops are async — the real client is redis.asyncio."""
 
     def __init__(self) -> None:
         self._kv: dict[str, str] = {}
@@ -34,52 +35,56 @@ class _FakeRedis:
                                           "delete", "get", "setex", "ttl")}
 
     # string ops
-    def setex(self, key: str, ttl: int, value: str) -> None:
+    async def setex(self, key: str, ttl: int, value: str) -> None:
         self._kv[key] = value
         self._ttls[key] = ttl
         self.counters["setex"] += 1
 
-    def get(self, key: str) -> str | None:
+    async def get(self, key: str) -> str | None:
         self.counters["get"] += 1
         return self._kv.get(key)
 
-    def ttl(self, key: str) -> int:
+    async def ttl(self, key: str) -> int:
         self.counters["ttl"] += 1
         return self._ttls.get(key, -2)
 
-    def incr(self, key: str) -> int:
+    async def incr(self, key: str) -> int:
         self.counters["incr"] += 1
         cur = int(self._kv.get(key, "0")) + 1
         self._kv[key] = str(cur)
         return cur
 
-    def expire(self, key: str, ttl: int) -> None:
+    async def expire(self, key: str, ttl: int) -> None:
         self.counters["expire"] += 1
         self._ttls[key] = ttl
 
     # set ops
-    def sadd(self, key: str, member: str) -> int:
+    async def sadd(self, key: str, member: str) -> int:
         self.counters["sadd"] += 1
         self._sets = getattr(self, "_sets", {})
         self._sets.setdefault(key, set()).add(member)
         return len(self._sets[key])
 
-    def scard(self, key: str) -> int:
+    async def scard(self, key: str) -> int:
         self.counters["scard"] += 1
         return len(self._sets.get(key, set()))
 
-    def srem(self, key: str, member: str) -> int:  # pragma: no cover
+    async def srem(self, key: str, member: str) -> int:  # pragma: no cover
         s = self._sets.get(key, set())
         s.discard(member)
         return 1
 
     def scan_iter(self, match: str = "*", count: int = 100):
         prefix = match.replace("*", "")
-        for k in list(self._kv.keys()):
-            if k.startswith(prefix):
-                yield k
 
-    def delete(self, key: str) -> int:
+        async def _gen():
+            for k in list(self._kv.keys()):
+                if k.startswith(prefix):
+                    yield k
+
+        return _gen()
+
+    async def delete(self, key: str) -> int:
         self.counters["delete"] += 1
         removed = 0
         for store in (self._kv, self._sets):
@@ -88,13 +93,13 @@ class _FakeRedis:
                 removed = 1
         return removed
 
-    def exists(self, key: str) -> int:
+    async def exists(self, key: str) -> int:
         return 1 if key in self._kv else 0
 
-    def ping(self) -> bool:
+    async def ping(self) -> bool:
         return True
 
-    def close(self) -> None:
+    async def aclose(self) -> None:
         pass
 
 
@@ -117,53 +122,53 @@ def fake_redis():
 
 
 class TestCompositeLockout:
-    def test_five_failures_from_one_ip_lock_15m(self, fake_redis):
+    async def test_five_failures_from_one_ip_lock_15m(self, fake_redis):
         from src.api.login_lockout import register_failure
 
-        verdicts = [register_failure("alice", "10.0.0.1") for _ in range(5)]
+        verdicts = [await register_failure("alice", "10.0.0.1") for _ in range(5)]
         assert all(v == (False, 0) for v in verdicts[:4])
         assert verdicts[4] == (True, 900)
 
-    def test_second_burst_locks_longer(self, fake_redis):
+    async def test_second_burst_locks_longer(self, fake_redis):
         from src.api.login_lockout import register_failure
 
         for _ in range(5):
-            register_failure("bob", "10.0.0.9")
+            await register_failure("bob", "10.0.0.9")
         # correct password resets → new burst
         from src.api.login_lockout import register_success
 
-        register_success("bob", "10.0.0.9")
-        verdicts = [register_failure("bob", "10.0.0.9") for _ in range(5)]
+        await register_success("bob", "10.0.0.9")
+        verdicts = [await register_failure("bob", "10.0.0.9") for _ in range(5)]
         assert verdicts[4] == (True, 900)  # streak cleared by success
 
-    def test_streak_escalates_without_success(self, fake_redis):
+    async def test_streak_escalates_without_success(self, fake_redis):
         """Failures past the threshold in the SAME window do not escalate the
         streak — escalation happens once per burst (count == FAILS_TO_LOCK)."""
         from src.api.login_lockout import register_failure
 
         for _ in range(5):
-            register_failure("carol", "10.0.0.7")
-        again = register_failure("carol", "10.0.0.7")
+            await register_failure("carol", "10.0.0.7")
+        again = await register_failure("carol", "10.0.0.7")
         assert again == (True, 3600)  # streak 1 → 1h
 
-    def test_distributed_noise_no_lock(self, fake_redis):
+    async def test_distributed_noise_no_lock(self, fake_redis):
         from src.api.login_lockout import MAX_DISTINCT_IPS, register_failure
 
         for i in range(MAX_DISTINCT_IPS):
-            register_failure("dave", f"10.9.0.{i}")
-        v = register_failure("dave", "10.9.0.100")  # 21st distinct IP
+            await register_failure("dave", f"10.9.0.{i}")
+        v = await register_failure("dave", "10.9.0.100")  # 21st distinct IP
         assert v == (False, 0)  # never locks under distributed pressure
 
-    def test_success_resets_counters(self, fake_redis):
+    async def test_success_resets_counters(self, fake_redis):
         from src.api.login_lockout import register_failure, register_success
 
         for _ in range(4):
-            register_failure("erin", "10.0.0.5")
-        register_success("erin".replace("erin", "dave") and "erina", "10.0.0.5")
-        fresh = [register_failure("erina", "10.0.0.5") for _ in range(5)]
+            await register_failure("erin", "10.0.0.5")
+        await register_success("erin".replace("erin", "dave") and "erina", "10.0.0.5")
+        fresh = [await register_failure("erina", "10.0.0.5") for _ in range(5)]
         assert [v for v,_ in fresh] == [False, False, False, False, True]
 
-    def test_redis_down_returns_verdict_none(self):
+    async def test_redis_down_returns_verdict_none(self):
         from src.api import redis_client
         from src.api.login_lockout import register_failure
 
@@ -171,7 +176,7 @@ class TestCompositeLockout:
         redis_client._client = None
         redis_client._last_failure_ts = redis_client._time.monotonic()
         try:
-            assert register_failure("frank", "10.0.0.1") == (None, 0)
+            assert await register_failure("frank", "10.0.0.1") == (None, 0)
         finally:
             redis_client._last_failure_ts = 0.0
 
@@ -182,7 +187,7 @@ class TestCompositeLockout:
 
 
 class TestRedisRetry:
-    def test_bounded_retry_then_success(self, fake_redis, monkeypatch):
+    async def test_bounded_retry_then_success(self, fake_redis, monkeypatch):
         from src.api import redis_client
 
         redis_client._client = None
@@ -197,18 +202,19 @@ class TestRedisRetry:
                 raise ConnectionError("flap")
             return fake_redis
 
-        monkeypatch.setattr(redis_client.redis, "Redis", MagicMock())
-        monkeypatch.setattr(
-            redis_client.redis.Redis, "from_url", staticmethod(fake_from_url)
-        )
-        monkeypatch.setattr(redis_client, "_SLEEP", lambda s: sleeps.append(s))
+        monkeypatch.setattr(redis_client, "_from_url", fake_from_url)
+        # async sleep seam — collects backoff durations without awaiting real time
+        async def fake_sleep(s: float) -> None:
+            sleeps.append(s)
 
-        got = redis_client._get_client()
+        monkeypatch.setattr(redis_client, "_SLEEP", fake_sleep)
+
+        got = await redis_client._get_client()
         assert got is fake_redis
         assert attempts["n"] == 3
         assert sleeps == [0.25, 0.5]  # exponential backoff, no sleep after success
 
-    def test_full_failure_sets_cooldown(self, fake_redis, monkeypatch):
+    async def test_full_failure_sets_cooldown(self, fake_redis, monkeypatch):
         from src.api import redis_client
 
         redis_client._client = None
@@ -217,30 +223,38 @@ class TestRedisRetry:
         def always_fail(*a, **k):
             raise ConnectionError("down")
 
-        monkeypatch.setattr(redis_client.redis, "Redis", MagicMock())
-        monkeypatch.setattr(
-            redis_client.redis.Redis, "from_url",
-            staticmethod(always_fail),
-        )
-        monkeypatch.setattr(redis_client, "_SLEEP", lambda s: None)
+        async def fake_sleep(s: float) -> None:
+            return None
 
-        assert redis_client._get_client() is None
+        monkeypatch.setattr(redis_client, "_from_url", always_fail)
+        monkeypatch.setattr(redis_client, "_SLEEP", fake_sleep)
+
+        assert await redis_client._get_client() is None
         ts = redis_client._last_failure_ts
         assert ts > 0
         # inside cooldown → None without any attempt
-        assert redis_client._get_client() is None
+        assert await redis_client._get_client() is None
         assert redis_client._last_failure_ts == ts
 
-    def test_cooldown_expires_and_retries(self, fake_redis, monkeypatch):
+    async def test_cooldown_expires_and_retries(self, fake_redis, monkeypatch):
         from src.api import redis_client
 
         redis_client._client = None
         redis_client._last_failure_ts = (
             redis_client._time.monotonic() - redis_client._FAILURE_COOLDOWN_SECONDS - 1
         )
+
+        def always_fail(*a, **k):
+            raise ConnectionError("down")
+
+        async def fake_sleep(s: float) -> None:
+            return None
+
+        monkeypatch.setattr(redis_client, "_from_url", always_fail)
+        monkeypatch.setattr(redis_client, "_SLEEP", fake_sleep)
         # cooldown expired → the next call starts a fresh connect round
-        assert redis_client._get_client() is None or isinstance(
-            redis_client._get_client(), object
+        assert await redis_client._get_client() is None or isinstance(
+            await redis_client._get_client(), object
         )
 
 
@@ -250,42 +264,41 @@ class TestRedisRetry:
 
 
 class TestSingleKeyRevoke:
-    def test_set_writes_fixed_and_legacy_keys(self, fake_redis):
+    async def test_set_writes_fixed_and_legacy_keys(self, fake_redis):
         from src.api.redis_client import _KEY_PREFIX, set_user_revoke_marker
 
         ts = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
-        assert set_user_revoke_marker("gina", ts, 3600) is True
-        assert fake_redis.get(f"{_KEY_PREFIX}user_revoke:gina") == "1787908800".replace("0", "0") or True
-        assert fake_redis.get(f"{_KEY_PREFIX}user_revoke:gina") == str(int(ts.timestamp()))
+        assert await set_user_revoke_marker("gina", ts, 3600) is True
+        assert await fake_redis.get(f"{_KEY_PREFIX}user_revoke:gina") == str(int(ts.timestamp()))
         assert f"{_KEY_PREFIX}user_revoke:gina:{int(ts.timestamp())}" in fake_redis._kv
 
-    def test_read_is_o1_from_fixed_key(self, fake_redis):
+    async def test_read_is_o1_from_fixed_key(self, fake_redis):
         """No scan needed when the fixed key exists."""
         from src.api.redis_client import get_latest_user_revoke_ts
 
         fake_redis._kv["scarletai:v1:user_revoke:hank"] = "1788000000"
         fake_redis.counters["scan_iter_calls"] = 0
-        got = get_latest_user_revoke_ts("hank")
+        got = await get_latest_user_revoke_ts("hank")
         assert got == 1788000000.0
         # scan used as fallback only — with the fixed key present it must NOT run
         assert fake_redis.counters.get("scan_iter_calls", 0) == 0 or True
 
-    def test_legacy_keys_backfill_fixed_key(self, fake_redis):
+    async def test_legacy_keys_backfill_fixed_key(self, fake_redis):
         from src.api.redis_client import get_latest_user_revoke_ts
 
         # simulate pre-F-09 state: only timestamped keys exist
         fake_redis._kv["scarletai:v1:user_revoke:ivan:1700000000"] = "1"
         fake_redis._kv["scarletai:v1:user_revoke:ivan:1790000000"] = "1"
 
-        got = get_latest_user_revoke_ts("ivan")
+        got = await get_latest_user_revoke_ts("ivan")
         assert got == 1790000000.0
         assert "scarletai:v1:user_revoke:ivan" in fake_redis._kv  # backfilled
-        assert fake_redis.get("scarletai:v1:user_revoke:ivan") == "1790000000"
+        assert await fake_redis.get("scarletai:v1:user_revoke:ivan") == "1790000000"
 
-    def test_no_markers_returns_none(self, fake_redis):
+    async def test_no_markers_returns_none(self, fake_redis):
         from src.api.redis_client import get_latest_user_revoke_ts
 
-        assert get_latest_user_revoke_ts("nobody") is None
+        assert await get_latest_user_revoke_ts("nobody") is None
 
 
 # ───────────────────────────────────────────────────────────────

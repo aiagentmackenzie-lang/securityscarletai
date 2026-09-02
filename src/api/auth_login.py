@@ -141,7 +141,7 @@ async def login(
             from src.api.login_lockout import register_failure
 
             client_ip = request.client.host if request.client else "unknown"
-            should_lock, lock_seconds = register_failure(
+            should_lock, lock_seconds = await register_failure(
                 row["username"], client_ip
             )
 
@@ -206,7 +206,7 @@ async def login(
         # analyst's prior typos don't pre-arm an exponential lock.
         from src.api.login_lockout import register_success
 
-        register_success(
+        await register_success(
             row["username"],
             request.client.host if request.client else "unknown",
         )
@@ -286,7 +286,7 @@ async def change_password(
     from src.api.redis_client import set_user_revoke_marker
     from src.config.settings import settings
     revoke_ttl = (settings.refresh_token_ttl_days + 1) * 24 * 3600
-    set_user_revoke_marker(payload["sub"], datetime.now(tz=timezone.utc), revoke_ttl)
+    await set_user_revoke_marker(payload["sub"], datetime.now(tz=timezone.utc), revoke_ttl)
 
     log.info("password_changed", username=payload["sub"])
     return {"message": "Password changed successfully. All existing sessions invalidated."}
@@ -330,7 +330,7 @@ async def force_change_password(
     from src.config.settings import settings as _settings
 
     revoke_ttl = (_settings.refresh_token_ttl_days + 1) * 24 * 3600
-    set_user_revoke_marker(payload["sub"], datetime.now(tz=timezone.utc), revoke_ttl)
+    await set_user_revoke_marker(payload["sub"], datetime.now(tz=timezone.utc), revoke_ttl)
 
     log.info("force_password_changed", username=payload["sub"])
     return {"message": "Password changed successfully. You can now log in normally."}
@@ -439,7 +439,7 @@ async def refresh_token(request: RefreshRequest):
     from src.api.redis_client import get_latest_user_revoke_ts, is_jti_blocked
 
     jti = payload.get("jti")
-    if jti and is_jti_blocked(jti):
+    if jti and await is_jti_blocked(jti):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token has been revoked",
@@ -447,7 +447,7 @@ async def refresh_token(request: RefreshRequest):
     sub = payload.get("sub")
     iat = payload.get("iat")
     if sub and iat is not None:
-        revoke_ts = get_latest_user_revoke_ts(sub)
+        revoke_ts = await get_latest_user_revoke_ts(sub)
         if revoke_ts is not None and float(iat) < revoke_ts:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -495,7 +495,7 @@ async def refresh_token(request: RefreshRequest):
     # Rotate: block old refresh, issue new pair.
     from src.api.redis_client import blocklist_jti
     if jti:
-        blocklist_jti(jti, _settings.refresh_token_ttl_days * 24 * 3600)
+        await blocklist_jti(jti, _settings.refresh_token_ttl_days * 24 * 3600)
 
     new_access = create_jwt(row["username"], row["role"])
     new_refresh = create_refresh_token(row["username"], row["role"])
@@ -527,7 +527,7 @@ async def logout(payload: dict = Depends(verify_jwt)):
     from src.config.settings import settings as _settings
 
     ttl = _settings.access_token_ttl_minutes * 60
-    blocklist_jti(jti, ttl)
+    await blocklist_jti(jti, ttl)
 
     log.info("user_logout", username=payload.get("sub"))
     return LogoutResponse()
