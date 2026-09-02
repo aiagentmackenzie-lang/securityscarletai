@@ -10,6 +10,10 @@ Currently:
     - self._storage (slowapi-internal)
     - self.limiter.storage (the underlying limits.strategies storage)
   Both must be swapped, otherwise tests hit real Redis.
+  P2.1: the limiter now also carries an in-memory FALLBACK strategy
+  (in_memory_fallback_enabled=True) used when the primary storage dies.
+  Its storage must be swapped too, so a fallback episode inside a test
+  stays deterministic and never touches real Redis.
 - Provides a fresh in-memory storage for each test (function scope) so
   test order doesn't matter.
 """
@@ -33,13 +37,18 @@ def _inmem_rate_limit_storage():
     original_slowapi_storage = _rl.limiter._storage  # noqa: SLF001
     original_strategy_storage = _rl.limiter.limiter.storage
     original_headers_enabled = _rl.limiter._headers_enabled
+    original_fallback_storage = getattr(_rl.limiter._fallback_limiter, "storage", None)
     mem = MemoryStorage()
     _rl.limiter._storage = mem  # noqa: SLF001
     _rl.limiter.limiter.storage = mem
+    if _rl.limiter._fallback_limiter is not None:  # noqa: SLF001
+        _rl.limiter._fallback_limiter.storage = mem  # noqa: SLF001
     _rl.limiter._headers_enabled = False
     try:
         yield
     finally:
         _rl.limiter._storage = original_slowapi_storage  # noqa: SLF001
         _rl.limiter.limiter.storage = original_strategy_storage
+        if original_fallback_storage is not None:  # noqa: SLF001
+            _rl.limiter._fallback_limiter.storage = original_fallback_storage  # noqa: SLF001
         _rl.limiter._headers_enabled = original_headers_enabled

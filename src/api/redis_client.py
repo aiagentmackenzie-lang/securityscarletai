@@ -8,18 +8,23 @@ Design notes:
   This is the correct trade-off: in a production SOC, you'd want Redis HA.
   Here, we err on the side of "service stays up if Redis flaps."
 - All keys are namespaced with a version prefix to allow future schema migration.
-- P2-32: this uses the SYNC `redis` client from async auth paths (is_jti_blocked,
-  get_latest_user_revoke_ts run per authenticated request). Acceptable for the
-  single-process deployment (socket_timeout=1.0 bounds blocking); for scale-out,
-  switch to redis.asyncio and await these. Tracked as a follow-up, not blocking.
+- P2-32 (closed by P2.1): this client is now `redis.asyncio`. Every op is a
+  coroutine awaited from async request paths, so a Redis outage can no longer
+  block the event loop with sync socket timeouts. The bounded-retry + cooldown
+  pattern (F-08) is preserved: 3 connect attempts with exponential backoff
+  (awaited, not slept), then a 30s cooldown before the next connect round.
+- Callers MUST await: is_jti_blocked / get_latest_user_revoke_ts run per
+  authenticated request (auth.py), blocklist_jti / set_user_revoke_marker on
+  auth mutations, and login_lockout on the login path.
 """
 from __future__ import annotations
 
+import asyncio
 import time as _time
 from datetime import datetime
-from typing import Callable, Optional
+from typing import Any, Callable, Coroutine, Optional
 
-import redis
+import redis.asyncio as aioredis
 
 from src.config.logging import get_logger
 from src.config.settings import settings
@@ -27,22 +32,26 @@ from src.config.settings import settings
 log = get_logger("api.redis_client")
 
 _KEY_PREFIX = "scarletai:v1:"
-_client: Optional[redis.Redis] = None
+_client: Optional[aioredis.Redis] = None
 # F-08: bounded retry state. One failed attempt used to silence revocation
 # checks FOREVER (one transient outage at boot -> logout dead until restart).
 _last_failure_ts: float = 0.0
 _FAILURE_COOLDOWN_SECONDS = 30.0  # wait between failed connect attempts
 _MAX_CONNECT_ATTEMPTS = 3
-_SLEEP: Callable[[float], None] = _time.sleep  # test seam
+_SLEEP: Callable[[float], Coroutine[Any, Any, None]] = asyncio.sleep  # test seam
+# Test seam: the client factory. Tests monkeypatch this instead of reaching
+# into redis.asyncio internals.
+_from_url: Callable[..., aioredis.Redis] = aioredis.Redis.from_url
 
 
-def _get_client() -> Optional[redis.Redis]:
+async def _get_client() -> Optional[aioredis.Redis]:
     """Get or lazily (re-)initialize the Redis client. Returns None on failure.
 
-    F-08: bounded retry (3 attempts, exponential backoff 0.25/0.5/1.0s). After
-    a failed round, a 30s cooldown suppresses further attempts so we don't
-    hammer; a Redis outage then costs at most one slow request per 30s and
-    recovers WITHOUT a restart (the old one-shot flag never retried).
+    F-08: bounded retry (3 attempts, exponential backoff 0.25/0.5/1.0s) — the
+    backoff awaits asyncio.sleep so the event loop is NEVER blocked (P2-32).
+    After a failed round, a 30s cooldown suppresses further attempts so we
+    don't hammer; a Redis outage then costs at most one slow request per 30s
+    and recovers WITHOUT a restart (the old one-shot flag never retried).
     """
     global _client, _last_failure_ts
     if _client is not None:
@@ -55,13 +64,13 @@ def _get_client() -> Optional[redis.Redis]:
     last_err: Optional[Exception] = None
     for attempt in range(1, _MAX_CONNECT_ATTEMPTS + 1):
         try:
-            candidate = redis.Redis.from_url(
+            candidate = _from_url(
                 settings.redis_url,
                 socket_connect_timeout=1.0,
                 socket_timeout=1.0,
                 decode_responses=True,
             )
-            candidate.ping()
+            await candidate.ping()
             _client = candidate
             log.info("redis_connected", attempt=attempt)
             return _client
@@ -73,8 +82,13 @@ def _get_client() -> Optional[redis.Redis]:
                 of=_MAX_CONNECT_ATTEMPTS,
                 error=str(e),
             )
+            # Close the half-open client so its transport doesn't leak.
+            try:
+                await candidate.aclose()
+            except Exception as close_err:  # pragma: no cover — defensive
+                log.debug("redis_half_open_close_failed", error=str(close_err))
             if attempt < _MAX_CONNECT_ATTEMPTS:
-                _SLEEP(0.25 * (2 ** (attempt - 1)))
+                await _SLEEP(0.25 * (2 ** (attempt - 1)))
 
     _last_failure_ts = _time.monotonic()
     log.warning(
@@ -88,41 +102,59 @@ def _get_client() -> Optional[redis.Redis]:
 
 
 def reset_client() -> None:
-    """Reset the singleton (for tests)."""
+    """Reset the singleton (for tests). Safe from sync test code: when no
+    event loop is running the close runs via asyncio.run; inside a running
+    loop the close is scheduled as a task. Either way the singleton ref is
+    dropped immediately so the next call starts fresh."""
     global _client, _last_failure_ts
-    if _client is not None:
-        try:
-            _client.close()
-        except Exception:  # pragma: no cover — defensive
-            log.debug("redis_close_noop", note="client already closed or unreachable")
+    client = _client
     _client = None
     _last_failure_ts = 0.0
+    if client is None:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop (sync test teardown) — close on a fresh loop.
+        try:
+            asyncio.run(client.aclose())
+        except Exception:  # pragma: no cover — defensive
+            log.debug("redis_close_noop", note="client already closed or unreachable")
+        return
+
+    async def _close() -> None:
+        try:
+            await client.aclose()
+        except Exception as close_err:  # pragma: no cover — defensive
+            log.debug("redis_close_noop", note="already closed", error=str(close_err))
+
+    loop.create_task(_close())
 
 
 # ───────────────────────────────────────────────────────────────
 # JWT blocklist (Epic 5)
 # ───────────────────────────────────────────────────────────────
 
-def blocklist_jti(jti: str, ttl_seconds: int) -> bool:
+async def blocklist_jti(jti: str, ttl_seconds: int) -> bool:
     """Add a jti to the blocklist with TTL. Returns True on success."""
-    client = _get_client()
+    client = await _get_client()
     if client is None:
         return False
     try:
-        client.setex(f"{_KEY_PREFIX}jwt_blocklist:{jti}", ttl_seconds, "1")
+        await client.setex(f"{_KEY_PREFIX}jwt_blocklist:{jti}", ttl_seconds, "1")
         return True
     except Exception as e:
         log.warning("redis_blocklist_set_failed", error=str(e))
         return False
 
 
-def is_jti_blocked(jti: str) -> bool:
+async def is_jti_blocked(jti: str) -> bool:
     """Check if a jti is in the blocklist. Returns False on Redis error (fail-open)."""
-    client = _get_client()
+    client = await _get_client()
     if client is None:
         return False
     try:
-        return client.exists(f"{_KEY_PREFIX}jwt_blocklist:{jti}") > 0
+        return bool(await client.exists(f"{_KEY_PREFIX}jwt_blocklist:{jti}"))
     except Exception as e:
         log.warning("redis_blocklist_check_failed", error=str(e))
         return False
@@ -137,7 +169,9 @@ def _user_revoke_key(username: str) -> str:
     return f"{_KEY_PREFIX}user_revoke:{username}"
 
 
-def set_user_revoke_marker(username: str, issued_at: datetime, ttl_seconds: int) -> bool:
+async def set_user_revoke_marker(
+    username: str, issued_at: datetime, ttl_seconds: int
+) -> bool:
     """Set a user_revoke marker. All tokens issued BEFORE this ts are invalid.
 
     F-09: writes the ts to the fixed key scarletai:v1:user_revoke:<username>
@@ -145,34 +179,32 @@ def set_user_revoke_marker(username: str, issued_at: datetime, ttl_seconds: int)
     writes the legacy timestamped key for one release so a rolling deploy
     where an old worker still scan-reads keeps working.
     """
-    client = _get_client()
+    client = await _get_client()
     if client is None:
         return False
     try:
         ts = int(issued_at.timestamp())
-        client.setex(_user_revoke_key(username), ttl_seconds, str(ts))
+        await client.setex(_user_revoke_key(username), ttl_seconds, str(ts))
         # legacy scan-format key (read fallback), same TTL
-        client.setex(f"{_KEY_PREFIX}user_revoke:{username}:{ts}", ttl_seconds, "1")
+        await client.setex(f"{_KEY_PREFIX}user_revoke:{username}:{ts}", ttl_seconds, "1")
         return True
     except Exception as e:
         log.warning("redis_user_revoke_set_failed", error=str(e))
         return False
 
 
-def get_latest_user_revoke_ts(username: str) -> Optional[float]:
+async def get_latest_user_revoke_ts(username: str) -> Optional[float]:
     """Get the latest user_revoke timestamp for a user, or None if none.
 
-    F-09: O(1) GET on the fixed key (this used to SCAN per authenticated
-    request — a sync client call blocking the loop up to the 1s socket
-    timeout). Falls back to a SCAN of the legacy timestamped keys and
-    backfills the fixed key when the fixed key is absent (e.g. markers
-    written before this change).
+    F-09: O(1) GET on the fixed key. Falls back to a SCAN of the legacy
+    timestamped keys and backfills the fixed key when the fixed key is
+    absent (e.g. markers written before this change).
     """
-    client = _get_client()
+    client = await _get_client()
     if client is None:
         return None
     try:
-        fixed = client.get(_user_revoke_key(username))
+        fixed = await client.get(_user_revoke_key(username))
         if fixed is not None:
             try:
                 return float(fixed)
@@ -182,7 +214,7 @@ def get_latest_user_revoke_ts(username: str) -> Optional[float]:
         # one-release fallback: scan legacy timestamped keys, backfill.
         latest: Optional[float] = None
         pattern = f"{_KEY_PREFIX}user_revoke:{username}:*"
-        for key in client.scan_iter(match=pattern, count=100):
+        async for key in client.scan_iter(match=pattern, count=100):
             try:
                 ts_str = key.rsplit(":", 1)[-1]
                 ts = float(ts_str)
@@ -192,8 +224,8 @@ def get_latest_user_revoke_ts(username: str) -> Optional[float]:
                 continue
         if latest is not None:
             try:
-                ttl = client.ttl(_user_revoke_key(username))
-                client.setex(
+                ttl = await client.ttl(_user_revoke_key(username))
+                await client.setex(
                     _user_revoke_key(username),
                     ttl if ttl and ttl > 0 else 3600,
                     str(int(latest)),

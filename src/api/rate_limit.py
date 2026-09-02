@@ -8,10 +8,16 @@ Why a separate module:
 - X-RateLimit-* headers are added via a small middleware so every response
   carries the same shape (including successful ones).
 
-Degradation:
-- If Redis is unreachable at startup, slowapi falls back to in-memory storage.
-  We log a warning. This is the same trade-off as auth: service stays up,
-  rate limit accuracy degrades.
+Degradation (P2.1):
+- slowapi's in-memory fallback is ENABLED (in_memory_fallback_enabled=True).
+  The previous docstring CLAIMED this fallback but the flag was never passed —
+  `Limiter(storage_uri=...)` connects lazily, so construction never raises and
+  the old try/except was dead code; with Redis actually down, decorated
+  endpoints 500'd instead of degrading. Now: on ANY storage failure at
+  request time, slowapi marks the storage dead, serves subsequent checks from
+  an in-memory fallback limiter, and probes the backend with exponential
+  backoff to recover without a restart. Rate-limit accuracy degrades to
+  per-process memory; the service stays up.
 """
 from __future__ import annotations
 
@@ -35,27 +41,30 @@ log = get_logger("api.rate_limit")
 
 
 def _build_limiter() -> Limiter:
-    """Construct the Limiter. Tries Redis first; warns + falls back to memory on error."""
-    storage_uri = settings.redis_url
-    try:
-        limiter = Limiter(
-            key_func=get_remote_address,
-            default_limits=["200/minute"],
-            storage_uri=storage_uri,
-            # headers_enabled is True by default in slowapi 0.1.9+, but
-            # the slowapi middleware only injects headers for rate-limited
-            # paths. We add our own middleware below for consistent coverage.
-            headers_enabled=True,
-        )
-        log.info("rate_limiter_redis")
-        return limiter
-    except Exception as e:
-        log.warning("rate_limiter_redis_init_failed", error=str(e))
-        return Limiter(
-            key_func=get_remote_address,
-            default_limits=["200/minute"],
-            headers_enabled=True,
-        )
+    """Construct the Limiter with Redis storage + real in-memory fallback.
+
+    P2.1: the old try/except here was dead code — `Limiter(storage_uri=...)`
+    connects lazily, so an unreachable Redis never raised at construction and
+    a dead backend 500'd every rate-limited request at runtime. The fix is
+    slowapi's own `in_memory_fallback_enabled`: storage failures are caught at
+    REQUEST time, the limiter swaps to a memory-backed strategy, and the
+    backend is re-probed with exponential backoff (their cooldown equivalent
+    of the F-08 pattern in redis_client.py).
+    """
+    limiter = Limiter(
+        key_func=get_remote_address,
+        default_limits=["200/minute"],
+        storage_uri=settings.redis_url,
+        # headers_enabled is True by default in slowapi 0.1.9+, but
+        # the slowapi middleware only injects headers for rate-limited
+        # paths. We add our own middleware below for consistent coverage.
+        headers_enabled=True,
+        # P2.1: REAL degradation — request-time memory fallback when Redis
+        # is unreachable, with automatic backend recovery probes.
+        in_memory_fallback_enabled=True,
+    )
+    log.info("rate_limiter_redis", memory_fallback=True)
+    return limiter
 
 
 limiter = _build_limiter()

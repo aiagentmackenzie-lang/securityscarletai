@@ -25,6 +25,10 @@ Redis ops are best-effort: with Redis unavailable, the module returns
 verdict=None and the caller falls back to the legacy DB-only rule (5 failed
 attempts -> flat 15-min lock) — the pre-F-05 behavior, wrong on distributed
 noise but functional without Redis (fail-open availability tradeoff).
+
+P2.1: all Redis-backed functions are now async (redis.asyncio underneath —
+P2-32) so an outage cannot block the event loop; callers in auth_login.py
+await them.
 """
 
 from __future__ import annotations
@@ -58,7 +62,7 @@ def _key_streak(username: str) -> str:
     return f"{_STREAK_PREFIX}:{username}"
 
 
-def register_failure(
+async def register_failure(
     username: str,
     ip: str,
     client: Any = None,
@@ -70,20 +74,20 @@ def register_failure(
       False -> do not lock (under threshold, or distributed noise)
       None  -> Redis unavailable: caller falls back to legacy DB-only rule
     """
-    c = client if client is not None else _get_client()
+    c = client if client is not None else await _get_client()
     if c is None:
         log.debug("lockout_no_redis_legacy_fallback")
         return (None, 0)
 
     try:
         fail_key = _key_fail(username, ip)
-        count = int(c.incr(fail_key) or 0)
+        count = int(await c.incr(fail_key) or 0)
         if count == 1:
-            c.expire(fail_key, FAIL_WINDOW_SECONDS)
-        c.sadd(_key_ips(username), ip)
-        c.expire(_key_ips(username), FAIL_WINDOW_SECONDS)
+            await c.expire(fail_key, FAIL_WINDOW_SECONDS)
+        await c.sadd(_key_ips(username), ip)
+        await c.expire(_key_ips(username), FAIL_WINDOW_SECONDS)
 
-        distinct = int(c.scard(_key_ips(username)) or 0)
+        distinct = int(await c.scard(_key_ips(username)) or 0)
         if distinct > MAX_DISTINCT_IPS:
             log.warning(
                 "lockout_distributed_noise_no_lock",
@@ -95,12 +99,12 @@ def register_failure(
         if count >= FAILS_TO_LOCK:
             streak = 0
             try:
-                streak = int(c.get(_key_streak(username)) or 0)
+                streak = int(await c.get(_key_streak(username)) or 0)
             except Exception:  # noqa: S110 — streak is best-effort
                 streak = 0
             sidx = min(max(streak, 0), len(LOCK_STEPS) - 1)
             seconds = LOCK_STEPS[sidx]
-            c.incr(_key_streak(username))
+            await c.incr(_key_streak(username))
             log.warning(
                 "account_lock_issued",
                 username=username,
@@ -117,24 +121,24 @@ def register_failure(
         return (None, 0)
 
 
-def register_success(username: str, ip: str, client: Any = None) -> None:
+async def register_success(username: str, ip: str, client: Any = None) -> None:
     """Clear the failure counter for (username, ip) and the lock streak."""
-    c = client if client is not None else _get_client()
+    c = client if client is not None else await _get_client()
     if c is None:
         return
     try:
-        c.delete(_key_fail(username, ip))
-        c.delete(_key_streak(username))
+        await c.delete(_key_fail(username, ip))
+        await c.delete(_key_streak(username))
     except Exception as e:
         log.debug("lockout_success_clear_failed", error=str(e))
 
 
-def reset_streak(username: str, client: Any = None) -> None:
+async def reset_streak(username: str, client: Any = None) -> None:
     """Admin reset of the exponential lock streak (not wired to an endpoint yet)."""
-    c = client if client is not None else _get_client()
+    c = client if client is not None else await _get_client()
     if c is None:
         return
     try:
-        c.delete(_key_streak(username))
+        await c.delete(_key_streak(username))
     except Exception as e:  # pragma: no cover — defensive
         log.debug("lockout_streak_reset_failed", error=str(e))

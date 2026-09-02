@@ -49,7 +49,7 @@ def verify_bearer_token(
     return credentials.credentials
 
 
-def _check_revocation(payload: dict) -> None:
+async def _check_revocation(payload: dict) -> None:
     """Raise 401 if the JWT payload is revoked (P1-11).
 
     Shared by verify_jwt and get_current_user so the business API (which uses
@@ -57,12 +57,15 @@ def _check_revocation(payload: dict) -> None:
     (password change) markers as the auth-own endpoints. Fail-closed only if
     Redis confirms; Redis being down = fail-open (degraded auth, service stays
     available). Static bearer tokens (no jti/iat) are unaffected.
+
+    P2.1: async — the redis client is redis.asyncio (P2-32), so revocation
+    checks never block the event loop.
     """
     jti = payload.get("jti")
     if jti:
         from src.api.redis_client import is_jti_blocked
 
-        if is_jti_blocked(jti):
+        if await is_jti_blocked(jti):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token has been revoked",
@@ -73,7 +76,7 @@ def _check_revocation(payload: dict) -> None:
     if sub and iat is not None:
         from src.api.redis_client import get_latest_user_revoke_ts
 
-        revoke_ts = get_latest_user_revoke_ts(sub)
+        revoke_ts = await get_latest_user_revoke_ts(sub)
         if revoke_ts is not None and float(iat) < revoke_ts:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -81,7 +84,7 @@ def _check_revocation(payload: dict) -> None:
             )
 
 
-def verify_jwt(
+async def verify_jwt(
     credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
 ) -> dict:
     """Verify JWT token and return the payload.
@@ -121,7 +124,7 @@ def verify_jwt(
     # Fail-closed only if Redis is up AND confirms invalid; Redis being down = fail-open
     # (degraded auth, but service stays available). Shared with get_current_user
     # via _check_revocation (P1-11).
-    _check_revocation(payload)
+    await _check_revocation(payload)
 
     # P1-B: a force_change_token (carrying force_password_change=True) is scoped
     # to /auth/force-change-password ONLY. It must NOT work on business endpoints —
@@ -139,7 +142,7 @@ def verify_jwt(
     return cast(dict[str, Any], payload)
 
 
-def verify_force_change_token(
+async def verify_force_change_token(
     credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
 ) -> dict:
     """Verify a force-change-password token (P1-B).
@@ -169,11 +172,11 @@ def verify_force_change_token(
             detail="This endpoint requires a force_password_change token",
         )
 
-    _check_revocation(payload)
+    await _check_revocation(payload)
     return cast(dict[str, Any], payload)
 
 
-def get_current_user(
+async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
 ) -> dict:
     """Unified auth dependency — accepts both JWT and static bearer tokens.
@@ -205,7 +208,7 @@ def get_current_user(
         # P1-11: enforce revocation (jti blocklist + user_revoke) on the business
         # API too, not just the auth-own endpoints. Static bearer tokens below are
         # unaffected (no jti/iat).
-        _check_revocation(payload)
+        await _check_revocation(payload)
         # P1-B: reject force_change_tokens on the business API (same as
         # verify_jwt above) — they are scoped to /auth/force-change-password.
         if payload.get("force_password_change"):
@@ -244,7 +247,7 @@ def require_role(min_role: str):
     async def _check_role(
         credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
     ) -> dict:
-        payload = get_current_user(credentials)
+        payload = await get_current_user(credentials)
         user_role = payload.get("role", "viewer")
         user_level = ROLE_HIERARCHY.get(user_role, 0)
         if user_level < min_level:
