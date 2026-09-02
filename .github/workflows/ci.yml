@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, polish-and-docs]
+    branches: [main]  # polish-and-docs trigger removed 2026-09-02: branch deleted (merged)
   pull_request:
     branches: [main]
 
