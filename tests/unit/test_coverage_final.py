@@ -141,7 +141,14 @@ class TestAiStatusEndpoint:
 
         with (
             patch("src.api.ai.get_ueba", AsyncMock(return_value=mock_ueba)),
-            patch("src.ai.ollama_client.is_ollama_available", AsyncMock(return_value=True)),
+            # P3.4: get_status uses the CACHED probe seam — patch that, not
+            # the old is_ollama_available (whose result is now ignored, and
+            # whose absence left this test at the mercy of the shared
+            # module-level cache + real host Ollama).
+            patch(
+                "src.api.health._cached_ollama_check",
+                AsyncMock(return_value=(True, "mistral:7b", None)),
+            ),
         ):
             result = await get_status(_user={"sub": "analyst1", "role": "viewer"})
 
