@@ -7,9 +7,12 @@ Covers:
   Content-Length headers 4xx instead of 500)
 - RequestValidationMiddleware content-type enforcement
 - AuditLogMiddleware logging of state-changing requests
+- P3.2: request_body_hash — small bodies are sha256-hashed onto
+  request.state and land on the audit_logs row
 """
 
-from unittest.mock import MagicMock
+import hashlib
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from starlette.requests import Request as StarletteRequest
@@ -243,3 +246,198 @@ class TestStreamCapP2_2:
         response = await mw.dispatch(request, call_next)
         assert response.status_code == 200
         assert seen["content"] == b"hello chunked world"
+
+
+# ───────────────────────────────────────────────────────────────
+# P3.2 — request_body_hash wiring
+# ───────────────────────────────────────────────────────────────
+
+
+def _request_with_body(
+    method: str = "POST",
+    path: str = "/api/v1/test",
+    body: bytes = b"",
+    headers: list[tuple[bytes, bytes]] | None = None,
+    messages: list[dict] | None = None,
+):
+    """Build a real starlette Request carrying `body` (single message) or
+    explicit `messages` (chunked)."""
+    if messages is None:
+        messages = [{"type": "http.request", "body": body, "more_body": False}]
+    remaining = list(messages)
+
+    async def receive():
+        if not remaining:
+            return {"type": "http.request", "body": b"", "more_body": False}
+        return remaining.pop(0)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": method,
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": headers or [],
+        "client": ("10.1.2.3", 55555),
+        "server": ("testserver", 80),
+    }
+    return StarletteRequest(scope, receive)
+
+
+class TestRequestBodyHashP3_2:
+    """P3.2 — audit_logs.request_body_hash is written for small POST/PUT/PATCH
+    bodies (sha256 hexdigest), left NULL for large ones, and the endpoint still
+    receives the exact bytes."""
+
+    @pytest.fixture
+    def mw(self):
+        return RequestValidationMiddleware(app=MagicMock())  # type: ignore[arg-type]
+
+    @pytest.mark.asyncio
+    async def test_small_post_body_hashed_and_endpoint_still_sees_bytes(self, mw):
+        payload = b'{"alert": "brute force", "count": 12}'
+        seen = {}
+
+        async def call_next(req):
+            seen["body"] = await req.body()  # downstream must get the exact bytes
+            seen["hash_in_handler"] = getattr(req.state, "body_hash", None)
+            return JSONResponse({"ok": True})
+
+        request = _request_with_body(body=payload)
+        response = await mw.dispatch(request, call_next)
+
+        assert response.status_code == 200
+        expected = hashlib.sha256(payload).hexdigest()
+        assert seen["hash_in_handler"] == expected
+        assert seen["body"] == payload  # no body-eating regression
+        assert len(expected) == 64  # sha256 hexdigest
+
+    @pytest.mark.asyncio
+    async def test_body_over_64kb_not_hashed(self, mw):
+        big = b"x" * 70_000  # < 1MB cap, > 64KB hash cap
+        request = _request_with_body(
+            headers=[(b"content-length", str(len(big)).encode())], body=big
+        )
+
+        async def call_next(req):
+            assert not hasattr(req.state, "body_hash")
+            return JSONResponse({"ok": True})
+
+        response = await mw.dispatch(request, call_next)
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_chunked_post_body_hashed(self, mw):
+        chunks = [{"type": "http.request", "body": b"hello ", "more_body": True},
+                  {"type": "http.request", "body": b"chunked world", "more_body": False}]
+        request = _request_with_body(
+            headers=[(b"transfer-encoding", b"chunked")], messages=chunks
+        )
+        seen = {}
+
+        async def call_next(req):
+            seen["body"] = await req.body()
+            return JSONResponse({"ok": True})
+
+        response = await mw.dispatch(request, call_next)
+        assert response.status_code == 200
+        assert seen["body"] == b"hello chunked world"
+        expected = hashlib.sha256(b"hello chunked world").hexdigest()
+        assert getattr(request.state, "body_hash", None) == expected
+
+    @pytest.mark.asyncio
+    async def test_empty_post_body_hashed(self, mw):
+        """An empty body is hashed too — NULL is reserved for 'not hashed by
+        policy' (oversized), not for 'no body'."""
+        request = _request_with_body(body=b"")
+
+        async def call_next(req):
+            return JSONResponse({"ok": True})
+
+        await mw.dispatch(request, call_next)
+        assert getattr(request.state, "body_hash", None) == hashlib.sha256(b"").hexdigest()
+
+    @pytest.mark.asyncio
+    async def test_get_requests_not_hashed(self, mw):
+        request = _request_with_body(method="GET", body=b"")
+
+        async def call_next(req):
+            return JSONResponse({"ok": True})
+
+        await mw.dispatch(request, call_next)
+        assert not hasattr(request.state, "body_hash")
+
+    @pytest.mark.asyncio
+    async def test_hash_lands_on_audit_call(self):
+        """Full chain: outer AuditLogMiddleware + inner RequestValidation —
+        the hash computed by the inner middleware reaches log_request_audit."""
+        validation = RequestValidationMiddleware(app=MagicMock())  # type: ignore[arg-type]
+        audit = AuditLogMiddleware(app=MagicMock())  # type: ignore[arg-type]
+        payload = b'{"note": "<img src=x onerror=alert(1)>"}'
+
+        async def downstream(req):
+            # Simulates the real order: validation (inner) runs BEFORE the
+            # audit write (outer). AuditLogMiddleware dispatches call_next,
+            # which here is just the endpoint response.
+            from starlette.responses import Response
+
+            return Response(content="ok", status_code=201)
+
+        async def inner(req):
+            return await validation.dispatch(req, downstream)
+
+        request = _request_with_body(path="/api/v1/alerts", body=payload)
+        with patch("src.api.audit.log_request_audit", new=AsyncMock()) as mock_audit:
+            await audit.dispatch(request, inner)
+
+        mock_audit.assert_called_once()
+        kwargs = mock_audit.call_args.kwargs
+        assert kwargs["request_body_hash"] == hashlib.sha256(payload).hexdigest()
+
+    @pytest.mark.asyncio
+    async def test_audit_passes_none_when_no_hash(self):
+        """Oversized body → no state.body_hash → audit row keeps NULL."""
+        validation = RequestValidationMiddleware(app=MagicMock())  # type: ignore[arg-type]
+        audit = AuditLogMiddleware(app=MagicMock())  # type: ignore[arg-type]
+        big = b"x" * 70_000
+
+        async def downstream(req):
+            from starlette.responses import Response
+
+            return Response(content="ok", status_code=201)
+
+        async def inner(req):
+            return await validation.dispatch(req, downstream)
+
+        request = _request_with_body(
+            headers=[(b"content-length", str(len(big)).encode())], body=big
+        )
+        with patch("src.api.audit.log_request_audit", new=AsyncMock()) as mock_audit:
+            await audit.dispatch(request, inner)
+
+        kwargs = mock_audit.call_args.kwargs
+        assert kwargs["request_body_hash"] is None
+
+    def test_app_level_body_reaches_endpoint_with_hashing_on(self):
+        """App-level regression: with the middleware registered, a normal POST
+        body must reach the endpoint byte-identical (no body-eating)."""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        app = FastAPI()
+
+        @app.post("/echo")
+        async def echo(request: StarletteRequest):
+            return {"body": (await request.body()).decode()}
+
+        app.add_middleware(RequestValidationMiddleware)
+        client = TestClient(app)
+        payload = '{"k": "v"}'
+        resp = client.post("/echo", content=payload,
+                           headers={"content-type": "application/json"})
+        assert resp.status_code == 200
+        assert resp.json()["body"] == payload

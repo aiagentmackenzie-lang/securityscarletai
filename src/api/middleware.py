@@ -5,6 +5,8 @@ Rate limiting is now Redis-backed (via slowapi) with per-endpoint overrides
 configured in src/api/rate_limit.py. The Limiter singleton lives there;
 this module re-exports it for backward compat with existing imports.
 """
+import hashlib
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from slowapi import Limiter  # noqa: F401  (re-exported for tests)
@@ -69,6 +71,12 @@ class RequestValidationMiddleware(BaseHTTPMiddleware):
     """
 
     MAX_BODY_SIZE = 1_000_000  # 1MB
+
+    # P3.2: bodies up to this size are hashed into the request-level audit
+    # trail. Above it, audit_logs.request_body_hash stays NULL ("not hashed
+    # by policy") — large ingest batches are high-volume and the hash would
+    # be pure CPU overhead for little forensic value.
+    BODY_HASH_MAX_SIZE = 65_536  # 64KB
 
     async def dispatch(self, request: Request, call_next):
         # Check body size for POST/PUT/PATCH
@@ -149,6 +157,17 @@ class RequestValidationMiddleware(BaseHTTPMiddleware):
                         content={"detail": "Content-Type must be application/json"},
                     )
 
+            # P3.2: hash small bodies for the request-level audit trail.
+            # Reaching this point means the body is size-bounded (Content-Length
+            # validated or the chunked cap aborted earlier), so this read is safe.
+            # Starlette's BaseHTTPMiddleware (_CachedRequest) caches the body
+            # here and replays it to downstream — the endpoint still sees the
+            # exact bytes. The hash lands in audit_logs via request.state
+            # (shared scope["state"]) read by the outer AuditLogMiddleware.
+            body_bytes = await request.body()
+            if len(body_bytes) <= self.BODY_HASH_MAX_SIZE:
+                request.state.body_hash = hashlib.sha256(body_bytes).hexdigest()
+
         response = await call_next(request)
         return response
 
@@ -192,6 +211,9 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
                 try:
                     from src.api.audit import log_request_audit
 
+                    # P3.2: body hash set by the inner RequestValidationMiddleware
+                    # (shared scope["state"]). None when absent (GET/DELETE,
+                    # oversized bodies, or validation middleware bypassed).
                     await log_request_audit(
                         user=user,
                         role=role,
@@ -200,6 +222,7 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
                         ip=get_remote_address(request),
                         status_code=response.status_code,
                         duration_ms=duration_ms,
+                        request_body_hash=getattr(request.state, "body_hash", None),
                     )
                 except Exception as e:  # pragma: no cover — defensive
                     log.warning("audit_middleware_write_failed", path=path, error=str(e))
