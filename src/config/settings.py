@@ -48,6 +48,10 @@ class Settings(BaseSettings):
         ..., min_length=32, description="JWT signing key — generate with: openssl rand -hex 64"
     )
     api_bearer_token: SecretStr = Field(..., min_length=16, description="Ingestion API auth token")
+    # P2.6: optional SCOPED ingest token — viewer-class and valid ONLY on the
+    # ingest router (a leaked ingest token must not be a full admin bearer).
+    # Unset → behavior identical to pre-P2.6.
+    ingest_bearer_token: Optional[SecretStr] = None
     api_cors_origins: list[str] = ["http://localhost:8501"]
 
     # --- Ollama ---
@@ -178,6 +182,17 @@ class Settings(BaseSettings):
             raise ValueError(
                 "You must set a real API_BEARER_TOKEN in .env — do not use the placeholder. "
                 "Generate with: openssl rand -hex 32"
+            )
+        return v
+
+    @field_validator("ingest_bearer_token")
+    @classmethod
+    def ingest_bearer_token_not_placeholder(cls, v: Optional[SecretStr]) -> Optional[SecretStr]:
+        # Optional field — None (unset) disables the scoped token entirely.
+        if v is not None and "CHANGE_ME" in v.get_secret_value():
+            raise ValueError(
+                "INGEST_BEARER_TOKEN is set to the placeholder — generate a real one "
+                "with: openssl rand -hex 32 (or unset it to disable scoping)"
             )
         return v
 

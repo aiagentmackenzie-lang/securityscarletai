@@ -15,7 +15,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
 
-from src.api.auth import get_current_user
+from src.api.auth import get_ingest_client
 from src.api.rate_limit import LIMIT_INGEST, limiter
 from src.config.logging import get_logger
 from src.ingestion.schemas import NormalizedEvent
@@ -81,7 +81,10 @@ async def ingest_events(
     request: Request,  # slowapi needs Request to derive the rate-limit key
     response: Response,  # slowapi injects X-RateLimit-* headers here
     events: list[IngestEvent],
-    _token: Annotated[dict, Depends(get_current_user)],
+    # P2.6: ingest-scoped dependency — additionally honors the optional
+    # INGEST_BEARER_TOKEN as viewer-class; a leaked ingest token cannot
+    # browse the SIEM (every other endpoint uses get_current_user).
+    _token: Annotated[dict, Depends(get_ingest_client)],
 ):
     """Ingest one or more security events.
 

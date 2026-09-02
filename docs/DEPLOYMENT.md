@@ -47,7 +47,8 @@ openssl rand -base64 32
 |----------|-------------|---------|
 | `DB_PASSWORD` | PostgreSQL password (no default) | `openssl rand -base64 32` |
 | `API_SECRET_KEY` | JWT signing key (min 32 bytes / 64 hex chars) | `openssl rand -hex 64` |
-| `API_BEARER_TOKEN` | API ingestion auth token (min 16 bytes) | `openssl rand -hex 32` |
+| `API_BEARER_TOKEN` | API ingestion auth token (min 16 bytes) — full admin bearer | `openssl rand -hex 32` |
+| `INGEST_BEARER_TOKEN` | Optional (P2.6) scoped ingest token — viewer-class, valid ONLY on `POST /ingest`. Unset = disabled | `openssl rand -hex 32` |
 
 ### Database Configuration
 
