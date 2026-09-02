@@ -26,6 +26,10 @@ from src.config.logging import get_logger
 
 log = get_logger("detection.sigma")
 
+# P2.8: hard cap on rows fetched per simple-detection run — a broad rule
+# on a chatty host used to pull unbounded rows into memory per evaluation.
+MAX_DETECTION_ROWS = 1000
+
 # ───────────────────────────────────────────────────────────────
 # Column whitelist — used by both pySigma backend and legacy parser
 # ───────────────────────────────────────────────────────────────
@@ -249,16 +253,25 @@ class SigmaParser:
         )
         return sql, self._params
 
-    def _build_simple_query(self, rule, where_clause) -> tuple[str, list[Any]]:
-        """Build a simple SELECT query."""
+    def _build_simple_query(
+        self, rule, where_clause, max_rows: Optional[int] = None
+    ) -> tuple[str, list[Any]]:
+        """Build a simple SELECT query.
+
+        P2.8: every simple query carries a bounded LIMIT (MAX_DETECTION_ROWS,
+        overridable per call) — a broad rule on a chatty host used to fetch
+        unbounded rows into memory per run.
+        """
         lookback_seconds = _timeframe_to_seconds(rule.timeframe)
         lookback_param = self._add_param(lookback_seconds)
+        limit_param = self._add_param(max_rows or MAX_DETECTION_ROWS)
 
         sql = (  # noqa: S608 — WHERE clause built from parameterized _parse_condition()
             f"SELECT * FROM logs "
             f"WHERE {where_clause} "
             f"AND time > NOW() - INTERVAL '1 second' * {lookback_param} "
-            f"ORDER BY time DESC"
+            f"ORDER BY time DESC "
+            f"LIMIT {limit_param}"
         )
         return sql, self._params
 
