@@ -1,0 +1,13 @@
+# Trivy ignore file — SecurityScarletAI (P3.5)
+#
+# Every entry here is an ACCEPTED RISK and must carry:
+#   1. the CVE/GHSA ID
+#   2. a rationale (why it does not block shipping)
+#   3. a date, so stale accepts get re-reviewed
+#
+# Entries without a rationale are a policy violation — do not add them.
+#
+# As of Phase 3 (2026-09-02) no accepts exist yet: this file ships empty of
+# CVEs on purpose. The first CI runs of the trivy-image-scan job will surface
+# real findings; each gets triaged into (a) fix via base-image/dependency
+# bump, or (b) a rationale'd entry here. Nothing is wave-through by default.

@@ -6,8 +6,7 @@ on:
   pull_request:
     branches: [main]
 
-jobs:
-  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
+jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
   # entrypoint, dependency install failures) is caught instead of slipping
   # through a test-only gate. No secrets required.
   build:
@@ -118,3 +117,55 @@ jobs:
         # Coverage over the deterministic mocked unit suite (integration is
         # exercised in its own step above). Keeps the gate stable.
         run: poetry run pytest tests/unit --cov=src --cov-fail-under=80 --tb=short -q
+
+  # P3.5: dependency vulnerability audit (pip-audit) over the locked
+  # dependency set installed in the same venv as the test job.
+  # POLICY: NON-BLOCKING for the first two weeks after Phase 3 (continue-on-
+  # error below) so pre-existing findings don't gate the remediation pipeline.
+  # Flip to enforcing in a follow-up once the initial findings are triaged
+  # into .trivyignore / dependency bumps — tracked as P3.5 follow-up.
+  dependency-audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true # P3.5 policy: advisory until findings triaged
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies (locked set)
+        # Same --no-root install as the test job: pip-audit then audits the
+        # exact locked dependency set the app actually runs on.
+        run: |
+          pip install poetry
+          poetry install --no-root
+
+      - name: pip-audit (locked dependency set)
+        run: |
+          poetry run pip install pip-audit
+          poetry run pip-audit --skip-editable
+
+  # P3.5: image vulnerability scan of the built Docker image (OS packages +
+  # Python site-packages) with Trivy. HIGH/CRITICAL exit-code 1 — but the
+  # JOB is non-blocking per the same two-week policy as dependency-audit.
+  # Accepted risks live in .trivyignore (each entry: CVE + rationale + date;
+  # entries without rationale must not be added).
+  trivy-image-scan:
+    runs-on: ubuntu-latest
+    continue-on-error: true # P3.5 policy: non-blocking first, enforce in follow-up
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t securityscarletai:ci .
+
+      - name: Trivy image scan (HIGH, CRITICAL)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: securityscarletai:ci
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          trivyignores: .trivyignore
