@@ -73,35 +73,72 @@ class RequestValidationMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         # Check body size for POST/PUT/PATCH
         if request.method in ("POST", "PUT", "PATCH"):
-            # 1. Content-Length header check (fast, for non-chunked requests)
+            # 1. Content-Length header check (fast, for non-chunked requests).
+            # P2.2: garbage headers must 4xx — int() on junk used to raise
+            # ValueError → 500.
             content_length = request.headers.get("content-length")
-            if content_length and int(content_length) > self.MAX_BODY_SIZE:
-                return JSONResponse(
-                    status_code=413,
-                    content={"detail": f"Request body too large. Max {self.MAX_BODY_SIZE} bytes."},
-                )
-
-            # 2. Chunked transfer encoding — Content-Length absent, must read body
-            #    Starlette streams chunked bodies; we must consume and check size.
-            transfer_encoding = request.headers.get("transfer-encoding", "").lower()
-            if "chunked" in transfer_encoding or not content_length:
+            declared: int | None = None
+            if content_length is not None:
                 try:
-                    body = await request.body()
-                    if len(body) > self.MAX_BODY_SIZE:
-                        return JSONResponse(
-                            status_code=413,
-                            content={
+                    declared = int(content_length)
+                except ValueError:
+                    return JSONResponse(
+                        status_code=400,
+                        content={"detail": "Invalid Content-Length header."},
+                    )
+                if declared < 0:
+                    return JSONResponse(
+                        status_code=400,
+                        content={"detail": "Invalid Content-Length header."},
+                    )
+                if declared > self.MAX_BODY_SIZE:
+                    return JSONResponse(
+                        status_code=413,
+                        content={
                             "detail": f"Request body too large. Max {self.MAX_BODY_SIZE} bytes."
                         },
-                        )
-                    # Re-inject body so downstream handlers can read it
-                    async def receive():
-                        return {"type": "http.request", "body": body}
-                    request._receive = receive
-                except Exception as e:  # pragma: no cover — defensive
-                    log.exception(
-                        "request_body_read_failed", error=str(e)
-                    )  # Let downstream handle it
+                    )
+
+            # 2. Chunked transfer encoding — Content-Length absent, must read body.
+            # P2.2: stream in chunks and abort with 413 the MOMENT the cap is
+            # exceeded. The old code awaited request.body() — which buffers the
+            # ENTIRE body in RAM before the size check — so a chunked uploader
+            # could pin unbounded memory per request (memory-DoS vector). What
+            # was read before the abort is NOT re-injected; the connection is
+            # rejected, so downstream never needs it.
+            transfer_encoding = request.headers.get("transfer-encoding", "").lower()
+            if "chunked" in transfer_encoding or declared is None:
+                chunks: list[bytes] = []
+                total = 0
+                over_limit = False
+                receive = request._receive  # noqa: SLF001
+                while True:
+                    message = await receive()
+                    if message["type"] == "http.disconnect":
+                        break
+                    part = message.get("body", b"")
+                    total += len(part)
+                    if total > self.MAX_BODY_SIZE:
+                        over_limit = True
+                        break
+                    chunks.append(part)
+                    if not message.get("more_body", False):
+                        break
+                if over_limit:
+                    return JSONResponse(
+                        status_code=413,
+                        content={
+                            "detail": f"Request body too large. Max {self.MAX_BODY_SIZE} bytes."
+                        },
+                    )
+
+                # Re-inject the (bounded) body so downstream handlers can read it
+                body = b"".join(chunks)
+
+                async def receive():
+                    return {"type": "http.request", "body": body}
+
+                request._receive = receive  # noqa: SLF001
 
             # Content-Type enforcement for ingest endpoint
             if request.url.path.endswith("/ingest"):
