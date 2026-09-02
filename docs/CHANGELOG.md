@@ -268,3 +268,83 @@ pytest) and merged `--no-ff`. Tests 1343 → 1438.
   redis pinned >=6,<9; CI gains a scripts/+tests/ lint gate (was a 195-error
   blind spot); README gains an honest Limitations section; PyJWT migration
   filed as backlog (F-25).
+
+## 2026-09-02 — Phase 3 (product & proof) + v0.2.0
+
+Merged to `main`; tagged `v0.2.0` (Phase 1–3 remediation complete). Each item
+shipped on its own branch via `--no-ff` merge; tests went 1525 → 1640 passed
+(unit, `--no-cov`), coverage 86% → 87% (CI-enforced ≥80%).
+
+- **P3.1** `feat/user-management-api` (`e0794ca`) — admin-only user
+  management API: `GET /users` (never exposes password_hash — excluded from
+  the response model AND the SQL), `POST /users` (hashed password, role
+  enum, `must_change_password=true`, duplicate → 409), `PATCH /users/{id}`
+  (role change + is_active toggle; deactivation AND role change set the
+  Redis user_revoke marker — the JWT carries the role claim, so pre-change
+  tokens must not survive a demotion; self-guard prevents an admin from
+  deactivating themselves or changing their own role), and
+  `POST /users/{id}/reset-password` (one-time `secrets.token_urlsafe(16)`
+  password returned once in the response, never logged, never in the audit
+  entry; lockout state cleared; older tokens revoked). Every mutation
+  audit-logged with actor + IP. DEPLOYMENT.md's raw-SQL password reset
+  replaced with the API path.
+- **P3.2** `fix/wire-request-body-hash` (`d962e79`) —
+  `audit_logs.request_body_hash` was plumbed end-to-end but never written
+  (always NULL). Now: RequestValidationMiddleware sha256-hashes size-bounded
+  POST/PUT/PATCH bodies ≤ 64KB onto `request.state` (Starlette caches +
+  replays the body downstream — bytes reach the endpoint intact,
+  regression-tested at app level); AuditLogMiddleware passes the hash to
+  the audit row. Bodies > 64KB stay NULL by policy ("not hashed", distinct
+  from an empty body). 8 tests incl. chunked bodies and a full
+  middleware-chain passthrough.
+- **P3.3** `feat/prometheus-metrics` (`9d98426`) — `GET /api/v1/metrics` in
+  Prometheus text format via a tiny in-process registry (zero new
+  dependencies): HTTP request count + latency histogram by method +
+  path-class (IDs/UUIDs/usernames normalized — cardinality control), ingest
+  accepted, writer buffer depth + backpressure, DB pool in-use/size,
+  correlation run duration, retention rows-deleted/errors. Access
+  fail-closed: optional `METRICS_BEARER_TOKEN` or analyst JWT; token unset
+  → localhost-only unauthenticated scrape; an invalid bearer is always 401
+  even from localhost; malformed JWTs caught (no 500). Verified live:
+  199 samples, path-class normalization and live gauges rendering.
+- **P3.4** `chore/ops-honesty-sweep` (`001882e`) — Slack alert links use
+  `DASHBOARD_PUBLIC_URL` (new setting) instead of a hardcoded localhost:8501;
+  `/ai/status` uses the CACHED Ollama probe (the /health P2-34 cache) instead
+  of a fresh 5s probe per call; `scripts/migrate_passwords.py` derives its
+  DSN from settings (+asyncpg stripped) instead of the stale-DATABASE_URL
+  footgun; PersistFlags-era `/correlation/run-legacy` removed after a
+  verified zero-caller check (dashboard client, docs, tests).
+- **P3.5** `chore/ci-dependency-image-scanning` (`3a0efaa`) — CI gains
+  `pip-audit` (over the same locked dependency set the test job installs)
+  and a Trivy HIGH/CRITICAL image scan. Both NON-BLOCKING for two weeks
+  (continue-on-error, policy in the YAML); `.trivyignore` ships with zero
+  CVE accepts — entries require CVE/GHSA ID + rationale + date, enforced by
+  a unit test. Build/test jobs stay hard-failing.
+- **P3.6** `test/llm-redteam-matrix` (`4d1b5be`) — OWASP LLM Top 10 (2025)
+  matrix as a permanent 41-probe regression suite at the prompt boundary
+  (no live Ollama): LLM01 direct+indirect injection against FOUR prompt
+  surfaces (build_prompt, hunt suggestions, NL→SQL conversation context,
+  chat security context) with fence-balance + outside-fence assertions;
+  LLM02 synthetic-SQL validator bypasses (siem_users.password_hash via
+  direct/UNION/JOIN, dblink, pg_read_file, pg_catalog, stacking, pt-BR
+  comment obfuscation) — all rejected; LLM09 fallback labeling (no silent
+  fabrication); LLM10 quota marking on all five LLM-costing endpoints.
+  Findings: none new — Phase 1 fencing + M-07 redaction hold.
+- **P3.7** full-stack local verification (colima vz VM) + two shipped
+  findings: `fix/cors-env-parsing` (`954cf05`) — a P0 boot-blocker where
+  docker-compose's bare-string `API_CORS_ORIGINS` default crashed every
+  container boot at settings load (pydantic-settings demands JSON for list
+  fields at the source level, before validators run); now NoDecode +
+  tolerant validator (bare string, comma list, JSON — malformed JSON still
+  fails loudly). And `fix/ai-status-test-seam` (`f55ceaa`) — a test left
+  patching the pre-P3.4 probe seam passed only while another test primed
+  the shared cache; now deterministic. DEMO.md §4 page-by-page verified
+  against the live stack (see README Status): stats 35/12c/12h/9m/2l,
+  35 alert rows, 20 logs, 3 cases, 15 TI, 100 rules, suppressions 200 `[]`
+  (route-shadowing fix holding). Phase 1 XSS fix verified in rendered
+  reality: a live-stored `<img src=x onerror=alert(1)>` note renders as
+  escaped inert text in the dashboard's note card. Findings logged: host
+  Ollama on this machine lacks `mistral:7b` (demo run used the documented
+  `OLLAMA_MODEL` override); a fresh demo volume seeds only `demo_analyst`
+  (DEMO.md §5's "admin exists" claim is stale — entrypoint bootstrap wrote
+  no admin on this volume).
