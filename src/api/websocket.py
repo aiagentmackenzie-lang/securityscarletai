@@ -28,6 +28,13 @@ _client_filters: dict[WebSocket, dict[str, Optional[str]]] = {}
 _clients_lock = asyncio.Lock()
 MAX_WEBSOCKET_CLIENTS = 100
 
+# P2.4: per-send timeout. A slow (never-reading) client used to stall the
+# broadcast loop indefinitely — and the loop ran in the INGEST hot path, so
+# one stuck dashboard socket could stall event ingestion. Sends are now
+# time-capped; a client that exceeds the cap is EVICTED (same cleanup path
+# as a disconnected client).
+WS_SEND_TIMEOUT_SECONDS = 1.0
+
 # In-memory store for short-lived WS tokens (5 min TTL)
 # Key: token string, Value: {"username": ..., "role": ..., "expires": float}
 _ws_tokens: dict[str, dict] = {}
@@ -188,7 +195,17 @@ async def broadcast_event(event: NormalizedEvent) -> None:
             continue
         try:
             if client.client_state == WebSocketState.CONNECTED:
-                await client.send_json(message)
+                # P2.4: never let a slow client stall the broadcast (and with
+                # it, whatever called us). Timeout → evict the client.
+                await asyncio.wait_for(
+                    client.send_json(message), timeout=WS_SEND_TIMEOUT_SECONDS
+                )
+        except asyncio.TimeoutError:
+            log.warning(
+                "ws_broadcast_slow_client_evicted",
+                timeout_seconds=WS_SEND_TIMEOUT_SECONDS,
+            )
+            disconnected.append(client)
         except Exception as e:  # pragma: no cover — defensive
             log.exception("ws_broadcast_failed", error=str(e))
             disconnected.append(client)
