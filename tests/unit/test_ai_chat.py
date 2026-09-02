@@ -118,7 +118,11 @@ class TestChatIntegration:
         """Chat should build context even when LLM is unavailable."""
         from src.ai.chat import chat
 
-        with patch("src.ai.chat.query_llm", new_callable=AsyncMock) as mock_llm:
+        with (
+            patch("src.ai.chat.query_llm", new_callable=AsyncMock) as mock_llm,
+            patch("src.ai.cost_tracker.get_pool", side_effect=OSError("no db in unit tests")),
+        ):
+
             mock_llm.return_value = LLMResult(
                 ok=True, text=FALLBACK_MESSAGE, source="template_library",
                 model_used=None, tokens_in=0, tokens_out=0, latency_ms=0,
@@ -147,7 +151,11 @@ class TestChatIntegration:
         """Chat with injection attempt should sanitize and respond."""
         from src.ai.chat import chat
 
-        with patch("src.ai.chat.query_llm", new_callable=AsyncMock) as mock_llm:
+        with (
+            patch("src.ai.chat.query_llm", new_callable=AsyncMock) as mock_llm,
+            patch("src.ai.cost_tracker.get_pool", side_effect=OSError("no db in unit tests")),
+        ):
+
             mock_llm.return_value = LLMResult(
                 ok=True, text="I can help with security questions.", source="ollama",
                 model_used="mistral:7b", tokens_in=10, tokens_out=8, latency_ms=200,
@@ -167,7 +175,11 @@ class TestChatIntegration:
         """Normal security question should get a response."""
         from src.ai.chat import chat
 
-        with patch("src.ai.chat.query_llm", new_callable=AsyncMock) as mock_llm:
+        with (
+            patch("src.ai.chat.query_llm", new_callable=AsyncMock) as mock_llm,
+            patch("src.ai.cost_tracker.get_pool", side_effect=OSError("no db in unit tests")),
+        ):
+
             mock_llm.return_value = LLMResult(
                 ok=True, text="Focus on the 2 critical alerts first.", source="ollama",
                 model_used="mistral:7b", tokens_in=10, tokens_out=8, latency_ms=200,

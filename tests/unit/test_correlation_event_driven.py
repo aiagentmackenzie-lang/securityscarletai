@@ -116,7 +116,13 @@ class TestRunAllCorrelationsContract:
         acquirer.__aexit__ = AsyncMock(return_value=None)
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
-        with patch("src.detection.correlation.get_pool", return_value=mock_pool):
+        with (
+            patch("src.detection.correlation.get_pool", return_value=mock_pool),
+            # persist path also calls create_alert, which imports its OWN
+            # get_pool (alerts.py:21) — fail it instantly; create_alert swallows
+            # the error and the observable outcome is unchanged.
+            patch("src.detection.alerts.get_pool", side_effect=OSError("no db in unit tests")),
+        ):
             result = await corr.run_all_correlations(
                 as_of=datetime(2026, 5, 31, 22, 0, 0, tzinfo=timezone.utc),
                 persist=True,

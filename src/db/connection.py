@@ -15,6 +15,9 @@ log = get_logger("db.connection")
 _pool: asyncpg.Pool | None = None
 _pool_lock = asyncio.Lock()
 
+# Test seam: replace asyncio.sleep in get_pool with this alias
+_SLEEP = asyncio.sleep  # test seam — patch in unit tests to skip real backoff
+
 # Retry config for cold-start / rolling deploys
 DB_RETRY_MAX_ATTEMPTS = 5
 DB_RETRY_BASE_DELAY = 1.0  # seconds
@@ -62,7 +65,7 @@ async def get_pool() -> asyncpg.Pool:
                             attempt=attempt,
                             delay=delay,
                         )
-                        await asyncio.sleep(delay)
+                        await _SLEEP(delay)
     return _pool
 
 

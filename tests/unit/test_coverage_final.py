@@ -141,14 +141,13 @@ class TestAiStatusEndpoint:
 
         with (
             patch("src.api.ai.get_ueba", AsyncMock(return_value=mock_ueba)),
-            # P3.4: get_status uses the CACHED probe seam — patch that, not
-            # the old is_ollama_available (whose result is now ignored, and
-            # whose absence left this test at the mercy of the shared
-            # module-level cache + real host Ollama).
             patch(
                 "src.api.health._cached_ollama_check",
                 AsyncMock(return_value=(True, "mistral:7b", None)),
             ),
+            # get_status -> triage.latest_provenance() -> get_pool: fail the
+            # pool INSTANTLY instead of the real 15s retry storm.
+            patch("src.ai.alert_triage.get_pool", side_effect=OSError("no db in unit tests")),
         ):
             result = await get_status(_user={"sub": "analyst1", "role": "viewer"})
 

@@ -112,7 +112,13 @@ class TestExplainAlert:
             latency_ms=300, fallback_used=False, prompt_version="v1.0.0",
         )
 
-        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)):
+        with (
+
+            patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)),
+
+            patch("src.ai.cost_tracker.get_pool", side_effect=OSError("no db in unit tests")),
+
+        ):
             result = await explain_alert(
                 rule_name="Brute Force SSH",
                 rule_description="Multiple failed SSH login attempts",
@@ -135,7 +141,10 @@ class TestExplainAlert:
             tokens_in=0, tokens_out=0, latency_ms=0, fallback_used=True,
             warning="Ollama not responding", prompt_version="v1.0.0",
         )
-        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)):
+        with (
+            patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)),
+            patch("src.ai.cost_tracker.get_pool", side_effect=OSError("no db in unit tests")),
+        ):
             result = await explain_alert(
                 rule_name="brute_force_ssh",
                 rule_description="Multiple failed SSH login attempts",
@@ -162,7 +171,10 @@ class TestExplainAlert:
             tokens_in=0, tokens_out=0, latency_ms=0, fallback_used=True,
             warning="Ollama not responding", prompt_version="v1.0.0",
         )
-        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)):
+        with (
+            patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)),
+            patch("src.ai.cost_tracker.get_pool", side_effect=OSError("no db in unit tests")),
+        ):
             result = await explain_alert(
                 rule_name="custom_alert_xyz",
                 rule_description="Custom alert description",
@@ -190,9 +202,12 @@ class TestExplainAlert:
             latency_ms=300, fallback_used=False, prompt_version="v1.0.0",
         )
 
-        with patch(
-            "src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)
-        ) as mock_llm:
+        with (
+            patch(
+                "src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)
+            ) as mock_llm,
+            patch("src.ai.cost_tracker.get_pool", side_effect=OSError("no db in unit tests")),
+        ):
             await explain_alert(
                 rule_name="C2 Beaconing",
                 rule_description="Regular connections to suspicious IPs",
@@ -216,7 +231,10 @@ class TestExplainAlert:
             model_used="mistral:7b", tokens_in=20, tokens_out=15,
             latency_ms=300, fallback_used=False, prompt_version="v1.0.0",
         )
-        with patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)):
+        with (
+            patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)),
+            patch("src.ai.cost_tracker.get_pool", side_effect=OSError("no db in unit tests")),
+        ):
             result = await explain_alert(
                 rule_name="Simple Alert",
                 rule_description="A simple alert",
