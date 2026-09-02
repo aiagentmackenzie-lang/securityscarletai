@@ -9,6 +9,7 @@ Covers:
 - Ping/pong and filter messages
 """
 
+import asyncio
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
@@ -133,6 +134,64 @@ class TestBroadcastEvent:
         assert message["user_name"] is None
         assert message["source_ip"] is None
         assert message["destination_ip"] is None
+
+
+class TestBroadcastBackpressure:
+    """P2.4 — a slow (never-reading) client must not stall the broadcast and
+    must get evicted, not waited on."""
+
+    @pytest.mark.asyncio
+    async def test_slow_client_evicted_within_send_timeout(self):
+        import time as _time
+
+        from starlette.websockets import WebSocketState
+
+        from src.api.websocket import WS_SEND_TIMEOUT_SECONDS
+
+        slow_client = MagicMock()
+        slow_client.client_state = WebSocketState.CONNECTED
+
+        async def never_completes(message):
+            await asyncio.sleep(30)  # far beyond the 1s send cap
+
+        slow_client.send_json = never_completes
+        _connected_clients.append(slow_client)
+
+        t0 = _time.monotonic()
+        await broadcast_event(make_test_event())
+        elapsed = _time.monotonic() - t0
+
+        # broadcast returned inside the wait bound (not blocked for 30s)
+        assert elapsed < WS_SEND_TIMEOUT_SECONDS + 2.0
+        # slow client was evicted from the registry
+        assert slow_client not in _connected_clients
+
+    @pytest.mark.asyncio
+    async def test_slow_client_does_not_block_fast_clients(self):
+        """A stuck client must not stop delivery to healthy clients in the
+        same broadcast round."""
+        from starlette.websockets import WebSocketState
+
+        slow_client = MagicMock()
+        slow_client.client_state = WebSocketState.CONNECTED
+
+        async def never_completes(message):
+            await asyncio.sleep(30)
+
+        slow_client.send_json = never_completes
+
+        fast_client = MagicMock()
+        fast_client.client_state = WebSocketState.CONNECTED
+        fast_client.send_json = AsyncMock()
+
+        # slow first, fast second — the slow one must not poison the round
+        _connected_clients.extend([slow_client, fast_client])
+
+        await broadcast_event(make_test_event())
+
+        fast_client.send_json.assert_called_once()
+        assert slow_client not in _connected_clients
+        assert fast_client in _connected_clients
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

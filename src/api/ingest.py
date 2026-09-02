@@ -99,6 +99,7 @@ async def ingest_events(
 
     count = 0
     hosts_in_batch: set[str] = set()
+    batch_events: list[NormalizedEvent] = []  # P2.4: broadcast happens in the background
     for event_data in events:
         event = NormalizedEvent(
             **event_data.model_dump(by_alias=True),
@@ -107,14 +108,11 @@ async def ingest_events(
         await writer.write(event)
         if event.host_name:
             hosts_in_batch.add(event.host_name)
-        # P1-13: broadcast to connected WebSocket clients (/ws/logs). Best-effort —
-        # a failure here never affects ingestion.
-        try:
-            from src.api.websocket import broadcast_event
-
-            await broadcast_event(event)
-        except Exception as e:  # pragma: no cover — defensive
-            log.debug("ws_broadcast_failed", error=str(e))
+        # P2.4: broadcast MOVED OUT of the ingest hot path — it now runs in
+        # the per-batch _post_process task below. WS delivery is presentation,
+        # not ingestion: awaiting a send loop per event (with no send timeout)
+        # let one slow dashboard socket stall the ingest request.
+        batch_events.append(event)
         count += 1
 
     # Epic 9: fire-and-forget enrichment + correlation per batch.
@@ -209,6 +207,17 @@ async def ingest_events(
 
             async def _post_process():
                 try:
+                    # P2.4: broadcast the persisted batch off the hot path.
+                    # Best-effort (P1-13) — a failure here never affects
+                    # ingestion, and broadcast_event itself time-caps each
+                    # send (slow clients get evicted, not waited on).
+                    for event in batch_events:
+                        try:
+                            from src.api.websocket import broadcast_event
+
+                            await broadcast_event(event)
+                        except Exception as e:  # pragma: no cover — defensive
+                            log.debug("ws_broadcast_failed", error=str(e))
                     await _enrich_and_writeback()
                     # Correlation seam (Agent A owns correlation.py; this call
                     # is the integration point). Runs across all rules and
