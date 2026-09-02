@@ -191,6 +191,10 @@ Key endpoints (all under `/api/v1`):
 | `/threat-intel/refresh` | POST | Force-refresh threat intel feeds |
 | `/threat-intel/lookup/ip/{ip}` | GET | Lookup IP against all feeds |
 | `/audit/requests` | GET | Query HTTP request audit log (DB-backed) |
+| `/users` | GET | List users (admin; never password_hash) |
+| `/users` | POST | Create user (admin; must_change_password=true) |
+| `/users/{id}` | PATCH | Role change / activate-deactivate (admin; sets user_revoke marker) |
+| `/users/{id}/reset-password` | POST | One-time random password (admin; returned once, never logged) |
 | `/auth/login` | POST | Login (rate-limited 5/min/IP) |
 | `/auth/me` | GET | Current user info |
 | `/auth/change-password` | POST | Change password (invalidates all sessions) |

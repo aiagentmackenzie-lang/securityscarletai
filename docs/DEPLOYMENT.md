@@ -652,11 +652,18 @@ docker compose logs api
 ```bash
 # The admin password is written to data/admin_initial_password (chmod 600)
 # on first boot and echoed to stdout once. It is NOT re-printed later.
-# If the file is gone and you can't log in, reset the password via psql:
 cat data/admin_initial_password   # the first-boot copy, if still present
 
-# If locked out, reset via psql (generate a new hash with the API's
-# hash_password, or just clear the lockout fields):
+# Preferred reset path — the admin user-management API (Phase 3.1).
+# Log in as another admin (or use the API bearer token) and reset:
+curl -X POST http://localhost:8000/api/v1/users/1/reset-password \
+  -H "Authorization: Bearer $ADMIN_JWT"
+# → returns a one-time temporary_password; the user is forced to change it
+#   on first login (must_change_password=true). Existing sessions are
+#   revoked immediately. Never reset via raw SQL — it bypasses hashing and
+#   the revoke marker.
+
+# If the ONLY admin is locked out (not merely forgotten), clear the lockout:
 psql -h localhost -p 5433 -U scarletai -d scarletai -c \
   "UPDATE siem_users SET failed_login_attempts = 0, locked_until = NULL WHERE username = 'admin';"
 
