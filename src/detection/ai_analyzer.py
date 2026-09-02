@@ -14,6 +14,7 @@ import json
 from typing import Any, Optional, cast
 
 from src.ai.ollama_client import query_llm
+from src.ai.untrusted import fence
 from src.config.logging import get_logger
 from src.db.connection import get_pool
 
@@ -28,16 +29,21 @@ SYSTEM_PROMPT = (
 
 def build_prompt(rule_name: str, severity: str, host_name: str, evidence: dict) -> str:
     """Build the analysis prompt for Ollama."""
+    # LLM01 fencing (Phase 1, 2026-09-01): host_name and evidence are
+    # ingest-fed / attacker-writable — fenced as untrusted telemetry.
+    # rule_name and severity stay outside the fence (admin/trusted input).
+    fenced_host = fence(host_name, label="host_name (ingest-fed)")
     # Truncate evidence to avoid token overflow
     evidence_str = json.dumps(evidence, default=str, indent=2)[:2000]
+    fenced_evidence = fence(evidence_str, label="alert evidence (ingest-fed)")
 
     return (
         f"Analyze this security alert and provide a structured assessment.\n\n"
         f"ALERT DETAILS:\n"
         f"- Rule: {rule_name}\n"
         f"- Severity: {severity}\n"
-        f"- Host: {host_name}\n"
-        f"- Evidence: {evidence_str}\n\n"
+        f"- Host: {fenced_host}\n"
+        f"- Evidence: {fenced_evidence}\n\n"
         f"Respond in this EXACT JSON format (no other text):\n"
         f'{{\n'
         f'  "summary": "One sentence describing what happened",\n'
@@ -110,6 +116,17 @@ async def analyze_alert(
     if analysis is None:
         log.warning("ai_parse_failed", alert_id=alert_id, raw=raw_response.text[:200])
         return None
+
+    # LLM01 hardening (Phase 1, 2026-09-01): validate risk_score. A string
+    # ("high") or bool from the LLM would crash enrich_alert's UPDATE and
+    # abort the rule's alert loop. Non-numeric/bool -> 50; out-of-range
+    # clamped to [0, 100].
+    raw_score = analysis.get("risk_score")
+    if isinstance(raw_score, bool) or not isinstance(raw_score, (int, float)):
+        analysis["risk_score"] = 50
+        log.warning("ai_risk_score_invalid", alert_id=alert_id, raw=repr(raw_score))
+    elif not 0 <= float(raw_score) <= 100:
+        analysis["risk_score"] = int(max(0, min(100, float(raw_score))))
 
     log.info(
         "ai_analysis_complete",
