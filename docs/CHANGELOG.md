@@ -8,6 +8,61 @@ locally, out of the public repo.
 Severity key: **P0** = exploitable / ship-blocker · **P1** = control-bypass or
 data-integrity gap · **P2** = quality / slop / doc drift.
 
+## 2026-09-02 — Phase 2 (hard boundaries)
+
+Merged to `main`. Each fix shipped on its own branch via `--no-ff` merge;
+tests went 1473 → 1525 passed (unit, `--no-cov`).
+
+- **P2.1** `fix/redis-degradation` (`98189b4`) — the documented "fails back
+  to in-memory" rate-limit fallback never existed (Redis storage connects
+  lazily, so the construction-time try/except was dead code; a dead Redis
+  500'd every rate-limited request). Now `in_memory_fallback_enabled=True`:
+  storage failures are caught at REQUEST time, checks serve from a
+  memory-backed strategy, and the backend is re-probed with exponential
+  backoff to recover without a restart. Redis client converted to
+  `redis.asyncio` (P2-32): revocation checks, blocklist, and lockout ops no
+  longer block the event loop (F-08 bounded-retry + cooldown preserved,
+  awaited backoff). Fail-open semantics unchanged.
+- **P2.2** `fix/stream-cap-request-body` (`8cf54ca`) — chunked request
+  bodies were buffered ENTIRELY in RAM before the 1 MB check (memory-DoS:
+  any chunked uploader pinned unbounded RAM per request). The stream is now
+  consumed in chunks and aborted with 413 the moment the cap is exceeded.
+  Hardening bonus: garbage/negative/conflicting Content-Length headers
+  return 400 instead of raising ValueError → 500 (also kills a request-
+  smuggling primitive).
+- **P2.3** `fix/pagination-bounds` (`36e974f`) — `/alerts` (≤1000), `/cases`
+  (≤500), and `/correlation/matches` (≤1000) now bound their pagination via
+  Annotated Query constraints (`?limit=10000000` used to pull the whole
+  table into memory; logs/audit were already bounded, these weren't).
+- **P2.4** `fix/ws-backpressure` (`9d3397f`) — WebSocket broadcast moved off
+  the ingest hot path into the per-batch background task (one slow
+  dashboard socket used to stall event ingestion), and every send is
+  capped with a 1 s `asyncio.wait_for` — slow clients get EVICTED, not
+  waited on. F-16 filter semantics unchanged.
+- **P2.5** `fix/ti-negative-cache` (`bcbb9ce`) — every IOC-cache miss fired
+  a LIVE AbuseIPDB check (attacker-sprayed fresh IPs burned the daily
+  quota, leaving enrichment blind). Clean results are now negative-cached
+  in Redis for 1 h, live calls are capped by an hourly budget (default
+  500, env `ABUSEIPDB_HOURLY_BUDGET`), API errors are never cached as
+  clean, and Redis-down = documented fail-open.
+- **P2.6** `fix/scoped-ingest-token` (`122483b`) — a leaked static bearer
+  was FULL ADMIN everywhere. New optional `INGEST_BEARER_TOKEN` is
+  viewer-class and honored ONLY on the ingest router: `get_current_user`
+  rejects it on every other endpoint, `get_ingest_client` (new, wired to
+  `/ingest`) accepts admin bearer + dashboard JWTs + the scoped token.
+  Unset → byte-for-byte pre-P2.6 behavior.
+- **P2.7** `fix/ml-off-event-loop` (`51497d6`) — `/ai/train` (and the
+  hourly auto-train) froze the whole API for the fit duration: RF fit,
+  CV score, the v2 per-fold CalibratedClassifierCV loop, the final
+  calibration fit, and UEBA's IsolationForest all ran synchronously inside
+  async methods. All CPU-bound blocks now run via `asyncio.to_thread`;
+  thread-identity tests pin the behavior.
+- **P2.8** `fix/sigma-limits-rules-validation` (`8145c5d`) — simple
+  detection queries carry a parameterized LIMIT (`MAX_DETECTION_ROWS`
+  = 1000); rules API bounds create + patch: `run_interval` ≥30 s, lookback
+  ≤24 h, threshold ≥1, severity restricted to the known enum (off-enum
+  values 500'd on the DB enum — now a clean 422).
+
 ## 2026-09-01 — Phase 1 (trust & truth)
 
 Merged to `main`. Each fix shipped on its own branch via `--no-ff` merge;
