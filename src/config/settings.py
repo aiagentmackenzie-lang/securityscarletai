@@ -154,6 +154,29 @@ class Settings(BaseSettings):
             raise ValueError("You must set a real DB_PASSWORD in .env — do not use the placeholder")
         return v
 
+    # Phase 1.5 (trust & truth), 2026-09-01: all three required secrets are
+    # placeholder-gated — a deployment booting with a documented placeholder
+    # crashes at startup instead of running on a public secret.
+    @field_validator("api_secret_key")
+    @classmethod
+    def api_secret_key_not_placeholder(cls, v: SecretStr) -> SecretStr:
+        if "CHANGE_ME" in v.get_secret_value():
+            raise ValueError(
+                "You must set a real API_SECRET_KEY in .env — do not use the placeholder. "
+                "Generate with: openssl rand -hex 64"
+            )
+        return v
+
+    @field_validator("api_bearer_token")
+    @classmethod
+    def api_bearer_token_not_placeholder(cls, v: SecretStr) -> SecretStr:
+        if "CHANGE_ME" in v.get_secret_value():
+            raise ValueError(
+                "You must set a real API_BEARER_TOKEN in .env — do not use the placeholder. "
+                "Generate with: openssl rand -hex 32"
+            )
+        return v
+
 
 # Singleton — import this everywhere
 settings = Settings()
