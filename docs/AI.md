@@ -126,7 +126,7 @@ The `AlertTriageModel.FEATURES` list defines the input feature vector:
 
 ### Training Pipeline
 
-1. Alerts with status `resolved` or `false_positive` are pulled from the DB as training data (positive = `true_positive`, negative = `false_positive`).
+1. Alerts with status `resolved` or `closed` are pulled from the DB as positive training data (label = 1); `false_positive` alerts are negatives (label = 0).
 2. For development without real labels, `scripts/generate_training_data.py` produces 1,000 stratified synthetic alerts (seed=42, deterministic).
 3. Features are extracted from each alert's context.
 4. `RandomForestClassifier(n_estimators=50, class_weight="balanced")` is wrapped in `CalibratedClassifierCV(cv=3, method="isotonic")`.

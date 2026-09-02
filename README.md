@@ -2,7 +2,7 @@
 
 **AI-Native SIEM for macOS** — Real-time log ingestion, Sigma-based detection, ML-powered alert triage, and LLM-driven investigation assistance.
 
-> **Status (verified 2026-08-26):** CI green on `main` · 1283 tests passing (5 skipped — need live Postgres/Redis/Ollama) · 84% coverage (CI-enforced ≥80%) · 100 Sigma rules. Counts are hand-verified against the code; no auto-updating badge.
+> **Status (verified 2026-09-01):** CI green on `main` · 1473 unit tests passing (mocked DB) · 5 integration tests (skipped — need live Postgres/Redis/Ollama) · 84% coverage (CI-enforced ≥80%) · 100 Sigma rules. Counts are hand-verified against the code; no auto-updating badge.
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow)]()
@@ -345,7 +345,7 @@ access from the dashboard.
 ## Testing
 
 ```bash
-# Run the full unit suite (1283 tests, mocked DB, ~30s)
+# Run the full unit suite (1473 tests, mocked DB, ~30s)
 poetry run pytest tests/unit/ -q --no-cov
 
 # With coverage report (gate: 80%; currently ~84%)
@@ -433,8 +433,8 @@ Deliberate constraints, written down instead of hidden:
   (REVOKE-based) immutability requires the two-role deploy in
   `scripts/harden_audit.sql`; single-role deploys can't bind it.
 - **JWT library** is `python-jose 3.5.0` (clears known CVEs, but the project
-  is unmaintained) — tracked as backlog F-25 (PyJWT migration), see
-  `docs/internal/BACKLOG_PYJWT_MIGRATION.md`.
+  is unmaintained) — tracked as backlog F-25 (PyJWT migration; the internal
+  migration notes are not part of the repo).
 - **Dashboard logout is meaningful for 15 minutes.** Access-token TTL is
   short by design (server-side logout blocklists the token); the dashboard
   does not currently auto-rotate via the refresh endpoint, so long sessions
@@ -561,7 +561,7 @@ securityscarletai/
 │   ├── analyze_alerts.py         # Ad-hoc alert analysis helper
 │   ├── validate_config.py        # Validate .env / settings
 │   └── backup.sh                 # Reference pg_dump backup script
-├── tests/                   # 1283 unit tests + 5 integration tests (skipped w/o live services)
+├── tests/                   # 1473 unit tests + 5 integration tests (skipped w/o live services)
 ├── docs/                    # AI.md, RULES.md, DEPLOYMENT.md, ATTACK-SCENARIOS.md
 └── docker-compose.yml       # Postgres 17 + Redis 7 + API + dashboard
 ```
