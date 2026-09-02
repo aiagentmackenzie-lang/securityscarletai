@@ -45,3 +45,16 @@ node_modules/
 
 # Docker
 docker-compose.override.yml
+
+# Orchestrator B4: not referenced by any Dockerfile COPY — keep the build
+# context lean.
+docs/
+.agent-briefs/
+models/
+deploy/
+docker-compose*.yml
+.github/
+Makefile
+SECURITY.md
+LICENSE
+.trivyignore
