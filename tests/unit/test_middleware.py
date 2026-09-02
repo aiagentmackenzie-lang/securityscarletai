@@ -2,7 +2,9 @@
 Tests for API middleware.
 
 Covers:
-- RequestValidationMiddleware body size check
+- RequestValidationMiddleware body size check (P2.2: stream-cap — aborts
+  mid-stream at the cap, never buffers unbounded bodies; garbage
+  Content-Length headers 4xx instead of 500)
 - RequestValidationMiddleware content-type enforcement
 - AuditLogMiddleware logging of state-changing requests
 """
@@ -10,6 +12,8 @@ Covers:
 from unittest.mock import MagicMock
 
 import pytest
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import JSONResponse
 
 from src.api.middleware import AuditLogMiddleware, RequestValidationMiddleware, limiter
 
@@ -99,3 +103,143 @@ class TestMiddlewareIntegration:
             headers={"content-type": "application/json"},
         )
         assert response.status_code == 200
+
+    def test_post_over_content_length_limit_413(self, client):
+        """A declared Content-Length over 1MB must 413 before the body is read."""
+        response = client.post("/api/v1/test", content=b"x" * 1_100_000)
+        assert response.status_code == 413
+
+
+def _make_stream_request(
+    method: str = "POST",
+    path: str = "/api/v1/test",
+    headers: list[tuple[bytes, bytes]] | None = None,
+    messages: list[dict] | None = None,
+):
+    """Build a real starlette Request whose receive() replays `messages`.
+
+    Returns (request, consumed_count_getter, call_next_spy) so tests can
+    assert EXACTLY how much of the stream the middleware pulled before
+    aborting — the heart of the P2.2 memory-DoS fix.
+    """
+    remaining = list(messages or [])
+    consumed: list[dict] = []
+
+    async def receive():
+        if not remaining:
+            return {"type": "http.request", "body": b"", "more_body": False}
+        msg = remaining.pop(0)
+        consumed.append(msg)
+        return msg
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": method,
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": headers or [],
+        "client": ("10.1.2.3", 55555),
+        "server": ("testserver", 80),
+    }
+    request = StarletteRequest(scope, receive)
+    return request, consumed
+
+
+class TestStreamCapP2_2:
+    """P2.2 — chunked bodies are capped DURING the stream (no full-buffer
+    before the check), and garbage Content-Length headers 4xx instead of
+    500ing on int()."""
+
+    @pytest.fixture
+    def mw(self):
+        return RequestValidationMiddleware(app=MagicMock())  # type: ignore[arg-type]
+
+    @staticmethod
+    def _ok_call_next(request):
+        async def _inner(req):
+            return JSONResponse({"ok": True})
+
+        return _inner
+
+    def _ok(self):
+        """call_next that never touches the request body — for 4xx-before-read tests."""
+        return self._ok_call_next(None)
+
+    @pytest.mark.asyncio
+    async def test_chunked_body_over_limit_aborts_mid_stream(self, mw):
+        """The 413 must fire BEFORE the third chunk is even read — the old
+        code buffered every byte first."""
+        big = b"x" * 700_000  # 2 chunks = 1.4MB > 1MB cap
+        messages = [
+            {"type": "http.request", "body": big, "more_body": True},
+            {"type": "http.request", "body": big, "more_body": True},
+            {"type": "http.request", "body": big, "more_body": False},
+        ]
+        request, consumed = _make_stream_request(messages=messages)
+        called = {"next": False}
+
+        async def call_next(req):
+            called["next"] = True
+            return JSONResponse({"ok": True})
+
+        response = await mw.dispatch(request, call_next)
+        assert response.status_code == 413
+        # exactly 2 messages consumed: abort fired as soon as the cap was hit
+        assert len(consumed) == 2
+        # call_next must never have run for a rejected body
+        assert called["next"] is False
+
+    @pytest.mark.asyncio
+    async def test_garbage_content_length_returns_400(self, mw):
+        request, _ = _make_stream_request(
+            headers=[(b"content-length", b"totally-not-a-number")],
+            messages=[],
+        )
+        response = await mw.dispatch(request, self._ok())
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_negative_content_length_returns_400(self, mw):
+        request, _ = _make_stream_request(
+            headers=[(b"content-length", b"-5")],
+            messages=[],
+        )
+        response = await mw.dispatch(request, self._ok())
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_multiple_content_length_values_returns_400(self, mw):
+        """Conflicting Content-Length headers (smuggling primitive) → 400."""
+        request, _ = _make_stream_request(
+            headers=[(b"content-length", b"5, 5")],
+            messages=[],
+        )
+        response = await mw.dispatch(request, self._ok())
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_chunked_body_under_limit_is_reinjected(self, mw):
+        """A bounded chunked body must reach the endpoint intact (re-injected
+        receive) — the endpoint sees the exact bytes that were streamed."""
+        seen = {}
+
+        async def call_next(req):
+            body = await req.body()
+            seen["size"] = len(body)
+            seen["content"] = body
+            return JSONResponse({"size": len(body)})
+
+        request, _ = _make_stream_request(
+            messages=[
+                {"type": "http.request", "body": b"hello ", "more_body": True},
+                {"type": "http.request", "body": b"chunked world", "more_body": False},
+            ],
+        )
+        response = await mw.dispatch(request, call_next)
+        assert response.status_code == 200
+        assert seen["content"] == b"hello chunked world"
