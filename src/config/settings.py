@@ -88,6 +88,10 @@ class Settings(BaseSettings):
     # air-gapped / no-egress deployments (see docs/AIR-GAPPED.md).
     threat_intel_enabled: bool = True
     abuseipdb_api_key: Optional[str] = None
+    # P2.5: per-feed hourly live-call budget for AbuseIPDB (quota protection).
+    # A hostile agent spraying fresh IPs burned the DAILY quota on clean lookups
+    # before this — the negative cache + budget cap the live-call rate.
+    abuseipdb_hourly_budget: int = 500
     otx_api_key: Optional[str] = None
 
     # --- Notifications ---
