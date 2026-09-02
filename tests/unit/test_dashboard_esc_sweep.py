@@ -17,6 +17,8 @@ tests correct in any collection order, before or after the stub lands.
 
 from dashboard.alerts_view import (
     _expander_title as _alert_expander_title,
+)
+from dashboard.alerts_view import (
     _note_card_html as _alert_note_card_html,
 )
 from dashboard.cases_view import _note_card_html

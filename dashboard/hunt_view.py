@@ -216,7 +216,10 @@ def render_hunt_view():
                                     or []
                                 )
                                 if techniques:
-                                    st.write(f"**MITRE Techniques:** {', '.join(str(t) for t in techniques)}")
+                                    st.write(
+                                        "**MITRE Techniques:** "
+                                        + ", ".join(str(t) for t in techniques)
+                                    )
                                 hunt_id_suggest = hunt.get("id") or ""
                                 if can_write() and hunt_id_suggest:
                                     if st.button("Execute", key=f"exec_suggest_{hunt_id_suggest}"):
