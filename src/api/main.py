@@ -22,6 +22,8 @@ from src.api.health import router as health_router
 from src.api.hunt import router as hunt_router
 from src.api.ingest import router as ingest_router
 from src.api.logs import router as logs_router
+from src.api.metrics import MetricsMiddleware
+from src.api.metrics import router as metrics_router
 from src.api.middleware import AuditLogMiddleware, RequestValidationMiddleware
 from src.api.query import router as query_router
 from src.api.rate_limit import (
@@ -267,6 +269,7 @@ app.include_router(cases_router, prefix="/api/v1")
 app.include_router(query_router, prefix="/api/v1")
 app.include_router(logs_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
+app.include_router(metrics_router, prefix="/api/v1")
 
 # Add middleware for request validation and audit logging
 app.add_middleware(RequestValidationMiddleware)
@@ -277,3 +280,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]  # slowapi handler sig vs Starlette
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(RateLimitHeadersMiddleware)
+
+# P3.3: HTTP request count + latency metrics. Added LAST so it is the
+# outermost middleware — rate-limit 429s and validation 4xx are counted too.
+app.add_middleware(MetricsMiddleware)

@@ -169,6 +169,7 @@ Key endpoints (all under `/api/v1`):
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check (API, DB, rich Ollama status block) |
+| `/metrics` | GET | Prometheus metrics (scrape token or analyst role) |
 | `/ingest` | POST | Ingest log events (rate-limited 100/min/IP; bearer token required) |
 | `/alerts` | GET | List alerts with filtering and pagination |
 | `/correlation/rules` | GET | List all 7 correlation rules |

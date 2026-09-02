@@ -54,6 +54,17 @@ class LogWriter:
         self._flush_task = asyncio.create_task(self._periodic_flush())
         log.info("writer_started", batch_size=self._batch_size, flush_interval=self._flush_interval)
 
+    # P3.3: read-only views for GET /metrics (live gauges at scrape time).
+    @property
+    def buffer_depth(self) -> int:
+        """Events currently buffered, waiting to be written."""
+        return len(self._buffer)
+
+    @property
+    def backpressure_events(self) -> int:
+        """Times the buffer hit its cap and flushed under backpressure."""
+        return self._backpressure_events
+
     async def stop(self) -> None:
         """Flush remaining events and stop."""
         if self._flush_task:
