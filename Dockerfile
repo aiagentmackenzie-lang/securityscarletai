@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install Poetry (pinned version for reproducibility)
-RUN pip install poetry==2.0.1
+RUN pip install poetry
 
 # Copy project files
 COPY pyproject.toml poetry.lock ./
@@ -12,7 +12,7 @@ COPY pyproject.toml poetry.lock ./
 RUN poetry config virtualenvs.create false
 
 # Install dependencies (without dev, no root, no-ansi)
-RUN poetry install --without dev --no-root --no-interaction --no-ansi
+RUN poetry install --no-root --no-interaction --no-ansi
 
 # Copy application code
 COPY src/ ./src/
