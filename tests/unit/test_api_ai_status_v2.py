@@ -22,9 +22,9 @@ class TestGetStatusIncludesProvenance:
         with patch("src.api.ai.AlertTriageModel") as MockModel, patch(
             "src.api.ai.get_ueba"
         ) as mock_ueba, patch(
-            "src.ai.ollama_client.is_ollama_available",
+            "src.api.health._cached_ollama_check",
             new_callable=AsyncMock,
-            return_value=False,
+            return_value=(False, None, "unreachable"),
         ):
             instance = MockModel.return_value
             instance.get_status.return_value = {
@@ -66,7 +66,7 @@ class TestGetStatusIncludesProvenance:
         with patch("src.api.ai.AlertTriageModel") as MockModel, patch(
             "src.api.ai.get_ueba"
         ) as mock_ueba, patch(
-            "src.ai.ollama_client.is_ollama_available", new_callable=AsyncMock, return_value=False
+            "src.api.health._cached_ollama_check", new_callable=AsyncMock, return_value=(False, None, "unreachable")
         ):
             instance = MockModel.return_value
             instance.get_status.return_value = {"is_trained": True, "model_type": "X"}
@@ -92,7 +92,7 @@ class TestGetStatusIncludesProvenance:
         with patch("src.api.ai.AlertTriageModel") as MockModel, patch(
             "src.api.ai.get_ueba"
         ) as mock_ueba, patch(
-            "src.ai.ollama_client.is_ollama_available", new_callable=AsyncMock, return_value=False
+            "src.api.health._cached_ollama_check", new_callable=AsyncMock, return_value=(False, None, "unreachable")
         ):
             instance = MockModel.return_value
             instance.get_status.return_value = {"is_trained": False}

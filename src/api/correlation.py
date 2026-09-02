@@ -197,41 +197,6 @@ async def run_correlations_post(
     )
 
 
-# Legacy compat: POST /run with PersistFlags body (old shape)
-class PersistFlags(BaseModel):
-    persist_alerts: bool = False
-
-
-@router.post("/run-legacy")
-async def run_correlations_legacy(
-    request: PersistFlags | None = None,
-    user: str = Depends(require_role("analyst")),
-):
-    """Legacy: POST /run with PersistFlags (persist_alerts flag, no as_of)."""
-    persist = request.persist_alerts if request else False
-    result = await run_all_correlations(as_of=None, persist=persist)
-
-    # Enrich with rule metadata (legacy shape: rule_name -> {title, ..., matches})
-    enriched: Dict[str, Any] = {}
-    for rule_name, matches in result["per_rule"].items():
-        info = get_correlation_rule_info(rule_name)
-        enriched[rule_name] = {
-            "title": info["title"] if info else rule_name,
-            "description": info["description"] if info else "",
-            "severity": info["severity"] if info else "medium",
-            "mitre_tactics": info.get("mitre_tactics", []) if info else [],
-            "mitre_techniques": info.get("mitre_techniques", []) if info else [],
-            "match_count": len(matches),
-            "matches": matches,
-        }
-
-    return {
-        "total_matches": result["total_matches"],
-        "rules_run": len(result["per_rule"]),
-        "results": enriched,
-    }
-
-
 @router.post("/run/{rule_name}")
 async def run_single_correlation(
     rule_name: str,

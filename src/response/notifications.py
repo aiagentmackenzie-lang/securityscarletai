@@ -72,6 +72,6 @@ async def send_alert_notification(alert: dict) -> bool:
 *Time:* {alert.get('time', 'Unknown')[:19]}
 *Description:* {alert.get('description', 'No description')}
 
-View in Dashboard: http://localhost:8501"""
+View in Dashboard: {settings.dashboard_public_url}"""
 
     return await send_slack_notification(message)

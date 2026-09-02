@@ -142,9 +142,13 @@ async def get_status(
     ueba = await get_ueba()
     ueba_status = ueba.get_status()
 
-    # Check Ollama availability
-    from src.ai.ollama_client import is_ollama_available
-    ollama_available = await is_ollama_available()
+    # Check Ollama availability — via the CACHED probe (P3.4), same 60s
+    # cache /health uses (P2-34). A fresh 5s HTTP probe per /ai/status call
+    # made dashboard polling expensive for no accuracy gain.
+    from src.api.health import _cached_ollama_check
+
+    available, _model, _error = await _cached_ollama_check()
+    ollama_available = available
 
     return StatusResponse(
         triage=triage_status,
