@@ -14,8 +14,9 @@ Endpoints:
 """
 import json
 from datetime import datetime, timezone
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from src.api.audit import log_audit_action
@@ -82,8 +83,9 @@ async def list_cases(
     status_filter: str | None = None,
     severity: str | None = None,
     assigned_to: str | None = None,
-    limit: int = 100,
-    offset: int = 0,
+    # P2.3: bounded pagination (see alerts.py) — cases cap tighter (500).
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
     user: dict = Depends(get_current_user),
 ):
     """List cases with optional filters (status, severity, assigned_to)."""

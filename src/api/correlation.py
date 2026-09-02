@@ -10,7 +10,7 @@ Correlation detection API endpoints (Agent A, Epic 2).
 - GET  /api/v1/correlation/sequences   — List sequence definitions
 """
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Annotated, Any, Awaitable, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -291,8 +291,9 @@ async def get_correlation_matches(
     since: Optional[str] = None,
     until: Optional[str] = None,
     seen: Optional[bool] = None,
-    limit: int = 100,
-    offset: int = 0,
+    # P2.3: bounded pagination (see alerts.py).
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
     user: dict = Depends(get_current_user),
 ):
     """List persisted correlation matches with filters.
