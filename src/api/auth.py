@@ -15,7 +15,7 @@ import hmac
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 import bcrypt as _bcrypt
 from fastapi import HTTPException, Security, status
@@ -176,6 +176,62 @@ async def verify_force_change_token(
     return cast(dict[str, Any], payload)
 
 
+async def _decode_access_jwt(token: str) -> dict[str, Any]:
+    """Decode + validate an access JWT (shared by get_current_user and
+    get_ingest_client).
+
+    Raises JWTError for undecodable/expired tokens (callers use that to fall
+    through to static-bearer comparison) and HTTPException for policy
+    violations that must NOT fall through: wrong token type (P1-A), revoked
+    jti/user (P1-11), force-change tokens on business endpoints (P1-B).
+    """
+    payload = jwt.decode(
+        token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+    )
+    # P1-A: only access tokens are valid here. A refresh token must NOT work
+    # as an access token on business endpoints (token confusion).
+    # Pre-hardening tokens without a type claim are rejected. The
+    # HTTPException raised here is NOT a JWTError, so it propagates — the
+    # token is rejected rather than falling through to the static-bearer
+    # compare.
+    if payload.get("type") != "access":
+        log.warning("jwt_wrong_type", token_type=payload.get("type"))
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not an access token",
+        )
+    # P1-11: enforce revocation (jti blocklist + user_revoke) on the business
+    # API too. Static bearer tokens below are unaffected (no jti/iat).
+    await _check_revocation(payload)
+    # P1-B: reject force_change_tokens on the business API (same as
+    # verify_jwt above) — they are scoped to /auth/force-change-password.
+    if payload.get("force_password_change"):
+        log.warning("force_token_rejected_on_business_endpoint sub=%s", payload.get("sub"))
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Password change required",
+        )
+    return cast(dict[str, Any], payload)
+
+
+def _static_bearer_identity(token: str) -> Optional[dict[str, Any]]:
+    """Identity for a matching static bearer token, else None.
+
+    P2.6 (blast-radius control): a leaked static bearer used to be FULL ADMIN
+    everywhere. API_BEARER_TOKEN still maps to admin; the OPTIONAL
+    INGEST_BEARER_TOKEN maps to a viewer-class ingest client that is only
+    honored where get_ingest_client is wired (the ingest router).
+    """
+    if secrets.compare_digest(token, settings.api_bearer_token.get_secret_value()):
+        return {"sub": "api-client", "role": "admin"}
+    ingest_token = settings.ingest_bearer_token
+    if ingest_token is not None and secrets.compare_digest(
+        token, ingest_token.get_secret_value()
+    ):
+        return {"sub": "ingest-client", "role": "viewer"}
+    return None
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
 ) -> dict:
@@ -186,44 +242,56 @@ async def get_current_user(
 
     This ensures dashboard (JWT) and external API clients (bearer) both work
     on every endpoint.
+
+    P2.6: the scoped INGEST_BEARER_TOKEN is NOT accepted here — it is a
+    viewer-class credential valid ONLY on the ingest router (which uses
+    get_ingest_client). Every other endpoint 401s it, so a leaked ingest
+    token cannot browse the SIEM.
     """
     token = credentials.credentials
-    secret = settings.api_secret_key.get_secret_value()
 
     # Try JWT first (dashboard users)
     try:
-        payload = jwt.decode(token, secret, algorithms=[JWT_ALGORITHM])
-        # P1-A: only access tokens are valid here. A refresh token must NOT
-        # work as an access token on business endpoints (token confusion).
-        # Pre-hardening tokens without a type claim are rejected. The
-        # HTTPException raised here is NOT a JWTError, so the except below
-        # does not catch it — it propagates and the refresh token is rejected
-        # (rather than silently falling through to the static-bearer compare).
-        if payload.get("type") != "access":
-            log.warning("jwt_wrong_type", token_type=payload.get("type"))
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Not an access token",
-            )
-        # P1-11: enforce revocation (jti blocklist + user_revoke) on the business
-        # API too, not just the auth-own endpoints. Static bearer tokens below are
-        # unaffected (no jti/iat).
-        await _check_revocation(payload)
-        # P1-B: reject force_change_tokens on the business API (same as
-        # verify_jwt above) — they are scoped to /auth/force-change-password.
-        if payload.get("force_password_change"):
-            log.warning("force_token_rejected_on_business_endpoint sub=%s", payload.get("sub"))
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Password change required",
-            )
-        return cast(dict[str, Any], payload)
+        return await _decode_access_jwt(token)
     except JWTError:
         pass
 
-    # Fallback: static bearer token (API / ingestion clients)
-    if secrets.compare_digest(token, settings.api_bearer_token.get_secret_value()):
-        return {"sub": "api-client", "role": "admin"}
+    # Fallback: static bearer token (API / ingestion clients).
+    # Only the ADMIN bearer counts here (P2.6) — the scoped ingest token is
+    # rejected on every non-ingest endpoint.
+    identity = _static_bearer_identity(token)
+    if identity is not None and identity["role"] == "admin":
+        return identity
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired token",
+    )
+
+
+async def get_ingest_client(
+    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+) -> dict:
+    """Ingest-scoped auth (P2.6) — used ONLY by the ingest router.
+
+    Same contract as get_current_user, PLUS the optional scoped
+    INGEST_BEARER_TOKEN is honored (as viewer-class). Every OTHER endpoint
+    resolves auth via get_current_user, which rejects the scoped token —
+    so its blast radius is the ingest pipe, not the SIEM.
+
+    When INGEST_BEARER_TOKEN is unset, behavior is identical to pre-P2.6.
+    """
+    token = credentials.credentials
+
+    try:
+        return await _decode_access_jwt(token)
+    except JWTError:
+        pass
+
+    identity = _static_bearer_identity(token)
+    if identity is not None:
+        # admin bearer OR the scoped ingest client — both may ingest
+        return identity
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

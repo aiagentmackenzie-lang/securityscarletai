@@ -44,6 +44,10 @@ Out of scope:
 - Fail-closed: the API refuses to start if `DB_PASSWORD`, `API_SECRET_KEY`, or
   `API_BEARER_TOKEN` is a `CHANGE_ME` placeholder — all three required secrets
   are placeholder-gated at startup.
+- Scoped ingest token (P2.6): an optional `INGEST_BEARER_TOKEN` is
+  viewer-class and honored ONLY on the ingest router — a leaked ingest token
+  cannot read alerts, cases, or query results. The admin bearer's blast radius
+  is unchanged; agents that only ship events should hold the scoped token.
 
 These do **not** make a deployment invulnerable. Review `docs/DEPLOYMENT.md`
 for the production hardening checklist before exposing the API to a network.
