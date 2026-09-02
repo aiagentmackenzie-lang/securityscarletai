@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     # ingest router (a leaked ingest token must not be a full admin bearer).
     # Unset → behavior identical to pre-P2.6.
     ingest_bearer_token: Optional[SecretStr] = None
+    # P3.3: optional scrape token for GET /api/v1/metrics (Prometheus text
+    # format). Set → token or analyst JWT can scrape from anywhere. Unset →
+    # analyst JWT, or unauthenticated scrapes from localhost only (the
+    # Prometheus-on-the-same-host pattern). Generate with: openssl rand -hex 32
+    metrics_bearer_token: Optional[SecretStr] = None
     api_cors_origins: list[str] = ["http://localhost:8501"]
 
     # --- Ollama ---

@@ -102,6 +102,9 @@ async def run_retention_once() -> dict[str, int]:
     """
     from datetime import datetime, timedelta, timezone
 
+    # P3.3: retention sweep results in /metrics (rows deleted + errors).
+    from src.api.metrics import retention_errors, retention_rows_deleted
+
     now = datetime.now(tz=timezone.utc)
     results: dict[str, int] = {}
     batch_size = max(1, settings.retention_batch_size)
@@ -116,12 +119,14 @@ async def run_retention_once() -> dict[str, int]:
             deleted = await _delete_old_rows(table, time_col, cutoff, batch_size)
             results[table] = deleted
             if deleted > 0:
+                retention_rows_deleted.inc(deleted, table=table)
                 log.info("retention_swept", table=table, deleted=deleted, cutoff=cutoff.isoformat())
         except Exception as e:
             # A retention error must not crash the scheduler/API. Log and move
             # on; the next run retries. Common cause: audit_logs hardened
             # append-only (REVOKE DELETE) — documented in DEPLOYMENT.md.
             log.warning("retention_sweep_failed", table=table, error=str(e))
+            retention_errors.inc(table=table)
             results[table] = -2  # sentinel: error
 
     return results

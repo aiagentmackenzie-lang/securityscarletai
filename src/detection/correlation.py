@@ -720,6 +720,13 @@ async def run_all_correlations(
     if as_of is None:
         as_of = datetime.now(timezone.utc)
 
+    # P3.3: observe the duration of the full run (all 7 rules) in /metrics.
+    import time as _time
+
+    from src.api.metrics import correlation_run_duration
+
+    _run_start = _time.monotonic()
+
     correlation_funcs: Dict[str, Callable[..., Awaitable[List[Dict[str, Any]]]]] = {
         "brute_force_success": detect_brute_force_then_success,
         "payload_callback": detect_payload_callback,
@@ -845,6 +852,8 @@ async def run_all_correlations(
         persisted=persisted_count,
         as_of=as_of.isoformat(),
     )
+
+    correlation_run_duration.observe(_time.monotonic() - _run_start)
 
     return {
         "matches": all_matches,

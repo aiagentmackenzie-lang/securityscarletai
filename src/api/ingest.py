@@ -118,6 +118,11 @@ async def ingest_events(
         batch_events.append(event)
         count += 1
 
+    # P3.3: metrics — events accepted (counter; no high-cardinality labels).
+    from src.api.metrics import ingest_accepted_total
+
+    ingest_accepted_total.inc(count)
+
     # Epic 9: fire-and-forget enrichment + correlation per batch.
     # We do NOT await these — the HTTP request has already returned 202 to
     # the agent. If enrichment is slow, ingestion must not be slow. If
