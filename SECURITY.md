@@ -41,7 +41,9 @@ Out of scope:
 - Rate limiting via slowapi (Redis storage in prod; in-memory fallback).
 - Audit log is append-only and written outside the agent's write path.
 - Bounded request bodies; input validation on every ingest event.
-- Fail-closed: the API refuses to start if `DB_PASSWORD` is the placeholder.
+- Fail-closed: the API refuses to start if `DB_PASSWORD`, `API_SECRET_KEY`, or
+  `API_BEARER_TOKEN` is a `CHANGE_ME` placeholder — all three required secrets
+  are placeholder-gated at startup.
 
 These do **not** make a deployment invulnerable. Review `docs/DEPLOYMENT.md`
 for the production hardening checklist before exposing the API to a network.
