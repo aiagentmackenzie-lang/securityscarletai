@@ -2,8 +2,10 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install Poetry (pinned version for reproducibility)
-RUN pip install poetry
+# Install Poetry (C4: pinned >=2.3 to match the poetry.lock generator
+# (2.3.2, lock-version 2.1) — poetry 2.1+ reads the PEP-735 [dependency-groups]
+# table; 2.0.x does NOT and fails with 'Group(s) not found: dev').
+RUN pip install --no-cache-dir "poetry>=2.3,<3.0"
 
 # Copy project files
 COPY pyproject.toml poetry.lock ./
@@ -11,8 +13,9 @@ COPY pyproject.toml poetry.lock ./
 # Configure Poetry (don't create virtualenv in container)
 RUN poetry config virtualenvs.create false
 
-# Install dependencies (without dev, no root, no-ansi)
-RUN poetry install --no-root --no-interaction --no-ansi
+# Install dependencies (without dev — the runtime image must NOT carry
+# pytest/mypy/ruff/hypothesis; --no-root: app, not package)
+RUN poetry install --without dev --no-root --no-interaction --no-ansi
 
 # Copy application code
 COPY src/ ./src/
