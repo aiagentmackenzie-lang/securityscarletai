@@ -3,11 +3,11 @@ Centralized configuration for SecurityScarletAI.
 All settings are validated at startup. Missing required values cause immediate failure
 with a clear error message — not a silent None that blows up later.
 """
-from typing import Optional
+from typing import Annotated, Optional
 from urllib.parse import quote_plus
 
 from pydantic import Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -62,7 +62,29 @@ class Settings(BaseSettings):
     # analyst JWT, or unauthenticated scrapes from localhost only (the
     # Prometheus-on-the-same-host pattern). Generate with: openssl rand -hex 32
     metrics_bearer_token: Optional[SecretStr] = None
-    api_cors_origins: list[str] = ["http://localhost:8501"]
+    api_cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:8501"]
+
+    @field_validator("api_cors_origins", mode="before")
+    @classmethod
+    def _parse_cors_origins(cls, v: object) -> object:
+        """Accept JSON array (compose/CI style) OR comma-separated bare string.
+
+        P3.7 boot-blocker: docker-compose passes the compose default as a bare
+        string (API_CORS_ORIGINS=http://localhost:8501) and pydantic-settings
+        demands strict JSON for list fields at the SOURCE level (before field
+        validators run) — every container boot crashed before this. With
+        NoDecode the env value reaches this validator raw; bare `a,b` form is
+        what .env.example documents, JSON form is what orchestrators pass.
+        Both parse now.
+        """
+        if isinstance(v, str):
+            s = v.strip()
+            if s.startswith("["):
+                import json
+
+                return json.loads(s)
+            return [origin.strip() for origin in s.split(",") if origin.strip()]
+        return v
 
     # --- Ollama ---
     ollama_base_url: str = "http://localhost:11434"
