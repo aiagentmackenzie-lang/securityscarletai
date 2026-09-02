@@ -547,6 +547,17 @@ THREAT_INTEL_ENTRIES = [
 
 async def seed() -> None:
     """Seed demo data into the database. Idempotent — checks first."""
+    # Phase 1 (trust & truth), 2026-09-01: demo seeding is now OPT-IN.
+    # This script previously ran unconditionally from the Docker entrypoint on
+    # any first boot (empty alerts table), seeding synthetic alerts AND the
+    # publicly documented demo credential into production deployments.
+    if not settings.demo_seed_enabled:
+        print(
+            "DEMO_SEED_ENABLED is not true — skipping demo seed "
+            "(demo seeding is opt-in; set DEMO_SEED_ENABLED=true on demo hosts). "
+            "No DB connection was made."
+        )
+        return
     # asyncpg needs plain postgresql:// — strip the +asyncpg suffix
     dsn = settings.database_url.replace("+asyncpg", "")
     conn = await asyncpg.connect(dsn)

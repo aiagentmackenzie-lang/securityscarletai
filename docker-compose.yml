@@ -66,6 +66,9 @@ services:
       # ${REDIS_URL:-...} or the API can't reach Redis (rate-limit middleware crash).
       REDIS_URL: redis://redis:6379/0
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Demo seed is opt-in (Phase 1, 2026-09-01): the entrypoint only seeds
+      # demo alerts + the demo credential when this is explicitly "true".
+      DEMO_SEED_ENABLED: ${DEMO_SEED_ENABLED:-false}
       LOG_FORMAT: ${LOG_FORMAT:-json}
       # Hardcoded: Ollama runs on the host, reached via host.docker.internal from
       # the container. .env's http://localhost:11434 is the host-mode value.

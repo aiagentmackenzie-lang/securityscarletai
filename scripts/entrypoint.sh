@@ -4,7 +4,7 @@
 # Responsibilities (in order):
 # 1. Wait for Postgres to be reachable.
 # 2. Apply schema (idempotent — all CREATE TABLE IF NOT EXISTS).
-# 3. Seed demo data IF the alerts table is empty (first run only).
+# 3. Seed demo data IF DEMO_SEED_ENABLED=true AND the alerts table is empty (opt-in, first run only).
 # 4. Train the triage model IF models/triage_model.joblib is missing.
 # 5. Train the UEBA model IF models/ueba_model.joblib is missing.
 # 6. Create an admin user IF no users exist. Print credentials to stdout ONCE.
@@ -113,7 +113,8 @@ fi
 # ───────────────────────────────────────────────────────────────
 # 3. Seed demo data if alerts table is empty
 # ───────────────────────────────────────────────────────────────
-ALERT_COUNT=$(run_async "
+if [ "${DEMO_SEED_ENABLED:-false}" = "true" ]; then
+    ALERT_COUNT=$(run_async "
 import asyncio
 from src.db.connection import get_pool
 
@@ -125,11 +126,14 @@ async def main():
     print(n)
 asyncio.run(main())
 " | tail -n1)
-if [ "${ALERT_COUNT}" = "0" ]; then
-    echo "[entrypoint] alerts table empty — seeding demo data..."
-    python -m scripts.seed_demo_data
+    if [ "${ALERT_COUNT}" = "0" ]; then
+        echo "[entrypoint] alerts table empty — seeding demo data..."
+        python -m scripts.seed_demo_data
+    else
+        echo "[entrypoint] alerts table has ${ALERT_COUNT} rows — skipping seed."
+    fi
 else
-    echo "[entrypoint] alerts table has ${ALERT_COUNT} rows — skipping seed."
+    echo "[entrypoint] DEMO_SEED_ENABLED!=true — demo seed is opt-in; skipping (set DEMO_SEED_ENABLED=true on demo hosts)."
 fi
 
 # ───────────────────────────────────────────────────────────────

@@ -143,3 +143,8 @@ class TestEntrypointIdempotency:
 
     def test_admin_only_if_no_users(self, contents: str):
         assert re.search(r"USER_COUNT.*=.*0", contents, re.DOTALL)
+
+    def test_demo_seed_is_opt_in(self, contents: str):
+        """Phase 1.2 (trust & truth), 2026-09-01: demo seeding is gated on
+        DEMO_SEED_ENABLED=true — production first boots stay empty."""
+        assert '[ "${DEMO_SEED_ENABLED:-false}" = "true" ]' in contents

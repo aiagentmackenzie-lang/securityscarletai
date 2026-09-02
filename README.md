@@ -92,6 +92,8 @@ cp .env.example .env
 #                   openssl rand -hex 64    (API_SECRET_KEY)
 #                   openssl rand -hex 32    (API_BEARER_TOKEN)
 # Optional: DASHBOARD_API_TOKEN for headless dashboard access.
+# Demo data is opt-in (2026-09-01): add DEMO_SEED_ENABLED=true to .env on demo
+# hosts BEFORE the first boot — production boots stay empty (see docs/DEMO.md).
 
 # 3. Start the full stack (Postgres + Redis + API + dashboard)
 docker compose up -d

@@ -138,6 +138,15 @@ class Settings(BaseSettings):
     # pepper requires rehashing all passwords (password reset flow).
     password_pepper: Optional[SecretStr] = None
 
+    # --- Demo seed gate (Phase 1, 2026-09-01) ---
+    # scripts/seed_demo_data.py previously ran unconditionally from the Docker
+    # entrypoint on any first boot (empty alerts table), seeding synthetic
+    # alerts AND the publicly documented demo credential
+    # (demo_analyst / demo_analyst_2026) into production deployments. Demo
+    # seeding now requires DEMO_SEED_ENABLED=true (demo hosts opt in;
+    # production boots stay empty). See docs/DEMO.md.
+    demo_seed_enabled: bool = False
+
     @field_validator("db_password")
     @classmethod
     def password_not_default(cls, v: str) -> str:
