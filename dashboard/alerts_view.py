@@ -20,6 +20,49 @@ from dashboard.auth import can_write, get_api_client
 from dashboard.ui_utils import esc, sev_badge, status_badge
 
 
+def _note_card_html(author: str, text: str, timestamp: str = "") -> str:
+    """Build one alert-note card for an unsafe_allow_html block.
+
+    Author/text/timestamp are data-derived (analyst input, JWT sub, API
+    timestamps) and are escaped HERE — the single choke point, mirroring
+    cases_view._note_card_html. The F-01 esc sweep fixed case notes but
+    missed this identical block in alerts_view (stored XSS: an analyst-
+    plantable note executed in every admin/viewer session that opened the
+    alert). Fixed Phase 1, 2026-09-01.
+    """
+    return f"""
+                <div style="
+                    background:#0f1420;
+                    border:1px solid #1e2636;
+                    border-radius:0.375rem;
+                    padding:0.5rem 0.75rem;
+                    margin-bottom:0.25rem;
+                ">
+                    <p style="margin:0;color:#8b95a5;font-size:0.7rem;font-weight:600;">
+                        {esc(author)} <span style="color:#5a6578;font-weight:400;">
+                            | {esc(timestamp)}
+                        </span>
+                    </p>
+                    <p style="margin:0.25rem 0 0 0;color:#e8ecf1;font-size:0.8rem;">{esc(text)}</p>
+                </div>
+                """
+
+
+def _expander_title(rule_name: str, sev_html: str, status_html: str, host_name: str) -> str:
+    """Alert-row expander title. rule_name and host_name are data-derived
+    (rule names from the rules table, host names INGEST-FED via /ingest) —
+    both escaped before entering the HTML-styled label (esc sweep)."""
+    title = (
+        f"<span style='font-weight:600;color:#e8ecf1;'>"
+        f"{esc(rule_name)}"
+        f"</span>"
+    )
+    title += f" &nbsp; {sev_html} &nbsp; {status_html}"
+    if host_name:
+        title += f" <span style='color:#5a6578;'>| {esc(host_name)}</span>"
+    return title
+
+
 def render_alert_list():
     """Render the main alert list view."""
     api = get_api_client()
@@ -183,14 +226,9 @@ def render_alert_list():
             elif not selected and a["id"] in st.session_state.selected_alerts:
                 st.session_state.selected_alerts.remove(a["id"])
 
-        expander_title = (
-            f"<span style='font-weight:600;color:#e8ecf1;'>"
-            f"{a.get('rule_name', 'Unknown')}"
-            f"</span>"
+        expander_title = _expander_title(
+            a.get("rule_name", "Unknown"), sev_html, status_html, a.get("host_name", "")
         )
-        expander_title += f" &nbsp; {sev_html} &nbsp; {status_html}"
-        if a.get("host_name"):
-            expander_title += f" <span style='color:#5a6578;'>| {a['host_name']}</span>"
 
         with st.expander(expander_title, expanded=False):
             render_alert_detail(a, api)
@@ -273,11 +311,11 @@ def render_alert_detail(alert: dict, api: ApiClient):
         if tactics or techniques:
             mitre_html = "<div style='margin:0.5rem 0;'>"
             if tactics:
-                mitre_html += f"Tactics: {', '.join(f'`{t}`' for t in tactics)}"
+                mitre_html += f"Tactics: {', '.join(f'`{esc(t)}`' for t in tactics)}"
             if techniques:
                 if tactics:
                     mitre_html += " &nbsp; | &nbsp;"
-                mitre_html += f"Techniques: {', '.join(f'`{t}`' for t in techniques)}"
+                mitre_html += f"Techniques: {', '.join(f'`{esc(t)}`' for t in techniques)}"
             mitre_html += "</div>"
             st.markdown(mitre_html, unsafe_allow_html=True)
 
@@ -416,23 +454,9 @@ def render_alert_detail(alert: dict, api: ApiClient):
                 ts = note.get("timestamp", "")
                 if ts and len(ts) > 19:
                     ts = ts[:19]
-                st.markdown(
-                    f"""
-                    <div style="
-                        background:#0f1420;
-                        border:1px solid #1e2636;
-                        border-radius:0.375rem;
-                        padding:0.5rem 0.75rem;
-                        margin-bottom:0.25rem;
-                    ">
-                        <p style="margin:0;color:#8b95a5;font-size:0.7rem;font-weight:600;">
-                            {author} <span style="color:#5a6578;font-weight:400;">| {ts}</span>
-                        </p>
-                        <p style="margin:0.25rem 0 0 0;color:#e8ecf1;font-size:0.8rem;">{text}</p>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+                # esc() inside the helper — this block renders under
+                # unsafe_allow_html (stored-XSS fix, Phase 1 2026-09-01).
+                st.markdown(_note_card_html(author, text, ts), unsafe_allow_html=True)
         else:
             st.caption("No notes yet.")
 

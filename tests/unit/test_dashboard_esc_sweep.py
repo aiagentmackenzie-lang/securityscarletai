@@ -15,6 +15,12 @@ reference — never the globally-imported ``streamlit`` object. This keeps the
 tests correct in any collection order, before or after the stub lands.
 """
 
+from dashboard.alerts_view import (
+    _expander_title as _alert_expander_title,
+)
+from dashboard.alerts_view import (
+    _note_card_html as _alert_note_card_html,
+)
 from dashboard.cases_view import _note_card_html
 from dashboard.ui_utils import badge, esc
 
@@ -74,6 +80,62 @@ class TestCaseNoteCardEscapes:
         assert "demo_analyst" in html
         assert "Investigating SSH brute-force." in html
         assert "&lt;" not in html
+
+
+class TestAlertNoteCardEscapes:
+    """Phase 1 (2026-09-01): the F-01 sweep fixed case notes but missed the
+    IDENTICAL notes block in alerts_view — author/text/timestamp were
+    interpolated raw into an unsafe_allow_html st.markdown. A analyst-plantable
+    note executed in every admin/viewer session that opened the alert. These
+    tests pin the new choke-point helper."""
+
+    def test_hostile_note_is_inert(self):
+        html = _alert_note_card_html(
+            '<img src=x onerror=alert(1)>',
+            "<script>alert(document.domain)</script>",
+            "2026-09-01T20:00:00",
+        )
+        assert "<img" not in html
+        assert "<script>" not in html
+        assert "&lt;script&gt;" in html
+        assert "&lt;img" in html
+
+    def test_hostile_timestamp_is_inert(self):
+        html = _alert_note_card_html("jsmith", "note", '><svg onload=alert(1)>')
+        assert "<svg" not in html
+        assert "&lt;svg" in html
+
+    def test_plain_note_round_trips(self):
+        html = _alert_note_card_html("demo_analyst", "Blocked source IP.", "ts")
+        assert "demo_analyst" in html
+        assert "Blocked source IP." in html
+        assert "&lt;" not in html
+
+
+class TestAlertExpanderTitleEscapes:
+    """The alert-row expander label carries rule_name (rules table) and
+    host_name (INGEST-FED, attacker-writable via /ingest) inside an HTML-
+    styled string — both must pass through esc()."""
+
+    def test_hostile_host_is_inert(self):
+        title = _alert_expander_title(
+            "Reverse Shell", "<span class='badge badge-critical'>CRIT</span>",
+            "<span class='badge badge-new'>NEW</span>",
+            "evil</p><img src=x onerror=alert(1)>",
+        )
+        assert "<img" not in title
+        assert "&lt;img" in title
+
+    def test_hostile_rule_name_is_inert(self):
+        title = _alert_expander_title(
+            "<script>alert(1)</script>", "", "", ""
+        )
+        assert "<script>" not in title
+        assert "&lt;script&gt;" in title
+
+    def test_no_host_omits_host_span(self):
+        title = _alert_expander_title("Reverse Shell", "", "", "")
+        assert "| " not in title
 
 
 class TestColoredMetricEscapes:
