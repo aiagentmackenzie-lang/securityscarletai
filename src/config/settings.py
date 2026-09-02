@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     # --- Redis ---
     redis_url: str = "redis://localhost:6379/0"
 
+    # P3.4: dashboard URL used in outbound notifications (Slack alert links).
+    # Default matches the local dev dashboard; set DASHBOARD_PUBLIC_URL in prod
+    # so operators get a link they can actually open.
+    dashboard_public_url: str = "http://localhost:8501"
+
     # --- API ---
     api_host: str = "127.0.0.1"
     api_port: int = 8000

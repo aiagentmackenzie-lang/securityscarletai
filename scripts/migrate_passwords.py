@@ -20,8 +20,13 @@ Usage:
     # Live migration
     python scripts/migrate_passwords.py
 
-    # With custom DB URL
+    # With explicit DSN override (rare: e.g. pointing at a different host)
     DATABASE_URL=postgres://user:pass@host:5432/db python scripts/migrate_passwords.py
+
+By default the DSN is DERIVED from settings (DB_HOST/DB_PORT/DB_NAME/
+DB_USER/DB_PASSWORD from env or .env), matching the API's own connection —
+no stale-DATABASE_URL footgun (P3.4). An explicit DATABASE_URL env still
+wins when you deliberately point elsewhere.
 
 Requires: asyncpg, dotenv
 """
@@ -35,8 +40,17 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
+def _derive_dsn() -> str:
+    """DSN from settings (single source of truth), +asyncpg stripped.
+
+    DATABASE_URL env wins ONLY when explicitly set (operator override)."""
+    from src.config.settings import settings
+
+    return settings.database_url.replace("+asyncpg", "")
+
+
 async def get_pool():
-    """Get database pool from DATABASE_URL."""
+    """Get database pool — settings-derived DSN (P3.4), DATABASE_URL override."""
     try:
         import asyncpg
     except ImportError:
@@ -54,9 +68,12 @@ async def get_pool():
             pass
 
     if not database_url:
-        print("ERROR: DATABASE_URL environment variable not set.")
-        print("Set it or create a .env file with DATABASE_URL=postgres://...")
-        sys.exit(1)
+        try:
+            database_url = _derive_dsn()
+        except Exception as e:
+            print(f"ERROR: could not derive DSN from settings ({e}).")
+            print("Set DATABASE_URL explicitly to override.")
+            sys.exit(1)
 
     return await asyncpg.create_pool(database_url, min_size=1, max_size=3)
 
