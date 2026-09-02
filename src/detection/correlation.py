@@ -780,7 +780,7 @@ async def run_all_correlations(
                         """,
                         match["correlation_rule"],
                         trigger_id,
-                        _serialize_match_data(match),
+                        _dedup_payload(match),
                         match.get("trigger_event_id"),
                         as_of,
                     )
@@ -874,6 +874,18 @@ def _serialize_match_data(match: Dict[str, Any]) -> str:
         return str(obj)
 
     return json.dumps(match, default=_default)
+
+
+def _dedup_payload(match: Dict[str, Any]) -> str:
+    """Serialize a match for the F-10 dupe comparison, EXCLUDING correlation_id.
+
+    Every match embeds a fresh uuid4 correlation_id, so comparing the full
+    stored payload never matches and the dedup check was a no-op (F-10).
+    The dedup payload is the match identity: everything EXCEPT the per-run
+    id. The stored row keeps the full payload, correlation_id included.
+    """
+    stripped = {k: v for k, v in match.items() if k != "correlation_id"}
+    return _serialize_match_data(stripped)
 
 
 # ───────────────────────────────────────────────────────────────

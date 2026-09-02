@@ -237,3 +237,37 @@ async def test_run_all_correlations_persist_false_does_not_create_alerts():
         await corr.run_all_correlations(as_of=AS_OF, persist=False)
 
     assert mock_create.await_count == 0
+
+
+class TestDedupPayload:
+    """Phase 1.6 (2026-09-01): the F-10 dupe comparison must ignore
+    correlation_id — every match embeds a fresh uuid4, so the full stored
+    payload never matched and dedup was a no-op."""
+
+    def _match(self, **overrides):
+        base = {
+            "correlation_rule": "f10_dedup_test",
+            "severity": "high",
+            "host_name": "host01",
+            "event_ids": [1, 2, 3],
+            "window_start": "2025-01-01T11:00:00+00:00",
+            "window_end": "2025-01-01T12:00:00+00:00",
+            "title": "Test rule fired",
+        }
+        base.update(overrides)
+        return base
+
+    def test_correlation_id_only_difference_is_identical(self):
+        m1 = self._match(correlation_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        m2 = self._match(correlation_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+        assert corr._dedup_payload(m1) == corr._dedup_payload(m2)
+
+    def test_changed_host_changes_payload(self):
+        m1 = self._match(host_name="host01")
+        m2 = self._match(host_name="host02")
+        assert corr._dedup_payload(m1) != corr._dedup_payload(m2)
+
+    def test_changed_window_changes_payload(self):
+        m1 = self._match(window_end="2025-01-01T12:00:00+00:00")
+        m2 = self._match(window_end="2025-01-01T12:30:00+00:00")
+        assert corr._dedup_payload(m1) != corr._dedup_payload(m2)
