@@ -18,7 +18,6 @@ import pytest
 from src.ai.nl2sql import (
     MAX_INPUT_LENGTH,
     MAX_RESULT_ROWS,
-    QUERY_TIMEOUT_SECONDS,
     ConversationContext,
     ConversationManager,
     add_safety_limits,
@@ -515,26 +514,24 @@ class TestExecuteQuery:
 
     @pytest.mark.asyncio
     async def test_query_timeout(self):
-        """Query should timeout after QUERY_TIMEOUT_SECONDS."""
+        """Query must hit the asyncio.wait_for timeout path and return the
+        timeout error dict (P3.9: the old mock wired slow_query onto
+        mock_conn.fetch behind pool.acquire(), but execute_query calls
+        pool.fetch directly — the timeout path was never exercised)."""
         from src.ai.nl2sql import execute_query
 
-        with patch("src.ai.nl2sql.get_pool") as mock_pool:
-            mock_conn = AsyncMock()
+        async def slow_query(sql, *args, **kwargs):
+            await asyncio.sleep(1)  # far beyond the patched timeout
+            return []
 
-            # Simulate a query that takes too long
-            async def slow_query(sql):
-                await asyncio.sleep(QUERY_TIMEOUT_SECONDS + 10)
-                return []
+        mock_pool_instance = AsyncMock()
+        mock_pool_instance.fetch = slow_query
 
-            mock_conn.fetch = slow_query
-            mock_acquirer = MagicMock()
-            mock_acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
-            mock_acquirer.__aexit__ = AsyncMock(return_value=None)
-            mock_pool_instance = AsyncMock()
-            mock_pool_instance.acquire.return_value = mock_acquirer
-            mock_pool.return_value = mock_pool_instance
-
-            # Use a simple SELECT that would pass validation
+        with (
+            patch("src.ai.nl2sql.get_pool", AsyncMock(return_value=mock_pool_instance)),
+            patch("src.ai.nl2sql.QUERY_TIMEOUT_SECONDS", 0.05),
+        ):
             result = await execute_query("SELECT 1")
-            # This may timeout or succeed depending on mock timing
-            # The main point is the function handles timeouts gracefully
+
+        assert result["success"] is False
+        assert "timed out" in result["error"].lower()

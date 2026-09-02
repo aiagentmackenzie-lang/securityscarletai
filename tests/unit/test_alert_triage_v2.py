@@ -263,8 +263,12 @@ class TestLatestProvenance:
     @pytest.mark.asyncio
     async def test_returns_none_when_no_db(self):
         m = AlertTriageModel(load=False)
-        # _db_reachable should be False in this CI env, so we get None fast.
-        with patch("src.ai.alert_triage._db_reachable", return_value=False):
+        # latest_provenance calls get_pool directly (alert_triage.py:816); make it
+        # fail INSTANTLY instead of paying the real 15s retry storm, then assert
+        # the except path still returns None.
+        with patch("src.ai.alert_triage._db_reachable", return_value=False), patch(
+            "src.ai.alert_triage.get_pool", side_effect=OSError("no db in unit tests")
+        ):
             result = await m.latest_provenance()
         assert result is None
 
