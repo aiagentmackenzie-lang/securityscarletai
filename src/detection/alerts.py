@@ -584,6 +584,20 @@ async def delete_suppression_rule(suppression_id: int) -> bool:
 # Alert export
 # ───────────────────────────────────────────────────────────────
 
+def _csv_formula_safe(value: object) -> object:
+    """Neutralize CSV formula injection (CWE-1236).
+
+    Spreadsheet apps execute cells whose string value starts with `=`, `+`,
+    `-`, or `@` as a formula. host_name and description are ingest-fed
+    (attacker-writable), so every exported cell is guarded: a leading
+    dangerous character gets a single-quote prefix (Excel/Sheets treat the
+    cell as text). (Phase 1.7, 2026-09-01)
+    """
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@"):
+        return "'" + value
+    return value
+
+
 async def export_alerts_csv(hours: int = 24, status_filter: Optional[str] = None) -> str:
     """Export alerts as CSV for external analysis."""
     pool = await get_pool()
@@ -618,7 +632,9 @@ async def export_alerts_csv(hours: int = 24, status_filter: Optional[str] = None
         writer = csv.DictWriter(output, fieldnames=rows[0].keys())
         writer.writeheader()
         for row in rows:
-            writer.writerow(dict(row))
+            writer.writerow(
+                {k: _csv_formula_safe(v) for k, v in dict(row).items()}
+            )
 
     log.info("alerts_exported_csv", count=len(rows), hours=hours, status=status_filter)
     return output.getvalue()

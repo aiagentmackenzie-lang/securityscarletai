@@ -740,3 +740,70 @@ class TestExportAlerts:
             result = await export_alerts_stix(hours=24)
 
         assert result["objects"][0]["confidence"] == 50  # Low severity
+
+
+class TestCsvFormulaInjectionGuard:
+    """Phase 1.7 (2026-09-01): exported CSV cells whose string value starts
+    with =, +, -, or @ get a single-quote prefix (CWE-1236) — host_name and
+    description are ingest-fed and attacker-writable."""
+
+    def _pool_with_row(self, **row_overrides):
+        row = {
+            "id": 1,
+            "time": datetime(2025, 1, 1, 12, 0, 0),
+            "rule_name": "SSH Brute Force Detected",
+            "severity": "high",
+            "status": "new",
+            "host_name": "ws-01",
+            "description": "benign description",
+            "assigned_to": None,
+            "risk_score": 75.0,
+        }
+        row.update(row_overrides)
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(return_value=[row])
+
+        class AsyncCtx:
+            async def __aenter__(self):
+                return mock_conn
+
+            async def __aexit__(self, *args):
+                pass
+
+        mock_pool = AsyncMock()
+        mock_pool.acquire = MagicMock(return_value=AsyncCtx())
+        return mock_pool
+
+    @pytest.mark.asyncio
+    async def test_hostile_host_name_neutralized(self):
+        with patch(
+            "src.detection.alerts.get_pool",
+            AsyncMock(return_value=self._pool_with_row(
+                host_name='=HYPERLINK("http://evil","click")'
+            )),
+        ):
+            result = await export_alerts_csv(hours=24)
+        assert "'=HYPERLINK" in result
+        assert "\n=HYPERLINK" not in result
+
+    @pytest.mark.asyncio
+    async def test_hostile_description_neutralized(self):
+        with patch(
+            "src.detection.alerts.get_pool",
+            AsyncMock(return_value=self._pool_with_row(
+                description="@SUM(1+1)"
+            )),
+        ):
+            result = await export_alerts_csv(hours=24)
+        assert "'@SUM" in result
+
+    @pytest.mark.asyncio
+    async def test_benign_cells_untouched(self):
+        with patch(
+            "src.detection.alerts.get_pool",
+            AsyncMock(return_value=self._pool_with_row()),
+        ):
+            result = await export_alerts_csv(hours=24)
+        assert "ws-01" in result
+        assert "'ws-01" not in result
+        assert "benign description" in result
