@@ -8,6 +8,45 @@ locally, out of the public repo.
 Severity key: **P0** = exploitable / ship-blocker · **P1** = control-bypass or
 data-integrity gap · **P2** = quality / slop / doc drift.
 
+## 2026-09-01 — Phase 1 (trust & truth)
+
+Merged to `main`. Each fix shipped on its own branch via `--no-ff` merge;
+tests went 1450 → 1473 passed (unit, `--no-cov`).
+
+- **P1.1** `fix/dashboard-esc-huntview` (`7af9554`) — alerts-view stored XSS
+  fixed at the `_note_card_html` / `_expander_title` choke points (esc()
+  everywhere, MITRE tags escaped; esc-sweep tests extended) and three dead
+  API-shape paths in hunt_view repaired (`_summarize_gaps`, `_group_templates`,
+  `_hunts_for_alert`). New `tests/unit/test_hunt_view_shapes.py`.
+- **P1.2** `fix/demo-seed-gate` (`9c61293`) — demo seeding (synthetic alerts
+  AND the publicly documented `demo_analyst` credential) previously ran
+  unconditionally from the Docker entrypoint on any first boot. Now opt-in via
+  `DEMO_SEED_ENABLED=true` — gated in `settings`, `seed_demo_data.py`, the
+  entrypoint, and compose passthrough; docs + troubleshooting updated.
+- **P1.3** `fix/llm-fence-risk-score` (`b3f41c1`) — the two unfenced LLM
+  paths re-fenced (LLM01 regression): `build_prompt` fences ingest-fed
+  `host_name` + evidence; `_suggest_hunts_for_alert` fences `host_name`.
+  LLM risk_score validated before returning — non-numeric/bool → 50,
+  out-of-range clamped to [0, 100] (a string verdict previously crashed
+  `enrich_alert` and aborted the rule's alert loop).
+- **P1.4** `fix/hunt-from-alert-quota` (`2196144`) — `/hunt/from-alert` now
+  carries the 30-per-5-min LLM limit keyed by `user_or_ip_key` (the quota
+  hole let a user bypass the LLM budget); dashboard client passes the
+  60 s AI timeout on that path.
+- **P1.5** `fix/secret-placeholder-gate` (`e2c19d6`) — fail-closed: startup
+  rejects `CHANGE_ME` placeholders on `API_SECRET_KEY` and `API_BEARER_TOKEN`
+  (joining `DB_PASSWORD`), with the `openssl rand` command in the error.
+- **P1.6** `fix/f10-dedup-payload` (`49bf287`) — correlation dedup now
+  actually dedups: the dupe comparison excludes the per-match uuid4
+  `correlation_id` (the full payload never matched, so rows piled up
+  unboundedly).
+- **P1.7** `fix/truth-pass-docs-csv` (`cb14869`) — truth pass:
+  `docs/RULES.md` regenerated from the real 100 rule files (was "45");
+  CSV export guards formula injection (`=`, `+`, `-`, `@` cells quoted,
+  hostile-host test); `docs/AI.md` training-label description matches the
+  code (`resolved`/`closed` = 1, `false_positive` = 0); README Status line
+  states the real test count and date; dead internal link removed.
+
 ## 2026-08-26 — Phase 1 + Phase 2 (production-hardening)
 
 Merged to `main` (final `793186a`). Each fix shipped on its own branch via
