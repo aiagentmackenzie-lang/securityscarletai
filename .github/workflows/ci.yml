@@ -14,8 +14,16 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
     steps:
       - uses: actions/checkout@v4
 
+      - uses: docker/setup-buildx-action@v3
+
       - name: Build Docker image
-        run: docker build -t securityscarletai:ci .
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: securityscarletai:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Verify image boots its entrypoint
         # P0-05 class: assert the app imports without crashing at load. We run
@@ -64,9 +72,16 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: poetry-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
+          restore-keys: poetry-${{ runner.os }}-
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
 
       - name: Install dependencies
         # --no-root matches the Dockerfile: the project is an app (src-layout,
@@ -103,8 +118,10 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
             -h localhost -p 5433 -U scarletai -d scarletai \
             -v ON_ERROR_STOP=1 -f src/db/schema.sql
 
-      - name: Unit tests
-        run: poetry run pytest tests/unit/ -q
+      - name: Unit tests and coverage
+        # Single gate: coverage IS the unit test run. Previously this ran
+        # twice (once bare, once with --cov). Consolidated per B1.
+        run: poetry run pytest tests/unit/ -q --cov=src --cov-fail-under=80 --tb=short -q
 
       - name: Integration tests
         # P2-38: integration tests run against the provisioned Postgres with
@@ -113,10 +130,6 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
         # systemic reason every P0 slipped through.
         run: poetry run pytest tests/integration/ -v
 
-      - name: Coverage
-        # Coverage over the deterministic mocked unit suite (integration is
-        # exercised in its own step above). Keeps the gate stable.
-        run: poetry run pytest tests/unit --cov=src --cov-fail-under=80 --tb=short -q
 
   # P3.5: dependency vulnerability audit (pip-audit) over the locked
   # dependency set installed in the same venv as the test job.
