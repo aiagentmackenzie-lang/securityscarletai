@@ -17,6 +17,57 @@ from dashboard.api_client import ApiError
 from dashboard.auth import can_write, get_api_client
 
 
+def _group_templates(templates: list[dict]) -> dict[str, list[dict]]:
+    """Group hunt templates by the API's 'category' field.
+
+    get_hunting_templates() returns {id, name, category, mitre, description}.
+    The dashboard previously grouped by 'mitre_tactics' — a field the API
+    never sends — so every template landed under "General" and the MITRE
+    line never rendered (fixed Phase 1, 2026-09-01).
+    """
+    grouped: dict[str, list[dict]] = {}
+    for t in templates:
+        category = t.get("category") or "general"
+        grouped.setdefault(category, []).append(t)
+    return grouped
+
+
+def _summarize_gaps(gap_result: dict) -> dict:
+    """Map the API's GapAnalysisResponse into display values.
+
+    The API returns total_critical_techniques, total_covered,
+    coverage_percentage, gaps (list of technique-ID strings), gap_hunts,
+    rule_techniques, hunt_techniques. The dashboard previously read
+    covered_techniques/uncovered_techniques — fields that don't exist — so
+    the tab always rendered 0/0 with no gap list (fixed Phase 1, 2026-09-01).
+    """
+    total = gap_result.get("total_critical_techniques", 0)
+    covered = gap_result.get("total_covered", 0)
+    pct = gap_result.get("coverage_percentage", 0.0)
+    technique_gaps = gap_result.get("gaps", []) or []
+    gap_hunts = gap_result.get("gap_hunts", []) or []
+    return {
+        "covered": covered,
+        "total": total,
+        "pct": pct,
+        "gaps": technique_gaps,
+        "gap_hunts": gap_hunts,
+    }
+
+
+def _hunts_for_alert(result: dict) -> list[dict]:
+    """Combine the two hunt-suggestion lists the API actually returns:
+    matching_hunts (template matches by MITRE) + llm_suggestions.
+    The dashboard previously read 'suggested_hunts' — a field that doesn't
+    exist — so this view always reported "No specific hunt suggestions"
+    (P2-43 fixed alerts_view; this page was missed — fixed Phase 1,
+    2026-09-01).
+    """
+    return list(result.get("matching_hunts", []) or []) + list(
+        result.get("llm_suggestions", []) or []
+    )
+
+
 def render_hunt_view():
     """Render the threat hunting page."""
     api = get_api_client()
@@ -49,26 +100,18 @@ def render_hunt_view():
         else:
             st.caption(f"{len(templates)} hunt templates available")
 
-            tactics = {}
-            for t in templates:
-                tactic = (
-                    t.get("mitre_tactics", ["General"])[0]
-                    if t.get("mitre_tactics") else "General"
-                )
-                if tactic not in tactics:
-                    tactics[tactic] = []
-                tactics[tactic].append(t)
-
-            for tactic, hunts in sorted(tactics.items()):
-                with st.expander(f"{tactic} ({len(hunts)} hunts)"):
+            # Group by the API's own category field (persistence, collection,
+            # command_and_control, ...) — see _group_templates.
+            for category, hunts in sorted(_group_templates(templates).items()):
+                with st.expander(f"{category} ({len(hunts)} hunts)"):
                     for hunt in hunts:
                         st.markdown(
                             f"**{hunt.get('name', 'Unknown')}**"
                         )
                         st.caption(hunt.get("description", ""))
-                        techniques = hunt.get("mitre_techniques", [])
+                        techniques = hunt.get("mitre", []) or []
                         if techniques:
-                            st.markdown(f"MITRE: {', '.join(techniques)}")
+                            st.markdown(f"MITRE: {', '.join(str(t) for t in techniques)}")
 
                         hunt_id = hunt.get("id", hunt.get("name", ""))
                         if can_write():
@@ -84,18 +127,21 @@ def render_hunt_view():
         with col1:
             with st.spinner("Loading MITRE gap analysis...", show_time=True):
                 try:
-                    gaps = api.get_mitre_gaps()
-                    covered = gaps.get("covered_techniques", [])
-                    uncovered = gaps.get("uncovered_techniques", [])
-                    total = len(covered) + len(uncovered)
-                    coverage_pct = len(covered) / total * 100 if total > 0 else 0
+                    summary = _summarize_gaps(api.get_mitre_gaps())
+                    covered = summary["covered"]
+                    total = summary["total"]
+                    coverage_pct = summary["pct"]
 
-                    st.metric("Coverage", f"{len(covered)}/{total}", f"{coverage_pct:.1f}%")
-                    st.progress(coverage_pct / 100)
+                    st.metric(
+                        "Coverage",
+                        f"{covered}/{total}",
+                        f"{coverage_pct:.1f}%",
+                    )
+                    if total > 0:
+                        st.progress(min(coverage_pct, 100.0) / 100)
 
                 except ApiError as e:
-                    uncovered = []
-                    covered = []
+                    summary = {"gaps": [], "gap_hunts": []}
                     st.error(f"Failed to load MITRE gaps: {e.detail}")
 
         with col2:
@@ -110,38 +156,24 @@ def render_hunt_view():
                 except ApiError:
                     st.metric("Rules with MITRE Tags", "N/A")
 
-        if uncovered:
+        if summary.get("gaps"):
             st.divider()
             st.subheader("Uncovered Critical Techniques")
+            gap_lines = ", ".join(f"`{g}`" for g in summary["gaps"])
+            st.markdown(gap_lines)
 
-            tactic_groups = {}
-            TACTIC_NAMES = {
-                "TA0001": "Initial Access", "TA0002": "Execution", "TA0003": "Persistence",
-                "TA0004": "Privilege Escalation", "TA0005": "Defense Evasion",
-                "TA0006": "Credential Access", "TA0007": "Discovery", "TA0008": "Lateral Movement",
-                "TA0009": "Collection", "TA0011": "Command and Control",
-                "TA0010": "Exfiltration", "TA0040": "Impact",
-            }
-
-            for tech in uncovered:
-                tactic_id = tech.get("tactic", "Unknown")
-                tactic_name = TACTIC_NAMES.get(tactic_id, tactic_id)
-                if tactic_name not in tactic_groups:
-                    tactic_groups[tactic_name] = []
-                tactic_groups[tactic_name].append(tech)
-
-            for tactic, techniques in sorted(tactic_groups.items()):
-                with st.expander(f"{tactic} ({len(techniques)} gaps)"):
-                    for tech in techniques:
+            # Suggested hunts for gap techniques — gap_hunts entries are
+            # {technique, hunt_id, hunt_name} from mitre_gap_analysis().
+            if summary.get("gap_hunts"):
+                st.caption("Suggested hunts covering these gaps:")
+                for gap_hunt in summary["gap_hunts"]:
+                    if isinstance(gap_hunt, dict):
                         st.markdown(
-                            f"- **{tech.get('id', '')}**: {tech.get('name', '')} "
-                            f"— {tech.get('description', '')}"
+                            f"- `{gap_hunt.get('technique', '')}` — "
+                            f"{gap_hunt.get('hunt_name', 'custom hunt')}"
                         )
-
-        if covered:
-            with st.expander("Covered Techniques"):
-                for tech_id in covered:
-                    st.markdown(f"- `{tech_id}`")
+                    else:
+                        st.markdown(f"- {gap_hunt}")
 
     # ─── Execute Hunt ───
     with tab3:
@@ -166,7 +198,9 @@ def render_hunt_view():
             with st.status("Analyzing alert and suggesting hunts...", expanded=True) as status:
                 try:
                     result = api.hunt_from_alert(alert_id)
-                    hunts = result.get("suggested_hunts", [])
+                    # The API returns matching_hunts (template matches by MITRE)
+                    # + llm_suggestions — see _hunts_for_alert.
+                    hunts = _hunts_for_alert(result)
 
                     if hunts:
                         status.update(label=f"Found {len(hunts)} suggested hunts", state="complete")
@@ -174,10 +208,16 @@ def render_hunt_view():
                         for hunt in hunts:
                             with st.expander(f"{hunt.get('name', 'Unknown')}"):
                                 st.write(f"**Description:** {hunt.get('description', '')}")
-                                techniques = hunt.get("mitre_techniques", [])
+                                # Template matches carry matched_mitre; LLM
+                                # suggestions are name/description only.
+                                techniques = (
+                                    hunt.get("matched_mitre", [])
+                                    or hunt.get("mitre", [])
+                                    or []
+                                )
                                 if techniques:
-                                    st.write(f"**MITRE Techniques:** {', '.join(techniques)}")
-                                hunt_id_suggest = hunt.get("id", hunt.get("name", ""))
+                                    st.write(f"**MITRE Techniques:** {', '.join(str(t) for t in techniques)}")
+                                hunt_id_suggest = hunt.get("id") or ""
                                 if can_write() and hunt_id_suggest:
                                     if st.button("Execute", key=f"exec_suggest_{hunt_id_suggest}"):
                                         execute_and_display(hunt_id_suggest, api)
