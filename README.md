@@ -2,7 +2,7 @@
 
 **AI-Native SIEM for macOS** — Real-time log ingestion, Sigma-based detection, ML-powered alert triage, and LLM-driven investigation assistance.
 
-> **Status (verified 2026-09-02, post-Phase-2):** CI green on `main` · 1525 unit tests passing (mocked DB) · 5 integration tests (skipped — need live Postgres/Redis/Ollama) · 86% coverage (CI-enforced ≥80%) · 100 Sigma rules. Counts are hand-verified against the code; no auto-updating badge.
+> **Status (verified 2026-09-02, post-Phase-3, v0.2.0):** CI green on `main` · 1640 unit tests passing (mocked DB) · 5 integration tests (skipped — need live Postgres/Redis/Ollama) · 87% coverage (CI-enforced ≥80%) · 100 Sigma rules · admin user-management API + Prometheus `/metrics` · OWASP LLM Top-10 red-team regression suite (41 probes) · CI dependency/image scanning (advisory). Counts are hand-verified against the code; no auto-updating badge.
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow)]()
