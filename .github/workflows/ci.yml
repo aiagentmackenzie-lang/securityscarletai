@@ -143,9 +143,16 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: poetry-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
+          restore-keys: poetry-${{ runner.os }}-
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
 
       - name: Install dependencies (locked set)
         # Same --no-root install as the test job: pip-audit then audits the
