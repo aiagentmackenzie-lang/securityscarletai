@@ -332,10 +332,16 @@ async def hunt_from_alert(alert_id: int) -> Dict[str, Any]:
 
 async def _suggest_hunts_for_alert(alert_data: Dict) -> List[Dict]:
     """Generate LLM-based hunt suggestions from an alert."""
+    # LLM01 fencing (Phase 1, 2026-09-01): host_name is ingest-fed — fenced
+    # as untrusted telemetry, matching analyze_hunting_results' style.
+    fenced_host = fence(
+        str(alert_data.get("host_name", "unknown")),
+        label="alert host_name (ingest-fed log data)",
+    )
     context = (
         f"Alert: {alert_data.get('rule_name', 'Unknown')}\n"
         f"Severity: {alert_data.get('severity', 'unknown')}\n"
-        f"Host: {alert_data.get('host_name', 'unknown')}\n"
+        f"Host: {fenced_host}\n"
         f"MITRE: {', '.join(alert_data.get('mitre_techniques') or [])}"
     )
 
