@@ -130,6 +130,13 @@ class TestLLMQuotaWiring:
         )
         self._assert_user_keyed("src.api.hunt.execute_hunt_template")
 
+    def test_hunt_from_alert_endpoint_marked(self):
+        assert "src.api.hunt.hunt_from_alert_endpoint" in limiter._route_limits
+        assert "30 per 5 minute" in self._limit_strs_for(
+            "src.api.hunt.hunt_from_alert_endpoint"
+        )
+        self._assert_user_keyed("src.api.hunt.hunt_from_alert_endpoint")
+
 
 class TestCompound429RetryAfter:
     """'30/5minutes' must yield a 300s Retry-After, not the flat 60."""

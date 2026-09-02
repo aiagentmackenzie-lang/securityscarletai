@@ -127,7 +127,10 @@ async def gap_analysis(
     summary="Hunt From Alert",
     description="Suggest and execute hunting queries based on an alert.",
 )
+@limiter.limit(LIMIT_LLM, key_func=user_or_ip_key)
 async def hunt_from_alert_endpoint(
+    request: Request,  # slowapi requires this exact name
+    response: Response,  # slowapi injects X-RateLimit-* headers here
     alert_id: int,
     _user: dict = Depends(require_role("analyst")),
 ):

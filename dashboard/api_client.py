@@ -617,8 +617,8 @@ class ApiClient:
         return self._get("/hunt/gaps") or {}
 
     def hunt_from_alert(self, alert_id: int) -> dict:
-        """Suggest hunts from an alert."""
-        return self._post(f"/hunt/from-alert/{alert_id}") or {}
+        """Suggest hunts from an alert (LLM path — needs the longer timeout)."""
+        return self._post(f"/hunt/from-alert/{alert_id}", timeout=AI_TIMEOUT) or {}
 
     # ───────────────────────────────────────────────────────────
     # Audit log
