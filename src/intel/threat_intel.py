@@ -10,6 +10,19 @@ Features:
 - Statistics endpoint
 
 All external API calls use async httpx with proper timeouts and error handling.
+
+P2.5 quota protection (live lookups):
+- NEGATIVE CACHE: a clean (no-threat) AbuseIPDB result is remembered in Redis
+  for 1h (key scarletai:v1:ti_neg:<ip>) so attacker-sprayed fresh IPs don't
+  burn the daily quota on repeat lookups.
+- HOURLY BUDGET: live calls are capped per hour (settings.abuseipdb_hourly_budget,
+  default 500) via a Redis counter — when exhausted, live calls are SKIPPED and
+  logged until the window rolls.
+- FAIL-OPEN AVAILABILITY TRADEOFF (deliberate, written down): with Redis
+  unavailable, neither mechanism can operate — lookups behave exactly as
+  pre-P2.5 (live call, quota burn possible). Enrichment NEVER blocks or fails
+  ingestion because of Redis/cache state: every cache/budget error is logged
+  and treated as a miss.
 """
 import asyncio
 import json
@@ -484,12 +497,79 @@ async def check_ioc_match(ioc_type: str, ioc_value: str) -> Optional[Dict]:
         return None
 
 
+# ───────────────────────────────────────────────────────────────
+# P2.5 — AbuseIPDB quota protection (negative cache + hourly budget)
+# ───────────────────────────────────────────────────────────────
+
+_TI_NEG_TTL_SECONDS = 3600  # clean-IP memory window
+_TI_NEG_KEY = "scarletai:v1:ti_neg:"
+_TI_BUDGET_KEY = "scarletai:v1:ti_budget:abuseipdb:"
+_BUDGET_WINDOW_SECONDS = 3600
+
+
+async def _ti_redis_client():
+    """Shared async Redis client (may be None when Redis is down)."""
+    from src.api.redis_client import _get_client
+
+    return await _get_client()
+
+
+async def _abuseipdb_negative_hit(ip: str) -> bool:
+    """True when this IP was confirmed CLEAN within the negative-cache TTL."""
+    try:
+        client = await _ti_redis_client()
+        if client is None:
+            return False
+        return bool(await client.exists(f"{_TI_NEG_KEY}{ip}"))
+    except Exception as e:
+        log.debug("ti_negative_cache_check_failed", error=str(e))
+        return False
+
+
+async def _abuseipdb_negative_set(ip: str) -> None:
+    """Remember that this IP is clean (no threat) for the TTL window."""
+    try:
+        client = await _ti_redis_client()
+        if client is None:
+            return
+        await client.setex(f"{_TI_NEG_KEY}{ip}", _TI_NEG_TTL_SECONDS, "1")
+    except Exception as e:
+        log.debug("ti_negative_cache_set_failed", error=str(e))
+
+
+async def _abuseipdb_budget_consume() -> bool:
+    """Consume one slot of the hourly live-call budget.
+
+    Returns False when the budget is exhausted (caller must skip the live
+    call). Fail-open: with Redis unavailable there is no accounting, so the
+    call is allowed (same availability tradeoff as every Redis consumer).
+    """
+    try:
+        import time as _time
+
+        client = await _ti_redis_client()
+        if client is None:
+            return True
+        hour_bucket = int(_time.time() // _BUDGET_WINDOW_SECONDS)
+        key = f"{_TI_BUDGET_KEY}{hour_bucket}"
+        count = int(await client.incr(key) or 0)
+        if count == 1:
+            await client.expire(key, _BUDGET_WINDOW_SECONDS)
+        if count > settings.abuseipdb_hourly_budget:
+            return False
+        return True
+    except Exception as e:
+        log.debug("ti_budget_check_failed", error=str(e))
+        return True
+
+
 async def enrich_ip_with_threat_intel(ip: str) -> Dict[str, Any]:
     """
     Enrich an IP address with threat intel data.
 
-    Checks local cache first, then falls back to API if available.
-    Returns enrichment dict to merge into the event.
+    Checks local cache first, then falls back to the AbuseIPDB API if
+    available — BEHIND the P2.5 quota protection (negative cache + hourly
+    budget). Returns enrichment dict to merge into the event.
     """
     enrichment: Dict[str, Any] = {}
 
@@ -507,8 +587,22 @@ async def enrich_ip_with_threat_intel(ip: str) -> Dict[str, Any]:
         if cached.get("confidence", 0) >= 80:
             enrichment["threat_intel"]["severity_boost"] = "high"
 
-    # If no cache hit and we have AbuseIPDB key, check live
+    # If no cache hit and we have AbuseIPDB key, check live — but never
+    # without the P2.5 quota guards (a sprayed fresh IP used to cost a live
+    # call EVERY time; now repeats are free within the TTL window and the
+    # hourly budget caps the volumetric cost).
     elif settings.abuseipdb_api_key:
+        if await _abuseipdb_negative_hit(ip):
+            log.debug("ti_negative_cache_hit", ip=ip)
+            return enrichment
+        if not await _abuseipdb_budget_consume():
+            log.warning(
+                "abuseipdb_hourly_budget_exhausted",
+                ip=ip,
+                budget=settings.abuseipdb_hourly_budget,
+            )
+            return enrichment
+
         abuseipdb = AbuseIPDBClient()
         result = await abuseipdb.check_ip(ip)
         if result:
@@ -527,6 +621,9 @@ async def enrich_ip_with_threat_intel(ip: str) -> Dict[str, Any]:
                     result["threat_type"],
                     result.get("abuse_confidence", 0),
                 )
+            else:
+                # P2.5: clean result — negative-cache so repeats skip the API
+                await _abuseipdb_negative_set(ip)
 
     return enrichment
 
