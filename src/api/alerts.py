@@ -10,9 +10,9 @@ Enhanced with:
 """
 import json
 from datetime import datetime
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from src.api.auth import get_current_user, require_role
@@ -85,8 +85,10 @@ async def list_alerts(
     severity: Optional[str] = None,
     host_name: Optional[str] = None,
     assigned_to: Optional[str] = None,
-    limit: int = 100,
-    offset: int = 0,
+    # P2.3: bounded pagination — an unbounded limit let one request pull the
+    # whole table into memory (DoS primitive on the list endpoint).
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
     user: dict = Depends(get_current_user),
 ):
     """List alerts with optional filtering. All filters are parameterized."""
