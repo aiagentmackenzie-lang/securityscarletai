@@ -625,32 +625,38 @@ class TestCheckAutoTrain:
         """Should trigger training when above threshold."""
         import src.ai.alert_triage as at_module
 
-        # Reset cooldown so test isn't blocked by a previous call
+        # Reset cooldown so test isn't blocked by a previous call — and
+        # restore it afterwards: check_auto_train sets it as a side effect,
+        # and a leaked 1h cooldown broke later auto-train tests when this
+        # file ran first (P2.7 hygiene fix).
+        original_cooldown = at_module._last_auto_train_time
         at_module._last_auto_train_time = 0
+        try:
+            mock_conn = AsyncMock()
+            mock_conn.fetchval = AsyncMock(return_value=150)  # Above 100
 
-        mock_conn = AsyncMock()
-        mock_conn.fetchval = AsyncMock(return_value=150)  # Above 100
+            class AsyncCtx:
+                async def __aenter__(self):
+                    return mock_conn
 
-        class AsyncCtx:
-            async def __aenter__(self):
-                return mock_conn
+                async def __aexit__(self, *args):
+                    pass
 
-            async def __aexit__(self, *args):
-                pass
+            mock_pool = AsyncMock()
+            mock_pool.acquire = MagicMock(return_value=AsyncCtx())
 
-        mock_pool = AsyncMock()
-        mock_pool.acquire = MagicMock(return_value=AsyncCtx())
+            mock_model = MagicMock()
+            mock_model.train = AsyncMock(return_value=True)
 
-        mock_model = MagicMock()
-        mock_model.train = AsyncMock(return_value=True)
-
-        with (
-            patch("src.ai.alert_triage.get_pool", AsyncMock(return_value=mock_pool)),
-            patch("src.ai.alert_triage.get_triage_model", AsyncMock(return_value=mock_model)),
-        ):
-            result = await check_auto_train()
-            assert result is True
-            mock_model.train.assert_called_once()
+            with (
+                patch("src.ai.alert_triage.get_pool", AsyncMock(return_value=mock_pool)),
+                patch("src.ai.alert_triage.get_triage_model", AsyncMock(return_value=mock_model)),
+            ):
+                result = await check_auto_train()
+                assert result is True
+                mock_model.train.assert_called_once()
+        finally:
+            at_module._last_auto_train_time = original_cooldown
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

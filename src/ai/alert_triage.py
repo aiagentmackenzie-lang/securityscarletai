@@ -11,6 +11,7 @@ Changes from Phase 0:
 - Model training + status API endpoints
 - Fallback when Ollama is down
 """
+import asyncio
 import csv
 import hashlib
 import json
@@ -383,23 +384,43 @@ class AlertTriageModel:
             random_state=42,
             class_weight="balanced",
         )
-        self.model.fit(X_array, y_array)
 
-        # M-04 fix: Use cross-validation instead of training-set accuracy
-        from sklearn.model_selection import cross_val_score
-        try:
-            cv_scores = cross_val_score(self.model, X_array, y_array, cv=min(5, len(X_array)))
-            accuracy = float(cv_scores.mean())
+        def _fit_and_score() -> Tuple[float, Optional[float]]:
+            """CPU-bound sklearn fit + CV — off the event loop (P2.7).
+
+            sklearn's fit/cross_val_score are blocking C/Numpy work: run
+            synchronously inside the async trainer they froze the whole API
+            for the fit duration (including the hourly auto-train). Returns
+            (accuracy, cv_std) — cv_std None means CV failed and training-set
+            accuracy was used instead.
+            """
+            from sklearn.model_selection import cross_val_score
+
+            model = self.model
+            if model is None:  # assigned above — defensive only
+                raise RuntimeError("triage model missing before fit")
+            model.fit(X_array, y_array)
+            try:
+                cv_scores = cross_val_score(
+                    model, X_array, y_array, cv=min(5, len(X_array))
+                )
+                return float(cv_scores.mean()), float(cv_scores.std())
+            except ValueError:
+                # Too few samples for CV — fall back to training accuracy
+                predictions = model.predict(X_array)
+                return float(np.mean(predictions == y_array)), None
+
+        accuracy, cv_std = await asyncio.to_thread(_fit_and_score)
+        if cv_std is not None:
             log.info(
                 "triage_cv_accuracy",
                 cv_mean=round(accuracy, 2),
-                cv_std=round(float(cv_scores.std()), 2),
+                cv_std=round(cv_std, 2),
             )
-        except ValueError:
-            # Too few samples for CV — fall back to training accuracy
-            predictions = self.model.predict(X_array)
-            accuracy = float(np.mean(predictions == y_array))
-            log.warning("triage_fallback_to_training_accuracy", accuracy=round(accuracy, 2))
+        else:
+            log.warning(
+                "triage_fallback_to_training_accuracy", accuracy=round(accuracy, 2)
+            )
 
         self.is_trained = True
         self.trained_at = time.time()
@@ -647,10 +668,15 @@ class AlertTriageModel:
         skf = StratifiedKFold(
             n_splits=n_splits, shuffle=True, random_state=V2_RANDOM_STATE
         )
-        fold_accuracies: List[float] = []
-        cv_y_true: List[int] = []
-        cv_y_pred: List[int] = []
-        try:
+        def _run_cv() -> Tuple[List[float], List[int], List[int]]:
+            """CPU-bound per-fold calibrated fits — off the event loop (P2.7).
+
+            n_splits × CalibratedClassifierCV(RandomForest) is the heaviest
+            synchronous block in the codebase (seconds per call); run it in a
+            worker thread so the API keeps serving during /ai/train."""
+            fold_accuracies: List[float] = []
+            cv_y_true: List[int] = []
+            cv_y_pred: List[int] = []
             for train_idx, test_idx in skf.split(X_array, y_array):
                 fold_calibrated = CalibratedClassifierCV(
                     RandomForestClassifier(
@@ -669,6 +695,10 @@ class AlertTriageModel:
                 )
                 cv_y_true.extend(y_array[test_idx].tolist())
                 cv_y_pred.extend(preds.tolist())
+            return fold_accuracies, cv_y_true, cv_y_pred
+
+        try:
+            fold_accuracies, cv_y_true, cv_y_pred = await asyncio.to_thread(_run_cv)
         except ValueError as e:
             log.warning("triage_v2_cv_failed", error=str(e))
             return {
@@ -708,7 +738,7 @@ class AlertTriageModel:
 
         persisted_path: Optional[str] = None
         if accepted:
-            calibrated.fit(X_array, y_array)
+            await asyncio.to_thread(calibrated.fit, X_array, y_array)
             self.model = calibrated
             self.is_trained = True
             self.trained_at = time.time()
