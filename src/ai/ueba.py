@@ -11,6 +11,7 @@ Changes from Phase 0:
 - joblib + SHA256 integrity (already from Phase 0)
 - Model status API endpoint
 """
+import asyncio
 import hashlib
 import time
 from datetime import datetime, timezone
@@ -348,7 +349,14 @@ class UEBABaseline:
             random_state=42,
             n_estimators=100,
         )
-        self.model.fit(X_scaled)
+
+        model = self.model  # narrowed: closure re-widens Optional attr
+
+        def _fit_isolation_forest() -> None:
+            """CPU-bound sklearn fit — off the event loop (P2.7)."""
+            model.fit(X_scaled)
+
+        await asyncio.to_thread(_fit_isolation_forest)
 
         self.is_trained = True
         self.trained_at = time.time()
