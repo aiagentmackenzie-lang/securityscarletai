@@ -33,6 +33,10 @@ make up        # first boot trains the triage model (~1 min); later boots ~30s
 docker compose ps   # wait for all four to report (healthy)
 ```
 
+> **Demo seed is opt-in (2026-09-01):** fresh boots start with an EMPTY
+> database unless `.env` sets `DEMO_SEED_ENABLED=true` before the first
+> `make up`. Enable it on demo hosts only — production boots stay empty.
+
 ## 2. Health gate
 
 **The API health endpoint is `/api/v1/health` — NOT `/health`.** The root
@@ -161,6 +165,7 @@ untouched. Log the end state wherever you track sessions.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `docker info` fails | Docker Desktop not running (it was quit, or the Mac rebooted) | `open -a "Docker Desktop"`, wait for the daemon (~20 s), then `make up` |
+| Empty DB on fresh boot (no demo alerts, no demo login) | Demo seed is opt-in since 2026-09-01 (`DEMO_SEED_ENABLED`) | Add `DEMO_SEED_ENABLED=true` to `.env` BEFORE the first `make up`, then `make down && make up` |
 | Log Viewer / pages empty, API healthy | Demo data older than the page's time window (seed ages out in ~24–48 h) | `make demo-refresh`, re-check §4 |
 | `GET /health` → 404 | Wrong path — it's `/api/v1/health` | Use §2 verbatim |
 | `GET /alerts/suppressions` → 422 | Route-shadowing regression (literal path captured by `/{alert_id}`) | Fixed on main (`fix/suppressions-route-shadowing`); confirm branch history before re-debugging |
