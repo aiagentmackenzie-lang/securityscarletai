@@ -2,6 +2,19 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Boot-critical client tooling (2026-09-03 slim-image regression): the
+# entrypoint applies the schema via `psql -f src/db/schema.sql`
+# (statement-by-statement with ON_ERROR_STOP=1 — see the P0-05 note in
+# scripts/entrypoint.sh for why asyncpg alone is not equivalent) and waits
+# via pg_isready. The Phase C slimming removed these along with the build
+# toolchain and the API crash-looped before uvicorn ever started, while the
+# Sep-2 certification (build + `import ok`) could not see it. psql is a
+# RUNTIME requirement, not build tooling. Bookworm ships the PG15 client;
+# it speaks the wire protocol to a PG17 server fine (DDL is server-side).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install Poetry (C4: pinned >=2.3 to match the poetry.lock generator
 # (2.3.2, lock-version 2.1) — poetry 2.1+ reads the PEP-735 [dependency-groups]
 # table; 2.0.x does NOT and fails with 'Group(s) not found: dev').
