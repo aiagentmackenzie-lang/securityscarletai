@@ -126,7 +126,7 @@ effective paths via tests/unit/_route_walker.py. Verified: full suite
 1644/0, ruff+mypy clean, containers rebuilt + healthy, all 9 page
 endpoints 200, ingest Content-Type enforcement + non-ingest passthrough
 confirmed live. pip-audit residual: 2 (the P4 risk-accepts only).
-Runtime-image confirmation via trivy on the next CI run — residual
+Runtime-image CONFIRMED via trivy (run 33822815354, CI green): residual
 should be the poetry-toolchain tail (Project C) only.
 
 **Project B — first real trivy results (2026-09-03, run 33821877958):**
