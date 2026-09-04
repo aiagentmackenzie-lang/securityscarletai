@@ -123,6 +123,20 @@ class Settings(BaseSettings):
     # /app/osquery (see docker-compose.yml). Declared so .env parsing accepts
     # the key (pydantic-settings v2 forbids extra keys).
     osquery_log_dir: Optional[str] = None
+    # Two-role audit hardening (P1-C): superuser/owner DSN used by the Docker
+    # entrypoint to re-apply scripts/harden_audit.sql on every boot, and by
+    # scripts/check_audit_grants. Consumed by scripts, not the app DSN path
+    # (the app DSN is derived from DB_* above). Declared for .env parsing.
+    database_superuser_url: Optional[SecretStr] = None
+    # Two-role deploy app-role credential (compose api env consumes it via
+    # DB_PASSWORD override in .env; declared so .env parsing accepts the key).
+    db_app_password: Optional[SecretStr] = None
+    # Cluster-superuser/owner (POSTGRES_USER=scarletai) init password — kept
+    # SEPARATE from the app-role DB_PASSWORD in the two-role deploy so rotating
+    # the app password never touches the owner. Compose interpolates
+    # POSTGRES_PASSWORD from this (default falls back to DB_PASSWORD for
+    # single-role deploys). Declared for .env parsing.
+    postgres_superuser_password: Optional[SecretStr] = None
     # Start the osquery FileShipper (tails osquery_log_path) on API startup.
     # OFF by default so existing deployments and CI are unaffected; enable in
     # .env to wire the real telemetry pipe (see scripts/run_osquery_demo.sh
