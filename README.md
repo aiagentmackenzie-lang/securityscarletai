@@ -616,9 +616,9 @@ securityscarletai/
 │   ├── analyze_alerts.py         # Ad-hoc alert analysis helper
 │   ├── validate_config.py        # Validate .env / settings
 │   └── backup.sh                 # Reference pg_dump backup script (pgpass-based)
-├── tests/                   # 1683 unit tests + 5 integration tests (skipped w/o live services)
-├── docs/                    # PRODUCTION.md, DEMO.md, RULES.md, AI.md, DEPLOYMENT.md,
-│                            # AIR-GAPPED.md, ATTACK-SCENARIOS.md, CHANGELOG.md
+├── tests/                   # 1683 unit tests + 5 integration tests (pass live — 2026-09-04)
+├── docs/                    # PRODUCTION.md, TESTING-ROADMAP.md, DEMO.md, RULES.md, AI.md,
+│                            # DEPLOYMENT.md, AIR-GAPPED.md, ATTACK-SCENARIOS.md, CHANGELOG.md
 └── docker-compose.yml       # Postgres 17 + Redis 7 + API + dashboard
                             #   (+ docker-compose.local-prod.yml loopback overlay
                             #    + docker-compose.prod.yml internet/Caddy overlay)
