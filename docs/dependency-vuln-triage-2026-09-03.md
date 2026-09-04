@@ -138,19 +138,46 @@ CVE-2026-23949** (path traversal, fix 6.1.0), which is NOT in
 poetry.lock at all — it ships because **Poetry itself is installed in
 the runtime image** (build tooling never evicted) and drags its own
 transitive deps (cleo, build, cachecontrol, …) into site-packages. See
-Project C. The post-bump image (run 33822072579) is expected to clear
+Project C. (2026-09-04 CORRECTION from the Project C execution: the
+vulnerable 5.3.0 copy was setuptools' `_vendor/` pin from the BASE
+image, not poetry's tail — poetry's own jaraco.context was 6.1.2, a
+fixed version. Both were fixed by Project C's two-part change.) The post-bump image (run 33822072579) is expected to clear
 everything except jaraco.context + starlette.
 
 **Project C — evict the Poetry toolchain from the runtime image
-(multi-stage build):** root cause of the only unfixable-by-bump trivy
-findings — confirmed on the post-bump scan: jaraco.context
-CVE-2026-23949 **and wheel CVE-2026-24049** both ship only because
-Poetry is installed in the final image (with its dependency tail: cleo,
-build, cachecontrol, virtualenv…). Multi-stage Dockerfile: builder
-installs poetry + deps into a target dir; final stage copies app code +
-site-packages only. Bonus: smaller image, smaller attack surface, and
-the poetry-toolchain tail stops generating scanner noise. Estimate:
-2-3 h incl. build+boot verification.
+(multi-stage build): EXECUTED (2026-09-04).** Two-part fix on branch
+`feat/multistage-poetry-eviction`:
+
+1. **Multi-stage Dockerfile** — builder stage installs poetry (pin kept:
+   `>=2.3,<3.0`) + runs `poetry install --without dev --no-root` into an
+   in-project virtualenv `/app/.venv` (poetry seeds it with pip only; the
+   pip is stripped post-install); runtime stage copies ONLY the venv + app
+   tree. Poetry's tail (cleo, build, cachecontrol, virtualenv, dulwich,
+   keyring…) never enters the runtime image. Bonus found during the work:
+   the old layout paid a hidden ~620MB layer tax (`RUN chown -R` re-commits
+   every file — no overlay metacopy on this builder); ownership now set via
+   `COPY --chown` → image **1.83GB → 1.11GB** (−40%).
+2. **Root-cause correction to this doc's Project B claim:** the two HIGH
+   findings did NOT come from poetry's tail — poetry's own copies were
+   already fixed (jaraco.context 6.1.2, wheel 0.46.3, 0 findings). The
+   vulnerable copies were the **`_vendor/` pins inside the setuptools that
+   ships in the python:3.11-slim BASE** (jaraco.context 5.3.0,
+   wheel 0.45.1). Evicting poetry alone therefore could NOT clear the
+   scan. Fix: final stage upgrades `setuptools>=84` (vendors jaraco.context
+   6.1.0 + wheel 0.46.3, both fixed).
+
+Verified 2026-09-04: poetry check --lock + ruff(src/dashboard/scripts/tests)
++ mypy clean · full suite 1644/0 · both images rebuilt (legacy builder,
+no cache mounts) · boot gate green (api/dashboard healthy, /api/v1/health
+all-ok incl. ollama) · all 9 page endpoints 200 (35 alerts 12c/12h/9m/2l,
+20 logs all-time, 3 cases, 15 TI, 100 rules, suppressions 200 `[]`) ·
+site-packages inspection: poetry/cleo/jaraco.context/virtualenv/cachecontrol/
+build ABSENT from both trees, dev group absent, fastapi 0.141.1 +
+starlette 1.6.0 confirmed · local trivy (HIGH,CRIT, ignore-unfixed):
+exit 0, ZERO findings. Note: DEMO.md's "20 rows" expectation for the 24h
+log window was stale — the seed spreads logs uniformly over 48h
+(`randint(1, 2880)`), so ~10-11 in-window is the correct healthy shape
+(DEMO.md corrected same day).
 
 **Enforcing flip (~2026-09-16):** dependency-audit `continue-on-error`
 drops to blocking. The fast-wins above (P0-P2) clear the reachable set;
