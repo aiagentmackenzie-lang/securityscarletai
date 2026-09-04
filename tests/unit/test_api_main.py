@@ -26,7 +26,9 @@ class TestAppConfiguration:
         assert app.title == "SecurityScarletAI"
 
     def test_app_version(self):
-        assert app.version == "0.1.0"
+        # Must match the git tag / pyproject (was 0.1.0 while v0.2.0 was
+        # tagged — the stale-pin pattern; keep this in sync on release).
+        assert app.version == "0.2.0"
 
     def test_app_docs_url(self):
         assert app.docs_url == "/api/docs"

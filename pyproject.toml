@@ -1,6 +1,6 @@
 [project]
 name = "securityscarletai"
-version = "0.1.0"
+version = "0.2.0"  # synced with the v0.2.0 git tag (was stale 0.1.0)
 description = ""
 authors = [
     {name = "SecurityScarletAI Contributors"}
