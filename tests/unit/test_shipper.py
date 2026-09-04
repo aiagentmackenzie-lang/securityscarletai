@@ -111,6 +111,57 @@ def test_maybe_create_shipper_disabled_by_default(monkeypatch):
 def test_maybe_create_shipper_enabled(monkeypatch, tmp_path):
     monkeypatch.setattr(runner.settings, "enable_ingestion_shipper", True)
     monkeypatch.setattr(runner.settings, "osquery_log_path", str(tmp_path / "x.log"))
+    monkeypatch.setattr(
+        runner.settings, "shipper_checkpoint_path", str(tmp_path / "ckpt")
+    )
     ship = maybe_create_shipper(FakeWriter())  # type: ignore[arg-type]
     assert ship is not None
     assert isinstance(ship, FileShipper)
+
+
+def test_maybe_create_shipper_wires_settings_checkpoint_path(monkeypatch, tmp_path):
+    """Regression (2026-09-04, found live in the API container): the checkpoint
+    used to default to Path.home(), which does not exist for the container's
+    appuser — the checkpoint never saved and every container restart re-ingested
+    the whole results log (duplicate events). The runner must wire
+    settings.shipper_checkpoint_path (the persistent data/ volume), not HOME."""
+    monkeypatch.setattr(runner.settings, "enable_ingestion_shipper", True)
+    monkeypatch.setattr(runner.settings, "osquery_log_path", str(tmp_path / "x.log"))
+    ckpt = tmp_path / "shipper_checkpoint"
+    monkeypatch.setattr(runner.settings, "shipper_checkpoint_path", str(ckpt))
+    ship = maybe_create_shipper(FakeWriter())  # type: ignore[arg-type]
+    assert ship is not None
+    assert ship.checkpoint_path == ckpt
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_persists_without_home_dir(tmp_path, monkeypatch):
+    """Container reality: HOME may not exist at all. The shipper must still
+    tail + checkpoint successfully when its checkpoint_path is a writable,
+    persistent path (the data/ volume) — regardless of what Path.home() is."""
+    # Simulate the container: home resolves to a path that does not exist.
+    monkeypatch.setattr(
+        shipper.Path, "home", staticmethod(lambda: tmp_path / "nonexistent-home")
+    )
+    log_file = tmp_path / "osqueryd.results.log"
+    log_file.write_text(_process_line("python3") + "\n")
+    ckpt = tmp_path / "ckpt"
+
+    writer = FakeWriter()
+    ship = FileShipper(str(log_file), writer, checkpoint_path=ckpt)  # type: ignore[arg-type]
+    task = asyncio.create_task(ship.run())
+    await asyncio.sleep(1.2)
+    assert len(writer.events) == 1
+    ship.stop()
+    task.cancel()
+    try:
+        await asyncio.wait_for(task, timeout=2)
+    except (asyncio.CancelledError, asyncio.TimeoutError):
+        pass
+
+    # The checkpoint file must now exist (saved via the atomic tmp+replace) and
+    # record a non-zero offset, and reload must restore it (no re-ingest).
+    assert ckpt.exists()
+    assert int(ckpt.read_text().strip()) > 0
+    reloaded = FileShipper(str(log_file), writer, checkpoint_path=ckpt)  # type: ignore[arg-type]
+    assert reloaded._offset > 0

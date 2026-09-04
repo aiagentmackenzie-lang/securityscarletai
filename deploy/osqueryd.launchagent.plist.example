@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.scarletai.osqueryd</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <!-- Official osquery pkg binary run from INSIDE its .app bundle: the code
+         signature covers the bundle resources, so a bare binary copy breaks the
+         seal and macOS kills it at exec (Killed: 9). Do not copy osqueryd out. -->
+    <string>__HOME__/Applications/osquery/osquery.app/Contents/MacOS/osqueryd</string>
+    <!-- Machine-specific paths are CLI flags (flags override conf options), so
+         config/osquery.conf itself stays machine-independent. -->
+    <string>--config_path=__REPO_ROOT__/config/osquery.conf</string>
+    <string>--logger_path=__REPO_ROOT__/data/osquery</string>
+    <string>--database_path=__REPO_ROOT__/data/osquery/osquery.db</string>
+    <!-- Without this, osqueryd's default pidfile is under /var/osquery (root-only)
+         and the daemon refuses to boot as a user agent: "Pidfile check failed". -->
+    <string>--pidfile=__REPO_ROOT__/data/osquery/osqueryd.pid</string>
+    <!-- CLI-ONLY flags (osquery 5.23.1 warns and IGNORES them if set in the
+         config file instead): logger_plugin, logger_mode. NOTE: --log_result_events
+         does NOT exist in 5.23.1 (results logging is default-on for the
+         filesystem plugin) — passing it kills the daemon at flag parse. -->
+    <string>--logger_plugin=filesystem</string>
+    <!-- 0644 so the API container (different uid) can read the results log;
+         osquery's default 0640 is owner-group-only. -->
+    <string>--logger_mode=0644</string>
+    <!-- Extension-manager socket also defaults to /var/osquery (root-only). -->
+    <string>--extensions_socket=__REPO_ROOT__/data/osquery/osquery.em</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- Background + niced: SIEM telemetry must never starve the user's UI. -->
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>Nice</key>
+  <integer>10</integer>
+
+  <key>StandardErrorPath</key>
+  <string>__REPO_ROOT__/data/osquery/osqueryd.err.log</string>
+  <key>StandardOutPath</key>
+  <string>__REPO_ROOT__/data/osquery/osqueryd.out.log</string>
+</dict>
+</plist>

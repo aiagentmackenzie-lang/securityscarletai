@@ -74,11 +74,32 @@ services:
       # the container. .env's http://localhost:11434 is the host-mode value.
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-mistral:7b}
+      # Real telemetry pipe: FileShipper tails the osquery results log (P4 local
+      # production). Default OFF — existing deployments/CI unaffected.
+      ENABLE_INGESTION_SHIPPER: ${ENABLE_INGESTION_SHIPPER:-false}
+      # Container-side path of the read-only osquery bind mount below.
+      OSQUERY_LOG_PATH: /app/osquery/osqueryd.results.log
+      # Scoped ingest token (P2.6) + metrics scrape token (P3.3) pass-through
+      # (empty = feature disabled, matching settings defaults).
+      INGEST_BEARER_TOKEN: ${INGEST_BEARER_TOKEN:-}
+      METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN:-}
+      # Retention (P1-D) pass-through — bounded storage. Defaults mirror
+      # settings.py; set explicit windows in .env to tune.
+      LOGS_RETENTION_DAYS: ${LOGS_RETENTION_DAYS:-30}
+      ALERTS_RETENTION_DAYS: ${ALERTS_RETENTION_DAYS:-180}
+      AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-365}
+      CORRELATION_RETENTION_DAYS: ${CORRELATION_RETENTION_DAYS:-90}
+      AI_USAGE_RETENTION_DAYS: ${AI_USAGE_RETENTION_DAYS:-90}
     volumes:
       # Epic 7: persist model artifacts and runtime data across restarts.
       - ./models:/app/models
       - ./data:/app/data
       - ./logs:/app/logs
+      # Real telemetry: host osquery results dir, READ-ONLY — a compromised
+      # container must not be able to tamper with the trail it reads. Lives
+      # under data/ so colima's default $HOME mount covers it (colima does NOT
+      # mount /opt/homebrew into the VM by default).
+      - ${OSQUERY_LOG_DIR:-./data/osquery}:/app/osquery:ro
     depends_on:
       postgres:
         condition: service_healthy
