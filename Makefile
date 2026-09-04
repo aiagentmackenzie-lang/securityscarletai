@@ -27,7 +27,9 @@ logs: ## Tail compose logs
 migrate: ## Apply the canonical schema (src/db/schema.sql) to the running Postgres
 	@echo "Applying $(SCHEMA)..."
 	@docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U scarletai -d scarletai -f /dev/stdin < $(SCHEMA) \
-	  || psql -v ON_ERROR_STOP=1 "$$DATABASE_URL" -f $(SCHEMA)
+	  || (echo "docker exec path failed. NOTE: under the two-role deploy the app role\n\
+	       cannot CREATE tables (by design) — apply as the OWNER, e.g. via\n\
+	       DATABASE_SUPERUSER_URL (see docs/DEPLOYMENT.md / docs/PRODUCTION.md)."; exit 1)
 
 demo: ## Live telemetry demo: osquery log -> shipper -> Sigma -> alert (needs Docker + .env)
 	./scripts/run_osquery_demo.sh

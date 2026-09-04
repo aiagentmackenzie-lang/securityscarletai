@@ -113,8 +113,10 @@ docker compose up -d
 
 # 4. (Dev only) Or run the API outside Docker:
 poetry install
-# Apply the canonical schema (src/db/schema.sql — Alembic was removed):
-psql "$DATABASE_URL" -f src/db/schema.sql
+# Apply the canonical schema (src/db/schema.sql — Alembic was removed). The DSN
+# is DERIVED from DB_* parts; there is NO DATABASE_URL env var (setting one is
+# a stale-DSN footgun — see .env.example):
+psql "$(poetry run python -c 'from src.config.settings import settings; print(settings.database_url)')" -f src/db/schema.sql
 poetry run uvicorn src.api.main:app --host 127.0.0.1 --port 8000
 
 # 5. (Dev only) Start the dashboard outside Docker:

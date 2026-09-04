@@ -124,11 +124,16 @@ curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" \
 
 - **Demo login:** `demo_analyst` / `demo_analyst_2026` (role `analyst` —
   seeded by `scripts/seed_demo_data.py`).
-- **Admin:** `admin` exists but its password is random, generated once by the
-  entrypoint bootstrap. Post-hardening bootstraps write it to
-  `data/admin_initial_password` inside the api container (chmod 600);
-  bootstraps from before that fix have no recoverable password — reset it
-  against the demo DB if admin access is needed.
+- **Admin on a fresh DEMO volume: DOES NOT EXIST.** The seed creates
+  `demo_analyst` first, and the entrypoint's admin bootstrap only fires when
+  the users table is EMPTY — so a demo-seeded volume has no admin user at all
+  (verified against the entrypoint order, 2026-09-04). If admin access is
+  needed on a demo host: `down -v`, boot ONCE without `DEMO_SEED_ENABLED`
+  (production-style boot → admin bootstrap fires → password in
+  `data/admin_initial_password`), THEN set `DEMO_SEED_ENABLED=true` and
+  restart — the seed fires on the still-empty `alerts` table, giving you BOTH
+  the admin and the demo data. On a PRODUCTION boot the bootstrap always
+  creates the admin this way.
 - The dashboard's `DASHBOARD_API_TOKEN` auto-auth is **off** unless you set
   the env var (and it means admin — see DEPLOYMENT.md "Dashboard exposure").
 
