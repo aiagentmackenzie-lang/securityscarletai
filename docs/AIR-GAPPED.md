@@ -110,11 +110,20 @@ Alternatively load your own private intel into `threat_intel` directly
 
 6. Bring up the stack:
    ```bash
-   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+   docker compose -f docker-compose.yml -f docker-compose.local-prod.yml up -d
    ```
-   The entrypoint applies the schema, seeds demo data, trains the triage /
-   UEBA models, creates the admin (password → `data/admin_initial_password`),
-   and starts uvicorn. `THREAT_INTEL_ENABLED=false` means the entrypoint does
+   Use the LOCAL-PROD overlay, NOT the internet prod overlay: the Caddy path
+   fails in an air gap twice — it fail-fasts on `DOMAIN` and needs outbound
+   80/443 for Let's Encrypt ACME, which contradicts zero egress. TLS on a
+   no-egress deploy is your own job (internal CA / offline-issued cert / or
+   loopback-only where TLS buys nothing). Requires `REDIS_PASSWORD` +
+   `PASSWORD_PEPPER` in `.env` (fail-fast; generate with openssl per
+   `.env.example`).
+   The entrypoint applies the schema (owner path when DATABASE_SUPERUSER_URL
+   is set), optionally seeds demo data (ONLY with `DEMO_SEED_ENABLED=true`),
+   trains the triage / UEBA models when missing, creates the admin (password
+   → `data/admin_initial_password`), and starts uvicorn.
+   `THREAT_INTEL_ENABLED=false` means the entrypoint does
    **not** fire the threat-intel refresh.
 
 7. **Verify no egress**: with the host firewall set to deny outbound, the
