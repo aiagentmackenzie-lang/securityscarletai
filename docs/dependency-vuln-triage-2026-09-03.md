@@ -1,5 +1,15 @@
 # Dependency Vulnerability Triage — 2026-09-03
 
+> **STATUS (2026-09-03, same day):** fast-wins EXECUTED and verified —
+> pip-audit re-run: **109 → 9 findings**. Remaining: 7× starlette (needs
+> Project A, the fastapi upgrade — incl. the KEV) + the 2 P4 risk-accepts
+> (ecdsa Minerva, diskcache pickle — no upstream fix). Full suite 1644/0
+> with the live demo stack; api + dashboard containers rebuilt and healthy
+> on the new lockfile (boot gate + page checks green). Commits:
+> 90c48e5 sqlparse · 2b384d2 aiosmtplib · 112c6b6 tornado+protobuf ·
+> 091bf69 idna/pygments/cryptography/pydantic-settings · 0672104 insurance
+> batch.
+
 Reachability-first triage of the pip-audit findings against the locked
 dependency set, per the vuln-triage methodology (normalize → enrich →
 reachability → prioritize → remediate). Purpose: a defensible fix queue
