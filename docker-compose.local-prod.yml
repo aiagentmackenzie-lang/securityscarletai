@@ -1,0 +1,80 @@
+# Local production overlay — SecurityScarletAI on a single host (loopback only).
+#
+# This is the "my computer, in-house" posture: everything reachable ONLY from
+# the machine itself, redis authenticated, docs closed, pepper enforced. It
+# deliberately does NOT include Caddy/TLS — TLS on loopback buys nothing but
+# certificate management; for internet exposure use docker-compose.prod.yml
+# (Caddy + DOMAIN) instead. See docs/PRODUCTION.md.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.local-prod.yml up -d
+#
+# Cutover (demo → production) is destructive to the demo volume:
+#   1. Back up:  docker exec scarletai-db pg_dump -U scarletai -d scarletai -F c \
+#                  -f /tmp/demo_backup.dump && docker cp scarletai-db:/tmp/demo_backup.dump data/backups/
+#   2. Set PASSWORD_PEPPER + REDIS_PASSWORD in .env BEFORE first boot (pepper
+#      must be active when the FIRST hash is created — there is no fallback).
+#   3. docker compose -f docker-compose.yml -f docker-compose.local-prod.yml down -v
+#   4. docker compose -f docker-compose.yml -f docker-compose.local-prod.yml up -d
+#   5. Admin bootstrap: entrypoint writes the random password to
+#      data/admin_initial_password (chmod 600). Read it once, then treat the
+#      file as sensitive.
+#
+# NOTE: `!override` / `!reset` require Docker Compose v2.24+ (repo runs 5.x).
+
+services:
+  postgres:
+    # Loopback-only publish: keeps the host backup/restore path
+    # (pg_dump on :5433) while closing the LAN exposure the dev compose has.
+    ports: !override
+      - "127.0.0.1:5433:5432"
+
+  redis:
+    # F-04 (local variant): no host port at all — only the API container talks
+    # to redis. Manual inspection: docker exec scarletai-redis redis-cli.
+    # requirepass is REQUIRED (fail fast if unset).
+    ports: !reset []
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env (generate: openssl rand -base64 32)}"]
+
+  api:
+    ports: !override
+      - "127.0.0.1:8000:8000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      # Redis auth (F-04): the API talks to a requirepass'd redis.
+      REDIS_URL: "redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}@redis:6379/0"
+      # Local production: serve no OpenAPI/Swagger/ReDoc — the schema is an
+      # unauthenticated attack-surface map.
+      DOCS_ENABLED: "false"
+      # Password pepper is REQUIRED in local production (set at cutover,
+      # before the first user hash is created — no fallback exists).
+      PASSWORD_PEPPER: "${PASSWORD_PEPPER:?Set PASSWORD_PEPPER in .env (openssl rand -hex 32) at cutover BEFORE first boot}"
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.5"
+
+  dashboard:
+    # Remove the dev live-reload source mount — bake the dashboard image.
+    volumes: !reset []
+    ports: !override
+      - "127.0.0.1:8501:8501"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      SCARLET_API_URL: http://api:8000/api/v1
+      # JWT login only (recommended posture). If you ever set a service token,
+      # the dashboard acts as an ADMIN for anyone who can reach it — loopback
+      # only, and never expose this port beyond the host with a token set.
+      DASHBOARD_API_TOKEN: ${DASHBOARD_API_TOKEN:-}
+      DASHBOARD_SHOW_SETUP_HELP: ""
+    deploy:
+      resources:
+        limits:
+          memory: 512m

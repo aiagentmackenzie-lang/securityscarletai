@@ -136,9 +136,66 @@ Shipper runtime: `ENABLE_INGESTION_SHIPPER=true`, checkpoint at
 `data/shipper_checkpoint` (persistent volume — a `Path.home()` default broke
 in-container; fixed 2026-09-04).
 
-## 3. Production cutover (pending, needs explicit approval)
+## 3. Production cutover — EXECUTED 2026-09-04
 
-The step that separates demo from production posture (fresh volume, redis
-auth ON, loopback-only publishing, random admin bootstrap, pepper active) is
-scoped as Phase 3 — see the phase plan; it is destructive to the demo volume
-and gets executed only on an explicit go.
+The cutover ran on 2026-09-04 with Raphael's approval. Current posture:
+
+- **Loopback-only publishing** (the F-04 LAN-exposure finding is closed):
+  postgres `127.0.0.1:5433` (host backup path preserved), api
+  `127.0.0.1:8000`, dashboard `127.0.0.1:8501`; redis publishes NOTHING.
+- **Redis authenticated** (`--requirepass`, password from `.env`); the API's
+  `REDIS_URL` is rewritten with the password; verified: unauthenticated
+  `redis-cli ping` → NOAUTH, rate-limit counters live in redis
+  (`LIMITS:LIMITER/...` keys, 5/min login limit fired 5×401 → 429 live).
+- **PASSWORD_PEPPER active** (required by the overlay, fail-fast). Set at the
+  cutover moment, BEFORE the first hash — every user hash is peppered.
+- **Docs closed** (`DOCS_ENABLED=false` → `/api/docs` 404), JSON logs,
+  no-new-privileges + cap_drop ALL on api/dashboard, memory limits
+  (api 1g / dashboard 512m), dashboard live-reload mount removed.
+- **Fresh volume**: 0 alerts / 0 demo users; the entrypoint bootstrapped the
+  real `admin` (random password → `data/admin_initial_password`, chmod 600 —
+  read it once with `cat data/admin_initial_password`, then treat it as
+  sensitive; first login forces a password change).
+- Demo data preserved: `data/backups/demo-pre-cutover-20260904-0853.dump`
+  (pg_restore custom format, 13 tables verified readable).
+
+### Mode switching
+
+**Production (current default):**
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local-prod.yml up -d
+```
+
+**Demo (client-facing):** stop prod, boot dev compose with the seed flag —
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local-prod.yml down
+cp .env /tmp/prod-env-backup && sed -i '' 's/^DEMO_SEED_ENABLED=.*/DEMO_SEED_ENABLED=true/' .env
+docker compose up -d   # entrypoint seeds demo data (demo_analyst / demo_analyst_2026)
+# then: make demo-refresh — and restore DEMO_SEED_ENABLED=false in .env afterwards
+```
+The demo volume is wiped/rewritten by seed-on-empty; the production volume is
+untouched while the demo runs on the same named volumes — **pick one mode at a
+time**; switching back to production requires `down -v` + re-bootstrap.
+
+### Post-cutover verification (executed, all green)
+
+| Check | Result |
+|---|---|
+| Publishing | loopback-only (redis unpublished) ✅ |
+| Redis auth | NOAUTH unauth / PONG authed ✅ |
+| `/api/docs` | 404 ✅ |
+| `/api/v1/metrics` | 401 no-token / 200 with token ✅ |
+| Login rate limit | 5/min → 429s, counter in redis ✅ |
+| Fresh DB | 0 alerts, `admin` only ✅ |
+| Telemetry | 189 events within 1 min, growing ✅ |
+| Dashboard | 200 / `_stcore` 200 ✅ |
+| Health | healthy (api/db/ollama ok) ✅ |
+
+### Known residuals (documented, P4 queue)
+
+- Audit immutability is convention-only (single-role deploy) — the two-role
+  `harden_audit.sql` deploy is the P4 ops item.
+- FDA note: terminal-spawned single-shot osquery queries still deny the BTM
+  directory (TCC attributes to the terminal); the launchd daemon itself is
+  granted and emits `startup_items` rows every 300 s — judge by the daemon's
+  own results log, not by hand-run queries.
