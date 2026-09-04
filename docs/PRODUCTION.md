@@ -191,11 +191,68 @@ time**; switching back to production requires `down -v` + re-bootstrap.
 | Dashboard | 200 / `_stcore` 200 ✅ |
 | Health | healthy (api/db/ollama ok) ✅ |
 
-### Known residuals (documented, P4 queue)
+### Known residuals (updated 2026-09-04, P4)
 
-- Audit immutability is convention-only (single-role deploy) — the two-role
-  `harden_audit.sql` deploy is the P4 ops item.
+- ~~Audit immutability is convention-only~~ — **RESOLVED**: the two-role deploy
+  is live (see §4). Verified: app role has INSERT/SELECT only on audit tables,
+  UPDATE/DELETE/TRUNCATE denied at the DB level,
+  `check_audit_grants --strict` exits 0.
 - FDA note: terminal-spawned single-shot osquery queries still deny the BTM
   directory (TCC attributes to the terminal); the launchd daemon itself is
   granted and emits `startup_items` rows every 300 s — judge by the daemon's
   own results log, not by hand-run queries.
+
+## 4. Ops: backups, watchdog, audit immutability (P4 — executed 2026-09-04)
+
+### Two-role audit immutability (the "compromised app can't rewrite its own trail" guarantee)
+
+Live setup:
+- `scarletai` = cluster superuser + table OWNER (applies schema via
+  `DATABASE_SUPERUSER_URL`).
+- `scarletai_app` = restricted LOGIN role the API actually runs as: CRUD on
+  business tables, **INSERT+SELECT only on audit tables** (UPDATE/DELETE/
+  TRUNCATE revoked by `scripts/harden_audit.sql`, re-applied EVERY boot by the
+  entrypoint), no CREATE on schema public (least privilege — the entrypoint
+  applies the schema via the owner DSN precisely because of this).
+- The entrypoint gained the two-role branch: when `DATABASE_SUPERUSER_URL` is
+  set, schema apply switches to the owner DSN (a non-owner fails
+  `schema.sql` at the first CREATE — verified live; granting CREATE to the app
+  role would regress the hardening).
+- Verified: tamper tests (UPDATE/DELETE/TRUNCATE → permission denied),
+  ingest + audit INSERT through the app role,
+  `pg_stat_activity` shows all 10 API connections as `scarletai_app`,
+  `check_audit_grants --strict` → exit 0.
+- **Retention interaction (by design):** the app role can no longer DELETE
+  audit rows, so the in-app retention job reports `audit_sweep_failed`
+  (sentinel -2, non-fatal). Audit pruning is owned by the backup script below,
+  as the owner, honoring `AUDIT_RETENTION_DAYS`.
+
+### Backups (`scripts/backup_local.sh`, launchd nightly 02:30)
+
+dump (docker exec, custom format) → **VERIFY** (`pg_restore --list`, fails on
+zero TABLE DATA — an unverifiable dump is not a backup) → rotate
+(`BACKUP_KEEP_DAYS`, default 14) → owner-only audit prune → `--restore-test`
+mode restores the newest dump into a throwaway `postgres:17-alpine` and counts
+public tables (`--no-privileges`: ACLs target deployment roles, re-applied at
+boot). Verified live: `RESTORE TEST PASS: 13 public tables restored`.
+Backups live in `data/backups/` (persistent bind; the demo archive from the
+cutover is there too).
+
+### Health watchdog (`scripts/health_watchdog.sh`, launchd every 5 min)
+
+Edge-triggered (alerts only on state change — no spam): API health endpoint
+(healthy/degraded/down) + Streamlit `_stcore`. Alerts go to
+`SLACK_WEBHOOK_URL` (from `.env`, optional) and are ALWAYS appended to
+`data/backups/watchdog.log` — never silently dropped.
+
+### Enforcing-flip plan (Sep 16, Raphael's two-week P3.5 window)
+
+Prep done; the flip is a mechanical diff when the window opens:
+1. `trivy-image-scan`: currently **zero findings** — remove
+   `continue-on-error: true` from the job. Done.
+2. `dependency-audit`: add `--ignore-vuln CVE-2024-23342 --ignore-vuln
+   CVE-2025-69872` to the pip-audit step (the two P4 risk-accepts, documented
+   expiry 2026-12-01 — the ignore entries must carry the same rationale), then
+   remove `continue-on-error: true`.
+3. `python -m scripts.check_audit_grants --strict` is a candidate boot gate
+   once any deploy pipeline wants it (exits 0 in the local-prod posture).

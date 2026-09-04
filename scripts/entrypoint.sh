@@ -65,14 +65,29 @@ echo "[entrypoint] Applying schema if needed..."
 # the schema statement-by-statement with ON_ERROR_STOP=1 so a failure in one
 # statement is loud but does not roll back the others. CREATE TYPE is wrapped
 # in DO $$ ... EXCEPTION blocks in schema.sql so re-runs are idempotent.
+# TWO-ROLE DEPLOY (P1-C): when DATABASE_SUPERUSER_URL is set, the schema must
+# be applied by the OWNER via that DSN — the app role is deliberately denied
+# CREATE on schema public (least privilege; granting it would regress the
+# hardening). Verified 2026-09-04: as a non-owner, schema.sql fails at the
+# first CREATE TABLE ("permission denied for schema public"), which under
+# set -e + ON_ERROR_STOP crash-loops the container.
 export PGPASSWORD="${DB_PASSWORD}"
-if ! psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" \
-        -v ON_ERROR_STOP=1 -f src/db/schema.sql; then
+if [ -n "${DATABASE_SUPERUSER_URL:-}" ]; then
     unset PGPASSWORD
-    echo "[entrypoint] FATAL: schema apply failed" >&2
-    exit 1
+    echo "[entrypoint] two-role deploy: schema applies via DATABASE_SUPERUSER_URL (owner)"
+    if ! psql "${DATABASE_SUPERUSER_URL}" -v ON_ERROR_STOP=1 -f src/db/schema.sql; then
+        echo "[entrypoint] FATAL: schema apply failed (superuser path)" >&2
+        exit 1
+    fi
+else
+    if ! psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" \
+            -v ON_ERROR_STOP=1 -f src/db/schema.sql; then
+        unset PGPASSWORD
+        echo "[entrypoint] FATAL: schema apply failed" >&2
+        exit 1
+    fi
+    unset PGPASSWORD
 fi
-unset PGPASSWORD
 echo "[entrypoint] schema OK"
 
 # --- 2c. Audit append-only hardening (P1-C, optional, needs a superuser) ---

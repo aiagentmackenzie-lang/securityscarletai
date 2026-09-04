@@ -5,7 +5,11 @@ services:
     container_name: scarletai-db
     environment:
       POSTGRES_USER: scarletai
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      # The CLUSTER SUPERUSER (role scarletai, table owner) password. Defaults
+      # to DB_PASSWORD for single-role deploys; the local-production two-role
+      # deploy preserves the owner password separately so rotating the app-role
+      # DB_PASSWORD never touches the owner.
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:-${DB_PASSWORD:?Set DB_PASSWORD in .env}}
       POSTGRES_DB: scarletai
     ports:
       # Port 5433 to avoid conflict with Homebrew PostgreSQL on macOS
@@ -54,7 +58,10 @@ services:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: scarletai
-      DB_USER: scarletai
+      # Two-role deploy: DB_USER/DB_PASSWORD default to the single-role values
+      # (owner scarletai + DB_PASSWORD). Local production sets DB_USER=scarletai_app
+      # + DB_PASSWORD=<app role password> in .env — the restricted, non-owner role.
+      DB_USER: ${DB_USER:-scarletai}
       DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
       API_SECRET_KEY: ${API_SECRET_KEY:?Set API_SECRET_KEY in .env}
       API_BEARER_TOKEN: ${API_BEARER_TOKEN:?Set API_BEARER_TOKEN in .env}
@@ -94,6 +101,10 @@ services:
       AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-365}
       CORRELATION_RETENTION_DAYS: ${CORRELATION_RETENTION_DAYS:-90}
       AI_USAGE_RETENTION_DAYS: ${AI_USAGE_RETENTION_DAYS:-90}
+      # Two-role audit hardening (P1-C): when set, the entrypoint applies the
+      # schema as the OWNER via this DSN and re-applies scripts/harden_audit.sql
+      # on every boot. Empty = single-role, convention-only audit immutability.
+      DATABASE_SUPERUSER_URL: ${DATABASE_SUPERUSER_URL:-}
     volumes:
       # Epic 7: persist model artifacts and runtime data across restarts.
       - ./models:/app/models

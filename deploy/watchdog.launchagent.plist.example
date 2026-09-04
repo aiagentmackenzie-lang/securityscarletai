@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.scarletai.watchdog</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__REPO_ROOT__/scripts/health_watchdog.sh</string>
+  </array>
+
+  <!-- Every 5 minutes -->
+  <key>StartInterval</key>
+  <integer>300</integer>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO_ROOT__</string>
+  <key>StandardErrorPath</key>
+  <string>__REPO_ROOT__/data/backups/watchdog.err.log</string>
+  <key>StandardOutPath</key>
+  <string>__REPO_ROOT__/data/backups/watchdog.out.log</string>
+  <key>Nice</key>
+  <integer>10</integer>
+</dict>
+</plist>
