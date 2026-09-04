@@ -372,8 +372,9 @@ class TestResetPassword:
 class TestWiring:
     def test_users_router_registered_in_main(self):
         from src.api.main import app
+        from tests.unit._route_walker import iter_route_paths
 
-        paths = {r.path for r in app.routes}
+        paths = set(iter_route_paths(app.routes))
         assert "/api/v1/users" in paths
         assert "/api/v1/users/{user_id}" in paths
         assert "/api/v1/users/{user_id}/reset-password" in paths

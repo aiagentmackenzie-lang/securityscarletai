@@ -115,14 +115,19 @@ log entry skipped**. On a SIEM, skipping audit logs is the finding.
 
 ## Projects (separate from fast-wins)
 
-**Project A — fastapi/starlette upgrade (the KEV):** fastapi 0.115.14 pins
-`starlette <0.47.0` — every real starlette fix (0.49.1 … 1.3.1) is outside
-that ceiling. Path: fastapi 0.115.14 → 0.141.1 (latest at triage time),
-starlette → 1.3.1 (fixes all 7 findings incl. the KEV). Scope: API
-behaviour re-verified (1644 tests + middleware path-decision tests +
-manual page sweep). Estimate: half a day. The interim middleware
-mitigation (reject absolute-form request targets) is optional if this
-ships within the week.
+**Project A — fastapi/starlette upgrade: EXECUTED (2026-09-03).**
+fastapi 0.115.14 → 0.141.1, starlette 0.46.2 → **1.6.0** (poetry resolved
+beyond the 1.3.1 fix set — all 7 findings dead, incl. the KEV). fastapi
+0.141.1 requires starlette >=0.46.0 with no ceiling. One test-compat
+change: fastapi now wraps include_router() results in
+fastapi.routing._IncludedRouter (prefix in .include_context, unprefixed
+routes in .original_router.routes) — route-wiring tests now resolve
+effective paths via tests/unit/_route_walker.py. Verified: full suite
+1644/0, ruff+mypy clean, containers rebuilt + healthy, all 9 page
+endpoints 200, ingest Content-Type enforcement + non-ingest passthrough
+confirmed live. pip-audit residual: 2 (the P4 risk-accepts only).
+Runtime-image confirmation via trivy on the next CI run — residual
+should be the poetry-toolchain tail (Project C) only.
 
 **Project B — first real trivy results (2026-09-03, run 33821877958):**
 the image scan finally executed (two pinned-action bugs fixed). First
