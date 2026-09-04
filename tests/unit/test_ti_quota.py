@@ -202,6 +202,26 @@ class TestRedisDownFailOpen:
 
         redis_client._client = None  # noqa: SLF001
         monkeypatch.setattr(redis_client, "_last_failure_ts", 0.0)
+        # Hermetic guarantee (2026-09-03): with a LIVE Redis on localhost:6379
+        # (e.g. the compose demo stack), the lazy reconnect in _get_client()
+        # satisfied `_client = None` — the "redis down" premise silently became
+        # "shared live redis": a prior run's own negative-cache write made this
+        # test fail (calls 0 == 1), and every run leaked test keys
+        # (scarletai:v1:ti_neg:* / ti_budget) into the RUNNING demo redis.
+        # Force the connect seam to fail so the premise holds and nothing
+        # escapes the test process, regardless of what listens on 6379.
+        class _UnreachableClient:
+            async def ping(self):
+                raise ConnectionError("test: redis unreachable")
+
+            async def aclose(self):
+                pass
+
+        def _unreachable_from_url(*args, **kwargs):
+            return _UnreachableClient()
+
+        monkeypatch.setattr(redis_client, "_from_url", _unreachable_from_url)
+        monkeypatch.setattr(redis_client, "_SLEEP", AsyncMock())
         calls = {"n": 0}
 
         async def live(ip):
