@@ -348,3 +348,47 @@ shipped on its own branch via `--no-ff` merge; tests went 1525 → 1640 passed
   `OLLAMA_MODEL` override); a fresh demo volume seeds only `demo_analyst`
   (DEMO.md §5's "admin exists" claim is stale — entrypoint bootstrap wrote
   no admin on this volume).
+
+## 2026-09-03 → 2026-09-04 — Local production (real telemetry, hard boundaries, ops)
+
+Raphael's mandate: "not a demo, not an online stack — a local program, safe,
+in-house, AI connected." Executed as phased branches, each merged `--no-ff`
+with CI green; tests went 1640 → 1683 passed, coverage holds 87%.
+
+- **fix/slim-image-boot-deps + fix/test-redis-hermetic + fix/ci-provenance-db-seam
+  + fix/trivy-action-pin (Sep 3)** — demo spin-up surfaced three real bugs
+  (missing runtime deps in the slim image, test-isolation leak into the live
+  Redis, CI postgres-dependent test, never-running trivy action).
+- **vuln triage + fast-wins + Project A + Project C (Sep 3)** — 126 pip-audit
+  findings triaged reachability-first → 9 → 2 risk-accepts; KEV
+  CVE-2026-48710 killed via fastapi/starlette upgrade; trivy image scan at
+  ZERO HIGH/CRITICAL; runtime image 1.83GB → 1.11GB (poetry evicted,
+  multi-stage).
+- **feat/local-telemetry-pipe (Sep 4)** — REAL host telemetry: zero-sudo
+  osqueryd LaunchAgent (inside-.app-bundle execution, root-only path redirects,
+  CLI-only flags), config/osquery.conf rewritten against live 5.23.1 schema
+  checks (shell_history uid, sip_config columns, browser_plugins dropped), a
+  read-only bind mount into the API, shipper enabled. Verified end-to-end:
+  reverse-shell-pattern event → critical alert within one scheduler tick.
+  Fixed live: shipper checkpoint at Path.home() (nonexistent in-container →
+  duplicate re-ingest) → persistent data/ checkpoint; pydantic extra=forbid
+  vs undeclared .env deployment keys; metrics tests pinning ambient env.
+- **feat/local-prod-overlay (Sep 4)** — production cutover: loopback-only
+  publishing (redis unpublished, closes the LAN-exposed unauthenticated Redis),
+  requirepass enforced, DOCS_ENABLED=false, PASSWORD_PEPPER enforced
+  (fail-fast), no-new-privileges + cap_drop, memory limits, dashboard
+  live-reload mount removed, JWT-login default. Fresh volume; demo archived to
+  data/backups/.
+- **feat/local-prod-ops (Sep 4)** — DB-ENFORCED audit immutability: two-role
+  deploy (owner applies schema via DATABASE_SUPERUSER_URL; restricted
+  scarletai_app runs the API with INSERT/SELECT-only audit privileges;
+  harden_audit.sql re-applied every boot; tamper UPDATE/DELETE/TRUNCATE all
+  denied). scripts/backup_local.sh (verify-gated dumps, rotation, owner audit
+  prune, RESTORE TEST against a throwaway postgres) + launchd nightly;
+  scripts/health_watchdog.sh edge-triggered watchdog + launchd; enforcing-flip
+  plan documented for Sep 16.
+- **docs/readme-honesty-audit (Sep 4)** — full README/docs honesty pass:
+  killed the vapor "syslog" ingest claim, fixed stale rule-category counts
+  (9/8/7/6/10/5 → 14/34/17/17/12/6 = 100), test counts (1473/1656 → 1683),
+  CI branch triggers, structure block (17 routers, missing modules), stale
+  PHASE_PLAN.md deleted; PRODUCTION.md added to the docs set.

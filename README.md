@@ -2,7 +2,7 @@
 
 **AI-Native SIEM for macOS** — Real-time log ingestion, Sigma-based detection, ML-powered alert triage, and LLM-driven investigation assistance.
 
-> **Status (verified 2026-09-04, local-production phase):** CI green on `main` · 1656 unit tests passing (mocked DB) · 5 integration tests (skipped — need live Postgres/Redis/Ollama) · 87% coverage (CI-enforced ≥80%) · 100 Sigma rules · admin user-management API + Prometheus `/metrics` · OWASP LLM Top-10 red-team regression suite (41 probes) · **real host telemetry live: osqueryd LaunchAgent → FileShipper → Sigma → alerts (see docs/PRODUCTION.md)** · CI dependency/image scanning (advisory). Counts are hand-verified against the code; no auto-updating badge.
+> **Status (verified 2026-09-04, local-production release):** CI green on `main` · 1683 unit tests passing (mocked DB) · 5 integration tests (skipped — need live Postgres/Redis/Ollama) · 87% coverage (CI-enforced ≥80%) · 100 Sigma rules · 7 correlation rules · 7 sequence patterns · admin user-management API + Prometheus `/metrics` · OWASP LLM Top-10 red-team regression suite (41 probes — verified by collection) · **runs as a real local-production SIEM**: real osqueryd host telemetry → Sigma → alerts, loopback-only publishing, authenticated Redis, DB-enforced append-only audit trail (two-role deploy), verified backups + restore test, edge-triggered watchdog (see docs/PRODUCTION.md) · CI dependency/image scanning (image scan enforcing-green at zero findings; dependency audit advisory — 2 documented risk-accepts). Counts are hand-verified against the code; no auto-updating badge.
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow)]()
@@ -23,7 +23,7 @@
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Ingestion** | FastAPI + asyncpg | High-throughput log collection (osquery, syslog, API), fire-and-forget enrichment, rate-limited per IP |
+| **Ingestion** | FastAPI + asyncpg | High-throughput log collection (osquery tail via the FileShipper, HTTP API), fire-and-forget enrichment, rate-limited per IP |
 | **Storage** | PostgreSQL 17 + Redis 7 | Time-series logs, alerts, cases, correlation matches, AI usage + cost tracking; Redis for rate-limit state and JWT blocklist |
 | **Detection** | Legacy Sigma parser + custom PostgreSQL backend | 100 Sigma rules → parameterized SQL, 7-rule correlation engine with event-driven `as_of` semantics, 7 sequence patterns (exposed via `/correlation/sequences`). The pySigma backend is retained as a unit-tested module but is **off the production path** (P0-04). |
 | **Enrichment** | GeoIP2 + DNS + Threat Intel | MaxMind GeoIP (with periodic retry), AbuseIPDB, OTX, URLhaus, severity boost on TI match |
@@ -50,10 +50,10 @@
 - **Case Management** — Full CRUD with assignments, notes, status tracking, and lessons learned
 - **JWT Auth with Hardening** — `jti` (UUID4) per token, refresh token rotation (7-day TTL), Redis-backed logout blocklist, password-change invalidation, `SecretStr` for secrets
 - **Redis Rate Limiting** — Per-endpoint overrides (`/auth/login` 5/min, `/ingest` 100/min) with custom 429 handler, `X-RateLimit-*` headers, fail-open to in-memory on Redis outage
-- **DB-Backed Audit Logs** — `AuditLogMiddleware` writes one row per state-changing HTTP request to `audit_logs`. Append-only **by convention** (the app only INSERTs/SELECTs audit tables). DB-enforced immutability (`REVOKE UPDATE,DELETE,TRUNCATE`) requires a two-role deploy (owner + restricted app role) via `scripts/harden_audit.sql` — see `docs/DEPLOYMENT.md` → Audit immutability. The default single-role deploy is convention-only.
+- **DB-Backed Audit Logs** — `AuditLogMiddleware` writes one row per state-changing HTTP request to `audit_logs`. Append-only **by convention** in a single-role deploy (the app only INSERTs/SELECTs audit tables); **DB-enforced** (`REVOKE UPDATE,DELETE,TRUNCATE`) via the two-role deploy — the reference local-production deployment runs this enforced posture (owner applies schema, restricted `scarletai_app` role runs the API, hardening re-applied every boot) — see `docs/PRODUCTION.md` §4 and `docs/DEPLOYMENT.md` → Audit immutability.
 - **Real-time Dashboard** — Streamlit with WebSocket live updates, auto-refresh, and toast notifications; two auth modes (JWT or `DASHBOARD_API_TOKEN` service bearer)
 - **Slack Alert Notifications** — automated Slack notifications on new alerts via `send_alert_notification` (email and macOS pf-firewall response were removed as unwired dead code)
-- **Docker Bootstrap** — Idempotent `entrypoint.sh` waits for Postgres, applies schema, seeds demo data, trains models, creates admin, execs uvicorn
+- **Docker Bootstrap** — Idempotent `entrypoint.sh` waits for Postgres, applies schema (owner DSN in the two-role deploy), replays the dead-letter queue, optionally seeds demo data (only with `DEMO_SEED_ENABLED=true`), trains models when missing, creates the admin, execs uvicorn
 
 ---
 
@@ -100,10 +100,16 @@ docker compose up -d
 # The idempotent entrypoint.sh will:
 #   - wait for Postgres to be ready
 #   - apply the canonical schema (src/db/schema.sql)
-#   - seed demo data and train the triage model
+#   - seed demo data ONLY when DEMO_SEED_ENABLED=true (opt-in)
+#   - train the triage/UEBA models when missing
 #   - create the admin user (random password written to data/admin_initial_password,
 #     chmod 600, printed to stdout once on first boot)
 #   - start uvicorn
+#
+# LOCAL PRODUCTION posture (loopback-only publishing, authenticated Redis,
+# DB-enforced audit trail, enforced password pepper):
+#   docker compose -f docker-compose.yml -f docker-compose.local-prod.yml up -d
+#   — requires REDIS_PASSWORD + PASSWORD_PEPPER in .env (docs/PRODUCTION.md)
 
 # 4. (Dev only) Or run the API outside Docker:
 poetry install
@@ -153,6 +159,7 @@ What's wired: `osquery log → FileShipper (tail, checkpointed) → parser (ECS)
 LogWriter → Postgres → Sigma detection scheduler → alerts`. The shipper is OFF
 by default (`enable_ingestion_shipper=false`) so existing deployments and CI are
 unaffected; enable it in `.env` (`ENABLE_INGESTION_SHIPPER=true`) or pass it as
+an env var as the demo script does.
 
 > **Local production (real host telemetry, not synthetic):** for the standing
 > in-house deployment — a real osqueryd LaunchAgent on this Mac feeding the
@@ -160,13 +167,14 @@ unaffected; enable it in `.env` (`ENABLE_INGESTION_SHIPPER=true`) or pass it as
 > see [`docs/PRODUCTION.md`](docs/PRODUCTION.md). Verified live 2026-09-04:
 > real osqueryd → shipper → Postgres → critical Sigma alert within one
 > scheduler tick.
-an env var as the demo script does.
 
 ---
 
 ## API Documentation
 
-Interactive API docs are available at:
+Interactive API docs are available at (when `DOCS_ENABLED=true` — the default
+for dev; **local production and the internet prod overlay set it to `false`,
+so these return 404 there by design**):
 
 - **Swagger UI**: [http://localhost:8000/api/docs](http://localhost:8000/api/docs)
 - **ReDoc**: [http://localhost:8000/api/redoc](http://localhost:8000/api/redoc)
@@ -357,10 +365,10 @@ access from the dashboard.
 ## Testing
 
 ```bash
-# Run the full unit suite (1473 tests, mocked DB, ~30s)
+# Run the full unit suite (1683 tests, mocked DB, ~30s)
 poetry run pytest tests/unit/ -q --no-cov
 
-# With coverage report (gate: 80%; currently ~84%)
+# With coverage report (gate: 80%; currently 87%)
 poetry run pytest tests/unit/ --cov=src --cov-report=term-missing -q
 
 # Integration tests (require a live PostgreSQL with the schema applied)
@@ -373,11 +381,13 @@ poetry run ruff check src/ dashboard/
 poetry run mypy src/
 ```
 
-CI (`.github/workflows/ci.yml`) runs on every push to `main` and `polish-and-docs`:
+CI (`.github/workflows/ci.yml`) runs on every push to `main` and on pull
+requests:
 it builds the Docker image, runs ruff + mypy, applies `schema.sql` to a
-provisioned Postgres 17 with `ON_ERROR_STOP=1`, then runs the unit suite, the
-integration suite, and the coverage gate. Integration tests need Postgres only
-(no Redis); they were previously silently skipping — they now run in CI.
+provisioned Postgres 17 with `ON_ERROR_STOP=1`, runs the unit suite with the
+coverage gate, boots the real entrypoint against a live Postgres (boot gate),
+and scans the image with Trivy (HIGH/CRITICAL, zero-findings enforcement
+pending the Sep 16 flip).
 
 ## Security
 
@@ -391,8 +401,8 @@ integration suite, and the coverage gate. Integration tests need Postgres only
   `X-RateLimit-*` headers.
 - **Audit**: `AuditLogMiddleware` writes one row to `audit_logs` for every
   state-changing HTTP request. The `audit_logs` table is append-only **by
-  convention** (the app only INSERTs/SELECTs it). DB-enforced immutability is
-  available but requires a two-role deploy — a superuser applies
+  convention** in a single-role deploy. DB-enforced immutability is
+  available via the two-role deploy — a superuser applies
   `scripts/harden_audit.sql` to `REVOKE UPDATE,DELETE,TRUNCATE` from the app
   role, and the app runs as a non-owner role so the REVOKE actually binds:
   ```sql
@@ -400,8 +410,11 @@ integration suite, and the coverage gate. Integration tests need Postgres only
   GRANT  INSERT, SELECT            ON audit_logs TO   scarletai_app;
   ```
   `scripts/check_audit_grants.py --strict` verifies it. The default
-  single-role deploy (app role = table owner) is convention-only — owners
-  bypass REVOKE. See `docs/DEPLOYMENT.md` → Audit immutability.
+  single-role deploy (app role = table owner) is convention-only; **the
+  reference local-production deployment runs the enforced two-role posture**
+  (verified: tamper UPDATE/DELETE/TRUNCATE all denied at the DB level,
+  `--strict` exit 0) — see `docs/PRODUCTION.md` §4 and
+  `docs/DEPLOYMENT.md` → Audit immutability.
 - **SQL safety**: All user-supplied values flow through parameterized queries
   (`$1`, `$2`, …) — no string interpolation in SQL. NL→SQL pipeline has
   7 layers of injection defense. `correlation.py` uses `as_of: $1::timestamptz`
@@ -441,9 +454,12 @@ Deliberate constraints, written down instead of hidden:
 - **Single uvicorn worker.** The WS-token store and the connection registry
   are in-memory — scaling to multiple workers requires moving both to Redis
   first (documented scale boundary; do NOT just raise `--workers`).
-- **Audit immutability is convention-only by default.** DB-enforced
-  (REVOKE-based) immutability requires the two-role deploy in
-  `scripts/harden_audit.sql`; single-role deploys can't bind it.
+- **Audit immutability is convention-only in the single-role default.**
+  DB-enforced (REVOKE-based) immutability requires the two-role deploy in
+  `scripts/harden_audit.sql`; single-role deploys can't bind it. The shipped
+  `docker-compose.local-prod.yml` posture runs the enforced two-role deploy
+  (see docs/PRODUCTION.md §4) — the limitation is about the bare `docker
+  compose up` default, not the reference deployment.
 - **JWT library** is `python-jose 3.5.0` (clears known CVEs, but the project
   is unmaintained) — tracked as backlog F-25 (PyJWT migration; the internal
   migration notes are not part of the repo).
@@ -459,7 +475,13 @@ Deliberate constraints, written down instead of hidden:
 
 ## Deployment
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for production deployment instructions including:
+See [docs/PRODUCTION.md](docs/PRODUCTION.md) for the **local production** path
+(single-host, in-house: real osquery telemetry, loopback-only publishing,
+authenticated Redis, two-role audit hardening, backups + watchdog) — this is
+the posture the reference deployment runs.
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the internet-exposed
+production path (Caddy + automatic TLS) including:
 - Docker Compose configuration
 - Environment variables
 - Database migrations
@@ -479,7 +501,7 @@ SIEMs that require constant cloud connectivity).
 ```
 securityscarletai/
 ├── src/
-│   ├── api/                 # FastAPI routers + middleware (15 routers)
+│   ├── api/                 # FastAPI routers + middleware (17 routers)
 │   │   ├── main.py          # App config, CORS, lifespan, middleware stack
 │   │   ├── health.py        # /health with rich Ollama status block
 │   │   ├── ingest.py        # /ingest (rate-limited, 202 Accepted, fire-and-forget enrichment)
@@ -489,11 +511,14 @@ securityscarletai/
 │   │   ├── chat.py          # /ai/chat AI chat endpoint
 │   │   ├── hunt.py          # /hunt/templates, /hunt/gaps, /hunt/{id}/execute, /hunt/from-alert
 │   │   ├── query.py         # /query NL→SQL
-│   │   ├── correlation.py   # /correlation/rules, /run, /matches
+│   │   ├── correlation.py   # /correlation/rules, /run, /matches, /sequences
 │   │   ├── threat_intel.py  # /threat-intel/stats|refresh|lookup
 │   │   ├── audit.py         # /audit/requests (DB-backed audit log query)
 │   │   ├── auth.py          # JWT helpers, RBAC, password hashing, jti, refresh
 │   │   ├── auth_login.py    # /auth/login, /auth/me, /auth/change-password
+│   │   ├── login_lockout.py # Account lockout on failed logins
+│   │   ├── users.py         # /users admin user-management API
+│   │   ├── metrics.py       # /metrics Prometheus endpoint (scrape token)
 │   │   ├── rules.py         # /rules Sigma rule listing
 │   │   ├── logs.py          # /logs raw event query
 │   │   ├── websocket.py     # WebSocket live alert feed
@@ -508,7 +533,8 @@ securityscarletai/
 │   │   ├── risk_scoring.py  # Multi-factor risk scoring
 │   │   ├── ueba.py          # Isolation Forest UEBA
 │   │   ├── chat.py          # AI chat
-│   │   ├── ollama_client.py # Ollama LLM + validate_ollama_model()
+│   │   ├── untrusted.py     # LLM01 data-fencing for untrusted log data
+│   │   ├── ollama_client.py # Ollama LLM + validate_ollama_model() + LLMResult
 │   │   ├── prompts.py       # Versioned Jinja2 prompt templates
 │   │   ├── cost_tracker.py  # Per-call cost + latency → ai_usage
 │   │   └── utils.py         # Shared helpers
@@ -522,28 +548,30 @@ securityscarletai/
 │   │   ├── ai_analyzer.py   # Per-alert AI analysis (called by scheduler)
 │   │   └── backends/        # pySigma PostgreSQL backend (unit-tested, off production path)
 │   ├── enrichment/          # Event enrichment
-│   │   └── pipeline.py      # GeoIP (with retry), DNS, Threat Intel
+│   │   └── pipeline.py      # GeoIP (lazy singleton + retry), DNS, Threat Intel
 │   ├── intel/               # Threat intelligence
 │   │   └── threat_intel.py  # AbuseIPDB, OTX, URLhaus clients
 │   ├── ingestion/           # Log ingestion (osquery tail + ECS parsing)
-│   │   ├── parser.py        # ECS normalization
-│   │   ├── shipper.py       # File tailing (polling, checkpointed, per-instance path)
+│   │   ├── parser.py        # ECS normalization (OSQUERY_ECS_MAP — only mapped tables ingest)
+│   │   ├── shipper.py       # File tailing (polling, checkpointed, persistent data/ checkpoint)
 │   │   ├── schemas.py       # Pydantic NormalizedEvent model
 │   │   └── runner.py        # maybe_create_shipper() — lifespan wiring
 │   ├── response/            # Notifications
-│   │   └── notifications.py  # Slack alert notifications (send_alert_notification)
+│   │   └── notifications.py # Slack alert notifications (send_alert_notification)
 │   ├── services/
-│   │   └── writer.py        # Batched log writer
+│   │   ├── writer.py        # Async batched writer + dead-letter queue
+│   │   └── retention.py     # Bounded-storage retention job (hourly, batched deletes)
 │   ├── config/              # Configuration
 │   │   ├── settings.py      # Pydantic Settings (SecretStr for secrets)
 │   │   └── logging.py       # Structured logging
 │   └── db/                  # Database
 │       ├── connection.py    # asyncpg pool (retry + backoff)
-│       ├── writer.py        # Async batched writer
-│       └── schema.sql       # Canonical schema (ai_usage, correlation_matches, audit_logs, triage_model_provenance, alert_labels)
+│       ├── writer.py        # Async batched writer + dead-letter queue
+│       └── schema.sql       # Canonical schema (idempotent, append-only)
 ├── dashboard/               # Streamlit UI
 │   ├── main.py              # Dashboard entry point
 │   ├── alerts_view.py       # Alert browser
+│   ├── suppressions_view.py # Alert suppressions management
 │   ├── cases_view.py        # Case management
 │   ├── hunt_view.py         # Hunting interface
 │   ├── ai_chat_view.py      # AI chat
@@ -554,28 +582,44 @@ securityscarletai/
 │   ├── auth.py              # JWT auth (3 roles: admin/analyst/viewer)
 │   └── ui_utils.py          # Shared UI helpers
 ├── rules/
-│   └── sigma/               # 100 Sigma YAML rules
-│       ├── authentication/  # 9 rules
-│       ├── process/         # 8 rules
-│       ├── network/         # 7 rules
-│       ├── file/            # 6 rules
-│       ├── macOS/           # 10 rules
-│       └── cloud/           # 5 rules
+│   └── sigma/               # 100 Sigma YAML rules (MITRE ATT&CK mapped)
+│       ├── authentication/  # 14 rules
+│       ├── process/         # 34 rules
+│       ├── network/         # 17 rules
+│       ├── file/            # 17 rules
+│       ├── macOS/           # 12 rules
+│       └── cloud/           # 6 rules
+├── config/
+│   └── osquery.conf         # Host telemetry schedule (verified against osquery 5.23.1)
+├── deploy/
+│   ├── Caddyfile                        # Internet-path reverse proxy (TLS)
+│   ├── osqueryd.launchagent.plist.example # Real-telemetry LaunchAgent
+│   ├── backup.launchagent.plist.example   # Nightly verified backup
+│   └── watchdog.launchagent.plist.example # 5-min edge-triggered health watchdog
 ├── scripts/
-│   ├── entrypoint.sh             # Idempotent Docker bootstrap (wait DB, schema, seed, train, admin)
+│   ├── entrypoint.sh             # Idempotent Docker bootstrap (two-role aware)
+│   ├── backup_local.sh           # Local backup + verify + rotate + audit prune + restore test
+│   ├── health_watchdog.sh        # Edge-triggered health watchdog (Slack optional)
+│   ├── check_audit_grants.py     # Audit append-only verification (--strict for gates)
+│   ├── harden_audit.sql          # Two-role audit hardening (owner applies)
+│   ├── replay_dead_letter.py     # Dead-letter queue replay (also runs at boot)
+│   ├── refresh_demo_timestamps.py # make demo-refresh — slide synthetic data to now
 │   ├── run_osquery_demo.sh       # Live telemetry demo (osquery -> shipper -> Sigma -> alert)
 │   ├── generate_osquery_events.py # Emits osquery result-log lines for the demo
 │   ├── generate_attack_data.py   # Synthetic attack fixtures
 │   ├── generate_training_data.py # Synthetic alert generator for triage training
-│   ├── seed_demo_data.py         # Seed demo alerts (run by entrypoint)
+│   ├── seed_demo_data.py         # Seed demo alerts (opt-in via DEMO_SEED_ENABLED)
 │   ├── seed_realistic_data.py    # Seed a realistic demo dataset
 │   ├── migrate_passwords.py      # One-off password migration helper
 │   ├── analyze_alerts.py         # Ad-hoc alert analysis helper
 │   ├── validate_config.py        # Validate .env / settings
-│   └── backup.sh                 # Reference pg_dump backup script
-├── tests/                   # 1473 unit tests + 5 integration tests (skipped w/o live services)
-├── docs/                    # AI.md, RULES.md, DEPLOYMENT.md, ATTACK-SCENARIOS.md
+│   └── backup.sh                 # Reference pg_dump backup script (pgpass-based)
+├── tests/                   # 1683 unit tests + 5 integration tests (skipped w/o live services)
+├── docs/                    # PRODUCTION.md, DEMO.md, RULES.md, AI.md, DEPLOYMENT.md,
+│                            # AIR-GAPPED.md, ATTACK-SCENARIOS.md, CHANGELOG.md
 └── docker-compose.yml       # Postgres 17 + Redis 7 + API + dashboard
+                            #   (+ docker-compose.local-prod.yml loopback overlay
+                            #    + docker-compose.prod.yml internet/Caddy overlay)
 ```
 
 ## Screenshots

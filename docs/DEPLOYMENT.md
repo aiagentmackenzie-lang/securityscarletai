@@ -2,6 +2,12 @@
 
 SecurityScarletAI runs as a FastAPI service backed by PostgreSQL 17 and Redis 7. Docker Compose is the recommended deployment path — it brings up Postgres, Redis, the API, the entrypoint initializer, and optionally the Streamlit dashboard. The entrypoint is idempotent: re-running on a populated database is a no-op for one-time setup steps.
 
+> **Local production (single host, in-house)?** This document covers the
+> internet-exposed path (Caddy + automatic TLS). For the loopback-only local
+> production posture — real osquery telemetry, two-role audit hardening,
+> backups + watchdog — see [`PRODUCTION.md`](PRODUCTION.md), which is what the
+> reference deployment runs.
+
 This document covers: prerequisites, environment variables, Docker Compose deployment, the idempotent entrypoint, schema management, security hardening, JWT rotation, backup/recovery, monitoring, and troubleshooting.
 
 ---
