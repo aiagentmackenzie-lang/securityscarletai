@@ -83,6 +83,10 @@ services:
       # (empty = feature disabled, matching settings defaults).
       INGEST_BEARER_TOKEN: ${INGEST_BEARER_TOKEN:-}
       METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN:-}
+      # Password pepper (P2-9) pass-through (empty = disabled). MUST be set
+      # BEFORE the first user hash is created (local-prod cutover); setting it
+      # on a live DB invalidates existing hashes (no fallback in verification).
+      PASSWORD_PEPPER: ${PASSWORD_PEPPER:-}
       # Retention (P1-D) pass-through — bounded storage. Defaults mirror
       # settings.py; set explicit windows in .env to tune.
       LOGS_RETENTION_DAYS: ${LOGS_RETENTION_DAYS:-30}
