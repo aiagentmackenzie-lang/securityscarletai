@@ -38,6 +38,51 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
             -e API_BEARER_TOKEN=dummybearertoken1234 \
             securityscarletai:ci -c "import src.api.main; print('import ok')"
 
+      - name: Boot the real entrypoint against a live Postgres
+        # 2026-09-03 slim-image regression: the slim build dropped psql and
+        # curl; `import ok` passed while the entrypoint crash-looped on schema
+        # apply (psql: command not found) and compose healthchecks failed.
+        # This gate runs the ACTUAL entrypoint against a real Postgres and
+        # requires the API to come up and serve /health — the boot path, not
+        # just the import path. /health returns 200 with status "degraded"
+        # when Ollama is absent, so no Ollama service is needed here.
+        run: |
+          docker network create ci-boot
+          docker run -d --name ci-db --network ci-boot \
+            -e POSTGRES_DB=scarletai -e POSTGRES_USER=scarletai \
+            -e POSTGRES_PASSWORD=cibootpassword \
+            postgres:17-alpine
+          docker run -d --name ci-api --network ci-boot \
+            -e DB_HOST=ci-db -e DB_PORT=5432 -e DB_NAME=scarletai \
+            -e DB_USER=scarletai -e DB_PASSWORD=cibootpassword \
+            -e API_SECRET_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+            -e API_BEARER_TOKEN=dummybearertoken1234 \
+            securityscarletai:ci
+          ok=""
+          for i in $(seq 1 120); do
+            if docker exec ci-api python -c \
+              "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=5)" 2>/dev/null; then
+              ok=1; break
+            fi
+            sleep 2
+          done
+          docker logs ci-api 2>&1 | tail -40
+          if [ -z "$ok" ]; then
+            echo "::error::entrypoint never reached a healthy API (see logs above)"
+            exit 1
+          fi
+          # The exact regression: schema must actually be applied (psql existed
+          # and the statement-by-statement apply completed on a fresh volume).
+          tables=$(docker exec ci-db psql -U scarletai -d scarletai -tAc \
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")
+          echo "public tables after boot: $tables"
+          if [ "$tables" -lt 5 ]; then
+            echo "::error::schema not applied during boot"
+            exit 1
+          fi
+          docker rm -f ci-api ci-db
+          docker network rm ci-boot
+
   test:
     runs-on: ubuntu-latest
 

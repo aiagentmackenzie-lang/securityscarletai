@@ -87,7 +87,12 @@ services:
     healthcheck:
       # Longer start-period: the entrypoint runs schema apply + optional seed + model
       # training on first launch, which can take 30-60 seconds.
-      test: ["CMD", "curl", "-f", "--max-time", "5", "http://localhost:8000/api/v1/health"]
+      # 2026-09-03: was `curl -f` — curl is NOT in the slim image (Phase C dropped
+      # it with the build toolchain), so a perfectly healthy API reported unhealthy
+      # and every dependent service refused to start. Python-stdlib probe, matching
+      # the image's own HEALTHCHECK. /health returns 200 even when Ollama is down
+      # (status becomes "degraded"), so this gate is API+DB liveness only.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=8)"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -127,7 +132,9 @@ services:
       # but this container runs Streamlit on 8501 — so the inherited check
       # always fails and the container shows (unhealthy) in `docker ps`.
       # Override with Streamlit's own health endpoint.
-      test: ["CMD-SHELL", "curl -f --max-time 5 http://localhost:8501/_stcore/health || exit 1"]
+      # 2026-09-03: was `curl -f` — curl is not in the slim image (same
+      # regression as the api check). Python-stdlib probe instead.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3

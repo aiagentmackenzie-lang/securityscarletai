@@ -22,11 +22,10 @@ improvising; the gotchas listed there were all hit for real.
 | `scarletai-api` | **8000** | FastAPI (15 routers, Sigma scheduler, retention) |
 | `scarletai-dashboard` | **8501** | Streamlit UI (dark theme) |
 
-Prerequisites: Docker Desktop running (the compose daemon dies with it —
-if `docker info` fails, start Docker Desktop first and wait for
-`docker info --format '{{.ServerVersion}}'` to answer), and for live AI
-features a host Ollama with **`mistral:7b`** installed
-(`ollama list | grep mistral:7b`).
+Prerequisites: a running docker daemon (`docker info` must answer — Docker
+Desktop on desktop Macs, **colima on this Mac mini**: `colima start`; the
+compose daemon dies with it), and for live AI features a host Ollama with
+**`mistral:7b`** installed (`ollama list | grep mistral:7b`).
 
 ```bash
 make up        # first boot trains the triage model (~1 min); later boots ~30s
@@ -164,7 +163,9 @@ untouched. Log the end state wherever you track sessions.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `docker info` fails | Docker Desktop not running (it was quit, or the Mac rebooted) | `open -a "Docker Desktop"`, wait for the daemon (~20 s), then `make up` |
+| `docker info` fails | Docker daemon not running (Mac rebooted; colima host: VM stopped) | `open -a "Docker Desktop"` or `colima start`, wait for `docker info` to answer, then `make up` |
+| API crash-loops: `entrypoint.sh: psql: command not found` | Pre-fix slim image: Phase C dropped postgresql-client with the build toolchain; entrypoint schema-apply needs `psql -f` (fixed `fix/slim-image-boot-deps`) | Rebuild: `git pull` main, `docker compose build api dashboard`, `make up` |
+| API container runs but reports `(unhealthy)`, dashboard stuck on `api: service_healthy` | Pre-fix compose healthchecks used `curl`, which is not in the slim image (same regression) | Same fix — rebuild compose services so the compose file's python probes take effect |
 | Empty DB on fresh boot (no demo alerts, no demo login) | Demo seed is opt-in since 2026-09-01 (`DEMO_SEED_ENABLED`) | Add `DEMO_SEED_ENABLED=true` to `.env` BEFORE the first `make up`, then `make down && make up` |
 | Log Viewer / pages empty, API healthy | Demo data older than the page's time window (seed ages out in ~24–48 h) | `make demo-refresh`, re-check §4 |
 | `GET /health` → 404 | Wrong path — it's `/api/v1/health` | Use §2 verbatim |
