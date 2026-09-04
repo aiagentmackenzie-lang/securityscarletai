@@ -226,7 +226,10 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
         run: docker build -t securityscarletai:ci .
 
       - name: Trivy image scan (HIGH, CRITICAL)
-        uses: aquasecurity/trivy-action@0.28.0
+        # 2026-09-03: pin was `@0.28.0` — the tag is `v0.28.0` (v-prefix), so the
+        # action never resolved and trivy failed at 'Set up job' on every run
+        # since it was added (P3.5) — the image scan silently never ran.
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: securityscarletai:ci
           format: table
