@@ -108,13 +108,34 @@ class Settings(BaseSettings):
     # a second weak-password path). Default false; enable explicitly for dev.
     seed_admin_enabled: bool = False
 
+    # --- Redis (auth; prod overlay only) ---
+    # Consumed by docker-compose.prod.yml (redis --requirepass + REDIS_URL
+    # rewrite); the API itself always talks via REDIS_URL. DECLARED here so
+    # .env parsing accepts the key: pydantic-settings v2 defaults to
+    # extra='forbid', and an undeclared .env key would brick every host-mode
+    # settings load (found live 2026-09-04).
+    redis_password: Optional[SecretStr] = None
+
     # --- osquery ---
     osquery_log_path: str = "/opt/homebrew/var/log/osquery/osqueryd.results.log"
     osquery_config_path: str = "/opt/homebrew/etc/osquery/osquery.conf"
+    # Compose-only: host dir bind-mounted read-only into the api container at
+    # /app/osquery (see docker-compose.yml). Declared so .env parsing accepts
+    # the key (pydantic-settings v2 forbids extra keys).
+    osquery_log_dir: Optional[str] = None
     # Start the osquery FileShipper (tails osquery_log_path) on API startup.
     # OFF by default so existing deployments and CI are unaffected; enable in
-    # .env to wire the real telemetry pipe (see scripts/run_osquery_demo.sh).
+    # .env to wire the real telemetry pipe (see scripts/run_osquery_demo.sh
+    # and docs/PRODUCTION.md).
     enable_ingestion_shipper: bool = False
+    # Where the shipper stores its byte-offset checkpoint. MUST be a writable,
+    # PERSISTENT path: in the Docker deploy CWD is /app and data/ is the mounted
+    # volume, so the checkpoint survives container recreation. The previous
+    # default (Path.home()) broke in-container: /home/appuser does not exist in
+    # the image, so the checkpoint never saved and every restart re-ingested the
+    # whole results log (duplicates). Relative to CWD; set SHIPPER_CHECKPOINT_PATH
+    # to override.
+    shipper_checkpoint_path: str = "data/shipper_checkpoint"
 
     # --- Threat Intel ---
     # When False, the threat-intel refresh scheduler is NOT started and no

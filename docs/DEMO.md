@@ -149,6 +149,14 @@ scheduler working. Note: it stops the compose `api` container to avoid two
 schedulers racing on one DB; re-run `make up` afterwards to restore the
 full four-container stack.
 
+> **This stack already ingests REAL host telemetry.** Since 2026-09-04 the
+> standing deployment on the demo host runs a real osqueryd LaunchAgent
+> (user-space, `data/osquery/osqueryd.results.log`) feeding the shipper — the
+> `logs` table receives genuine host events continuously. Demo refresh
+> (`make demo-refresh`) only slides the SYNTHETIC seed rows' timestamps; real
+> telemetry rows stay put (they are naturally fresh). See
+> [`PRODUCTION.md`](PRODUCTION.md) §1 for the full wiring and its gotchas.
+
 ## 7. Teardown
 
 ```bash

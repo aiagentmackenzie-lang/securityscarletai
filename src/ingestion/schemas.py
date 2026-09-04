@@ -53,10 +53,13 @@ class NormalizedEvent(BaseModel):
 
 
 # Mapping: osquery table name to ECS category + type.
-# browser_plugins and disk_encryption are scheduled in config/osquery.conf but
-# intentionally NOT mapped here: they are compliance/audit tables with no clean
-# ECS event equivalent, so their lines are dropped by parse_osquery_line as
-# unmapped_table (debug-level) rather than forced into a wrong category (P2-37).
+# disk_encryption is scheduled in config/osquery.conf but intentionally NOT
+# mapped here: it is a compliance/audit table with no clean ECS event
+# equivalent, so its lines are dropped by parse_osquery_line as unmapped_table
+# (debug-level) rather than forced into a wrong category (P2-37).
+# browser_plugins was REMOVED from the schedule entirely (2026-09-04): the
+# table is empty/deprecated on modern macOS (verified live against osquery
+# 5.23.1) and only added scheduler noise.
 OSQUERY_ECS_MAP: dict[str, dict[str, str]] = {
     "processes":        {"event_category": "process",        "event_type": "info"},
     "process_events":   {"event_category": "process",        "event_type": "start"},

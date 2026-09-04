@@ -140,7 +140,16 @@ class TestMetricsEndpoint:
         return await prometheus_metrics(request=_metrics_request(ip, headers))
 
     @pytest.mark.asyncio
-    async def test_localhost_scrape_ok_content_and_gauges(self):
+    async def test_localhost_scrape_ok_content_and_gauges(self, monkeypatch):
+        # Pin the ambient env deterministically: the localhost-scrape path is
+        # only valid with no scrape token configured. The host .env may set
+        # METRICS_BEARER_TOKEN (local production does since 2026-09-04) — the
+        # settings singleton reads it and these tests must not depend on that.
+        monkeypatch.setattr(
+            __import__("src.config.settings", fromlist=["settings"]).settings,
+            "metrics_bearer_token",
+            None,
+        )
         resp = await self._call()
         assert isinstance(resp, Response)
         assert resp.media_type == "text/plain; version=0.0.4; charset=utf-8"
@@ -220,9 +229,15 @@ class TestMetricsEndpoint:
         assert exc.value.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_ingest_counter_visible_in_scrape(self):
+    async def test_ingest_counter_visible_in_scrape(self, monkeypatch):
         from src.api.metrics import ingest_accepted_total
 
+        # Same ambient-env pin as test_localhost_scrape_ok_content_and_gauges.
+        monkeypatch.setattr(
+            __import__("src.config.settings", fromlist=["settings"]).settings,
+            "metrics_bearer_token",
+            None,
+        )
         ingest_accepted_total.inc(7)
         resp = await self._call()
         body = resp.body.decode()

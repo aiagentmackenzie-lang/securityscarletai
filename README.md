@@ -2,7 +2,7 @@
 
 **AI-Native SIEM for macOS** — Real-time log ingestion, Sigma-based detection, ML-powered alert triage, and LLM-driven investigation assistance.
 
-> **Status (verified 2026-09-02, post-Phase-3, v0.2.0):** CI green on `main` · 1640 unit tests passing (mocked DB) · 5 integration tests (skipped — need live Postgres/Redis/Ollama) · 87% coverage (CI-enforced ≥80%) · 100 Sigma rules · admin user-management API + Prometheus `/metrics` · OWASP LLM Top-10 red-team regression suite (41 probes) · CI dependency/image scanning (advisory). Counts are hand-verified against the code; no auto-updating badge.
+> **Status (verified 2026-09-04, local-production phase):** CI green on `main` · 1656 unit tests passing (mocked DB) · 5 integration tests (skipped — need live Postgres/Redis/Ollama) · 87% coverage (CI-enforced ≥80%) · 100 Sigma rules · admin user-management API + Prometheus `/metrics` · OWASP LLM Top-10 red-team regression suite (41 probes) · **real host telemetry live: osqueryd LaunchAgent → FileShipper → Sigma → alerts (see docs/PRODUCTION.md)** · CI dependency/image scanning (advisory). Counts are hand-verified against the code; no auto-updating badge.
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow)]()
@@ -153,6 +153,13 @@ What's wired: `osquery log → FileShipper (tail, checkpointed) → parser (ECS)
 LogWriter → Postgres → Sigma detection scheduler → alerts`. The shipper is OFF
 by default (`enable_ingestion_shipper=false`) so existing deployments and CI are
 unaffected; enable it in `.env` (`ENABLE_INGESTION_SHIPPER=true`) or pass it as
+
+> **Local production (real host telemetry, not synthetic):** for the standing
+> in-house deployment — a real osqueryd LaunchAgent on this Mac feeding the
+> shipper continuously, secrets posture, and the demo↔production mode split —
+> see [`docs/PRODUCTION.md`](docs/PRODUCTION.md). Verified live 2026-09-04:
+> real osqueryd → shipper → Postgres → critical Sigma alert within one
+> scheduler tick.
 an env var as the demo script does.
 
 ---
