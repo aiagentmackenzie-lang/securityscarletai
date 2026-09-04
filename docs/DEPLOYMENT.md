@@ -274,13 +274,21 @@ psql "$DATABASE_URL" -f src/db/schema.sql
 
 ---
 
-## Ports discipline (prod — plan phase 4, F-04)
+## Ports discipline (internet prod overlay — F-04)
 
-**Only 80/443 ever publish in production.** The prod overlay revokes the
+**On the internet-facing prod overlay, only 80/443 ever publish.** The prod
+overlay revokes the
 dev-only host ports on postgres and redis (`ports: !reset []`); before this
 overlay the DB (:5433) and Redis (:6379, no password) were LAN-reachable —
 Redis unauthenticated means any host could FLUSHALL the JWT blocklist and
 rate-limit buckets. In the merged config only Caddy publishes ports:
+
+> **The local-production overlay has a different publishing model by design**
+> (`docker-compose.local-prod.yml`, docs/PRODUCTION.md): postgres publishes
+> `127.0.0.1:5433` (host backup path), API/dashboard publish on loopback, and
+> redis publishes NOTHING. Loopback binds reach only the machine itself — same
+> threat model (no LAN exposure), no Caddy/TLS needed. "Only 80/443" applies
+> to the internet overlay, not the loopback one.
 
 ```bash
 REDIS_PASSWORD=<gen> DOMAIN=scarlet.example.com   docker compose -f docker-compose.yml -f docker-compose.prod.yml config | grep published
@@ -434,6 +442,14 @@ For production, also add external rate limiting at the reverse proxy level.
 ---
 
 ## Backup & Recovery
+
+> **Local production deploys: use `scripts/backup_local.sh`** (launchd nightly
+> 02:30 via `deploy/backup.launchagent.plist.example`) — it dumps, VERIFYs
+> every dump (`pg_restore --list`, fails on zero tables), rotates (14d), runs
+> the owner-only audit prune (the two-role deploy prevents the app role from
+> deleting audit rows), and has a `--restore-test` mode that restores the
+> newest dump into a throwaway postgres and gates on table count. The manual
+> commands below remain valid for ad-hoc backups.
 
 ### Database Backup
 

@@ -19,7 +19,9 @@ class Settings(BaseSettings):
 
     # --- Database ---
     db_host: str = "localhost"
-    db_port: int = 5432
+    # Matches the compose host publish + .env.example. (5432 collides with
+    # Homebrew PostgreSQL on macOS; compose overrides internally to 5432.)
+    db_port: int = 5433
     db_name: str = "scarletai"
     db_user: str = "scarletai"
     db_password: str = Field(..., description="Database password — required, no default")
