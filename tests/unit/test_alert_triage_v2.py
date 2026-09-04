@@ -163,7 +163,17 @@ class TestTrainV2Accepted:
     @pytest.mark.asyncio
     async def test_well_separated_data_accepted(self, good_csv: Path, tmp_path: Path):
         m = AlertTriageModel(load=False)
-        with patch("src.ai.alert_triage.MODEL_DIR", tmp_path / "models"):
+        # Provenance is best-effort (alert_triage.py:761). This test used to rely
+        # on "no DB in test env" for provenance_row_id to be None — true locally
+        # (test password never matches a real DB) but FALSE on CI, where the
+        # postgres service container's credentials DO match and the row actually
+        # wrote (CI red on main since 2026-09-02, unnoticed). Pin the seam
+        # explicitly instead: DB unreachable, instantly, every environment.
+        with patch("src.ai.alert_triage.MODEL_DIR", tmp_path / "models"), patch(
+            "src.ai.alert_triage._db_reachable", return_value=False
+        ), patch(
+            "src.ai.alert_triage.get_pool", side_effect=OSError("no db in unit tests")
+        ):
             result = await m.train_v2(csv_path=good_csv)
 
         assert result["ok"] is True
@@ -172,7 +182,7 @@ class TestTrainV2Accepted:
         assert result["n_samples"] == 100
         assert result["cv_accuracy"] >= MIN_CV_ACCURACY
         assert result["persisted_path"] is not None
-        assert result["provenance_row_id"] is None  # no DB in test env
+        assert result["provenance_row_id"] is None
         assert "CalibratedClassifierCV" in (result["model_type"] or "")
 
     @pytest.mark.asyncio
