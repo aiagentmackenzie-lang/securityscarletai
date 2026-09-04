@@ -106,7 +106,7 @@ TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
 | Overview | `GET /api/v1/alerts/stats` | `total_count: 35`, 12 critical / 12 high / 9 medium / 2 low |
 | Alerts | `GET /api/v1/alerts?limit=500` | 200, 35 rows |
 | Log Viewer (default **All time**) | `GET /api/v1/logs?limit=100` | 20 rows |
-| Log Viewer — 24 h window | `GET /api/v1/logs?limit=100&time_minutes=1440` | 20 rows — **0 rows ⇒ stale data, run `make demo-refresh`** |
+| Log Viewer — 24 h window | `GET /api/v1/logs?limit=100&time_minutes=1440` | ~11 rows — the seed spreads logs uniformly over 48 h (`randint(1, 2880)` min), so ~half sit beyond 24 h by design (2026-09-04: corrected — "20 rows" was a stale expectation that never matched the seed shape). **0 rows ⇒ stale data, run `make demo-refresh`** |
 | Cases | `GET /api/v1/cases` | 3 cases |
 | Threat Intel | `GET /api/v1/threat-intel/stats` | `total_indicators: 15` |
 | Rules | `GET /api/v1/rules` | 100 Sigma rules |
