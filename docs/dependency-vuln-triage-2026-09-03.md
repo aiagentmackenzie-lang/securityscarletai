@@ -124,11 +124,28 @@ manual page sweep). Estimate: half a day. The interim middleware
 mitigation (reject absolute-form request targets) is optional if this
 ships within the week.
 
-**Project B — first real trivy results:** the image scan never ran (two
-pinned-action bugs, both fixed 2026-09-03: missing `v`-prefix, then
-trivy-action v0.28.0's dangling `setup-trivy@v0.2.1` reference — now on
-v0.36.0). First results arrive on the next CI run; triage them when
-present (OS packages + Python site-packages in the slim image).
+**Project B — first real trivy results (2026-09-03, run 33821877958):**
+the image scan finally executed (two pinned-action bugs fixed). First
+scan of the pre-bump image (debian 13.6: **0** OS HIGH/CRITICAL):
+~14 distinct Python-package HIGH/CRITICALs — every one already fixed by
+the fast-wins series above EXCEPT **jaraco.context 5.3.0
+CVE-2026-23949** (path traversal, fix 6.1.0), which is NOT in
+poetry.lock at all — it ships because **Poetry itself is installed in
+the runtime image** (build tooling never evicted) and drags its own
+transitive deps (cleo, build, cachecontrol, …) into site-packages. See
+Project C. The post-bump image (run 33822072579) is expected to clear
+everything except jaraco.context + starlette.
+
+**Project C — evict the Poetry toolchain from the runtime image
+(multi-stage build):** root cause of the only unfixable-by-bump trivy
+findings — confirmed on the post-bump scan: jaraco.context
+CVE-2026-23949 **and wheel CVE-2026-24049** both ship only because
+Poetry is installed in the final image (with its dependency tail: cleo,
+build, cachecontrol, virtualenv…). Multi-stage Dockerfile: builder
+installs poetry + deps into a target dir; final stage copies app code +
+site-packages only. Bonus: smaller image, smaller attack surface, and
+the poetry-toolchain tail stops generating scanner noise. Estimate:
+2-3 h incl. build+boot verification.
 
 **Enforcing flip (~2026-09-16):** dependency-audit `continue-on-error`
 drops to blocking. The fast-wins above (P0-P2) clear the reachable set;
