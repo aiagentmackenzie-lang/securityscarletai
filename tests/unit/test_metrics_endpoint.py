@@ -311,8 +311,9 @@ class TestInstrumentation:
 
     def test_router_registered_in_main(self):
         from src.api.main import app
+        from tests.unit._route_walker import iter_route_paths
 
-        paths = {r.path for r in app.routes}
+        paths = set(iter_route_paths(app.routes))
         assert "/api/v1/metrics" in paths
 
     def test_middleware_registered_in_main(self):

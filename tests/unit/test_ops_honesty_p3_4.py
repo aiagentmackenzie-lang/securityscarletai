@@ -136,13 +136,15 @@ class TestRunLegacyRemoved:
 
     def test_route_not_registered(self):
         from src.api.main import app
+        from tests.unit._route_walker import iter_route_paths
 
-        paths = {r.path for r in app.routes}
+        paths = set(iter_route_paths(app.routes))
         assert "/api/v1/correlation/run-legacy" not in paths
 
     def test_current_run_endpoint_still_registered(self):
         from src.api.main import app
+        from tests.unit._route_walker import iter_route_paths
 
-        paths = {r.path for r in app.routes}
+        paths = set(iter_route_paths(app.routes))
         assert "/api/v1/correlation/run" in paths
         assert "/api/v1/correlation/run/{rule_name}" in paths

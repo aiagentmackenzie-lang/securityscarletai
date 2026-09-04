@@ -36,7 +36,9 @@ class TestAppConfiguration:
 
     def test_routes_registered(self):
         """Should have expected API routes."""
-        route_paths = [r.path for r in app.routes if hasattr(r, "path")]
+        from tests.unit._route_walker import iter_route_paths
+
+        route_paths = list(iter_route_paths(app.routes))
         assert any("/api/v1" in p for p in route_paths)
 
     def test_rules_dir_path(self):
@@ -208,7 +210,9 @@ class TestLifespan:
 class TestRouterPaths:
     def test_expected_route_prefixes(self):
         """App should have routes for all major features."""
-        route_paths = [r.path for r in app.routes if hasattr(r, "path")]
+        from tests.unit._route_walker import iter_route_paths
+
+        route_paths = list(iter_route_paths(app.routes))
         prefix_checks = [
             "/health",
             "/ingest",
