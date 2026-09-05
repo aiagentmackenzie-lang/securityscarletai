@@ -2,7 +2,7 @@
 
 **AI-Native SIEM for macOS** — Real-time log ingestion, Sigma-based detection, ML-powered alert triage, and LLM-driven investigation assistance.
 
-> **Status (verified 2026-09-04, local-production release):** CI green on `main` · 1683 unit tests passing (mocked DB) · **5 integration tests PASSING against live Postgres (2026-09-04 — previously skip-gated by a wrong default DB port)** · 87% coverage (CI-enforced ≥80%) · 100 Sigma rules · 7 correlation rules · 7 sequence patterns · admin user-management API + Prometheus `/metrics` · OWASP LLM Top-10 red-team regression suite (41 probes — verified by collection) · **runs as a real local-production SIEM**: real osqueryd host telemetry → Sigma → alerts, loopback-only publishing, authenticated Redis, DB-enforced append-only audit trail (two-role deploy), verified backups + restore test, edge-triggered watchdog (see docs/PRODUCTION.md) · CI dependency/image scanning (image scan enforcing-green at zero findings; dependency audit advisory — 2 documented risk-accepts). Counts are hand-verified against the code; no auto-updating badge.
+> **Status (verified 2026-09-05, local-production release):** CI green on `main` · 1689 unit tests passing (mocked DB) · **8 integration tests PASSING against live Postgres (2026-09-05)** · 87% coverage (CI-enforced ≥80%) · 100 Sigma rules · 8 correlation rules · 7 sequence patterns · admin user-management API + Prometheus `/metrics` · OWASP LLM Top-10 red-team regression suite (41 probes — verified by collection) · **runs as a real local-production SIEM**: real osqueryd host telemetry → Sigma → alerts, loopback-only publishing, authenticated Redis, DB-enforced append-only audit trail (two-role deploy), verified backups + restore test, edge-triggered watchdog (see docs/PRODUCTION.md) · CI dependency/image scanning (image scan enforcing-green at zero findings; dependency audit advisory — 2 documented risk-accepts). Counts are hand-verified against the code; no auto-updating badge.
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow)]()
@@ -37,7 +37,7 @@
 ## Features
 
 - **100 Sigma Detection Rules** — Authentication, process, network, file, macOS, and cloud categories with MITRE ATT&CK mapping
-- **Event-Driven Correlation Engine** — 7 correlation rules (brute force → success, payload → C2, persistence, exfiltration, privilege escalation, credential theft + exfil, defense evasion) with `as_of` time binding (no `NOW()` in queries) and persistent `correlation_matches` table
+- **Event-Driven Correlation Engine** — 8 correlation rules (brute force → success, payload → C2, persistence, exfiltration, privilege escalation, credential theft + exfil, defense evasion, sustained AI-firewall BLOCK verdicts) with `as_of` time binding (no `NOW()` in queries) and persistent `correlation_matches` table
 - **ML Alert Triage** — 11-feature CalibratedClassifierCV with StratifiedKFold cross-validation, full provenance persisted to `triage_model_provenance` (run_id, model_type, source_csv, n_samples, precision/recall/f1, model_path, run_metadata); auto-trains hourly when ≥100 resolved alerts exist (1-hour cooldown)
 - **Versioned Prompt Templates** — Jinja2 templates in `src/ai/prompts.py` with explicit `prompt_version` constants, surfaced in `LLMResult.prompt_version`
 - **Per-Call AI Cost Tracking** — `src/ai/cost_tracker.py` records tokens, latency, model, prompt_version to `ai_usage` table on every LLM call
@@ -172,6 +172,66 @@ an env var as the demo script does.
 
 ---
 
+## Log Sources
+
+Events reach the SIEM through `POST /api/v1/ingest` (bearer token, ECS-normalized
+JSON array of 1–1000 events) or the osquery file-shipper above. Two sources are
+wired today:
+
+### osquery (host telemetry)
+
+Real osqueryd results logs, tailed by the file-shipper, parsed to ECS by the
+`OSQUERY_ECS_MAP` table (`src/ingestion/schemas.py`). See the Live Telemetry Demo
+above and [`docs/PRODUCTION.md`](docs/PRODUCTION.md).
+
+### NeuralGuard (AI firewall verdicts)
+
+[NeuralGuard](https://github.com/aiagentmackenzie-lang/NeuralGuard-AI-Firewall) —
+the sibling 4-layer AI firewall — ships a SecurityScarletAI sink
+(`NEURALGUARD_SIEM_SCARLETAI_URL` / `_TOKEN` in NeuralGuard's config). Every
+NeuralGuard audit verdict is mapped to an ECS IngestEvent and POSTed to this
+SIEM's ingest endpoint, so AI-firewall detections land in the same pipeline as
+host telemetry: enrichment, Sigma rules, correlation, NL2SQL.
+
+What NeuralGuard sends (mapper: `src/neuralguard/siem.py::map_to_scarletai`):
+
+- `source=neuralguard`, `event_category=intrusion_detection` (ECS),
+  `event_type=info`, `event_action=verdict_block` / `verdict_allow` /
+  `verdict_escalate` / `verdict_sanitize` / `verdict_rate_limit` /
+  `verdict_quarantine` / `block_rate_spike`
+- Severity mapping: `block` → high (**critical** when confidence ≥ 0.9),
+  `quarantine` → critical, `escalate`/`sanitize` → medium, `rate_limit` → low,
+  `allow` → info
+- The full tamper-evident audit event — SHA-256 chain hash + Ed25519 signature
+  (`event_hash` / `event_sig`) — rides in `raw_data.neuralguard`, so the SIEM
+  inherits NeuralGuard's non-repudiation and NL2SQL can query findings directly
+  (e.g. `raw_data->'neuralguard'->>'verdict'`).
+- Tenant identity: `raw_data.neuralguard.tenant_id`.
+
+Setup (both sides):
+
+1. ScarletAI: set `INGEST_BEARER_TOKEN` in `.env` (P2.6 — the token is
+   ingest-scoped: a leaked ingest token cannot browse the SIEM, it can only POST
+   events).
+2. NeuralGuard: set `NEURALGUARD_SIEM_SCARLETAI_URL` (e.g.
+   `http://127.0.0.1:8000/api/v1/ingest`) and `NEURALGUARD_SIEM_SCARLETAI_TOKEN`
+   to the same token. Delivery is fire-and-forget and never affects verdicts.
+
+Feed ceiling: the ingest endpoint is rate-limited to **100 requests/min per IP**
+(LIMIT_INGEST). NeuralGuard sends one request per verdict, so verdict rates
+above ~100/min need batching (or a second ingest path) — documented as the
+scaling ceiling of this integration.
+
+Detection wiring: the `ai_verdict_block_sustained` correlation rule fires an
+alert when one (host, source, tenant) group records sustained BLOCK verdicts
+within the trailing window — see [Correlation Rules](#event-driven-correlation-engine).
+
+Verified end-to-end 2026-09-05: NeuralGuard verdict_block (conf 0.95) landed in
+the SIEM's own Postgres as critical with chain hash + signature intact, and the
+correlation rule fired on a synthetic sustained-block burst.
+
+---
+
 ## API Documentation
 
 Interactive API docs are available at (when `DOCS_ENABLED=true` — the default
@@ -189,7 +249,7 @@ Key endpoints (all under `/api/v1`):
 | `/metrics` | GET | Prometheus metrics (scrape token or analyst role) |
 | `/ingest` | POST | Ingest log events (rate-limited 100/min/IP; bearer token required) |
 | `/alerts` | GET | List alerts with filtering and pagination |
-| `/correlation/rules` | GET | List all 7 correlation rules |
+| `/correlation/rules` | GET | List all 8 correlation rules |
 | `/correlation/run` | POST | Run all correlation rules with `as_of` time binding + `persist` flag |
 | `/correlation/run/{rule_name}` | POST | Run a single correlation rule |
 | `/correlation/matches` | GET | List persisted correlation matches with filters |
@@ -223,7 +283,7 @@ Key endpoints (all under `/api/v1`):
 
 ## Detection Rules
 
-See [docs/RULES.md](docs/RULES.md) for the complete reference of all 100 Sigma rules and 7 correlation rules, organized by category with MITRE ATT&CK mappings.
+See [docs/RULES.md](docs/RULES.md) for the complete reference of all 100 Sigma rules and 8 correlation rules, organized by category with MITRE ATT&CK mappings.
 
 ---
 
@@ -542,7 +602,7 @@ securityscarletai/
 │   │   └── utils.py         # Shared helpers
 │   ├── detection/           # Detection engine
 │   │   ├── sigma.py         # Legacy SigmaParser + parameterized SQL (pySigma backend retained off-path)
-│   │   ├── correlation.py   # 7 correlation rules (as_of, persist)
+│   │   ├── correlation.py   # 8 correlation rules (as_of, persist)
 │   │   ├── sequences.py     # 7 event sequence patterns (exposed via /correlation/sequences)
 │   │   ├── alerts.py        # Alert lifecycle management
 │   │   ├── scheduler.py     # Rule scheduler + hourly auto-train check

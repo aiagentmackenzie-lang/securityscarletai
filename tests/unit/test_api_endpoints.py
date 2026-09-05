@@ -25,11 +25,11 @@ class TestCorrelationRules:
     """Test correlation rule definitions and metadata."""
 
     def test_list_correlation_rules(self):
-        """list_correlation_rules should return all 7 rules."""
+        """list_correlation_rules should return all 8 rules."""
         from src.detection.correlation import list_correlation_rules
 
         rules = list_correlation_rules()
-        assert len(rules) == 7
+        assert len(rules) == 8
         for rule in rules:
             assert "name" in rule
             assert "title" in rule
@@ -54,6 +54,7 @@ class TestCorrelationRules:
         """Every rule in CORRELATION_RULES should have a matching async detection function."""
         from src.detection.correlation import (
             CORRELATION_RULES,
+            detect_ai_verdict_block_sustained,
             detect_brute_force_then_success,
             detect_credential_theft_exfil,
             detect_data_exfiltration,
@@ -71,6 +72,7 @@ class TestCorrelationRules:
             "privilege_escalation_chain": detect_privilege_escalation_chain,
             "credential_theft_exfil": detect_credential_theft_exfil,
             "defense_evasion_cleanup": detect_defense_evasion_cleanup,
+            "ai_verdict_block_sustained": detect_ai_verdict_block_sustained,
         }
         for rule_name in CORRELATION_RULES:
             assert rule_name in func_map, f"Rule {rule_name} has no detection function"
@@ -326,7 +328,9 @@ class TestAuthRoleHierarchy:
         from src.config.settings import settings
 
         token = create_jwt("analyst1", "analyst")
-        payload = jwt.decode(token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(
+            token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+        )
         assert payload["sub"] == "analyst1"
         assert payload["role"] == "analyst"
 
@@ -340,7 +344,9 @@ class TestAuthRoleHierarchy:
         from src.api.auth import JWT_ALGORITHM
         from src.config.settings import settings
 
-        payload = jwt.decode(token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(
+            token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+        )
         assert "exp" in payload
 
     def test_constant_time_token_comparison(self):

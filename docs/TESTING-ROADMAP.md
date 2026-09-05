@@ -42,8 +42,8 @@ carries an honest `LLMResult` (source/fallback); injection payloads never
 alter SQL structure. Record results in `docs/AI.md` (a "live red-team
 results" section) — a *verified* AI-security claim beats a designed one.
 
-### 2. Live-fire the 7 correlation chains
-The demo proves one Sigma rule. The 7 correlation chains have unit tests with
+### 2. Live-fire the 8 correlation chains
+The demo proves one Sigma rule. The 8 correlation chains have unit tests with
 synthetic sequences but no verified live-fire on real-shaped data.
 
 ```bash

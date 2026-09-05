@@ -10,10 +10,12 @@ Covers:
 - run_all_correlations
 """
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.detection import correlation as corr
 from src.detection.correlation import (
     CORRELATION_RULES,
     get_correlation_rule_info,
@@ -21,13 +23,24 @@ from src.detection.correlation import (
     run_all_correlations,
 )
 
+# Shared point-in-time bound for detect_* tests (pattern from
+# test_correlation_match_building.py — as_of-bound, no NOW()).
+AS_OF = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+
+def _conn_returning(rows):
+    """Build a mock asyncpg conn whose .fetch returns the given rows."""
+    conn = AsyncMock()
+    conn.fetch = AsyncMock(return_value=rows)
+    return conn
+
 
 class TestCorrelationRuleDefinitions:
     """Test correlation rule definitions."""
 
     def test_rule_count(self):
-        """Should have 7 correlation rules."""
-        assert len(CORRELATION_RULES) == 7
+        """Should have 8 correlation rules."""
+        assert len(CORRELATION_RULES) == 8
 
     def test_all_rule_names(self):
         """Should have expected rule names."""
@@ -39,6 +52,7 @@ class TestCorrelationRuleDefinitions:
             "privilege_escalation_chain",
             "credential_theft_exfil",
             "defense_evasion_cleanup",
+            "ai_verdict_block_sustained",
         }
         assert set(CORRELATION_RULES.keys()) == expected
 
@@ -97,7 +111,7 @@ class TestListCorrelationRules:
     def test_returns_list(self):
         rules = list_correlation_rules()
         assert isinstance(rules, list)
-        assert len(rules) == 7
+        assert len(rules) == 8
 
     def test_each_rule_has_required_fields(self):
         rules = list_correlation_rules()
@@ -173,12 +187,100 @@ class TestDetectBruteForce:
             assert result == []
 
 
+class TestDetectAiVerdictBlockSustained:
+    """Test sustained AI-verdict BLOCK detection with mocked DB."""
+
+    @pytest.mark.asyncio
+    async def test_detect_sustained_blocks(self):
+        """Should flag a (host, source, tenant) group above the threshold."""
+        from datetime import datetime, timezone
+
+        from src.detection.correlation import detect_ai_verdict_block_sustained
+
+        row = {
+            "host_name": "neuralguard-appliance",
+            "source": "neuralguard",
+            "tenant_id": "default",
+            "block_count": 14,
+            "last_block_time": datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+        }
+        conn = _conn_returning([row])
+
+        result = await detect_ai_verdict_block_sustained(conn, AS_OF)
+
+        assert len(result) == 1
+        m = result[0]
+        assert m["correlation_rule"] == "ai_verdict_block_sustained"
+        assert m["severity"] == "high"
+        assert m["block_count"] == 14
+        assert m["tenant_id"] == "default"
+        assert isinstance(m["correlation_id"], str)
+        assert "confidence" in m
+        assert "mitre_techniques" in m
+
+    @pytest.mark.asyncio
+    async def test_no_results_below_threshold(self):
+        """No groups at/above threshold -> empty list (SQL HAVING), no crash."""
+        conn = _conn_returning([])
+
+        result = await corr.detect_ai_verdict_block_sustained(conn, AS_OF)
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_confidence_scales_with_block_count_capped(self):
+        """More blocks above threshold -> higher confidence, capped at 100."""
+        low = {
+            "host_name": "h",
+            "source": "neuralguard",
+            "tenant_id": "t1",
+            "block_count": 10,
+            "last_block_time": AS_OF,
+        }
+        high = {
+            "host_name": "h",
+            "source": "neuralguard",
+            "tenant_id": "t1",
+            "block_count": 500,
+            "last_block_time": AS_OF,
+        }
+
+        m_low = (await corr.detect_ai_verdict_block_sustained(_conn_returning([low]), AS_OF))[0]
+        m_high = (await corr.detect_ai_verdict_block_sustained(_conn_returning([high]), AS_OF))[0]
+
+        assert m_low["confidence"] == 75  # at threshold = base
+        assert m_high["confidence"] == 100  # capped
+        assert m_high["confidence"] > m_low["confidence"]
+
+    @pytest.mark.asyncio
+    async def test_unknown_tenant_coalesced_in_match(self):
+        """A NULL tenant row surfaces as 'unknown' from the SQL COALESCE."""
+        row = {
+            "host_name": "h",
+            "source": "neuralguard",
+            "tenant_id": "unknown",
+            "block_count": 12,
+            "last_block_time": AS_OF,
+        }
+
+        result = await corr.detect_ai_verdict_block_sustained(_conn_returning([row]), AS_OF)
+
+        assert result[0]["tenant_id"] == "unknown"
+
+    def test_rule_metadata(self):
+        """The rule definition carries complete metadata."""
+        rule = CORRELATION_RULES["ai_verdict_block_sustained"]
+        assert rule["severity"] == "high"
+        assert "T1190" in rule["mitre_techniques"]
+        assert "TA0001" in rule["mitre_tactics"]
+
+
 class TestRunAllCorrelations:
     """Test run_all_correlations function (Epic 2 contract)."""
 
     @pytest.mark.asyncio
     async def test_run_all_returns_results(self):
-        """Should run all 7 correlation rules and return results."""
+        """Should run all 8 correlation rules and return results."""
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.fetch = AsyncMock(return_value=[])
@@ -197,8 +299,8 @@ class TestRunAllCorrelations:
             assert "persisted" in result
             assert "as_of" in result
             assert "per_rule" in result
-            # All 7 rules should be present in per_rule
-            assert len(result["per_rule"]) == 7
+            # All 8 rules should be present in per_rule
+            assert len(result["per_rule"]) == 8
             for rule_name in CORRELATION_RULES:
                 assert rule_name in result["per_rule"]
 

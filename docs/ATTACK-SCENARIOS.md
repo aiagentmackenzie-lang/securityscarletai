@@ -344,7 +344,7 @@ To exercise these scenarios in development, use:
 # Generate realistic test alerts (no real IOCs)
 poetry run python scripts/generate_attack_data.py --scenario ssh_brute_force
 
-# Or seed the full demo dataset (45+ alerts, 7 correlation chains)
+# Or seed the full demo dataset (45+ alerts, 8 correlation chains)
 poetry run python scripts/seed_realistic_data.py
 ```
 

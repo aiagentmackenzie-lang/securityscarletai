@@ -17,6 +17,7 @@ Event-driven trigger (wired in src/api/ingest.py, 2026-06-02):
   task `_enrich_and_correlate()` calls `run_all_correlations(persist=True)`.
   This file documents the contract; the wiring lives in the API layer.
 """
+
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, cast
@@ -36,8 +37,7 @@ CORRELATION_RULES = {
     "brute_force_success": {
         "title": "Brute Force → Successful Login",
         "description": (
-            "Multiple failed logins followed by a successful login "
-            "from the same source IP"
+            "Multiple failed logins followed by a successful login from the same source IP"
         ),
         "severity": "critical",
         "mitre_tactics": ["TA0006"],
@@ -47,8 +47,7 @@ CORRELATION_RULES = {
     "payload_callback": {
         "title": "Dropped Payload → C2 Callback",
         "description": (
-            "Process launched from /tmp followed by a "
-            "network connection to an external IP"
+            "Process launched from /tmp followed by a network connection to an external IP"
         ),
         "severity": "critical",
         "mitre_tactics": ["TA0002", "TA0011"],
@@ -82,8 +81,7 @@ CORRELATION_RULES = {
     "credential_theft_exfil": {
         "title": "Credential Access → External Connection",
         "description": (
-            "Access to sensitive credential files followed by outbound "
-            "network connection"
+            "Access to sensitive credential files followed by outbound network connection"
         ),
         "severity": "critical",
         "mitre_tactics": ["TA0006", "TA0010"],
@@ -96,6 +94,18 @@ CORRELATION_RULES = {
         "severity": "high",
         "mitre_tactics": ["TA0005"],
         "mitre_techniques": ["T1070"],
+        "confidence_base": 75,
+    },
+    "ai_verdict_block_sustained": {
+        "title": "Sustained AI Firewall BLOCK Verdicts",
+        "description": (
+            "An AI firewall (e.g. NeuralGuard, source=neuralguard) returned "
+            "sustained BLOCK verdicts for one tenant/source within a short "
+            "window — repeated attack traffic against a protected LLM endpoint"
+        ),
+        "severity": "high",
+        "mitre_tactics": ["TA0001"],
+        "mitre_techniques": ["T1190"],
         "confidence_base": 75,
     },
 }
@@ -158,12 +168,12 @@ async def detect_brute_force_then_success(
 
     rows = await conn.fetch(
         sql,
-        as_of,                  # $1 — point-in-time upper bound
-        "%failed%",            # $2 — failed action pattern
-        time_window_minutes,   # $3 — window minutes
-        lookback_hours,        # $4 — lookback hours
-        "%success%",           # $5 — success action pattern
-        failed_threshold,      # $6 — threshold
+        as_of,  # $1 — point-in-time upper bound
+        "%failed%",  # $2 — failed action pattern
+        time_window_minutes,  # $3 — window minutes
+        lookback_hours,  # $4 — lookback hours
+        "%success%",  # $5 — success action pattern
+        failed_threshold,  # $6 — threshold
     )
     results = []
     for row in rows:
@@ -236,10 +246,10 @@ async def detect_payload_callback(
 
     rows = await conn.fetch(
         sql,
-        as_of,                  # $1
-        "%/tmp/%",             # $2
-        lookback_hours,        # $3
-        time_window_minutes,   # $4
+        as_of,  # $1
+        "%/tmp/%",  # $2
+        lookback_hours,  # $3
+        time_window_minutes,  # $4
     )
     results = []
     for row in rows:
@@ -303,11 +313,11 @@ async def detect_persistence_activated(
 
     rows = await conn.fetch(
         sql,
-        as_of,                  # $1
-        "%LaunchAgents%",      # $2
-        lookback_hours,        # $3
-        "%load%",              # $4
-        time_window_minutes,   # $5
+        as_of,  # $1
+        "%LaunchAgents%",  # $2
+        lookback_hours,  # $3
+        "%load%",  # $4
+        time_window_minutes,  # $5
     )
     results = []
     for row in rows:
@@ -363,12 +373,12 @@ async def detect_data_exfiltration(
 
     rows = await conn.fetch(
         sql,
-        as_of,                  # $1
-        "10.0.0.0/8",          # $2 — RFC1918 range 1
-        "192.168.0.0/16",      # $3 — RFC1918 range 2
-        "172.16.0.0/12",       # $4 — RFC1918 range 3
-        lookback_hours,        # $5
-        threshold_bytes,       # $6
+        as_of,  # $1
+        "10.0.0.0/8",  # $2 — RFC1918 range 1
+        "192.168.0.0/16",  # $3 — RFC1918 range 2
+        "172.16.0.0/12",  # $4 — RFC1918 range 3
+        lookback_hours,  # $5
+        threshold_bytes,  # $6
     )
     results = []
     for row in rows:
@@ -438,9 +448,9 @@ async def detect_privilege_escalation_chain(
 
     rows = await conn.fetch(
         sql,
-        as_of,                  # $1
-        lookback_hours,        # $2
-        time_window_minutes,   # $3
+        as_of,  # $1
+        lookback_hours,  # $2
+        time_window_minutes,  # $3
     )
     results = []
     for row in rows:
@@ -510,13 +520,13 @@ async def detect_credential_theft_exfil(
 
     rows = await conn.fetch(
         sql,
-        as_of,                  # $1
-        "%.ssh%",              # $2
-        lookback_hours,        # $3
-        "10.0.0.0/8",          # $4
-        "192.168.0.0/16",      # $5
-        "172.16.0.0/12",       # $6
-        time_window_minutes,   # $7
+        as_of,  # $1
+        "%.ssh%",  # $2
+        lookback_hours,  # $3
+        "10.0.0.0/8",  # $4
+        "192.168.0.0/16",  # $5
+        "172.16.0.0/12",  # $6
+        time_window_minutes,  # $7
     )
     results = []
     for row in rows:
@@ -528,6 +538,69 @@ async def detect_credential_theft_exfil(
         d["mitre_tactics"] = CORRELATION_RULES["credential_theft_exfil"]["mitre_tactics"]
         d["mitre_techniques"] = CORRELATION_RULES["credential_theft_exfil"]["mitre_techniques"]
         d["confidence"] = CORRELATION_RULES["credential_theft_exfil"]["confidence_base"]
+        results.append(d)
+    return results
+
+
+async def detect_ai_verdict_block_sustained(
+    conn,
+    as_of: datetime,
+    block_threshold: int = 10,
+    time_window_minutes: int = 5,
+) -> List[Dict[str, Any]]:
+    """Detect: sustained AI-firewall BLOCK verdicts from one tenant/source.
+
+    Fires when an AI-firewall source (NeuralGuard ingests as
+    ``source=neuralguard``, ``event_category=intrusion_detection``,
+    ``event_action=verdict_block`` — any source adopting the same ECS
+    convention is covered) records >= block_threshold BLOCK verdicts for the
+    same (host_name, source, tenant_id) within the trailing window.
+    Tenant identity rides in ``raw_data.neuralguard.tenant_id`` (the SIEM
+    inherits NeuralGuard's tamper-evident audit event via raw_data).
+
+    A single BLOCK is already visible as its own high/critical event; this
+    rule adds the SUSTAINED-ATTACK signal — many blocks in a short window
+    means someone is actively hammering the protected endpoint.
+    """
+    sql = """
+    SELECT
+        host_name,
+        source,
+        COALESCE(raw_data->'neuralguard'->>'tenant_id', 'unknown') AS tenant_id,
+        COUNT(*) AS block_count,
+        MAX(time) AS last_block_time
+    FROM logs
+    WHERE event_category = 'intrusion_detection'
+      AND event_action = 'verdict_block'
+      AND time > $1::timestamptz - INTERVAL '1 minute' * $2
+      AND time <= $1::timestamptz
+    GROUP BY host_name, source, tenant_id
+    HAVING COUNT(*) >= $3
+    ORDER BY block_count DESC
+    """
+
+    rows = await conn.fetch(
+        sql,
+        as_of,  # $1 — point-in-time upper bound
+        time_window_minutes,  # $2 — sustained-window minutes
+        block_threshold,  # $3 — minimum BLOCK verdicts in the window
+    )
+    results = []
+    for row in rows:
+        d = dict(row)
+        d["correlation_rule"] = "ai_verdict_block_sustained"
+        d["correlation_id"] = str(uuid.uuid4())
+        d["severity"] = CORRELATION_RULES["ai_verdict_block_sustained"]["severity"]
+        d["title"] = CORRELATION_RULES["ai_verdict_block_sustained"]["title"]
+        d["mitre_tactics"] = CORRELATION_RULES["ai_verdict_block_sustained"]["mitre_tactics"]
+        d["mitre_techniques"] = CORRELATION_RULES["ai_verdict_block_sustained"]["mitre_techniques"]
+        # More blocks above the threshold = higher confidence (capped),
+        # mirroring the brute-force escalation.
+        d["confidence"] = min(
+            cast(int, CORRELATION_RULES["ai_verdict_block_sustained"]["confidence_base"])
+            + (d.get("block_count", 0) - block_threshold) * 5,
+            100,
+        )
         results.append(d)
     return results
 
@@ -583,10 +656,10 @@ async def detect_defense_evasion_cleanup(
 
     rows = await conn.fetch(
         sql,
-        as_of,                  # $1
-        lookback_hours,        # $2
-        "%var/log%",           # $3
-        time_window_minutes,   # $4
+        as_of,  # $1
+        lookback_hours,  # $2
+        "%var/log%",  # $3
+        time_window_minutes,  # $4
     )
     results = []
     for row in rows:
@@ -676,10 +749,10 @@ async def get_host_sessions(
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             sql,
-            host_name,               # $1
-            as_of,                  # $2
-            lookback_hours,         # $3
-            session_gap_minutes,    # $4
+            host_name,  # $1
+            as_of,  # $2
+            lookback_hours,  # $3
+            session_gap_minutes,  # $4
         )
         return [dict(row) for row in rows]
 
@@ -735,6 +808,7 @@ async def run_all_correlations(
         "privilege_escalation_chain": detect_privilege_escalation_chain,
         "credential_theft_exfil": detect_credential_theft_exfil,
         "defense_evasion_cleanup": detect_defense_evasion_cleanup,
+        "ai_verdict_block_sustained": detect_ai_verdict_block_sustained,
     }
 
     all_matches: List[Dict[str, Any]] = []
@@ -780,15 +854,14 @@ async def run_all_correlations(
                         SELECT 1 FROM correlation_matches
                         WHERE correlation_rule = $1
                           AND ($2::int IS NULL OR trigger_event_id = $2)
-                          AND match_data = $3::jsonb
+                          AND (match_data - 'correlation_id') = $3::jsonb
                           AND created_at
-                                > $5::timestamptz - INTERVAL '15 minutes'
+                                > $4::timestamptz - INTERVAL '15 minutes'
                         LIMIT 1
                         """,
                         match["correlation_rule"],
                         trigger_id,
                         _dedup_payload(match),
-                        match.get("trigger_event_id"),
                         as_of,
                     )
                     if dupe:

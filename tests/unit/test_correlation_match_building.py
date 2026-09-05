@@ -13,6 +13,7 @@ Also covers: _serialize_match_data set/frozenset branch, list_matches
 since/until filter branches, run_all_correlations(persist=True) alert
 surfacing (P1-06), and the run_all_correlations per-rule exception handler.
 """
+
 import json
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -54,13 +55,19 @@ DETECT_FUNCS = [
     ("privilege_escalation_chain", corr.detect_privilege_escalation_chain),
     ("credential_theft_exfil", corr.detect_credential_theft_exfil),
     ("defense_evasion_cleanup", corr.detect_defense_evasion_cleanup),
+    ("ai_verdict_block_sustained", corr.detect_ai_verdict_block_sustained),
 ]
 
 
 @pytest.mark.parametrize("rule_key,func", DETECT_FUNCS)
 async def test_detect_function_enriches_match_row(rule_key, func):
     """Each detect_* stamps the canonical correlation metadata onto matches."""
-    row = _sample_row(total_bytes=500_000_000) if rule_key == "data_exfiltration" else _sample_row()
+    if rule_key == "data_exfiltration":
+        row = _sample_row(total_bytes=500_000_000)
+    elif rule_key == "ai_verdict_block_sustained":
+        row = _sample_row(source="neuralguard", tenant_id="default", block_count=14)
+    else:
+        row = _sample_row()
     conn = _conn_returning([row])
 
     matches = await func(conn, AS_OF)
@@ -204,15 +211,17 @@ async def test_run_all_correlations_persist_creates_alerts_for_matches():
     async def _none(conn, as_of, **kw):
         return []
 
-    with patch("src.detection.correlation.get_pool", return_value=pool), \
-            patch("src.detection.correlation.detect_payload_callback", _one_match), \
-            patch("src.detection.correlation.detect_brute_force_then_success", _none), \
-            patch("src.detection.correlation.detect_persistence_activated", _none), \
-            patch("src.detection.correlation.detect_data_exfiltration", _none), \
-            patch("src.detection.correlation.detect_privilege_escalation_chain", _none), \
-            patch("src.detection.correlation.detect_credential_theft_exfil", _none), \
-            patch("src.detection.correlation.detect_defense_evasion_cleanup", _none), \
-            patch("src.detection.correlation.create_alert", new=AsyncMock()) as mock_create:
+    with (
+        patch("src.detection.correlation.get_pool", return_value=pool),
+        patch("src.detection.correlation.detect_payload_callback", _one_match),
+        patch("src.detection.correlation.detect_brute_force_then_success", _none),
+        patch("src.detection.correlation.detect_persistence_activated", _none),
+        patch("src.detection.correlation.detect_data_exfiltration", _none),
+        patch("src.detection.correlation.detect_privilege_escalation_chain", _none),
+        patch("src.detection.correlation.detect_credential_theft_exfil", _none),
+        patch("src.detection.correlation.detect_defense_evasion_cleanup", _none),
+        patch("src.detection.correlation.create_alert", new=AsyncMock()) as mock_create,
+    ):
         result = await corr.run_all_correlations(as_of=AS_OF, persist=True)
 
     # one match -> one create_alert call with rule_id=None (correlation-origin)
@@ -232,8 +241,10 @@ async def test_run_all_correlations_persist_false_does_not_create_alerts():
     pool = MagicMock()
     pool.acquire = MagicMock(return_value=acquirer)
 
-    with patch("src.detection.correlation.get_pool", return_value=pool), \
-            patch("src.detection.correlation.create_alert", new=AsyncMock()) as mock_create:
+    with (
+        patch("src.detection.correlation.get_pool", return_value=pool),
+        patch("src.detection.correlation.create_alert", new=AsyncMock()) as mock_create,
+    ):
         await corr.run_all_correlations(as_of=AS_OF, persist=False)
 
     assert mock_create.await_count == 0

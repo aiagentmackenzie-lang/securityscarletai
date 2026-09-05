@@ -5,6 +5,7 @@ Real-time and historical log viewing with filtering.
 ALL data fetched through ApiClient — NO direct database access.
 Loading states: st.spinner() on data fetches, auto-refresh friendly.
 """
+
 import pandas as pd
 import streamlit as st
 
@@ -57,8 +58,16 @@ def render_log_viewer():
         with col2:
             category_filter = st.selectbox(
                 "Category",
-                ["All", "process", "network", "file", "authentication",
-                 "configuration", "security"],
+                [
+                    "All",
+                    "process",
+                    "network",
+                    "file",
+                    "authentication",
+                    "configuration",
+                    "security",
+                    "intrusion_detection",
+                ],
                 key="log_category_filter",
             )
 
@@ -70,9 +79,7 @@ def render_log_viewer():
             )
 
         with col4:
-            limit = st.number_input(
-                "Rows", min_value=10, max_value=500, value=100, key="log_limit"
-            )
+            limit = st.number_input("Rows", min_value=10, max_value=500, value=100, key="log_limit")
 
     # ─── Fetch Logs ───
     category = None if category_filter == "All" else category_filter
@@ -116,9 +123,17 @@ def render_log_viewer():
 
     # ─── Display Table ───
     display_cols = [
-        "time", "host_name", "event_category", "event_type", "event_action",
-        "source_ip", "destination_ip", "destination_port", "user_name",
-        "process_name", "process_cmdline",
+        "time",
+        "host_name",
+        "event_category",
+        "event_type",
+        "event_action",
+        "source_ip",
+        "destination_ip",
+        "destination_port",
+        "user_name",
+        "process_name",
+        "process_cmdline",
     ]
 
     available_cols = [c for c in display_cols if c in df.columns]

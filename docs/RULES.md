@@ -1,6 +1,6 @@
 # Detection Rules Reference
 
-SecurityScarletAI ships with **100 Sigma rules** and **7 event-driven correlation rules**, covering authentication, process, network, file, macOS, and cloud attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL by the legacy `SigmaParser` + custom PostgreSQL backend in `src/detection/sigma.py`. (A pySigma-backed `PostgreSQLBackend` is retained as a unit-tested module but is off the production detection path — see P0-01/P0-04.)
+SecurityScarletAI ships with **100 Sigma rules** and **8 event-driven correlation rules**, covering authentication, process, network, file, macOS, cloud, and AI-firewall attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL by the legacy `SigmaParser` + custom PostgreSQL backend in `src/detection/sigma.py`. (A pySigma-backed `PostgreSQLBackend` is retained as a unit-tested module but is off the production detection path — see P0-01/P0-04.)
 
 ---
 
@@ -140,9 +140,9 @@ SecurityScarletAI ships with **100 Sigma rules** and **7 event-driven correlatio
 
 ---
 
-## Correlation Rules (7 event-driven)
+## Correlation Rules (8 event-driven)
 
-The correlation engine (`src/detection/correlation.py`) defines 7 multi-step attack chain detectors. Each rule is **event-driven** (queries the `logs` table with an explicit `as_of` timestamp for point-in-time safety — no `NOW()` baked into SQL) and returns matches with a unique `correlation_id`. When `run_all_correlations(persist=True)` is called, matches are written to the `correlation_matches` table and surfaced as alerts via `create_alert()`.
+The correlation engine (`src/detection/correlation.py`) defines 8 multi-step attack chain detectors. Each rule is **event-driven** (queries the `logs` table with an explicit `as_of` timestamp for point-in-time safety — no `NOW()` baked into SQL) and returns matches with a unique `correlation_id`. When `run_all_correlations(persist=True)` is called, matches are written to the `correlation_matches` table and surfaced as alerts via `create_alert()`.
 
 | # | Rule ID | Title | Severity | Confidence (base) | MITRE Tactics | MITRE Techniques | Description |
 |---|---------|-------|----------|-------------------|---------------|------------------|-------------|
@@ -153,6 +153,7 @@ The correlation engine (`src/detection/correlation.py`) defines 7 multi-step att
 | 5 | `privilege_escalation_chain` | Privilege Escalation → Root Process | Critical | 70% | Privilege Escalation (TA0004) | T1548 | Sudo followed by new root-level process execution |
 | 6 | `credential_theft_exfil` | Credential Access → External Connection | Critical | 80% | Credential Access (TA0006), Exfiltration (TA0010) | T1555, T1048 | Access to sensitive credential files followed by outbound network connection |
 | 7 | `defense_evasion_cleanup` | Suspicious Activity → Log Deletion | High | 70% | Defense Evasion (TA0005) | T1070 | High-severity process followed by log file deletion |
+| 8 | `ai_verdict_block_sustained` | Sustained AI Firewall BLOCK Verdicts | High | 75% | Initial Access (TA0001) | T1190 | Sustained AI-firewall BLOCK verdicts (e.g. NeuralGuard, source=neuralguard) from one tenant/source within the trailing window — repeated attack traffic against a protected LLM endpoint |
 
 ### Programmatic invocation
 
