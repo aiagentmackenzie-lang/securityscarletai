@@ -392,3 +392,45 @@ with CI green; tests went 1640 → 1683 passed, coverage holds 87%.
   (9/8/7/6/10/5 → 14/34/17/17/12/6 = 100), test counts (1473/1656 → 1683),
   CI branch triggers, structure block (17 routers, missing modules), stale
   PHASE_PLAN.md deleted; PRODUCTION.md added to the docs set.
+
+## 2026-09-05 — 8th correlation rule + NeuralGuard log source
+
+- **feat(neuralguard) (Sep 5, `0e4fd41`)** — NeuralGuard (the sibling AI
+  firewall) audit verdicts now land in this SIEM: NeuralGuard's sink
+  (`src/neuralguard/siem.py::map_to_scarletai`, in the NeuralGuard repo)
+  maps every verdict to an ECS IngestEvent and POSTs it to `/ingest` with
+  the SHA-256 chain hash + Ed25519 signature riding in
+  `raw_data.neuralguard`. New 8th correlation rule
+  `ai_verdict_block_sustained` alerts on sustained BLOCK verdicts per
+  (host, source, tenant). Fixed correlation-match persistence (F-10).
+  Unit suite 1683 → 1689; 8 integration tests pass live against Postgres
+  (ingest → detection → correlation on real DB).
+
+## 2026-09-06 — README run-modes overhaul
+
+- **docs (Sep 6, uncommitted)** — the single Quick Start conflated three
+  different things; the README now opens with **Running SecurityScarletAI**,
+  one section per run mode:
+  - **Demo** — full spin-up: generate real secrets (the app fail-fasts on the
+    CHANGE_ME placeholders — validators in `src/config/settings.py`),
+    `DEMO_SEED_ENABLED=true` BEFORE first boot, `make up`, health gate on
+    `/api/v1/health` (no root `/health`), `make demo-refresh` before every
+    demo (the #1 failure mode), `demo_analyst` credentials, the
+    no-admin-on-a-demo-volume gotcha, and the `make demo` live-telemetry demo
+    (port 8001, stops the compose api, re-run `make up` after).
+  - **Local production** — the standing real-SIEM posture end-to-end: the
+    fail-fast overlay (`REDIS_PASSWORD` + `PASSWORD_PEPPER` with the
+    no-fallback warning), two-role audit hardening, real osqueryd telemetry
+    install gotchas + end-to-end pipe verification, backups/watchdog/retention
+    ops, user-scope honesty.
+  - **Dev** — poetry outside Docker, derived DSN (no `DATABASE_URL`).
+  - Mode-comparison table, one-mode-per-volume rule, per-mode authoritative
+    guides (DEMO.md / PRODUCTION.md / DEPLOYMENT.md); Deployment section
+    slimmed to the guide table; Screenshots placeholder tied to the demo flow.
+  - All commands verified against the Makefile, scripts/, compose files,
+    `src/config/settings.py`, and the two authoritative docs before writing.
+  - Same pass fixed the status header (Trivy job is step-enforced but
+    job-level non-blocking until the Sep 16 flip), the stale "default
+    deployment seeds synthetic data" claim, 1683→1689 test counts,
+    5→8 integration tests, the NeuralGuard mapper cross-repo path, and
+    appended the missing Sep 5 CHANGELOG entry.

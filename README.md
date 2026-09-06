@@ -2,7 +2,7 @@
 
 **AI-Native SIEM for macOS** — Real-time log ingestion, Sigma-based detection, ML-powered alert triage, and LLM-driven investigation assistance.
 
-> **Status (verified 2026-09-05, local-production release):** CI green on `main` · 1689 unit tests passing (mocked DB) · **8 integration tests PASSING against live Postgres (2026-09-05)** · 87% coverage (CI-enforced ≥80%) · 100 Sigma rules · 8 correlation rules · 7 sequence patterns · admin user-management API + Prometheus `/metrics` · OWASP LLM Top-10 red-team regression suite (41 probes — verified by collection) · **runs as a real local-production SIEM**: real osqueryd host telemetry → Sigma → alerts, loopback-only publishing, authenticated Redis, DB-enforced append-only audit trail (two-role deploy), verified backups + restore test, edge-triggered watchdog (see docs/PRODUCTION.md) · CI dependency/image scanning (image scan enforcing-green at zero findings; dependency audit advisory — 2 documented risk-accepts). Counts are hand-verified against the code; no auto-updating badge.
+> **Status (verified 2026-09-05, re-verified 2026-09-06, local-production release):** CI green on `main` · 1689 unit tests passing (mocked DB) · **8 integration tests PASSING against live Postgres (2026-09-05)** · 87% coverage (CI-enforced ≥80%) · 100 Sigma rules · 8 correlation rules · 7 sequence patterns · admin user-management API + Prometheus `/metrics` · OWASP LLM Top-10 red-team regression suite (41 probes — verified by collection) · **runs as a real local-production SIEM**: real osqueryd host telemetry → Sigma → alerts, loopback-only publishing, authenticated Redis, DB-enforced append-only audit trail (two-role deploy), verified backups + restore test, edge-triggered watchdog (see docs/PRODUCTION.md) · CI dependency/image scanning (image scan HIGH/CRITICAL at zero findings — enforced in-step, job still non-blocking until the Sep 16 flip; dependency audit advisory — 2 documented P4 risk-accepts, expire 2026-12-01). Counts are hand-verified against the code; no auto-updating badge.
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow)]()
@@ -78,40 +78,179 @@
 
 ---
 
-## Quick Start
+## Running SecurityScarletAI
 
 ```bash
-# 1. Clone and enter the project
+# Get the code (once)
 git clone https://github.com/aiagentmackenzie-lang/securityscarletai.git
 cd securityscarletai
+cp .env.example .env   # every mode below tells you what to set in it
+```
 
-# 2. Configure environment
-cp .env.example .env
-# Edit .env — set DB_PASSWORD, API_SECRET_KEY, API_BEARER_TOKEN
-# Generate secrets: openssl rand -base64 32  (DB_PASSWORD)
-#                   openssl rand -hex 64    (API_SECRET_KEY)
-#                   openssl rand -hex 32    (API_BEARER_TOKEN)
-# Optional: DASHBOARD_API_TOKEN for headless dashboard access.
-# Demo data is opt-in (2026-09-01): add DEMO_SEED_ENABLED=true to .env on demo
-# hosts BEFORE the first boot — production boots stay empty (see docs/DEMO.md).
+One stack (`docker compose` / `make up`), three supported run modes. **Pick the
+mode first** — the mode decides what goes in `.env` and what the first boot
+does:
 
-# 3. Start the full stack (Postgres + Redis + API + dashboard)
-docker compose up -d
-# The idempotent entrypoint.sh will:
-#   - wait for Postgres to be ready
-#   - apply the canonical schema (src/db/schema.sql)
-#   - seed demo data ONLY when DEMO_SEED_ENABLED=true (opt-in)
-#   - train the triage/UEBA models when missing
-#   - create the admin user (random password written to data/admin_initial_password,
-#     chmod 600, printed to stdout once on first boot)
-#   - start uvicorn
+| | **Demo** | **Local production** | **Dev** |
+|---|---|---|---|
+| For | showing the product (clients, screenshots, trying the UI) | running a real SIEM on this machine | working on the code |
+| Data | synthetic seed with a believable attack story | **real** host telemetry (osqueryd) + anything you POST to `/ingest` | whatever the DB has |
+| Secrets | generated secrets (step 0 below) + `DEMO_SEED_ENABLED=true` | `REDIS_PASSWORD` + `PASSWORD_PEPPER` (fail-fast overlay), two-role DB vars | DB credentials only |
+| Admin user | **none** (the seed creates `demo_analyst` only) | bootstrapped `admin` — random password in `data/admin_initial_password` | your own |
+| Authoritative guide | [docs/DEMO.md](docs/DEMO.md) | [docs/PRODUCTION.md](docs/PRODUCTION.md) | below |
+
+A fourth path — internet-exposed production (Caddy + automatic TLS) — is
+documented separately in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+Rules that hold in every mode:
+
+- **Demo data is opt-in** (2026-09-01): the entrypoint seeds only when
+  `DEMO_SEED_ENABLED=true` is in `.env` **before the first boot**; production
+  boots stay empty.
+- **One mode per volume.** The demo seed rewrites the volume it runs on;
+  switching back to production means `down -v` + re-bootstrap
+  ([docs/PRODUCTION.md](docs/PRODUCTION.md) → Mode switching).
+- **The API lives under `/api/v1`** — there is no root `/health`. The health
+  endpoint is [`/api/v1/health`](http://localhost:8000/api/v1/health).
+
+On every boot the idempotent `scripts/entrypoint.sh` waits for Postgres,
+applies the canonical schema (`src/db/schema.sql`), replays the dead-letter
+queue, optionally seeds demo data, trains the triage/UEBA models when missing,
+and starts uvicorn.
+
+### 1 · Demo mode (client-facing)
+
+```bash
+# 0. One-time: generate real secrets (the app FAIL-FASTs on the CHANGE_ME
+#    placeholders in .env.example — validators in src/config/settings.py) and
+#    opt into synthetic data BEFORE the first boot
+openssl rand -base64 32   # → DB_PASSWORD
+openssl rand -hex 64      # → API_SECRET_KEY
+openssl rand -hex 32      # → API_BEARER_TOKEN
+# edit .env with those three, then:
+echo 'DEMO_SEED_ENABLED=true' >> .env
+
+# 1. Bring up the stack (Postgres + Redis + API + dashboard)
+make up          # first boot trains the triage model (~1 min); later boots ~30s
+
+# 2. Health gate — all three checks must be "ok"
+curl -s http://localhost:8000/api/v1/health   # {"status":"healthy","checks":{"api":"ok","database":"ok","ollama":"ok"},...}
+curl -s http://localhost:8501/_stcore/health  # ok
+ollama list | grep mistral:7b                 # AI pages need host Ollama + this model
+
+# 3. Before EVERY demo: slide synthetic timestamps to now
+make demo-refresh   # the #1 demo failure is stale data, not a broken stack
+```
+
+Open **http://localhost:8501** and log in as `demo_analyst` / `demo_analyst_2026`.
+
+Gotchas that cost real demo time (full table: [docs/DEMO.md](docs/DEMO.md)):
+
+- **Empty pages + healthy containers = stale data.** Seed timestamps age out
+  of every dashboard window in ~24–48 h. Fix: `make demo-refresh` (idempotent —
+  exits 0 with "already fresh" if the newest event is < 60 min old). Don't
+  rebuild.
+- **A demo-seeded volume has no admin user.** The seed creates `demo_analyst`
+  first; the admin bootstrap only fires on an empty users table. Need admin
+  too? `down -v` → boot once WITHOUT the seed flag (read
+  `data/admin_initial_password`) → then set `DEMO_SEED_ENABLED=true` and
+  restart ([docs/DEMO.md](docs/DEMO.md) §5).
+- **`make demo-refresh` executes inside the api container** — `make up` first.
+
+Optional — the **live-telemetry demo** proves the detection pipeline, not just
+the UI. One command streams benign osquery events plus a reverse-shell pattern
+(matching `rules/sigma/process/reverse_shell.yml`) through the real pipeline:
+`osquery log → FileShipper (tail, checkpointed) → parser (ECS) → LogWriter →
+Postgres → Sigma detection scheduler → alert` (~70 s wait is the real
+scheduler tick):
+
+```bash
+make demo    # runs its own API on port 8001 and stops the compose api container
+             # (two schedulers can't race one DB) — re-run `make up` afterwards
+
+# Or emit events by hand into a tailed log:
+poetry run python3 scripts/generate_osquery_events.py --path /tmp/osqueryd.results.log
+```
+
+The shipper is OFF by default (`ENABLE_INGESTION_SHIPPER=false`) so existing
+deployments and CI are unaffected; the demo script passes it as an env var.
+
+While the demo is up, capture screenshots for this README (alerts grid, AI
+triage explanation, MITRE heatmap, case timeline) — see [Screenshots](#screenshots).
+
+### 2 · Local production — the real application on this machine
+
+This is the "my computer, doing everything it is meant to do" posture: a
+standing SIEM that ingests **real osqueryd host telemetry**, detects with
+Sigma live, and keeps every credential in-house. The reference deployment has
+run this way since the 2026-09-04 cutover. What the hardened overlay gives you
+(all verified live — [docs/PRODUCTION.md](docs/PRODUCTION.md) §3):
+
+- **Loopback-only publishing** — postgres `127.0.0.1:5433`, api
+  `127.0.0.1:8000`, dashboard `127.0.0.1:8501`; Redis publishes nothing.
+- **Authenticated Redis** — `--requirepass` from `.env`; the overlay fail-fasts
+  if unset.
+- **DB-enforced audit immutability** — two-role deploy: the owner applies the
+  schema, the restricted `scarletai_app` role runs the API, and
+  UPDATE/DELETE/TRUNCATE on audit tables are revoked and re-applied EVERY boot
+  (`scripts/harden_audit.sql`; verify with
+  `python -m scripts.check_audit_grants --strict`).
+- **Enforced `PASSWORD_PEPPER`** (fail-fast) + `DOCS_ENABLED=false` (Swagger/
+  ReDoc 404) + no-new-privileges, cap_drop ALL, memory limits.
+- **Ops that ship with it** — verify-gated nightly backups with a restore test
+  into throwaway Postgres (`scripts/backup_local.sh`, launchd 02:30), an
+  edge-triggered health watchdog (`scripts/health_watchdog.sh`, launchd every
+  5 min, always logged to `data/backups/watchdog.log`), and bounded-storage
+  retention (audit pruning owned by the backup script in the two-role posture).
+
+```bash
+# 0. .env — generate and set (every key documented in .env.example):
+#    REDIS_PASSWORD   openssl rand -base64 32   — required by the overlay
+#    PASSWORD_PEPPER  openssl rand -hex 32      — required, see warning below
+#    INGEST_BEARER_TOKEN / METRICS_BEARER_TOKEN — honored by the API immediately
+#    Two-role DB vars: DB_USER=scarletai_app, DATABASE_SUPERUSER_URL, …
 #
-# LOCAL PRODUCTION posture (loopback-only publishing, authenticated Redis,
-# DB-enforced audit trail, enforced password pepper):
-#   docker compose -f docker-compose.yml -f docker-compose.local-prod.yml up -d
-#   — requires REDIS_PASSWORD + PASSWORD_PEPPER in .env (docs/PRODUCTION.md)
+# 1. Boot the hardened overlay
+docker compose -f docker-compose.yml -f docker-compose.local-prod.yml up -d
+#
+# 2. Read the bootstrap admin password ONCE, then guard it
+cat data/admin_initial_password   # chmod 600; first login forces a change
+```
 
-# 4. (Dev only) Or run the API outside Docker:
+> ⚠️ **`PASSWORD_PEPPER` has no pepper-less fallback.** Set it at the same
+> moment as the fresh-volume production cutover — never on a live DB with
+> existing password hashes (every hash stops validating).
+
+**Real telemetry — osquery → shipper → Sigma → alert.** The API tails
+osquery's results log through the FileShipper (`ENABLE_INGESTION_SHIPPER=true`,
+checkpoint at `data/shipper_checkpoint`). The daemon itself runs on the HOST as
+a user-space LaunchAgent — zero-sudo install, but the binary must run from
+inside its `.app` bundle (a bare copy breaks the code seal: `Killed: 9`),
+several paths must be redirected to user-writable flags, Full Disk Access is
+needed for `startup_items`, and the first run stores a baseline only. Install
+commands and the full gotcha list: [docs/PRODUCTION.md](docs/PRODUCTION.md) §1.
+Verify the pipe end-to-end:
+
+```bash
+launchctl print gui/$(id -u)/com.scarletai.osqueryd | grep -E "state|pid"
+wc -l data/osquery/osqueryd.results.log           # grows every schedule tick
+python scripts/generate_osquery_events.py --path data/osquery/osqueryd.results.log
+docker exec scarletai-db psql -U scarletai -d scarletai -tAc \
+  "SELECT severity, rule_name FROM alerts ORDER BY created_at DESC LIMIT 1;"
+# expect: critical|Reverse Shell Pattern Detected (within ~70s)
+```
+
+Verified live 2026-09-04: real osqueryd → shipper → Postgres → critical Sigma
+alert within one scheduler tick; 189 real events inside the first minute.
+
+Scope honesty: this is a **user-level** agent (your uid) — it sees your
+processes, sockets, and shell history plus system-wide listeners and launchd
+tables. A root LaunchDaemon (official pkg, sudo) adds full system-wide
+visibility and is a documented upgrade, not a requirement.
+
+### 3 · Development (API outside Docker)
+
+```bash
 poetry install
 # Apply the canonical schema (src/db/schema.sql — Alembic was removed). The DSN
 # is DERIVED from DB_* parts; there is NO DATABASE_URL env var (setting one is
@@ -119,15 +258,11 @@ poetry install
 psql "$(poetry run python -c 'from src.config.settings import settings; print(settings.database_url)')" -f src/db/schema.sql
 poetry run uvicorn src.api.main:app --host 127.0.0.1 --port 8000
 
-# 5. (Dev only) Start the dashboard outside Docker:
+# Dashboard:
 poetry run streamlit run dashboard/main.py --server.port 8501
 ```
 
-**Running a demo of the project?** Follow [docs/DEMO.md](docs/DEMO.md) — the
-full spin-up sequence including the demo-data freshness step (`make
-demo-refresh`) that keeps seeded data inside the dashboard's time windows.
-
-Verify it's running:
+Verify it's running (all modes):
 ```bash
 curl http://localhost:8000/api/v1/health
 # Returns:
@@ -138,37 +273,6 @@ curl http://localhost:8000/api/v1/health
 #   "ollama": {"ollama_status": "healthy|degraded|unavailable", "model": "<name>|null", "error": "<msg>|null"}
 # }
 ```
-
-## Live Telemetry Demo (osquery → detection → alert)
-
-The default deployment seeds synthetic data so the dashboard looks alive. To see
-the SIEM ingest a **real log source** and fire detection live, enable the
-ingestion shipper — it tails an osquery results log and feeds the detection
-scheduler:
-
-```bash
-# One-command demo: starts Postgres, applies the schema, starts the API with
-# ENABLE_INGESTION_SHIPPER=true, writes osquery events (benign + a reverse-shell
-# that matches rules/sigma/process/reverse_shell.yml), and waits for the
-# scheduler to tick (~70s, real run_interval) before printing the fired alert.
-./scripts/run_osquery_demo.sh
-
-# Or emit events manually into a tailed log:
-poetry run python3 scripts/generate_osquery_events.py --path /tmp/osqueryd.results.log
-```
-
-What's wired: `osquery log → FileShipper (tail, checkpointed) → parser (ECS) →
-LogWriter → Postgres → Sigma detection scheduler → alerts`. The shipper is OFF
-by default (`enable_ingestion_shipper=false`) so existing deployments and CI are
-unaffected; enable it in `.env` (`ENABLE_INGESTION_SHIPPER=true`) or pass it as
-an env var as the demo script does.
-
-> **Local production (real host telemetry, not synthetic):** for the standing
-> in-house deployment — a real osqueryd LaunchAgent on this Mac feeding the
-> shipper continuously, secrets posture, and the demo↔production mode split —
-> see [`docs/PRODUCTION.md`](docs/PRODUCTION.md). Verified live 2026-09-04:
-> real osqueryd → shipper → Postgres → critical Sigma alert within one
-> scheduler tick.
 
 ---
 
@@ -181,8 +285,9 @@ wired today:
 ### osquery (host telemetry)
 
 Real osqueryd results logs, tailed by the file-shipper, parsed to ECS by the
-`OSQUERY_ECS_MAP` table (`src/ingestion/schemas.py`). See the Live Telemetry Demo
-above and [`docs/PRODUCTION.md`](docs/PRODUCTION.md).
+`OSQUERY_ECS_MAP` table (`src/ingestion/schemas.py`). See the run modes above
+(demo `make demo`, or the standing local-production deployment) and
+[`docs/PRODUCTION.md`](docs/PRODUCTION.md).
 
 ### NeuralGuard (AI firewall verdicts)
 
@@ -193,7 +298,8 @@ NeuralGuard audit verdict is mapped to an ECS IngestEvent and POSTed to this
 SIEM's ingest endpoint, so AI-firewall detections land in the same pipeline as
 host telemetry: enrichment, Sigma rules, correlation, NL2SQL.
 
-What NeuralGuard sends (mapper: `src/neuralguard/siem.py::map_to_scarletai`):
+What NeuralGuard sends (the mapper lives in the **NeuralGuard** repo —
+`src/neuralguard/siem.py::map_to_scarletai`; this SIEM only receives):
 
 - `source=neuralguard`, `event_category=intrusion_detection` (ECS),
   `event_type=info`, `event_action=verdict_block` / `verdict_allow` /
@@ -416,6 +522,7 @@ dashboard works with both.
 | Logs | `dashboard/logs_view.py` | Recent events, host/category filtering |
 | Hunt | `dashboard/hunt_view.py` | MITRE ATT&CK hunt templates, gap analysis |
 | Rules | `dashboard/rules_view.py` | Detection rule CRUD (admin only) |
+| Suppressions | `dashboard/suppressions_view.py` | Alert suppression management |
 | AI Chat | `dashboard/ai_chat_view.py` | NL threat-hunting assistant |
 | Charts | `dashboard/charts.py` | Time-series visualisations |
 
@@ -427,7 +534,7 @@ access from the dashboard.
 ## Testing
 
 ```bash
-# Run the full unit suite (1683 tests, mocked DB, ~30s)
+# Run the full unit suite (1689 tests, mocked DB, ~30s)
 poetry run pytest tests/unit/ -q --no-cov
 
 # With coverage report (gate: 80%; currently 87%)
@@ -537,18 +644,14 @@ Deliberate constraints, written down instead of hidden:
 
 ## Deployment
 
-See [docs/PRODUCTION.md](docs/PRODUCTION.md) for the **local production** path
-(single-host, in-house: real osquery telemetry, loopback-only publishing,
-authenticated Redis, two-role audit hardening, backups + watchdog) — this is
-the posture the reference deployment runs.
+The three run modes are documented in full in
+[Running SecurityScarletAI](#running-securityscarletai) above. Per-mode guides:
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the internet-exposed
-production path (Caddy + automatic TLS) including:
-- Docker Compose configuration
-- Environment variables
-- Database migrations
-- Security hardening checklist
-- Backup & recovery
+| Path | Guide | Posture |
+|---|---|---|
+| Demo (client-facing) | [docs/DEMO.md](docs/DEMO.md) | synthetic seed, `demo_analyst`, `make demo-refresh` freshness |
+| **Local production** (the reference deployment) | [docs/PRODUCTION.md](docs/PRODUCTION.md) | real osquery telemetry, loopback-only publishing, authenticated Redis, two-role audit hardening, backups + watchdog |
+| Internet-exposed (Caddy + automatic TLS) | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Docker Compose config, environment variables, migrations, security hardening checklist, backup & recovery |
 
 **Air-gapped / no-egress:** SecurityScarletAI is self-hostable and air-gappable
 — local Ollama, no external threat-intel calls, offline Sigma corpus, no
@@ -676,9 +779,10 @@ securityscarletai/
 │   ├── analyze_alerts.py         # Ad-hoc alert analysis helper
 │   ├── validate_config.py        # Validate .env / settings
 │   └── backup.sh                 # Reference pg_dump backup script (pgpass-based)
-├── tests/                   # 1683 unit tests + 5 integration tests (pass live — 2026-09-04)
+├── tests/                   # 1689 unit tests + 8 integration tests (pass live — 2026-09-05)
 ├── docs/                    # PRODUCTION.md, TESTING-ROADMAP.md, DEMO.md, RULES.md, AI.md,
-│                            # DEPLOYMENT.md, AIR-GAPPED.md, ATTACK-SCENARIOS.md, CHANGELOG.md
+│                            # DEPLOYMENT.md, AIR-GAPPED.md, ATTACK-SCENARIOS.md, CHANGELOG.md,
+│                            # dependency-vuln-triage-2026-09-03.md
 └── docker-compose.yml       # Postgres 17 + Redis 7 + API + dashboard
                             #   (+ docker-compose.local-prod.yml loopback overlay
                             #    + docker-compose.prod.yml internet/Caddy overlay)
@@ -686,17 +790,11 @@ securityscarletai/
 
 ## Screenshots
 
-The dashboard is a Streamlit app (real-time alerts, cases, AI chat, hunting).
-To capture screenshots for this section, run the stack locally and snapshot
-the views you want to showcase:
-
-```bash
-docker compose up -d          # Postgres + Redis + API + dashboard
-open http://localhost:8501     # dashboard (JWT login or DASHBOARD_API_TOKEN)
-```
-
-> _Replace this block with dashboard screenshots (alerts grid, AI triage
-> explanation, MITRE heatmap, case timeline) once captured._
+_Not yet captured._ The dashboard is a Streamlit app (real-time alerts, cases,
+AI chat, hunting). Bring up [demo mode](#running-securityscarletai), log in as
+`demo_analyst`, and snapshot the views worth showing: alerts grid, AI triage
+explanation, MITRE heatmap, case timeline. Replace this block with the
+captures.
 
 ---
 
