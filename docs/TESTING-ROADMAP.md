@@ -81,6 +81,24 @@ replayed on boot (files move to `processed/`), row counts reconcile. Also
 verify `docker compose restart` does not re-ingest telemetry (shipper
 checkpoint).
 
+### 3. Restart-resilience drill — EXECUTED 2026-09-07 (results replace the expectation)
+
+Drill run live: 300-event HTTP stream at `/ingest`, `docker kill` mid-stream,
+restart, reconcile.
+
+Measured durability semantics (the claim, made precise):
+- **Shipper path (osquery tail): at-least-once.** Checkpoint advances only on
+  successful write; verified no rewind + no re-ingest after the kill.
+- **HTTP /ingest: at-most-once.** 202-accepted events still in the writer's
+  memory buffer are lost on SIGKILL (measured: 50 durable, buffer lost). A
+  dead process writes nothing — dead-letter captures DB-write FAILURES (that
+  path proven same day: 1,551 stranded events replayed), not process death.
+- Crash-loss bound: one writer batch (≤100 events) on the non-primary path.
+  Lead-engineer call: keep the async batched writer (throughput design);
+  document the semantics rather than make /ingest synchronous.
+- Boot-after-kill: healthy, nothing stranded, "no dead-letter queue to
+  replay".
+
 ### 4. Retention live-fire
 Force rows older than the window (the seeded demo archive did this once
 already), then verify the hourly sweep + the documented `-2` audit sentinel +
