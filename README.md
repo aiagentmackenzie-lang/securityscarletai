@@ -214,7 +214,7 @@ run this way since the 2026-09-04 cutover. What the hardened overlay gives you
 docker compose -f docker-compose.yml -f docker-compose.local-prod.yml up -d
 #
 # 2. Read the bootstrap admin password ONCE, then guard it
-cat data/admin_initial_password   # chmod 600; first login forces a change
+cat data/admin_initial_password   # chmod 600; bootstrap sets must_change_password=true (forced M-10 change on first login)
 ```
 
 > ⚠️ **`PASSWORD_PEPPER` has no pepper-less fallback.** Set it at the same

@@ -155,7 +155,8 @@ The cutover ran on 2026-09-04 with Raphael's approval. Current posture:
 - **Fresh volume**: 0 alerts / 0 demo users; the entrypoint bootstrapped the
   real `admin` (random password → `data/admin_initial_password`, chmod 600 —
   read it once with `cat data/admin_initial_password`, then treat it as
-  sensitive; first login forces a password change).
+  sensitive; bootstrap sets must_change_password=true, so first login is
+  forced through the M-10 change flow).
 - Demo data preserved: `data/backups/demo-pre-cutover-20260904-0853.dump`
   (pg_restore custom format, 13 tables verified readable).
 

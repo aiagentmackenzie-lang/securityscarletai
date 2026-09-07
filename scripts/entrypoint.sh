@@ -223,7 +223,7 @@ async def main():
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            'INSERT INTO siem_users (username, email, password_hash, role) VALUES (\$1, \$2, \$3, \$4)',
+            'INSERT INTO siem_users (username, email, password_hash, role, must_change_password) VALUES (\$1, \$2, \$3, \$4, true)',
             'admin', 'admin@localhost', hash_password(ADMIN_PW), 'admin',
         )
     await pool.close()

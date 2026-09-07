@@ -28,6 +28,14 @@ _WATCHDOG = _repo / "scripts" / "health_watchdog.sh"
 
 
 class TestTwoRoleEntrypoint:
+    def test_bootstrap_admin_forces_password_change(self):
+        # M-10 must actually engage: the bootstrap INSERT must set
+        # must_change_password=true — the schema default is false, so a bare
+        # INSERT silently ships an unrotated admin credential (found live
+        # 2026-09-07: prod admin had must_change_password=f, zero logins).
+        s = _ENTRY.read_text()
+        assert "must_change_password) VALUES (\\$1, \\$2, \\$3, \\$4, true)" in s
+
     def test_schema_applies_via_superuser_url_when_set(self):
         s = _ENTRY.read_text()
         assert 'if [ -n "${DATABASE_SUPERUSER_URL:-}" ]' in s
