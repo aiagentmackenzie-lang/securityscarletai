@@ -47,16 +47,24 @@ The demo proves one Sigma rule. The 8 correlation chains have unit tests with
 synthetic sequences but no verified live-fire on real-shaped data.
 
 ```bash
-poetry run python scripts/generate_attack_data.py   # synthetic attack fixtures
-# ingest them via /ingest (bearer), then:
-curl -s http://127.0.0.1:8000/api/v1/correlation/run?persist=true \
-  -H "Authorization: Bearer $API_BEARER_TOKEN" -X POST
+poetry run python scripts/generate_attack_data.py --scenario all --host livefire-probe --output /tmp/attack.jsonl
+cat /tmp/attack.jsonl >> data/osquery/osqueryd.results.log   # through the REAL shipper pipe
+# wait ~75s (shipper + sigma tick), then — NOTE: persist is a JSON BODY field,
+# not a query param (the old ?persist=true form silently ran with persist=false):
+curl -s -X POST http://127.0.0.1:8000/api/v1/correlation/run \
+  -H "Authorization: Bearer $API_BEARER_TOKEN" -H "Content-Type: application/json" \
+  -d '{"persist": true}'
 curl -s http://127.0.0.1:8000/api/v1/correlation/matches \
   -H "Authorization: Bearer $API_BEARER_TOKEN"
 ```
-**Pass criteria:** each of the 7 rules produces a persisted match + alert with
-correct severity/ATT&CK mapping on crafted data; `correlation_matches` rows
-appear; dashboard Cases can link them.
+**Status 2026-09-07 (live-fire executed):** persistence_activated fires,
+persists, and raises its ATT&CK-mapped alert end-to-end. 7 of 8 chains are
+structurally blocked on real ingestion shapes — per-chain dependencies in
+P1.2b below. The original "each of the 7 rules" pass criterion is not
+achievable until the P1.2b vocabulary pass lands.
+**Pass criteria (residual):** any chain that fires must persist + alert with
+correct severity/ATT&CK mapping; `correlation_matches` rows appear; dashboard
+Cases can link them.
 
 ### 3. Restart-resilience drill (the "never silently drops" claim, stress-tested)
 Kill the API container mid-write-stream and verify zero data loss.
