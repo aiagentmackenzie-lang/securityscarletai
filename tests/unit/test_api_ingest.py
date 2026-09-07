@@ -246,3 +246,36 @@ class TestBroadcastOffHotPath:
                 await asyncio.sleep(0)
 
         assert broadcast_calls["n"] == 1  # ran in background; failure swallowed
+
+
+# --- Regression 2026-09-07: empty-string INET must not poison writer batches ---
+# One source_ip="" event failed asyncpg's INET codec and dead-lettered its
+# whole 100-event executemany batch (1,550 events stranded live). The
+# IngestEvent validator is the choke point for the HTTP path.
+def test_ingest_event_empty_source_ip_normalized_to_none():
+    event = IngestEvent(
+        **{"@timestamp": datetime.now(tz=timezone.utc).isoformat()},
+        host_name="probe-host",
+        source="osquery:listening_ports",
+        event_category="network",
+        event_type="connection",
+        source_ip="",
+        destination_ip="",
+        destination_port=0,
+    )
+    assert event.source_ip is None
+    assert event.destination_ip is None
+
+
+def test_ingest_event_valid_ip_passthrough():
+    event = IngestEvent(
+        **{"@timestamp": datetime.now(tz=timezone.utc).isoformat()},
+        host_name="probe-host",
+        source="osquery:open_sockets",
+        event_category="network",
+        event_type="connection",
+        source_ip="127.0.0.1",
+        destination_ip="10.0.0.1",
+    )
+    assert event.source_ip == "127.0.0.1"
+    assert event.destination_ip == "10.0.0.1"

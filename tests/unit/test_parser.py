@@ -116,3 +116,41 @@ def test_safe_ip_none_passthrough():
     assert _safe_ip(None) is None
     assert _safe_ip("") is None
     assert _safe_ip("10.0.0.1") == "10.0.0.1"
+
+
+# --- Schema-level choke point: every path (API, parser, replay) ships NULL for "" ---
+def test_normalized_event_empty_ip_becomes_none():
+    from src.ingestion.schemas import NormalizedEvent
+
+    ev = NormalizedEvent(
+        **{
+            "@timestamp": "2026-09-07T12:00:00Z",
+            "host_name": "h",
+            "event_category": "network",
+            "event_type": "connection",
+            "source": "osquery:open_sockets",
+            "raw_data": {},
+            "source_ip": "",
+            "destination_ip": "",
+        }
+    )
+    assert ev.source_ip is None
+    assert ev.destination_ip is None
+
+
+def test_normalized_event_valid_ip_passthrough():
+    from src.ingestion.schemas import NormalizedEvent
+
+    ev = NormalizedEvent(
+        **{
+            "@timestamp": "2026-09-07T12:00:00Z",
+            "host_name": "h",
+            "event_category": "network",
+            "event_type": "connection",
+            "source": "osquery:open_sockets",
+            "raw_data": {},
+            "source_ip": "10.1.2.3",
+            "destination_ip": None,
+        }
+    )
+    assert ev.source_ip == "10.1.2.3"
