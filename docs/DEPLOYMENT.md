@@ -512,11 +512,13 @@ In the default deploy, `DB_USER` applies `schema.sql` and so owns all
 tables. Owners bypass GRANT/REVOKE on their own tables, so REVOKE from the
 owner is a no-op. The entrypoint prints a notice when
 `DATABASE_SUPERUSER_URL` is not set. `scripts/check_audit_grants.py`
-reports the real state:
+reports the real state (it defaults `--app-role` to the **`$DB_USER` process
+env var** — export it or pass `--app-role` explicitly, otherwise it audits
+the table owner and false-alarms on a healthy two-role deploy):
 
 ```bash
-python -m scripts.check_audit_grants            # informational
-python -m scripts.check_audit_grants --strict   # exit 1 if mutable
+python -m scripts.check_audit_grants --app-role "$DB_USER"            # informational
+python -m scripts.check_audit_grants --app-role "$DB_USER" --strict   # exit 1 if mutable
 ```
 
 ### Enforcing immutability (two-role deploy)
@@ -535,7 +537,7 @@ python -m scripts.check_audit_grants --strict   # exit 1 if mutable
 4. Point the app at the restricted role (`DB_USER=scarletai_app` + its
    password) and set `DATABASE_SUPERUSER_URL` so the entrypoint re-applies
    the hardening on every boot.
-5. Verify: `python -m scripts.check_audit_grants --strict` exits 0.
+5. Verify (as above, with the app role explicit): `python -m scripts.check_audit_grants --app-role "$DB_USER" --strict` exits 0.
 
 **Retention interaction:** the retention job deletes old `audit_logs` rows.
 Once you REVOKE DELETE from the app role, the retention job can no longer

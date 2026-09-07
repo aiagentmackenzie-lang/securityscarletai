@@ -62,6 +62,16 @@ class IngestEvent(BaseModel):
     file_hash: str | None = Field(None, max_length=128)
     severity: str | None = Field(None, max_length=20)
 
+    @field_validator("host_ip", "source_ip", "destination_ip", mode="before")
+    @classmethod
+    def _empty_ip_to_none(cls, v: str | None) -> str | None:
+        """\"\" is not an IP — the logs INET columns reject it and one such
+        event dead-letters its whole batch (2026-09-07 live finding).
+        NULL is the honest value for \"no address\"."""
+        if v == "":
+            return None
+        return v
+
     @field_validator("host_name")
     @classmethod
     def sanitize_hostname(cls, v: str) -> str:

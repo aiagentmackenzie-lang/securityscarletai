@@ -47,16 +47,24 @@ The demo proves one Sigma rule. The 8 correlation chains have unit tests with
 synthetic sequences but no verified live-fire on real-shaped data.
 
 ```bash
-poetry run python scripts/generate_attack_data.py   # synthetic attack fixtures
-# ingest them via /ingest (bearer), then:
-curl -s http://127.0.0.1:8000/api/v1/correlation/run?persist=true \
-  -H "Authorization: Bearer $API_BEARER_TOKEN" -X POST
+poetry run python scripts/generate_attack_data.py --scenario all --host livefire-probe --output /tmp/attack.jsonl
+cat /tmp/attack.jsonl >> data/osquery/osqueryd.results.log   # through the REAL shipper pipe
+# wait ~75s (shipper + sigma tick), then — NOTE: persist is a JSON BODY field,
+# not a query param (the old ?persist=true form silently ran with persist=false):
+curl -s -X POST http://127.0.0.1:8000/api/v1/correlation/run \
+  -H "Authorization: Bearer $API_BEARER_TOKEN" -H "Content-Type: application/json" \
+  -d '{"persist": true}'
 curl -s http://127.0.0.1:8000/api/v1/correlation/matches \
   -H "Authorization: Bearer $API_BEARER_TOKEN"
 ```
-**Pass criteria:** each of the 7 rules produces a persisted match + alert with
-correct severity/ATT&CK mapping on crafted data; `correlation_matches` rows
-appear; dashboard Cases can link them.
+**Status 2026-09-07 (live-fire executed):** persistence_activated fires,
+persists, and raises its ATT&CK-mapped alert end-to-end. 7 of 8 chains are
+structurally blocked on real ingestion shapes — per-chain dependencies in
+P1.2b below. The original "each of the 7 rules" pass criterion is not
+achievable until the P1.2b vocabulary pass lands.
+**Pass criteria (residual):** any chain that fires must persist + alert with
+correct severity/ATT&CK mapping; `correlation_matches` rows appear; dashboard
+Cases can link them.
 
 ### 3. Restart-resilience drill (the "never silently drops" claim, stress-tested)
 Kill the API container mid-write-stream and verify zero data loss.
@@ -73,6 +81,24 @@ replayed on boot (files move to `processed/`), row counts reconcile. Also
 verify `docker compose restart` does not re-ingest telemetry (shipper
 checkpoint).
 
+### 3. Restart-resilience drill — EXECUTED 2026-09-07 (results replace the expectation)
+
+Drill run live: 300-event HTTP stream at `/ingest`, `docker kill` mid-stream,
+restart, reconcile.
+
+Measured durability semantics (the claim, made precise):
+- **Shipper path (osquery tail): at-least-once.** Checkpoint advances only on
+  successful write; verified no rewind + no re-ingest after the kill.
+- **HTTP /ingest: at-most-once.** 202-accepted events still in the writer's
+  memory buffer are lost on SIGKILL (measured: 50 durable, buffer lost). A
+  dead process writes nothing — dead-letter captures DB-write FAILURES (that
+  path proven same day: 1,551 stranded events replayed), not process death.
+- Crash-loss bound: one writer batch (≤100 events) on the non-primary path.
+  Lead-engineer call: keep the async batched writer (throughput design);
+  document the semantics rather than make /ingest synchronous.
+- Boot-after-kill: healthy, nothing stranded, "no dead-letter queue to
+  replay".
+
 ### 4. Retention live-fire
 Force rows older than the window (the seeded demo archive did this once
 already), then verify the hourly sweep + the documented `-2` audit sentinel +
@@ -84,6 +110,31 @@ owner-side prune via the backup script.
 ```
 **Pass criteria:** business tables pruned; `audit_logs` untouched by the app
 (sentinel -2 in logs); `backup_local.sh` audit-prune reports `ok`.
+
+## P1.2b — Correlation vocabulary pass (opened by the 2026-09-07 live-fire)
+
+P1.2 ran live: all 8 chains executed, 0 matches. Audit of detector SQL vs
+real ingestion shapes — 7 of 8 chains are structurally unable to fire on
+real data (unit tests hand-construct events in the rules' vocabulary).
+Fixed same day: `payload_callback` (file_path → process_path on process
+events), parser `file_events.target_path` mapping, generator
+process_events alignment. The remaining chains need a dedicated
+detection-engineering pass (define the event_action vocabulary at the
+parser, update detector SQL, re-run the matrix). Per-chain dependency:
+
+| Chain | Blocker | Dependency |
+|---|---|---|
+| brute_force_success | osquery has NO auth-failure table (`logged_in_users` is utmpx — no failed logins) | auth log source (log parsing / 2nd telemetry source) |
+| data_exfiltration | trigger needs `event_action~read` = file telemetry | FIM enablement (roadmap 12: EndpointSecurity FDA pass) |
+| privilege_escalation_chain | `user_name='root'` — parser maps uid `"0"`; sudo events are process-category, detector expects authentication | uid→username mapping decision |
+| credential_theft_exfil | `.ssh` access signal: process events carry it only in cmdline; detector filters file_path (dead) | signal-source decision (cmdline vs FIM) |
+| defense_evasion_cleanup | `event_action~start` vocabulary never produced by parser (`{table}_{action}`) | event_action vocabulary definition |
+| ai_verdict_block_sustained | no NeuralGuard events ingested | NeuralGuard deployed with scarletai sink routing (code verified live 2026-09-05) |
+
+Note: `src/detection/sequences.py` `SEQUENCE_DEFINITIONS` has ZERO consumers
+— the live engine is the hand-written SQL detectors in
+`src/detection/correlation.py`. The dataclass block is decorative; fold or
+delete in the vocabulary pass.
 
 ## P2 — after P1
 

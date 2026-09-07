@@ -211,7 +211,7 @@ async def detect_payload_callback(
         FROM logs
         WHERE event_category = 'process'
           AND event_type = 'start'
-          AND file_path LIKE $2
+          AND process_path LIKE $2
           AND time > $1::timestamptz - INTERVAL '1 hour' * $3
           AND time <= $1::timestamptz
     ),

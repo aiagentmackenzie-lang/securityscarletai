@@ -356,3 +356,18 @@ class TestAuthRoleHierarchy:
         # This just verifies the import works - actual test would need timing analysis
         assert secrets.compare_digest("token1", "token1") is True
         assert secrets.compare_digest("token1", "token2") is False
+
+
+# --- Regression 2026-09-07 live-fire: payload_callback filtered file_path on
+# PROCESS events — the parser never sets file_path for process category, so
+# the rule was structurally dead (0 possible matches since inception). The
+# trigger must filter process_path (the executed binary's path).
+def test_payload_callback_filters_process_path_not_file_path():
+    import inspect
+
+    from src.detection.correlation import detect_payload_callback
+
+    sql = inspect.getsource(detect_payload_callback)
+    assert "process_path LIKE $2" in sql
+    trigger_section = sql.split("network_connections")[0]
+    assert "file_path" not in trigger_section

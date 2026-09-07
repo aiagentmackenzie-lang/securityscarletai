@@ -194,7 +194,7 @@ run this way since the 2026-09-04 cutover. What the hardened overlay gives you
   schema, the restricted `scarletai_app` role runs the API, and
   UPDATE/DELETE/TRUNCATE on audit tables are revoked and re-applied EVERY boot
   (`scripts/harden_audit.sql`; verify with
-  `python -m scripts.check_audit_grants --strict`).
+  `python -m scripts.check_audit_grants --strict --app-role "$DB_USER"`).
 - **Enforced `PASSWORD_PEPPER`** (fail-fast) + `DOCS_ENABLED=false` (Swagger/
   ReDoc 404) + no-new-privileges, cap_drop ALL, memory limits.
 - **Ops that ship with it** — verify-gated nightly backups with a restore test
@@ -214,7 +214,7 @@ run this way since the 2026-09-04 cutover. What the hardened overlay gives you
 docker compose -f docker-compose.yml -f docker-compose.local-prod.yml up -d
 #
 # 2. Read the bootstrap admin password ONCE, then guard it
-cat data/admin_initial_password   # chmod 600; first login forces a change
+cat data/admin_initial_password   # chmod 600; bootstrap sets must_change_password=true (forced M-10 change on first login)
 ```
 
 > ⚠️ **`PASSWORD_PEPPER` has no pepper-less fallback.** Set it at the same

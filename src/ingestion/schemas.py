@@ -7,7 +7,7 @@ Each osquery table maps to an ECS event.category + event.type combination.
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class NormalizedEvent(BaseModel):
@@ -50,6 +50,18 @@ class NormalizedEvent(BaseModel):
 
     # Severity for alerting
     severity: Optional[str] = None  # info, low, medium, high, critical
+
+    @field_validator("host_ip", "source_ip", "destination_ip", mode="before")
+    @classmethod
+    def _empty_ip_to_none(cls, v: Any) -> Any:
+        """Empty string is not an IP: INET columns reject it (asyncpg raises
+        `'' does not appear to be an IPv4 or IPv6 interface`), which fails the
+        whole executemany batch and strands good events in dead-letter
+        (observed live 2026-09-07). Ship NULL instead. Applies to every
+        construction path: osquery parse, API ingest, dead-letter replay."""
+        if v == "":
+            return None
+        return v
 
 
 # Mapping: osquery table name to ECS category + type.
