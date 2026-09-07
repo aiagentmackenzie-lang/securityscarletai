@@ -83,7 +83,7 @@ class ApiError(Exception):
 class PasswordChangeRequiredError(ApiError):
     """Raised when login succeeds but the account must change its password.
 
-    The /auth/login endpoint returns 401 with code=PASSWORD_CHANGE_REQUIRED and
+    The /auth/login endpoint returns 403 with code=PASSWORD_CHANGE_REQUIRED and
     a force_change_token (a JWT) when must_change_password is true. This
     exception carries that token so the dashboard can prompt for a new
     password, call /auth/force-change-password, then log in again.
@@ -238,8 +238,9 @@ class ApiClient:
         """Authenticate and store JWT in session state.
 
         Raises PasswordChangeRequiredError if the account has
-        must_change_password set (the API returns 401 with a
-        force_change_token); the caller should prompt for a new password,
+        must_change_password set (the API returns 403 with a
+        force_change_token — accepted on 401 too for contract tolerance);
+        the caller should prompt for a new password,
         call force_change_password(), then login() again. We call httpx
         directly (not self._post) because _handle_response discards 401
         bodies, and the force_change_token lives in that body.
@@ -263,9 +264,14 @@ class ApiClient:
             st.session_state.role = data["role"]
             return data
 
-        if r.status_code == 401:
+        if r.status_code in (401, 403):
             # Distinguish "must change password" (carries a force_change_token)
-            # from a plain bad-credentials 401.
+            # from plain bad-credentials/forbidden. The API raises 403
+            # (authenticated but forbidden until rotation) with the
+            # PASSWORD_CHANGE_REQUIRED code + one-off token; earlier contract
+            # docs said 401. Accept the CODE on either status — found live
+            # 2026-09-07 when the first admin login 403'd straight through
+            # this handler and dumped raw JSON into the login form.
             try:
                 body = r.json()
                 detail = body.get("detail", {}) if isinstance(body, dict) else {}
@@ -276,7 +282,14 @@ class ApiClient:
                     )
             except ValueError:
                 pass
-            raise ApiError(401, "Invalid username or password")
+            if r.status_code == 401:
+                raise ApiError(401, "Invalid username or password")
+            # 403 WITHOUT the code: a genuine forbidden — surface the detail.
+            try:
+                detail = r.json().get("detail", r.text[:200])
+            except Exception:
+                detail = r.text[:200]
+            raise ApiError(403, detail)
 
         # Other non-2xx (e.g. 429 rate limited) — surface the detail.
         try:
