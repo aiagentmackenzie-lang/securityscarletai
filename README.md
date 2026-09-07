@@ -194,7 +194,7 @@ run this way since the 2026-09-04 cutover. What the hardened overlay gives you
   schema, the restricted `scarletai_app` role runs the API, and
   UPDATE/DELETE/TRUNCATE on audit tables are revoked and re-applied EVERY boot
   (`scripts/harden_audit.sql`; verify with
-  `python -m scripts.check_audit_grants --strict`).
+  `python -m scripts.check_audit_grants --strict --app-role "$DB_USER"`).
 - **Enforced `PASSWORD_PEPPER`** (fail-fast) + `DOCS_ENABLED=false` (Swagger/
   ReDoc 404) + no-new-privileges, cap_drop ALL, memory limits.
 - **Ops that ship with it** — verify-gated nightly backups with a restore test

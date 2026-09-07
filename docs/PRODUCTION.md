@@ -196,7 +196,9 @@ time**; switching back to production requires `down -v` + re-bootstrap.
 - ~~Audit immutability is convention-only~~ — **RESOLVED**: the two-role deploy
   is live (see §4). Verified: app role has INSERT/SELECT only on audit tables,
   UPDATE/DELETE/TRUNCATE denied at the DB level,
-  `check_audit_grants --strict` exits 0.
+  `check_audit_grants --strict --app-role "$DB_USER"` exits 0 (the script's
+  role default reads the `$DB_USER` process env — pass the role explicitly
+  or it audits the owner and false-alarms).
 - FDA note: terminal-spawned single-shot osquery queries still deny the BTM
   directory (TCC attributes to the terminal); the launchd daemon itself is
   granted and emits `startup_items` rows every 300 s — judge by the daemon's
@@ -221,7 +223,7 @@ Live setup:
 - Verified: tamper tests (UPDATE/DELETE/TRUNCATE → permission denied),
   ingest + audit INSERT through the app role,
   `pg_stat_activity` shows all 10 API connections as `scarletai_app`,
-  `check_audit_grants --strict` → exit 0.
+  `check_audit_grants --strict --app-role "$DB_USER"` → exit 0.
 - **Retention interaction (by design):** the app role can no longer DELETE
   audit rows, so the in-app retention job reports `audit_sweep_failed`
   (sentinel -2, non-fatal). Audit pruning is owned by the backup script below,
@@ -254,5 +256,7 @@ Prep done; the flip is a mechanical diff when the window opens:
    CVE-2025-69872` to the pip-audit step (the two P4 risk-accepts, documented
    expiry 2026-12-01 — the ignore entries must carry the same rationale), then
    remove `continue-on-error: true`.
-3. `python -m scripts.check_audit_grants --strict` is a candidate boot gate
-   once any deploy pipeline wants it (exits 0 in the local-prod posture).
+3. `python -m scripts.check_audit_grants --strict --app-role "$DB_USER"` is a
+   candidate boot gate once any deploy pipeline wants it (exits 0 in the
+   local-prod posture; the app role must be explicit or via the exported
+   `$DB_USER`).
