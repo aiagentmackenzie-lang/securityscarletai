@@ -436,6 +436,37 @@ class TestLoginForcePasswordChange:
         assert exc_info.value.username == "admin"
         assert exc_info.value.status_code == 401
 
+    def test_login_password_change_required_on_403_raises_with_token(self, client):
+        # Live finding 2026-09-07: the API raises 403 (authenticated but
+        # forbidden until rotation) — the client only inspected 401, so the
+        # first-ever admin login dumped raw JSON into the login form instead
+        # of rendering the set-new-password form. The CODE is the contract,
+        # not the status.
+        body = {"detail": {
+            "message": "Password change required before login",
+            "code": "PASSWORD_CHANGE_REQUIRED",
+            "force_change_token": "FORCE.JWT.403",
+        }}
+        mock_resp = self._mock_resp(403, body)
+        with patch("httpx.post", return_value=mock_resp):
+            with patch("streamlit.session_state", _SessionState()):
+                with pytest.raises(PasswordChangeRequiredError) as exc_info:
+                    client.login("admin", "admin")
+        assert exc_info.value.force_change_token == "FORCE.JWT.403"
+        assert exc_info.value.username == "admin"
+
+    def test_login_403_without_code_surfaces_forbidden(self, client):
+        # A genuine 403 (no PASSWORD_CHANGE_REQUIRED code) must NOT be
+        # swallowed by the force-change path — it surfaces as ApiError(403).
+        body = {"detail": "Forbidden"}
+        mock_resp = self._mock_resp(403, body)
+        with patch("httpx.post", return_value=mock_resp):
+            with patch("streamlit.session_state", _SessionState()):
+                with pytest.raises(ApiError) as exc_info:
+                    client.login("admin", "x")
+        assert not isinstance(exc_info.value, PasswordChangeRequiredError)
+        assert exc_info.value.status_code == 403
+
     def test_login_plain_401_raises_invalid_credentials(self, client):
         body = {"detail": "Invalid credentials"}
         mock_resp = self._mock_resp(401, body)
