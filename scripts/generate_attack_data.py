@@ -144,9 +144,9 @@ def generate_persistence(host: str = "test-mac.local") -> list[dict]:
         "action": "added",
     })
 
-    # Process event for launchctl
+    # Process event for launchctl — process_events (execution, event_type=start)
     events.append({
-        "name": "processes",
+        "name": "process_events",
         "hostIdentifier": host,
         "unixTime": int((base_time + timedelta(seconds=30)).timestamp()),
         "calendarTime": (base_time + timedelta(seconds=30)).strftime("%a %b %d %H:%M:%S %Y UTC"),
@@ -200,7 +200,9 @@ def generate_tmp_staging(host: str = "test-mac.local") -> list[dict]:
     base_time = datetime.now(tz=timezone.utc) - timedelta(minutes=1)
 
     events.append({
-        "name": "processes",
+        # process_events (the execution-event table, event_type=start after
+        # ECS mapping) — correlation detectors match executions, not state.
+        "name": "process_events",
         "hostIdentifier": host,
         "unixTime": int(base_time.timestamp()),
         "calendarTime": base_time.strftime("%a %b %d %H:%M:%S %Y UTC"),

@@ -68,7 +68,9 @@ def parse_osquery_line(raw_line: str) -> Optional[NormalizedEvent]:
             "source_ip": _safe_ip(columns.get("local_address") or columns.get("address")),
             "destination_ip": _safe_ip(columns.get("remote_address")),
             "destination_port": _safe_int(columns.get("remote_port") or columns.get("port")),
-            "file_path": columns.get("path") if ecs_mapping["event_category"] == "file" else None,
+            "file_path": (columns.get("path") or columns.get("target_path"))
+            if ecs_mapping["event_category"] == "file"
+            else None,
             "file_hash": columns.get("sha256") or columns.get("md5"),
             "raw_data": data,
         }

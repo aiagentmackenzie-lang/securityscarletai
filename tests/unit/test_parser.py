@@ -154,3 +154,23 @@ def test_normalized_event_valid_ip_passthrough():
         }
     )
     assert ev.source_ip == "10.1.2.3"
+
+
+# --- file_events target_path: real osquery FIM schema uses target_path, not path ---
+def test_file_event_target_path_mapped():
+    line = json.dumps(
+        {
+            "name": "file_events",
+            "hostIdentifier": "test-mac.local",
+            "unixTime": 1774267200,
+            "columns": {
+                "target_path": "/Users/admin/Library/LaunchAgents/com.apple.update.plist",
+                "action": "CREATED",
+            },
+            "action": "added",
+        }
+    )
+    event = parse_osquery_line(line)
+    assert event is not None
+    assert event.event_category == "file"
+    assert event.file_path == "/Users/admin/Library/LaunchAgents/com.apple.update.plist"
