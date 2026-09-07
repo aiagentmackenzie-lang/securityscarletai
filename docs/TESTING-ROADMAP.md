@@ -85,6 +85,31 @@ owner-side prune via the backup script.
 **Pass criteria:** business tables pruned; `audit_logs` untouched by the app
 (sentinel -2 in logs); `backup_local.sh` audit-prune reports `ok`.
 
+## P1.2b — Correlation vocabulary pass (opened by the 2026-09-07 live-fire)
+
+P1.2 ran live: all 8 chains executed, 0 matches. Audit of detector SQL vs
+real ingestion shapes — 7 of 8 chains are structurally unable to fire on
+real data (unit tests hand-construct events in the rules' vocabulary).
+Fixed same day: `payload_callback` (file_path → process_path on process
+events), parser `file_events.target_path` mapping, generator
+process_events alignment. The remaining chains need a dedicated
+detection-engineering pass (define the event_action vocabulary at the
+parser, update detector SQL, re-run the matrix). Per-chain dependency:
+
+| Chain | Blocker | Dependency |
+|---|---|---|
+| brute_force_success | osquery has NO auth-failure table (`logged_in_users` is utmpx — no failed logins) | auth log source (log parsing / 2nd telemetry source) |
+| data_exfiltration | trigger needs `event_action~read` = file telemetry | FIM enablement (roadmap 12: EndpointSecurity FDA pass) |
+| privilege_escalation_chain | `user_name='root'` — parser maps uid `"0"`; sudo events are process-category, detector expects authentication | uid→username mapping decision |
+| credential_theft_exfil | `.ssh` access signal: process events carry it only in cmdline; detector filters file_path (dead) | signal-source decision (cmdline vs FIM) |
+| defense_evasion_cleanup | `event_action~start` vocabulary never produced by parser (`{table}_{action}`) | event_action vocabulary definition |
+| ai_verdict_block_sustained | no NeuralGuard events ingested | NeuralGuard deployed with scarletai sink routing (code verified live 2026-09-05) |
+
+Note: `src/detection/sequences.py` `SEQUENCE_DEFINITIONS` has ZERO consumers
+— the live engine is the hand-written SQL detectors in
+`src/detection/correlation.py`. The dataclass block is decorative; fold or
+delete in the vocabulary pass.
+
 ## P2 — after P1
 
 5. **Dashboard esc-sweep review + screenshots.** Walk each view rendering
