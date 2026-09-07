@@ -65,14 +65,29 @@ def parse_osquery_line(raw_line: str) -> Optional[NormalizedEvent]:
             "process_pid": _safe_int(columns.get("pid")),
             "process_cmdline": columns.get("cmdline"),
             "process_path": columns.get("path"),
-            "source_ip": columns.get("local_address") or columns.get("address"),
-            "destination_ip": columns.get("remote_address"),
+            "source_ip": _safe_ip(columns.get("local_address") or columns.get("address")),
+            "destination_ip": _safe_ip(columns.get("remote_address")),
             "destination_port": _safe_int(columns.get("remote_port") or columns.get("port")),
             "file_path": columns.get("path") if ecs_mapping["event_category"] == "file" else None,
             "file_hash": columns.get("sha256") or columns.get("md5"),
             "raw_data": data,
         }
     )
+
+
+def _safe_ip(val: Optional[str]) -> Optional[str]:
+    """Normalize an osquery address string for the logs INET columns.
+
+    The database rejects empty strings for INET parameters
+    (``'' does not appear to be an IPv4 or IPv6 interface``) — an
+    empty-address row (e.g. listening_ports on a socket with no local
+    address) must ship as NULL, not ''. Without this, one empty-address
+    event fails its whole executemany batch and strands up to 99 good
+    events in the dead-letter queue (observed live 2026-09-07).
+    """
+    if val is None or val == "":
+        return None
+    return val
 
 
 def _safe_int(val: Optional[str]) -> Optional[int]:
