@@ -96,22 +96,22 @@ OSQUERY_ECS_MAP: dict[str, dict[str, str]] = {
 
 
 # ───────────────────────────────────────────────────────────────
-# The event_action vocabulary (P1.2b — the closed token set)
+# The event_action vocabulary (P1.2b -- the closed token set)
 #
 # History: the parser used to emit f"{table}_{action}" (e.g.
 # "logged_in_users_added"). No detector, Sigma rule, or coverage check could
-# ever match those values — the 2026-09-07 live-fire proved 7 of 8
+# ever match those values -- the 2026-09-07 live-fire proved 7 of 8
 # correlation chains structurally unable to fire on real ingestion shapes.
 #
 # The vocabulary is now a CLOSED set of lowercase ECS-aligned tokens, mapped
 # by the parser from (table, osquery action, FIM action column). Every other
 # producer maps into it at ingest:
-#   - auth shipper      → auth_failed / auth_success  (never faked by the
+#   - auth shipper      -> auth_failed / auth_success  (never faked by the
 #                         osquery parser: utmpx logged_in_users has session
 #                         state only, no failed-login semantics)
-#   - NeuralGuard etc.  → verdict_block and friends via POST /ingest
+#   - NeuralGuard etc.  -> verdict_block and friends via POST /ingest
 #
-# Fail-closed: anything not derivable maps to None — a fake token is worse
+# Fail-closed: anything not derivable maps to None -- a fake token is worse
 # than no token. The original osquery action always survives in raw_data
 # (chain of custody); detectors key on exact tokens only.
 # ───────────────────────────────────────────────────────────────
@@ -139,14 +139,14 @@ EVENT_ACTION_VERDICT_BLOCK = "verdict_block"  # NeuralGuard AI-firewall verdicts
 
 
 def derive_event_action(table_name: str, action: str, columns: dict) -> Optional[str]:
-    """Map (table, osquery differential action, columns) → vocabulary token.
+    """Map (table, osquery differential action, columns) -> vocabulary token.
 
     Differential semantics: osquery snapshot mode emits 'added'/'removed'
-    rows only for state CHANGES since the previous run — a processes 'added'
+    rows only for state CHANGES since the previous run -- a processes 'added'
     row means the process launched since the last interval (that is the
     documented detection mode of this deployment's osquery.conf), a
     logged_in_users 'added' row means a session opened. Snapshot 'snapshot'
-    action (full state dump) is NOT derivable → None.
+    action (full state dump) is NOT derivable -> None.
     """
     # osquery action: differential rows are 'added'/'removed'; full dumps are
     # 'snapshot' (and 'items' in some builds). Only differentials carry the
@@ -188,7 +188,7 @@ def _file_action_token(fim_action: str) -> str:
 
     Real FIM action values across osquery builds: CREATED, UPDATED,
     WRITTEN, DELETED, OPENED, ATTR, ATTRIBUTES_MODIFIED (case varies).
-    Substring matching is deliberate — FIM action vocabularies differ per
+    Substring matching is deliberate -- FIM action vocabularies differ per
     build/backend; the closed token set stays stable.
     """
     a = (fim_action or "").lower()
@@ -198,7 +198,7 @@ def _file_action_token(fim_action: str) -> str:
         return EVENT_ACTION_FILE_DELETED
     if "open" in a or "read" in a:
         return EVENT_ACTION_FILE_OPENED
-    if a:  # updated/written/modified/attr/… → change semantics
+    if a:  # updated/written/modified/attr/… -> change semantics
         return EVENT_ACTION_FILE_MODIFIED
     return EVENT_ACTION_FILE_EVENT
 
@@ -209,8 +209,8 @@ def parse_normalized_line(raw_line: str) -> Optional[NormalizedEvent]:
     Used by FileShipper(format="normalized") for the auth shipper's output.
     The contract mirrors the API /ingest schema strictness: host_name,
     event_category, event_type and source are REQUIRED (a line missing any
-    is skipped — fail-closed, never guessed); @timestamp defaults to now.
-    Never raises — a stuck parser kills the pipeline.
+    is skipped -- fail-closed, never guessed); @timestamp defaults to now.
+    Never raises -- a stuck parser kills the pipeline.
     """
     try:
         data = json.loads(raw_line)

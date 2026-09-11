@@ -1,12 +1,12 @@
 """
-Correlation Engine v3 — Event-driven, point-in-time safe.
+Correlation Engine v3 -- Event-driven, point-in-time safe.
 
 Detects attack chains by correlating events across time windows.
 Changes from v2:
 - Every SQL query takes an `as_of` datetime and binds it as $1::timestamptz
   (or the relevant position). NO `NOW()` in query strings.
 - Each rule function: `def rule(conn, as_of: datetime) -> list[dict]`
-  with no hardcoded windows in the function body — windows are SQL params.
+  with no hardcoded windows in the function body -- windows are SQL params.
 - run_all_correlations(as_of, persist) returns
   `{"matches": [...], "total_matches": N, "persisted": N}`
 - When `persist=True`, writes each match into `correlation_matches` with
@@ -35,7 +35,7 @@ log = get_logger("detection.correlation")
 
 CORRELATION_RULES = {
     "brute_force_success": {
-        "title": "Brute Force → Successful Login",
+        "title": "Brute Force -> Successful Login",
         "description": (
             "Multiple failed logins followed by a successful login from the same source IP"
         ),
@@ -45,7 +45,7 @@ CORRELATION_RULES = {
         "confidence_base": 80,
     },
     "payload_callback": {
-        "title": "Dropped Payload → C2 Callback",
+        "title": "Dropped Payload -> C2 Callback",
         "description": (
             "Process launched from /tmp followed by a network connection to an external IP"
         ),
@@ -55,7 +55,7 @@ CORRELATION_RULES = {
         "confidence_base": 75,
     },
     "persistence_activated": {
-        "title": "Persistence Created → Activated",
+        "title": "Persistence Created -> Activated",
         "description": "File creation in LaunchAgents followed by launchctl load",
         "severity": "high",
         "mitre_tactics": ["TA0003"],
@@ -74,7 +74,7 @@ CORRELATION_RULES = {
         "confidence_base": 65,
     },
     "privilege_escalation_chain": {
-        "title": "Privilege Escalation → Root Process",
+        "title": "Privilege Escalation -> Root Process",
         "description": (
             "sudo/su/doas execution followed by an interactive or "
             "user-writable-path process running as root (uid 0)"
@@ -85,7 +85,7 @@ CORRELATION_RULES = {
         "confidence_base": 70,
     },
     "credential_theft_exfil": {
-        "title": "Credential Access → External Connection",
+        "title": "Credential Access -> External Connection",
         "description": (
             "Access to SSH credential files (file telemetry or non-ssh "
             "process cmdline) followed by outbound network connection"
@@ -96,7 +96,7 @@ CORRELATION_RULES = {
         "confidence_base": 80,
     },
     "defense_evasion_cleanup": {
-        "title": "Suspicious Activity → Log Deletion",
+        "title": "Suspicious Activity -> Log Deletion",
         "description": (
             "High/critical alert on the host followed by a log file deletion "
             "attempt (rm on log paths)"
@@ -111,7 +111,7 @@ CORRELATION_RULES = {
         "description": (
             "An AI firewall (e.g. NeuralGuard, source=neuralguard) returned "
             "sustained BLOCK verdicts for one tenant/source within a short "
-            "window — repeated attack traffic against a protected LLM endpoint"
+            "window -- repeated attack traffic against a protected LLM endpoint"
         ),
         "severity": "high",
         "mitre_tactics": ["TA0001"],
@@ -125,7 +125,7 @@ CORRELATION_RULES = {
 # Per-rule correlation queries
 #
 # Each function:
-#   - Takes (conn, as_of, **kwargs) — `as_of` is the point-in-time
+#   - Takes (conn, as_of, **kwargs) -- `as_of` is the point-in-time
 #     boundary. Lookback windows are SQL parameters, not NOW() calls.
 #   - Returns list of dicts, each with `correlation_rule` and
 #     `correlation_id` (uuid4) populated.
@@ -142,7 +142,7 @@ async def detect_brute_force_then_success(
     """Detect: N failed logins followed by success from same source.
 
     Vocabulary (P1.2b): auth failures/successes arrive via the ingest
-    convention — event_category='authentication', event_action='auth_failed'
+    convention -- event_category='authentication', event_action='auth_failed'
     /'auth_success' (auth shipper, or any real auth source via POST /ingest).
     The osquery parser NEVER fakes these: utmpx logged_in_users rows are
     session state (mapped to 'auth_success' on open), with no failed-login
@@ -186,12 +186,12 @@ async def detect_brute_force_then_success(
 
     rows = await conn.fetch(
         sql,
-        as_of,  # $1 — point-in-time upper bound
-        "auth_failed",  # $2 — exact vocabulary token
-        time_window_minutes,  # $3 — window minutes
-        lookback_hours,  # $4 — lookback hours
-        "auth_success",  # $5 — exact success token
-        failed_threshold,  # $6 — threshold
+        as_of,  # $1 -- point-in-time upper bound
+        "auth_failed",  # $2 -- exact vocabulary token
+        time_window_minutes,  # $3 -- window minutes
+        lookback_hours,  # $4 -- lookback hours
+        "auth_success",  # $5 -- exact success token
+        failed_threshold,  # $6 -- threshold
     )
     results = []
     for row in rows:
@@ -217,7 +217,7 @@ async def detect_payload_callback(
     time_window_minutes: int = 10,
     lookback_hours: int = 24,
 ) -> List[Dict[str, Any]]:
-    """Detect: Process from /tmp → Network connection (dropped payload)."""
+    """Detect: Process from /tmp -> Network connection (dropped payload)."""
     sql = """
     WITH tmp_processes AS (
         SELECT
@@ -289,7 +289,7 @@ async def detect_persistence_activated(
     time_window_minutes: int = 30,
     lookback_hours: int = 24,
 ) -> List[Dict[str, Any]]:
-    """Detect: File creation in LaunchAgents → launchctl load."""
+    """Detect: File creation in LaunchAgents -> launchctl load."""
     sql = """
     WITH agent_creation AS (
         SELECT
@@ -362,9 +362,9 @@ async def detect_data_exfiltration(
     """Detect: Large outbound transfer / connection burst to external IP.
 
     P1.2b fix: the volume path (enrichment bytes_sent) only exists for
-    ingesters that measure bytes (API/NeuralGuard feeds) — real osquery
+    ingesters that measure bytes (API/NeuralGuard feeds) -- real osquery
     telemetry carries NO byte counts, so the chain was dead on host data.
-    Added: the connection-burst path — many outbound connections from one
+    Added: the connection-burst path -- many outbound connections from one
     host to a single external IP within the window (beaconing/exfil staging
     over snapshot-differential socket telemetry). Either signal fires the
     chain; the match reports which. Both are parameterized thresholds.
@@ -420,9 +420,9 @@ async def detect_data_exfiltration(
     rows = await conn.fetch(
         sql,
         as_of,  # $1
-        "10.0.0.0/8",  # $2 — RFC1918 range 1
-        "192.168.0.0/16",  # $3 — RFC1918 range 2
-        "172.16.0.0/12",  # $4 — RFC1918 range 3
+        "10.0.0.0/8",  # $2 -- RFC1918 range 1
+        "192.168.0.0/16",  # $3 -- RFC1918 range 2
+        "172.16.0.0/12",  # $4 -- RFC1918 range 3
         lookback_hours,  # $5
         threshold_bytes,  # $6
         connection_threshold,  # $7
@@ -461,15 +461,15 @@ async def detect_privilege_escalation_chain(
     time_window_minutes: int = 10,
     lookback_hours: int = 24,
 ) -> List[Dict[str, Any]]:
-    """Detect: Privilege escalation → New process as root.
+    """Detect: Privilege escalation -> New process as root.
 
     P1.2b fixes (chain was dead on real data):
     - Trigger: sudo/su/doas EXECUTIONS are process events (process_start on
-      name IN sudo/su/doas) — not authentication rows (the old filter
+      name IN sudo/su/doas) -- not authentication rows (the old filter
       matched nothing: logged_in_users rows carry no process_name). The
       authentication-category alternative stays for API-ingest producers
       that ship explicit privilege-escalation events.
-    - Root check: user_name IN ('root','0') — the POSIX uid-0 convention.
+    - Root check: user_name IN ('root','0') -- the POSIX uid-0 convention.
       osquery process rows carry uid, and the parser ships uid as
       user_name only when no username column exists; '0' IS root on macOS
       and Linux. Documented convention, not a guess.
@@ -512,7 +512,7 @@ async def detect_privilege_escalation_chain(
           -- when it is INTERACTIVE or running from a user-writable path.
           -- Root daemons/launchd respawns fire constantly on any host; they
           -- are noise, not escalation evidence. (Parent-pid linkage is the
-          -- documented next upgrade — requires a logs.parent_pid column.)
+          -- documented next upgrade -- requires a logs.parent_pid column.)
           AND (
                 process_name IN (
                     'bash', 'sh', 'zsh', 'python', 'python3', 'perl', 'ruby',
@@ -568,15 +568,15 @@ async def detect_credential_theft_exfil(
     time_window_minutes: int = 15,
     lookback_hours: int = 24,
 ) -> List[Dict[str, Any]]:
-    """Detect: SSH credential access → Outbound connection.
+    """Detect: SSH credential access -> Outbound connection.
 
     P1.2b signal-source decision (documented): the file-telemetry path
     (event_category='file' AND file_path like .ssh) is PRIMARY but needs
-    FIM (EndpointSecurity validation pending — see EVOLUTION_ROADMAP item 3).
+    FIM (EndpointSecurity validation pending -- see EVOLUTION_ROADMAP item 3).
     The cmdline path arms the chain TODAY on real telemetry: any process
     OTHER than the interactive ssh client (whose .ssh references are
     implicit key/config use, not access events) whose command line touches
-    .ssh paths or private-key filenames — cat/less/scp/rsync/base64-style
+    .ssh paths or private-key filenames -- cat/less/scp/rsync/base64-style
     readers, or a binary path living under .ssh. T1552.004 (Private Keys).
     """
     sql = """
@@ -648,7 +648,7 @@ async def detect_credential_theft_exfil(
 
     rows = await conn.fetch(
         sql,
-        as_of,  # $1 — point-in-time upper bound
+        as_of,  # $1 -- point-in-time upper bound
         lookback_hours,  # $2
         "10.0.0.0/8",  # $3
         "192.168.0.0/16",  # $4
@@ -679,14 +679,14 @@ async def detect_ai_verdict_block_sustained(
 
     Fires when an AI-firewall source (NeuralGuard ingests as
     ``source=neuralguard``, ``event_category=intrusion_detection``,
-    ``event_action=verdict_block`` — any source adopting the same ECS
+    ``event_action=verdict_block`` -- any source adopting the same ECS
     convention is covered) records >= block_threshold BLOCK verdicts for the
     same (host_name, source, tenant_id) within the trailing window.
     Tenant identity rides in ``raw_data.neuralguard.tenant_id`` (the SIEM
     inherits NeuralGuard's tamper-evident audit event via raw_data).
 
     A single BLOCK is already visible as its own high/critical event; this
-    rule adds the SUSTAINED-ATTACK signal — many blocks in a short window
+    rule adds the SUSTAINED-ATTACK signal -- many blocks in a short window
     means someone is actively hammering the protected endpoint.
     """
     sql = """
@@ -708,9 +708,9 @@ async def detect_ai_verdict_block_sustained(
 
     rows = await conn.fetch(
         sql,
-        as_of,  # $1 — point-in-time upper bound
-        time_window_minutes,  # $2 — sustained-window minutes
-        block_threshold,  # $3 — minimum BLOCK verdicts in the window
+        as_of,  # $1 -- point-in-time upper bound
+        time_window_minutes,  # $2 -- sustained-window minutes
+        block_threshold,  # $3 -- minimum BLOCK verdicts in the window
     )
     results = []
     for row in rows:
@@ -738,9 +738,9 @@ async def detect_defense_evasion_cleanup(
     time_window_minutes: int = 30,
     lookback_hours: int = 24,
 ) -> List[Dict[str, Any]]:
-    """Detect: High-severity activity → Log file deletion.
+    """Detect: High-severity activity -> Log file deletion.
 
-    P1.2b fix: the old trigger filtered logs.severity='high' — but the
+    P1.2b fix: the old trigger filtered logs.severity='high' -- but the
     osquery pipeline never populates log severity (severity is assigned by
     DETECTION, not ingestion), so the trigger was dead on real data. The
     honest signal for "high-severity activity" is a fired alert: the
@@ -814,7 +814,7 @@ async def detect_defense_evasion_cleanup(
 
 
 # ───────────────────────────────────────────────────────────────
-# Sessionization — group events by host+user into sessions
+# Sessionization -- group events by host+user into sessions
 # ───────────────────────────────────────────────────────────────
 
 
@@ -981,7 +981,7 @@ async def run_all_correlations(
                 try:
                     # F-10 dedup (plan phase 5): each batch re-runs every rule
                     # over the same 24h lookback, so the SAME finding used to
-                    # INSERT again per batch — unbounded row pile-up. A match
+                    # INSERT again per batch -- unbounded row pile-up. A match
                     # with the same rule + trigger event + payload within the
                     # dedup window updates nothing (matching create_alert's
                     # dedup semantics).

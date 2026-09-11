@@ -1,5 +1,5 @@
 """
-SecurityScarletAI Dashboard — Main Entry Point
+SecurityScarletAI Dashboard -- Main Entry Point
 
 A professional, dark-themed SIEM dashboard powered by Streamlit.
 
@@ -34,7 +34,7 @@ from dashboard.auth import (
 from dashboard.ui_utils import logo_svg
 
 # ───────────────────────────────────────────────────────────
-# Auto-refresh — graceful fallback if component not installed
+# Auto-refresh -- graceful fallback if component not installed
 # ───────────────────────────────────────────────────────────
 
 try:
@@ -330,7 +330,7 @@ DARK_THEME_CSS = f"""
 """
 
 # ───────────────────────────────────────────────────────────
-# Severity / Status → badge helper
+# Severity / Status -> badge helper
 # ───────────────────────────────────────────────────────────
 
 SEV_CSS_MAP = {
@@ -374,7 +374,7 @@ _FAVICON = Path(__file__).parent / "assets" / "favicon.png"
 # ───────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="SecurityScarletAI — SIEM Dashboard",
+    page_title="SecurityScarletAI -- SIEM Dashboard",
     page_icon=str(_FAVICON) if _FAVICON.exists() else "🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -635,7 +635,7 @@ def render_overview():
 
     st.header("Security Overview")
 
-    # Fetch alerts once — all chart functions reuse this single fetch
+    # Fetch alerts once -- all chart functions reuse this single fetch
     from dashboard.charts import cached_alerts
 
     alerts = cached_alerts()
@@ -674,7 +674,7 @@ def render_overview():
             render_mitre_heatmap(rules, coverage if coverage else None)
         except ApiError:
             st.info(
-                "Rule information unavailable — MITRE coverage will show when rules are loaded."
+                "Rule information unavailable -- MITRE coverage will show when rules are loaded."
             )
 
     # Recent alerts table
@@ -698,7 +698,7 @@ def render_overview():
 
 
 def render_audit():
-    """Audit log page — admin only."""
+    """Audit log page -- admin only."""
     api = get_api_client()
 
     st.header("Audit Log")
@@ -787,8 +787,8 @@ def main():
     # Footer
     st.divider()
     st.caption(
-        "SecurityScarletAI v0.1.0 — AI-Native SIEM | "
-        "All data via authenticated API — No direct DB access"
+        "SecurityScarletAI v0.1.0 -- AI-Native SIEM | "
+        "All data via authenticated API -- No direct DB access"
     )
 
 

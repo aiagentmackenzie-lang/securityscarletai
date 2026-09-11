@@ -1,8 +1,8 @@
-"""Evidence-driven detection coverage (V0.3 — the detectability map).
+"""Evidence-driven detection coverage (V0.3 -- the detectability map).
 
 The old MITRE heatmap counted RULES per technique ("rule exists"). That is
 an aspirational number: a rule whose telemetry source does not exist on the
-host cannot fire, and counting it inflates coverage — the detectability
+host cannot fire, and counting it inflates coverage -- the detectability
 trap detection engineering is moving away from (SANS 2026: identity is the
 named visibility gap; 45% of SOCs don't monitor nontraditional assets).
 
@@ -12,14 +12,14 @@ This module answers the buyer-grade question instead:
 
 Armed  = the rule's required telemetry (category/action vocabulary buckets,
          process-name probes, alert severities, external sources) was seen
-         in the lookback window. It does NOT guarantee a specific TTP fired —
+         in the lookback window. It does NOT guarantee a specific TTP fired --
          it guarantees the SOURCE exists.
 Dormant-by-source = the rule selects vocabulary no ingested producer emits
-         (Windows/AD verbs, cloud SaaS actions) — honest future-source
+         (Windows/AD verbs, cloud SaaS actions) -- honest future-source
          waiver, surfaced instead of silently never firing.
 Dormant = source ingested but the required vocabulary has not been seen in
-         the lookback (e.g. auth shipper disabled → brute-force chain
-         dormant; FIM unvalidated → file-signal rules dormant).
+         the lookback (e.g. auth shipper disabled -> brute-force chain
+         dormant; FIM unvalidated -> file-signal rules dormant).
 
 Cost: a handful of grouped bucket queries per run, no per-rule scans.
 """
@@ -51,10 +51,10 @@ INGESTED_CATEGORIES = {
 
 # Future-source waivers (V0.3 rule-quality gate + coverage). A rule listed
 # here intentionally selects vocabulary no ingested producer emits; it is
-# DORMANT-BY-SOURCE with the documented reason — NOT a lie of inclusion and
+# DORMANT-BY-SOURCE with the documented reason -- NOT a lie of inclusion and
 # NOT an accident. Removing a waiver requires shipping the source first.
 # Keys are lowercase title-normalized rule names (title lowercased,
-# non-alphanumerics → "_"; titles are the rule identity in the rules table).
+# non-alphanumerics -> "_"; titles are the rule identity in the rules table).
 WAIVED_FUTURE_SOURCES: dict[str, str] = {
     # --- Windows / Active Directory sources ---
     "anomalous_kerberos_ticket_request": "future source: Windows security event log (Kerberos TGS)",
@@ -66,7 +66,7 @@ WAIVED_FUTURE_SOURCES: dict[str, str] = {
     "multiple_account_lockouts": "future source: account-lockout events (not in utmpx/osquery)",
     "new_account_created": "future source: account-management audit log",
     # --- DNS-content sources (resolver logs; socket telemetry has no
-    # query content — these detections are meaningless without it) ---
+    # query content -- these detections are meaningless without it) ---
     "high_volume_dns_exfil_indicator": "future source: DNS resolver query logs",
     "dns_tunneling_indicators": "future source: DNS resolver query logs",
     "suspicious_dns_query": "future source: DNS resolver query logs",
@@ -87,7 +87,7 @@ WAIVED_FUTURE_SOURCES: dict[str, str] = {
 def _waiver_key(rule_name: str) -> str:
     """Normalize a rule name/title the same way on both consumers (DB rows
     from the rules table and file stems from the gate): lowercase,
-    non-alphanumeric → underscore."""
+    non-alphanumeric -> underscore."""
     import re as _re
 
     return _re.sub(r"[^a-z0-9]+", "_", rule_name.lower()).strip("_")
@@ -96,12 +96,12 @@ def _waiver_key(rule_name: str) -> str:
 # Correlation-chain requirements in bucket form. Bucket = (category, action)
 # or (category, None) = any action in that category. "all"/"any" semantics
 # per rule. Special buckets:
-#   ("alerts", "high_or_critical") — fired high/critical alerts
-#   ("enrichment", "bytes")        — ingesters carrying byte counts
+#   ("alerts", "high_or_critical") -- fired high/critical alerts
+#   ("enrichment", "bytes")        -- ingesters carrying byte counts
 CORRELATION_REQUIREMENTS: dict[str, dict[str, Any]] = {
     "brute_force_success": {
         "all": [("authentication", "auth_failed"), ("authentication", "auth_success")],
-        "note": "requires the auth shipper (sshd) — osquery has no auth-failure table",
+        "note": "requires the auth shipper (sshd) -- osquery has no auth-failure table",
     },
     "payload_callback": {
         "all": [("process", "process_start"), ("network", "network_connection")],
@@ -158,7 +158,7 @@ def extract_sigma_requirements(sigma_yaml: str) -> dict[str, Any]:
             if field == "event_action":
                 value = selection[sel_key]
                 values = value if isinstance(value, list) else [value]
-                # Exact and |contains modifiers both arm on token presence —
+                # Exact and |contains modifiers both arm on token presence --
                 # the bucket matcher applies contains semantics, so both
                 # reduce to token collection.
                 action_tokens.extend(str(v) for v in values)
@@ -172,7 +172,7 @@ def _bucket_present(buckets: dict, category: str | None, action: str | None) -> 
 
     Action matching follows the Sigma |contains semantics: a selected token
     ('failed', 'verdict_block') arms against a bucket whose action contains
-    or equals it — so the closed vocabulary tokens match while future-source
+    or equals it -- so the closed vocabulary tokens match while future-source
     verbs (tgs_request, ntlm_auth) correctly do NOT.
     """
     if action is None:
@@ -200,7 +200,7 @@ def _correlation_armed(rule: str, buckets: dict, probed_names: set) -> tuple[boo
 async def compute_coverage(lookback_hours: int = 168, as_of: datetime | None = None) -> dict:
     """Compute per-rule armed/dormant status + technique rollup.
 
-    Returns {"summary": {...}, "rules": [...], "techniques": [...]} — the
+    Returns {"summary": {...}, "rules": [...], "techniques": [...]} -- the
     evidence-driven heatmap payload (rules whose telemetry exists, not
     rules that merely exist).
     """
@@ -257,10 +257,10 @@ async def compute_coverage(lookback_hours: int = 168, as_of: datetime | None = N
             lookback_start,
         )
 
-    # Live bucket snapshot for this run (shared across rules — read-only).
+    # Live bucket snapshot for this run (shared across rules -- read-only).
     req_buckets = {**action_buckets}
     # (category, None) buckets: rows in the category with ANY action value,
-    # including NULL-action rows — the "any action" armed check.
+    # including NULL-action rows -- the "any action" armed check.
     for cat, cnt in category_counts.items():
         req_buckets.setdefault((cat, None), cnt)
     if high_crit_alerts:
@@ -270,7 +270,7 @@ async def compute_coverage(lookback_hours: int = 168, as_of: datetime | None = N
 
     output_rules: list[dict] = []
 
-    # Correlation chains — hand-authored requirements.
+    # Correlation chains -- hand-authored requirements.
     for rule_name, meta in CORRELATION_RULES.items():
         armed, note = _correlation_armed(rule_name, req_buckets, probed_names)
         output_rules.append(
@@ -286,7 +286,7 @@ async def compute_coverage(lookback_hours: int = 168, as_of: datetime | None = N
             }
         )
 
-    # Sigma rules — sourced from the rules table (runtime truth, reconciled
+    # Sigma rules -- sourced from the rules table (runtime truth, reconciled
     # from disk on boot). Requirements from the stored sigma_yaml.
     rule_rows = await conn.fetch(
         """

@@ -1,5 +1,5 @@
 """
-Log shipper — tails osquery result logs and feeds them to the ingestion pipeline.
+Log shipper -- tails osquery result logs and feeds them to the ingestion pipeline.
 
 Polls the result log every ~1s (seek/tell based, not a file-watcher) and stores a
 checkpoint (byte offset) so restarts don't re-ingest old data. (P2-07: the
@@ -25,12 +25,12 @@ class FileShipper:
 
     P2-22: the checkpoint file is per-instance (``checkpoint_path``) so multiple
     shippers watching different logs don't clobber each other's offset. Defaults
-    to the legacy single global path for backward compatibility — the
+    to the legacy single global path for backward compatibility -- the
     single-shipper deployment (``maybe_create_shipper``) is unaffected.
 
     ``format`` selects the line parser:
-      - "osquery"    — osquery result-log lines (default; the telemetry pipe)
-      - "normalized" — one NDJSON NormalizedEvent per line (the auth
+      - "osquery"    -- osquery result-log lines (default; the telemetry pipe)
+      - "normalized" -- one NDJSON NormalizedEvent per line (the auth
         shipper's output format, V0.3 identity telemetry; the same shape the
         API /ingest contract accepts)
     """
@@ -40,7 +40,7 @@ class FileShipper:
         log_path: str,
         writer: LogWriter,
         checkpoint_path: Path | None = None,
-        format: str = "osquery",  # noqa: A002 — public keyword, mirrors parse format
+        format: str = "osquery",  # noqa: A002 -- public keyword, mirrors parse format
     ):
         self.log_path = Path(log_path)
         self.writer = writer
@@ -61,7 +61,7 @@ class FileShipper:
             return None
 
     async def run(self) -> None:
-        """Main loop — tail the file forever."""
+        """Main loop -- tail the file forever."""
         self._running = True
         log.info("shipper_started", path=str(self.log_path), offset=self._offset)
 

@@ -1,4 +1,4 @@
-"""Lifespan helper — starts the osquery FileShipper when enabled.
+"""Lifespan helper -- starts the osquery FileShipper when enabled.
 
 Keeps the startup/shutdown wiring in ``src.api.main`` thin and makes the
 enable/disable gate unit-testable without spinning up the whole FastAPI
@@ -20,12 +20,12 @@ log = get_logger("ingestion.runner")
 def maybe_create_shipper(writer: LogWriter) -> FileShipper | None:
     """Return a FileShipper iff the telemetry pipe is enabled, else None.
 
-    Disabled is the default — the SIEM keeps working on POSTed/synthetic
+    Disabled is the default -- the SIEM keeps working on POSTed/synthetic
     events. Enable via ``ENABLE_INGESTION_SHIPPER=true`` to tail
     ``settings.osquery_log_path`` and feed detection live.
 
     The checkpoint is stored at ``settings.shipper_checkpoint_path`` (a
-    persistent, writable path — the mounted ``data/`` volume in Docker), NOT at
+    persistent, writable path -- the mounted ``data/`` volume in Docker), NOT at
     ``Path.home()``: in the API container HOME does not exist and is ephemeral,
     so a home-dir checkpoint never saved and restarts re-ingested the whole log
     (duplicate events). Found live, 2026-09-04.
@@ -45,7 +45,7 @@ def maybe_create_shipper(writer: LogWriter) -> FileShipper | None:
 def maybe_create_auth_shipper(writer: LogWriter) -> FileShipper | None:
     """Return a normalized-format FileShipper iff the auth pipe is enabled.
 
-    V0.3 identity telemetry: tails ``settings.auth_events_log_path`` —
+    V0.3 identity telemetry: tails ``settings.auth_events_log_path`` --
     NDJSON lines in the auth-vocabulary contract (auth_failed/auth_success,
     src/ingestion/auth_source.py), written by scripts/auth_log_shipper.py
     (macOS unified log, sshd-focused). Independent enable flag + checkpoint

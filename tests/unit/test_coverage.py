@@ -1,4 +1,4 @@
-"""Unit tests — V0.3 evidence-driven coverage (detectability map)."""
+"""Unit tests -- V0.3 evidence-driven coverage (detectability map)."""
 
 from src.detection.coverage import (
     CORRELATION_REQUIREMENTS,

@@ -1,7 +1,7 @@
 """
 Centralized configuration for SecurityScarletAI.
 All settings are validated at startup. Missing required values cause immediate failure
-with a clear error message — not a silent None that blows up later.
+with a clear error message -- not a silent None that blows up later.
 """
 
 from typing import Annotated, Optional
@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     db_port: int = 5433
     db_name: str = "scarletai"
     db_user: str = "scarletai"
-    db_password: str = Field(..., description="Database password — required, no default")
+    db_password: str = Field(..., description="Database password -- required, no default")
     db_pool_min: int = 2
     db_pool_max: int = 10
 
@@ -53,15 +53,15 @@ class Settings(BaseSettings):
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     api_secret_key: SecretStr = Field(
-        ..., min_length=32, description="JWT signing key — generate with: openssl rand -hex 64"
+        ..., min_length=32, description="JWT signing key -- generate with: openssl rand -hex 64"
     )
     api_bearer_token: SecretStr = Field(..., min_length=16, description="Ingestion API auth token")
-    # P2.6: optional SCOPED ingest token — viewer-class and valid ONLY on the
+    # P2.6: optional SCOPED ingest token -- viewer-class and valid ONLY on the
     # ingest router (a leaked ingest token must not be a full admin bearer).
-    # Unset → behavior identical to pre-P2.6.
+    # Unset -> behavior identical to pre-P2.6.
     ingest_bearer_token: Optional[SecretStr] = None
     # P3.3: optional scrape token for GET /api/v1/metrics (Prometheus text
-    # format). Set → token or analyst JWT can scrape from anywhere. Unset →
+    # format). Set -> token or analyst JWT can scrape from anywhere. Unset ->
     # analyst JWT, or unauthenticated scrapes from localhost only (the
     # Prometheus-on-the-same-host pattern). Generate with: openssl rand -hex 32
     metrics_bearer_token: Optional[SecretStr] = None
@@ -75,7 +75,7 @@ class Settings(BaseSettings):
         P3.7 boot-blocker: docker-compose passes the compose default as a bare
         string (API_CORS_ORIGINS=http://localhost:8501) and pydantic-settings
         demands strict JSON for list fields at the SOURCE level (before field
-        validators run) — every container boot crashed before this. With
+        validators run) -- every container boot crashed before this. With
         NoDecode the env value reaches this validator raw; bare `a,b` form is
         what .env.example documents, JSON form is what orchestrators pass.
         Both parse now.
@@ -134,7 +134,7 @@ class Settings(BaseSettings):
     # Two-role deploy app-role credential (compose api env consumes it via
     # DB_PASSWORD override in .env; declared so .env parsing accepts the key).
     db_app_password: Optional[SecretStr] = None
-    # Cluster-superuser/owner (POSTGRES_USER=scarletai) init password — kept
+    # Cluster-superuser/owner (POSTGRES_USER=scarletai) init password -- kept
     # SEPARATE from the app-role DB_PASSWORD in the two-role deploy so rotating
     # the app password never touches the owner. Compose interpolates
     # POSTGRES_PASSWORD from this (default falls back to DB_PASSWORD for
@@ -157,7 +157,7 @@ class Settings(BaseSettings):
     # --- Auth shipper (V0.3 identity telemetry) ---
     # Tails the auth shipper's NDJSON output (the auth-vocabulary contract,
     # src/ingestion/auth_source.py) as a SECOND FileShipper instance in
-    # normalized format. OFF by default — deployments without an auth
+    # normalized format. OFF by default -- deployments without an auth
     # source are unaffected (the brute-force chain then reports DORMANT in
     # the coverage map instead of silently never firing).
     enable_auth_shipper: bool = False
@@ -174,7 +174,7 @@ class Settings(BaseSettings):
     abuseipdb_api_key: Optional[str] = None
     # P2.5: per-feed hourly live-call budget for AbuseIPDB (quota protection).
     # A hostile agent spraying fresh IPs burned the DAILY quota on clean lookups
-    # before this — the negative cache + budget cap the live-call rate.
+    # before this -- the negative cache + budget cap the live-call rate.
     abuseipdb_hourly_budget: int = 500
     otx_api_key: Optional[str] = None
 
@@ -239,18 +239,18 @@ class Settings(BaseSettings):
     @classmethod
     def password_not_default(cls, v: str) -> str:
         if "CHANGE_ME" in v:
-            raise ValueError("You must set a real DB_PASSWORD in .env — do not use the placeholder")
+            raise ValueError("Set a real DB_PASSWORD in .env, not the CHANGE_ME placeholder")
         return v
 
     # Phase 1.5 (trust & truth), 2026-09-01: all three required secrets are
-    # placeholder-gated — a deployment booting with a documented placeholder
+    # placeholder-gated -- a deployment booting with a documented placeholder
     # crashes at startup instead of running on a public secret.
     @field_validator("api_secret_key")
     @classmethod
     def api_secret_key_not_placeholder(cls, v: SecretStr) -> SecretStr:
         if "CHANGE_ME" in v.get_secret_value():
             raise ValueError(
-                "You must set a real API_SECRET_KEY in .env — do not use the placeholder. "
+                "You must set a real API_SECRET_KEY in .env -- do not use the placeholder. "
                 "Generate with: openssl rand -hex 64"
             )
         return v
@@ -260,7 +260,7 @@ class Settings(BaseSettings):
     def api_bearer_token_not_placeholder(cls, v: SecretStr) -> SecretStr:
         if "CHANGE_ME" in v.get_secret_value():
             raise ValueError(
-                "You must set a real API_BEARER_TOKEN in .env — do not use the placeholder. "
+                "You must set a real API_BEARER_TOKEN in .env -- do not use the placeholder. "
                 "Generate with: openssl rand -hex 32"
             )
         return v
@@ -268,14 +268,14 @@ class Settings(BaseSettings):
     @field_validator("ingest_bearer_token")
     @classmethod
     def ingest_bearer_token_not_placeholder(cls, v: Optional[SecretStr]) -> Optional[SecretStr]:
-        # Optional field — None (unset) disables the scoped token entirely.
+        # Optional field -- None (unset) disables the scoped token entirely.
         if v is not None and "CHANGE_ME" in v.get_secret_value():
             raise ValueError(
-                "INGEST_BEARER_TOKEN is set to the placeholder — generate a real one "
+                "INGEST_BEARER_TOKEN is set to the placeholder -- generate a real one "
                 "with: openssl rand -hex 32 (or unset it to disable scoping)"
             )
         return v
 
 
-# Singleton — import this everywhere
+# Singleton -- import this everywhere
 settings = Settings()

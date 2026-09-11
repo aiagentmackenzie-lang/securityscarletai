@@ -1,10 +1,10 @@
-"""Detection-coverage API — the evidence-driven detectability map (V0.3).
+"""Detection-coverage API -- the evidence-driven detectability map (V0.3).
 
-GET /api/v1/detection/coverage — per-rule armed/dormant status + the
+GET /api/v1/detection/coverage -- per-rule armed/dormant status + the
 technique rollup the MITRE heatmap renders. Armed = the rule's required
 telemetry was SEEN in the lookback window (source exists to fire it);
 dormant = rule exists but its source/vocabulary has not (surfaced honestly
-instead of silently never firing — the old title-driven heatmap counted
+instead of silently never firing -- the old title-driven heatmap counted
 both identically).
 """
 

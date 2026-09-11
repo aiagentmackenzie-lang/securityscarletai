@@ -1,4 +1,4 @@
-"""Unit tests — V0.3 identity/auth telemetry + normalized shipper format."""
+"""Unit tests -- V0.3 identity/auth telemetry + normalized shipper format."""
 
 import json
 
@@ -160,7 +160,7 @@ class TestWatermarkDedup:
         out = str(tmp_path / "auth_events.log")
         count, wm = ship_events(entries, "h", watermark=None, output_path=out)
         assert count == 2
-        # Second run, same window overlapped: watermark at 12:01 — both rows
+        # Second run, same window overlapped: watermark at 12:01 -- both rows
         # are <= watermark, nothing re-emitted.
         count2, wm2 = ship_events(entries, "h", watermark=wm, output_path=out)
         assert count2 == 0

@@ -68,7 +68,7 @@ async def load_sigma_rules():
     existing rules have their content fields refreshed (sigma_yaml, description,
     severity, mitre_*, run_interval, lookback, threshold) while operator-set
     state (enabled, last_run, last_match, match_count) is preserved. DB rows not
-    present on disk are left untouched — they may be operator-created via the
+    present on disk are left untouched -- they may be operator-created via the
     rules API and cannot be distinguished from disk rules that were removed.
     """
     from datetime import timedelta
@@ -84,7 +84,7 @@ async def load_sigma_rules():
     async with pool.acquire() as conn:
         # Count from set arithmetic, NOT asyncpg command tags: proven 2026-09-10
         # on PG17 that INSERT ... ON CONFLICT (name) DO UPDATE returns the tag
-        # 'INSERT 0 1' even when the UPDATE path fires — the old tag-based
+        # 'INSERT 0 1' even when the UPDATE path fires -- the old tag-based
         # heuristic logged inserted=100/updated=0 on EVERY boot regardless of
         # reality.
         pre_names = {r["name"] for r in await conn.fetch("SELECT name FROM rules")}
@@ -259,8 +259,8 @@ _docs_url, _redoc_url, _openapi_url = _docs_urls()
 
 app = FastAPI(
     title="SecurityScarletAI",
-    description="AI-Native SIEM — Log Ingestion & Detection API",
-    version="0.2.0",  # matches the git tag (was stale 0.1.0 — caught by read-through, not grep)
+    description="AI-Native SIEM -- Log Ingestion & Detection API",
+    version="0.2.0",  # matches the git tag (was stale 0.1.0 -- caught by read-through, not grep)
     lifespan=lifespan,
     docs_url=_docs_url,
     redoc_url=_redoc_url,
@@ -273,7 +273,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
     # Restrict request headers to the two the API actually uses. Bearer
-    # tokens (not cookies) so CSRF is moot, but tighten anyway — never
+    # tokens (not cookies) so CSRF is moot, but tighten anyway -- never
     # advertise "any header" in a security product.
     allow_headers=["Authorization", "Content-Type"],
 )
@@ -301,12 +301,12 @@ app.include_router(metrics_router, prefix="/api/v1")
 app.add_middleware(RequestValidationMiddleware)
 app.add_middleware(AuditLogMiddleware)
 
-# Rate limiting state — Redis-backed via src.api.rate_limit
+# Rate limiting state -- Redis-backed via src.api.rate_limit
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]  # slowapi handler sig vs Starlette
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(RateLimitHeadersMiddleware)
 
 # P3.3: HTTP request count + latency metrics. Added LAST so it is the
-# outermost middleware — rate-limit 429s and validation 4xx are counted too.
+# outermost middleware -- rate-limit 429s and validation 4xx are counted too.
 app.add_middleware(MetricsMiddleware)

@@ -2,7 +2,7 @@
 Tests for Correlation Engine v3.
 
 Tests correlation rule metadata and parameterized SQL safety.
-The decorative sequences module was removed in P1.2b — SEQUENCE_DEFINITIONS
+The decorative sequences module was removed in P1.2b -- SEQUENCE_DEFINITIONS
 had zero engine consumers; the live engine is the hand-written SQL in
 src/detection/correlation.py.
 """

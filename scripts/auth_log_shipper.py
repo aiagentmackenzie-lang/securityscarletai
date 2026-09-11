@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Auth log shipper — macOS unified log → SecurityScarletAI (V0.3 identity telemetry).
+"""Auth log shipper -- macOS unified log -> SecurityScarletAI (V0.3 identity telemetry).
 
 Reads sshd authentication events from the macOS unified log and appends
 them as NDJSON in the auth-vocabulary contract (event_action =
@@ -9,25 +9,25 @@ API's normalized FileShipper tails (AUTH_EVENTS_LOG_PATH).
     log show --style ndjson --last 5m --predicate 'process == "sshd"'
 
 Parsed message shapes (real sshd unified-log lines):
-    "Failed password for invalid user X from IP port N ssh2"  → auth_failed
-    "Failed password for X from IP port N ssh2"               → auth_failed
-    "Invalid user X from IP port N"                           → auth_failed
-    "Accepted publickey/password for X from IP port N"        → auth_success
+    "Failed password for invalid user X from IP port N ssh2"  -> auth_failed
+    "Failed password for X from IP port N ssh2"               -> auth_failed
+    "Invalid user X from IP port N"                           -> auth_failed
+    "Accepted publickey/password for X from IP port N"        -> auth_success
 
-Duplicate control: a WATERMARK checkpoint (last emitted unixTime) — only
+Duplicate control: a WATERMARK checkpoint (last emitted unixTime) -- only
 events strictly newer than the watermark are emitted, so overlapping
 launchd windows never double-ship. The watermark is per-host file
 (AUTH_SHIPPER_STATE, default data/auth_shipper_state) and atomic.
 
 Scope honesty (v1): SSH auth only. sudo/authd/WindowServer auth events
-need their own parsers — extend SHIPPER_PATTERNS with a documented
+need their own parsers -- extend SHIPPER_PATTERNS with a documented
 regex + source, do not widen the SSH patterns to "hope it fits".
 
 Requirements:
-  - Full Disk Access (TCC) for the calling terminal/launchd context —
+  - Full Disk Access (TCC) for the calling terminal/launchd context --
     the same grant osqueryd needs (see docs/PRODUCTION.md §1).
   - Remote Login (sshd) enabled on the host; otherwise the chain is
-    DORMANT by design (see the coverage map — no telemetry, no firing).
+    DORMANT by design (see the coverage map -- no telemetry, no firing).
 
 Usage (launchd every 5 min):
     python3 scripts/auth_log_shipper.py --once --last-minutes 5
@@ -56,7 +56,7 @@ log = get_logger("auth_shipper")
 
 DEFAULT_PREDICATE = 'process == "sshd"'
 
-# (compiled regex, outcome) — first match wins; ordered by specificity.
+# (compiled regex, outcome) -- first match wins; ordered by specificity.
 SHIPPER_PATTERNS: list[tuple[re.Pattern, str]] = [
     (
         re.compile(r"Failed password for (?:invalid user )?(?P<user>\S+) from (?P<ip>\S+) port"),
@@ -85,7 +85,7 @@ def parse_sshd_message(message: str) -> tuple[str, str, str] | None:
 def read_auth_events(last_minutes: int, predicate: str) -> list[dict]:
     """Query the macOS unified log and return raw NDJSON dicts.
 
-    Raises RuntimeError with the stderr tail on failure — callers decide
+    Raises RuntimeError with the stderr tail on failure -- callers decide
     whether that is fatal (the launchd job should keep the machine honest:
     no telemetry, no fake rows).
     """
@@ -141,7 +141,7 @@ def ship_events(
     output_path: str,
     dry_run: bool = False,
 ) -> tuple[int, float | None]:
-    """Parse unified-log entries → auth events → append NDJSON lines.
+    """Parse unified-log entries -> auth events -> append NDJSON lines.
 
     Returns (emitted_count, new_watermark). Only events STRICTLY newer than
     the watermark are emitted (overlap-proof across launchd runs).
@@ -151,7 +151,7 @@ def ship_events(
         message = entry.get("eventMessage") or ""
         result = parse_sshd_message(message)
         if not result:
-            continue  # session open/close/noise — not an auth attempt
+            continue  # session open/close/noise -- not an auth attempt
         outcome, user, src_ip = result
         ts = extract_ts(entry)
         unix_ts = ts.timestamp()
@@ -183,7 +183,7 @@ def ship_events(
 
     # Append atomically-buffered, then persist the watermark AFTER the file
     # write succeeded (at-least-once ordering: crash between append and
-    # watermark save re-emits ≤ the last batch — same semantics the osquery
+    # watermark save re-emits <= the last batch -- same semantics the osquery
     # FileShipper documents).
     with open(output_path, "a") as f:
         f.write("\n".join(lines) + "\n")
@@ -192,13 +192,13 @@ def ship_events(
 
 def load_watermark(path: str) -> float | None:
     try:
-        return float(open(path).read().strip())  # noqa: SIM115 — tiny state file
+        return float(open(path).read().strip())  # noqa: SIM115 -- tiny state file
     except (FileNotFoundError, ValueError):
         return None
 
 
 def save_watermark(path: str, value: float) -> None:
-    """Atomic write (temp + os.replace) — crash mid-write must not corrupt."""
+    """Atomic write (temp + os.replace) -- crash mid-write must not corrupt."""
     try:
         fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".")
         with os.fdopen(fd, "w") as f:

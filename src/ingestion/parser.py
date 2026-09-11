@@ -26,7 +26,7 @@ from src.ingestion.schemas import OSQUERY_ECS_MAP, NormalizedEvent, derive_event
 log = get_logger("ingestion.parser")
 
 # Tables whose differential 'removed' rows carry real exit semantics.
-# (file_events excluded — see event_type note in parse_osquery_line.)
+# (file_events excluded -- see event_type note in parse_osquery_line.)
 _EXIT_TABLES = frozenset(
     {"processes", "process_events", "logged_in_users", "open_sockets", "listening_ports"}
 )
@@ -36,7 +36,7 @@ def parse_osquery_line(raw_line: str) -> Optional[NormalizedEvent]:
     """Parse a single line from osquery's result log.
 
     Returns None if the line is malformed or from an unmapped table.
-    Never raises — log errors and move on. A stuck parser kills the pipeline.
+    Never raises -- log errors and move on. A stuck parser kills the pipeline.
     """
     try:
         data = json.loads(raw_line)
@@ -54,14 +54,14 @@ def parse_osquery_line(raw_line: str) -> Optional[NormalizedEvent]:
     columns = data.get("columns", {})
     osquery_action = data.get("action", "info")
 
-    # Parse timestamp — osquery provides both calendarTime and unixTime
+    # Parse timestamp -- osquery provides both calendarTime and unixTime
     try:
         ts = datetime.fromtimestamp(int(data.get("unixTime", 0)), tz=timezone.utc)
     except (ValueError, TypeError, OSError):
         ts = datetime.now(tz=timezone.utc)
 
     # event_action: closed vocabulary token (see derive_event_action).
-    # Fail-closed — non-differential shapes (snapshot dumps, unknown actions)
+    # Fail-closed -- non-differential shapes (snapshot dumps, unknown actions)
     # carry NO token rather than a fake one; the raw action survives in
     # raw_data for the chain of custody.
     event_action = derive_event_action(table_name, osquery_action, columns)
@@ -73,10 +73,10 @@ def parse_osquery_line(raw_line: str) -> Optional[NormalizedEvent]:
         # entry carries the default ('start'/'connection') for the added
         # rows; exits flip to 'end'. file_events is deliberately NOT in
         # _EXIT_TABLES: a FIM differential 'removed' row means the event
-        # aged out of osquery's differential cache — NOT a file exit.
+        # aged out of osquery's differential cache -- NOT a file exit.
         event_type = "end"
     elif osquery_action not in ("added", "removed"):
-        # Snapshot dumps / unknown shapes are plain observations — neutral
+        # Snapshot dumps / unknown shapes are plain observations -- neutral
         # ECS event_type, no fabricated start/end semantics.
         event_type = "info"
 
@@ -109,7 +109,7 @@ def _safe_ip(val: Optional[str]) -> Optional[str]:
     """Normalize an osquery address string for the logs INET columns.
 
     The database rejects empty strings for INET parameters
-    (``'' does not appear to be an IPv4 or IPv6 interface``) — an
+    (``'' does not appear to be an IPv4 or IPv6 interface``) -- an
     empty-address row (e.g. listening_ports on a socket with no local
     address) must ship as NULL, not ''. Without this, one empty-address
     event fails its whole executemany batch and strands up to 99 good

@@ -1,16 +1,16 @@
-"""Sigma rule-quality gate (V0.3 — CI-enforced detection engineering).
+"""Sigma rule-quality gate (V0.3 -- CI-enforced detection engineering).
 
 Three honest gates over every rule in rules/sigma/:
-  1. STRUCTURE — parses via the real Sigma engine loader, carries the
+  1. STRUCTURE -- parses via the real Sigma engine loader, carries the
      required fields (id as UUID, title, status, level, logsource.category,
      detection.condition, MITRE tags).
-  2. VOCABULARY — for rules aimed at ingested categories: every
+  2. VOCABULARY -- for rules aimed at ingested categories: every
      event_action token must match the closed ingest vocabulary (equal to
      or a substring of a known token, mirroring |contains semantics). The
      P1.2b live-fire proved the old tokens (auth_failure, outbound_connection,
-     tgs_request, …) match NOTHING the pipeline produces — a rule with a
+     tgs_request, …) match NOTHING the pipeline produces -- a rule with a
      dead token is not a detection, it's a decoration.
-  3. WAIVER DISCIPLINE — future-source rules must be listed in
+  3. WAIVER DISCIPLINE -- future-source rules must be listed in
      WAIVED_FUTURE_SOURCES (single registry shared with the coverage map),
      and every registered waiver must correspond to an existing rule. No
      silent drift on either side.
@@ -53,7 +53,7 @@ KNOWN_TOKENS = {
     vocabulary.EVENT_ACTION_VERDICT_BLOCK,
 }
 
-# Legal event_type values per category — a rule demanding event_type=start
+# Legal event_type values per category -- a rule demanding event_type=start
 # on file rows can never fire (FIM rows are 'change'); this gate catches it.
 LEGAL_EVENT_TYPES = {
     "process": {"start", "end", "info"},
@@ -78,7 +78,7 @@ REQUIRED_FIELDS = (
 
 def _all_rule_files():
     files = sorted(RULES_DIR.rglob("*.yml"))
-    assert files, "sigma rules directory is empty — nothing to gate"
+    assert files, "sigma rules directory is empty -- nothing to gate"
     return files
 
 
@@ -163,10 +163,10 @@ class TestSigmaVocabularyCompliance:
             doc = yaml.safe_load(path.read_text())
             title = str(doc.get("title", ""))
             if _waiver_key(title) in WAIVED_FUTURE_SOURCES:
-                continue  # documented future-source rule — exempt
+                continue  # documented future-source rule -- exempt
             category = (doc.get("logsource") or {}).get("category")
             if category not in INGESTED_CATEGORIES:
-                violations.append(f"{path.name}: category '{category}' not ingested — waive it")
+                violations.append(f"{path.name}: category '{category}' not ingested -- waive it")
                 continue
             detection = doc.get("detection") or {}
             for key, selection in detection.items():
@@ -183,12 +183,12 @@ class TestSigmaVocabularyCompliance:
                             if not _token_compliant(tok):
                                 violations.append(
                                     f"{path.name}: event_action|contains '{tok}' matches no "
-                                    "vocabulary token — dead rule"
+                                    "vocabulary token -- dead rule"
                                 )
                         elif tok.lower() not in KNOWN_TOKENS:
                             violations.append(
                                 f"{path.name}: event_action '{tok}' is not a vocabulary "
-                                "token — dead rule (fix or waive)"
+                                "token -- dead rule (fix or waive)"
                             )
         assert not violations, "vocabulary violations:\n" + "\n".join(violations)
 
@@ -204,7 +204,7 @@ class TestSigmaVocabularyCompliance:
         assert not stale, f"waivers pointing at nonexistent rules: {stale}"
 
         # Rules whose category is ingested but tokens can never match MUST
-        # be registered (otherwise the compliance gate already failed them) —
+        # be registered (otherwise the compliance gate already failed them) --
         # this check catches the inverse: ingested-category rules with DEAD
         # tokens that someone tried to exempt silently.
         for path in _all_rule_files():
@@ -213,7 +213,7 @@ class TestSigmaVocabularyCompliance:
             category = (doc.get("logsource") or {}).get("category")
             if key in WAIVED_FUTURE_SOURCES and category in INGESTED_CATEGORIES:
                 # waiver only valid if the rule actually selects non-ingestable
-                # vocabulary or a source we don't have — the reason must say so
+                # vocabulary or a source we don't have -- the reason must say so
                 reason = WAIVED_FUTURE_SOURCES[key]
                 assert reason.startswith("future source:"), (
                     f"{path.name}: waiver reason must document the future source"

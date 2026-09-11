@@ -1,17 +1,17 @@
-"""Correlation-chain matrix (V0.3 rule-quality CI) — true/false event pairs
+"""Correlation-chain matrix (V0.3 rule-quality CI) -- true/false event pairs
 per chain, DB-backed.
 
 The P1.2b lesson: unit tests hand-construct events in whatever vocabulary
 the rules "expected" and passed while the live engine fired nothing. This
 matrix is the CI-enforced answer: for EVERY correlation chain, seed the
 exact events the pipeline produces (closed vocabulary from
-src/ingestion/schemas.py — the same tokens the auth shipper, the osquery
+src/ingestion/schemas.py -- the same tokens the auth shipper, the osquery
 parser, and NeuralGuard emit) and assert:
 
-    TRUE sequence  → the chain FIRES (>= 1 match)
-    FALSE sequence → the chain is SILENT (0 matches)
+    TRUE sequence  -> the chain FIRES (>= 1 match)
+    FALSE sequence -> the chain is SILENT (0 matches)
 
-End-to-end (shipper → parser → detect → persist) is verified separately in
+End-to-end (shipper -> parser -> detect -> persist) is verified separately in
 the live-fire drill (docs/PRODUCTION.md §1.4); this matrix pins the
 per-chain detection LOGIC against Postgres. Runs in CI (postgres service,
 RUN_INTEGRATION_TESTS=1).
@@ -38,7 +38,7 @@ from src.detection.correlation import (  # noqa: E402
 
 NOW = datetime.now(timezone.utc)
 MATRIX_HOST = "it-matrix-host"
-EXTERNAL_IP = "198.51.100.77"  # TEST-NET-2 — never a real destination
+EXTERNAL_IP = "198.51.100.77"  # TEST-NET-2 -- never a real destination
 
 
 def _row(at: datetime, category: str, event_type: str, action: str | None, **extra) -> dict:
@@ -56,7 +56,7 @@ def _row(at: datetime, category: str, event_type: str, action: str | None, **ext
 
 async def _insert(conn, rows: list[dict]) -> None:
     """Insert matrix rows with the FULL column set the detectors filter on
-    (process_name, source_ip, file_path, …) — the writer-shaped subset used
+    (process_name, source_ip, file_path, …) -- the writer-shaped subset used
     by the NeuralGuard test would silently NULL the fields the chains key
     on and every test would lie."""
     import json
@@ -207,7 +207,7 @@ class TestBruteForceSuccess:
         assert len(matches) == 0
 
     async def test_false_partitioned_by_source_ip(self, matrix_db):
-        """Failures from IP-A, success from IP-B — the (host, ip) window
+        """Failures from IP-A, success from IP-B -- the (host, ip) window
         partition must NOT join across sources."""
         base = NOW - timedelta(minutes=10)
         rows = [
@@ -337,14 +337,14 @@ class TestPersistenceActivated:
 class TestDataExfiltration:
     @staticmethod
     def _own(matches: list[dict]) -> list[dict]:
-        """Scope matches to the matrix host — the standing test DB holds REAL
+        """Scope matches to the matrix host -- the standing test DB holds REAL
         telemetry (other hosts burst-connect legitimately), and the detector
         scans all hosts by design."""
         return [m for m in matches if m["host_name"] == MATRIX_HOST]
 
     async def test_true_burst_path_fires_on_real_telemetry(self, matrix_db):
         """The connection-burst path: many outbound connections to ONE
-        external IP — no enrichment bytes required (real osquery telemetry)."""
+        external IP -- no enrichment bytes required (real osquery telemetry)."""
         base = NOW - timedelta(minutes=30)
         rows = [
             _row(
@@ -460,7 +460,7 @@ class TestCredentialTheftExfil:
         assert len(matches) >= 1
 
     async def test_false_ssh_client_excluded(self, matrix_db):
-        """The interactive ssh client touching .ssh is implicit key use —
+        """The interactive ssh client touching .ssh is implicit key use --
         excluded by the detector's FP control."""
         base = NOW - timedelta(minutes=10)
         rows = [
