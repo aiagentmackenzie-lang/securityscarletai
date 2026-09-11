@@ -37,6 +37,33 @@ from src.api import rate_limit as _rl
 
 
 @pytest.fixture(autouse=True)
+def _no_real_db(monkeypatch):
+    """Unit tests must NEVER touch a live Postgres (2026-09-11 lesson).
+
+    Found live: an endpoint test whose module delegates to a service module
+    left the service's own ``get_pool`` import unpatched, so the real pool
+    connected to the standing SIEM volume (localhost:5433) and wrote test
+    rows into its audit chain. The Redis fixture below closes the same hole
+    for Redis; this closes it for Postgres.
+
+    The guard patches the SOURCE module (src.db.connection.get_pool) to
+    raise. Tests that need a fake DB patch the name in THEIR module under
+    test (``patch("src.api.<mod>.get_pool", ...)``), which shadows this
+    seam -- the convention every existing test already follows. A unit test
+    that genuinely needs the source seam must opt out explicitly.
+    """
+
+    def _refuse(*_args, **_kwargs):
+        raise RuntimeError(
+            "unit tests must not create a real DB pool -- patch the module-"
+            "under-test's get_pool (see tests/unit/conftest.py _no_real_db)"
+        )
+
+    monkeypatch.setattr("src.db.connection.get_pool", _refuse)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _inmem_rate_limit_storage():
     """Force the rate limiter to use in-memory storage for the duration of one test.
 
