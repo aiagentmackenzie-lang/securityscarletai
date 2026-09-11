@@ -111,3 +111,27 @@ class TestRenderReportMd:
         score["chains_detail"] = [(CHAIN_HOSTS[0], False)]
         md = render_report_md(score)
         assert "(none)" in md  # honest empty sections, never padded
+
+
+class TestMergeChainHosts:
+    """V0.4/5: chains score from alerts OR persisted correlation matches."""
+
+    def test_match_only_chain_counts_as_fired(self):
+        from scripts.purple_loop import _merge_chain_hosts
+
+        chains = _merge_chain_hosts(set(), {CHAIN_HOSTS[0]})
+        assert chains[CHAIN_HOSTS[0]] is True
+        assert chains[CHAIN_HOSTS[1]] is False
+
+    def test_alert_only_scoring_still_works(self):
+        from scripts.purple_loop import _merge_chain_hosts
+
+        chains = _merge_chain_hosts({CHAIN_HOSTS[1]}, set())
+        assert chains[CHAIN_HOSTS[1]] is True
+        assert chains[CHAIN_HOSTS[0]] is False
+
+    def test_unknown_hosts_ignored(self):
+        from scripts.purple_loop import _merge_chain_hosts
+
+        chains = _merge_chain_hosts({"unrelated-host"}, {"live-matrix-other"})
+        assert all(not fired for fired in chains.values())

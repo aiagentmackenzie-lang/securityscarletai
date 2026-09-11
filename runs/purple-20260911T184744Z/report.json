@@ -1,0 +1,127 @@
+{
+  "chains_total": 8,
+  "chains_fired": 2,
+  "chain_score": 0.25,
+  "alerts_fired": 2,
+  "distinct_rules_fired": 2,
+  "rules_fired": [
+    "defense_evasion_cleanup",
+    "payload_callback"
+  ],
+  "techniques_hit": [
+    "T1059",
+    "T1070",
+    "T1071"
+  ],
+  "techniques_hit_armed": [
+    "T1059",
+    "T1070",
+    "T1071"
+  ],
+  "armed_techniques_total": 35,
+  "technique_hit_rate_armed": 0.086,
+  "armed_techniques_not_hit_by_this_run": [
+    "T1003",
+    "T1021",
+    "T1027",
+    "T1036",
+    "T1041",
+    "T1047",
+    "T1048",
+    "T1053",
+    "T1055",
+    "T1074",
+    "T1078",
+    "T1090",
+    "T1098",
+    "T1110",
+    "T1176",
+    "T1190",
+    "T1218",
+    "T1486",
+    "T1505",
+    "T1543",
+    "T1546",
+    "T1547",
+    "T1548",
+    "T1550",
+    "T1552",
+    "T1553",
+    "T1555",
+    "T1560",
+    "T1562",
+    "T1564",
+    "T1567",
+    "T1606"
+  ],
+  "coverage_summary": {
+    "total_rules": 108,
+    "armed": 86,
+    "dormant": 22,
+    "lookback_hours": 168,
+    "as_of": "2026-09-11T18:47:43.813736+00:00"
+  },
+  "run_window_start": "2026-09-11T18:43:50.274596+00:00",
+  "chains_detail": [
+    [
+      "live-matrix-ai_verdict_block_sustained",
+      false
+    ],
+    [
+      "live-matrix-brute_force_success",
+      false
+    ],
+    [
+      "live-matrix-credential_theft_exfil",
+      false
+    ],
+    [
+      "live-matrix-data_exfiltration",
+      false
+    ],
+    [
+      "live-matrix-defense_evasion_cleanup",
+      true
+    ],
+    [
+      "live-matrix-payload_callback",
+      true
+    ],
+    [
+      "live-matrix-persistence_activated",
+      false
+    ],
+    [
+      "live-matrix-privilege_escalation_chain",
+      false
+    ]
+  ],
+  "mode": "matrix",
+  "coverage_before": {
+    "armed": 86,
+    "total_rules": 108
+  },
+  "alerts": [
+    {
+      "id": 298,
+      "host_name": "live-matrix-payload_callback",
+      "rule_name": "payload_callback",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1059",
+        "T1071"
+      ],
+      "time": "2026-09-11 18:45:31.935710+00:00"
+    },
+    {
+      "id": 299,
+      "host_name": "live-matrix-defense_evasion_cleanup",
+      "rule_name": "defense_evasion_cleanup",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1070"
+      ],
+      "time": "2026-09-11 18:45:31.938096+00:00"
+    }
+  ]
+}
