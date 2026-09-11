@@ -110,4 +110,3 @@ class TestRunChecks:
 )
 def test_detect_posture_normalization(env, expected):
     assert detect_posture(env) == expected
-

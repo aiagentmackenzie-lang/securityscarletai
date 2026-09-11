@@ -139,4 +139,3 @@ def main() -> int:  # pragma: no cover — thin CLI wrapper over run_checks
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
