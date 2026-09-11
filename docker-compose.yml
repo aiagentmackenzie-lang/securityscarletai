@@ -48,7 +48,10 @@ services:
     restart: unless-stopped
 
   api:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
     container_name: scarletai-api
     # Epic 7: run the entrypoint that waits for DB, applies schema, seeds, trains, then execs uvicorn.
     command: ["/app/scripts/entrypoint.sh"]
@@ -147,7 +150,10 @@ services:
     # same source tree mounted). When DASHBOARD_API_TOKEN is set, the
     # dashboard authenticates to the API as a service — no manual login
     # required. When unset, the dashboard falls back to the JWT login flow.
-    build: .
+    build:
+      context: .
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
     container_name: scarletai-dashboard
     command: ["streamlit", "run", "dashboard/main.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true", "--browser.gatherUsageStats=false", "--theme.base=dark", "--theme.primaryColor=#00bcd4", "--theme.backgroundColor=#090c14", "--theme.secondaryBackgroundColor=#0f1420", "--theme.textColor=#e8ecf1"]
     ports:

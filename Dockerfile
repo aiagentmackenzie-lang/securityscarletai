@@ -45,6 +45,16 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Build traceability (V0.3): GIT_SHA baked as a label AND an env var —
+# /health, the entrypoint log, and `docker inspect` all answer "which
+# build is running?" with the same commit sha. make build passes GIT_SHA;
+# plain docker builds without the arg fall back to "unknown" (honest).
+ARG GIT_SHA=unknown
+ENV GIT_SHA=${GIT_SHA}
+LABEL org.opencontainers.image.revision=${GIT_SHA} \
+      org.opencontainers.image.source="https://github.com/aiagentmackenzie-lang/securityscarletai" \
+      org.opencontainers.image.title="SecurityScarletAI"
+
 # Boot-critical client tooling (2026-09-03 slim-image regression): the
 # entrypoint applies the schema via `psql -f src/db/schema.sql`
 # (statement-by-statement with ON_ERROR_STOP=1 — see the P0-05 note in

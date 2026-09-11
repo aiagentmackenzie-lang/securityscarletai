@@ -9,6 +9,7 @@ Backward compat: `checks["ollama"]` is still populated with the same
 string values as before so existing tests/monitors don't break.
 """
 
+import os
 import time
 from typing import Any, cast
 
@@ -56,6 +57,13 @@ def _derive_status(available: bool, error: str | None) -> str:
 async def health_check():
     """Basic liveness check with rich Ollama status."""
     checks = {"api": "ok", "database": "unknown"}
+
+    # Build traceability (V0.3): the running image's git sha, baked at
+    # build time (make build -> ARG GIT_SHA -> ENV). "Which build am I
+    # hitting?" is one curl — the stale-image ambiguity killer.
+    build_sha = os.environ.get("GIT_SHA", "unknown")
+    if build_sha != "unknown":
+        checks["build"] = build_sha
 
     # Database
     try:
