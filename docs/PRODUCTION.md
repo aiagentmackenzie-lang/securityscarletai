@@ -290,3 +290,72 @@ The production posture carries BOUNDED response actions. The rules:
 - **Live-fire protocol** (executed 2026-09-11): dedicated lf-* principals,
   requester/admin token pairs, behavioral proofs (login 200 -> 401 ->
   rollback -> 200), capability refusals recorded. Reports under runs/.
+
+## 6. The Agentic SOC: agent + MCP server runbook (V0.4/5, 2026-09-11)
+
+The frontier layer: a read-only investigation agent, the SIEM as an MCP
+server for the analyst's agents, and AI usage as a detection domain.
+
+### Component map
+
+- `scarletai-api` — the agent path: `POST /api/v1/agent/investigate`,
+  `GET /agent/runs[/{id}]`, `POST /agent/runs/{id}/hitl` (the HITL gate).
+  Runs persist to `agent_investigations`; every step rides the audit
+  chain.
+- `scarletai-mcp` — the MCP server (same image, `python -m src.mcp_server`,
+  loopback-only `127.0.0.1:8002` in local production). Runs AS
+  `scarletai_readonly` (scoped read-only DB role). Tools: `investigate`,
+  `hunt`, `explain` — read-only, always.
+
+### Scoped read-only role (two-role posture extension)
+
+- Provisioned by the API entrypoint (owner path) when
+  `DB_READONLY_PASSWORD` is set; idempotent — re-applying rotates the
+  password and re-asserts grants. The password reaches psql via STDIN
+  (`\set` lines piped ahead of the script); it never appears in argv or
+  logs.
+- Grants: SELECT on SIEM data tables; INSERT/SELECT/UPDATE on
+  `agent_investigations` (run lifecycle); INSERT/SELECT on
+  `audit_log`/`audit_logs`/`ai_usage` (append-only chain). No
+  DELETE/TRUNCATE anywhere; no CREATE on schema public.
+- The MCP server re-verifies the scope at boot from
+  `information_schema.role_table_grants`; any drift -> tools refused
+  (fail-closed). `/healthz` reports `scope_ok` + violations.
+
+### MCP protocol surface (POST /mcp, JSON-RPC 2.0)
+
+- `initialize`, `ping`, `tools/list` (3 tools, `readOnlyHint` annotated),
+  `tools/call`. Unknown method -> -32601; unknown tool -> -32002 + audit;
+  SSE requested -> 422; missing/wrong bearer -> 401 (constant-time).
+- Auth token: `MCP_BEARER_TOKEN` in .env (unset = server refuses ALL
+  calls — no silent open server).
+- Every allowed/denied tools/call writes an audit row
+  (`mcp.tool_call`/`mcp.tool_denied`, actor `mcp:<session>`).
+
+### HITL for AI verdicts (non-negotiable, as everywhere)
+
+An AI verdict is a DRAFT with `hitl_state='required'`. Only
+`POST /agent/runs/{id}/hitl` moves it — confirmed/rejected with a
+mandatory note, attributed to the human reviewer, audited. Committing a
+verdict to a case stays the existing human-only `POST /cases/{id}/verdict`
+(mandatory rationale). The agent cannot commit anything — by construction
+(no write tools exist), by API (409 on already-decided drafts), and by DB
+(the scoped role cannot write cases).
+
+### Detection domain (AI usage)
+
+The agent path and MCP server emit AI-usage events (see
+docs/AI_USAGE_DETECTIONS.md): closed vocabulary, 4 Sigma rules with OWASP
+Agentic ASI mappings, `scripts/generate_ai_usage_events.py` drives the
+true/false matrix through the real pipe. Synthetic matrix rows carry
+`host_name LIKE 'ai-matrix-%'` (scoped cleanup).
+
+### Triage
+
+| Symptom | First action |
+|---|---|
+| `/healthz` shows `scope_ok: false` | Read the `scope_violations` list; re-run provisioning (rotate `DB_READONLY_PASSWORD` if needed). Tools are refused until clean — by design. |
+| `password authentication failed for user "scarletai_readonly"` | The role was never provisioned or the .env password changed without re-apply. The API entrypoint provisions on boot when `DB_READONLY_PASSWORD` is set. |
+| MCP 401 on every call | `MCP_BEARER_TOKEN` unset or wrong — the server refuses all calls rather than serving open (by design). |
+| `mcp.tool_denied` with `unknown_tool` | A client called something outside the closed 3-tool surface — expected behavior; check the actor in the audit chain. |
+| Agent runs failing with "LLM unavailable" | Ollama down or model unloaded — the run refuses honestly instead of returning a canned verdict (by design). |

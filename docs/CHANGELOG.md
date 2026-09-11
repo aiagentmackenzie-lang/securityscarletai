@@ -1,5 +1,50 @@
 # CHANGELOG
 
+## V0.4/5 "Agentic SOC" (2026-09-11, feat/v0.4.5-*)
+
+**The governed agentic SOC — read-only agents inside the guardrails, the
+SIEM as an MCP server, AI usage as a detection domain.**
+
+- Read-only agentic investigation (src/agents/investigator.py): the loop
+  plan-generate -> query -> correlate -> verdict DRAFT, wrapped around the
+  existing NL->SQL core. The agent has NO write tools; every step rides
+  the append-only audit chain; fail-closed everywhere (LLM fallbacks and
+  unparseable plans/verdicts refuse honestly; unknown verdict tokens map
+  to needs_review; confidence clamped; HITL required on every draft).
+- agent_investigations: durable run record (status enum, plan, steps,
+  verdict DRAFT, HITL state) + API (POST /agent/investigate,
+  GET /agent/runs[/{id}], POST /agent/runs/{id}/hitl human-only
+  confirm/reject with mandatory note, 409 on already-decided drafts,
+  AGENT_ENABLED kill switch 423). Decision records: new closed type
+  agent_investigation (actor_kind=ai).
+- SIEM MCP server (src/mcp_server/): JSON-RPC 2.0 over streamable-HTTP
+  POST (SSE refused, fail-closed), exactly three read-only tools
+  (investigate / hunt / explain). Scoped read-only DB role
+  (scripts/provision_readonly.sql, owner-applied, password via stdin;
+  SELECT-only on SIEM data + append-only audit writes), scope verified at
+  boot against information_schema -- tools refused on drift. MCP auth is
+  MCP_BEARER_TOKEN only, constant-time; every call audited with
+  mcp:<session> attribution. Live-verified 2026-09-11: UPDATE logs AS
+  scarletai_readonly -> permission denied.
+- AI-usage detection domain (src/ingestion/ai_usage.py +
+  rules/sigma/ai/): closed tokens ai_agent_run / mcp_tool_call /
+  mcp_tool_denied / ai_prompt_injection via POST /ingest (the
+  NeuralGuard-verdict producer convention); 4 Sigma rules with OWASP
+  Agentic ASI mappings (docs/AI_USAGE_DETECTIONS.md, ASI01-10 coverage
+  table); producers: the API agent path (writer), the MCP server (scoped
+  ingest token), scripts/generate_ai_usage_events.py (true/false matrix
+  pairs through the real pipe). Live-fire 2026-09-11: all 4 firing
+  scenarios detected, both quiet scenarios silent, MCP calls dogfooded
+  into the domain, coverage 90/112 armed.
+- Purple-loop harness: chain scoring now uses persisted correlation
+  matches IN ADDITION to alerts (the docstring always said so); fixes the
+  documented shipper-race + alert-dedup interleave that made re-runs
+  under-score. 8/8 verified on the standing stack.
+- Unit test suite: 1851 -> 1929 (all mocked-DB; a new conftest guard makes
+  a real DB pool connection in ANY unit test raise immediately).
+- Fleet/TimescaleDB: deliberately NOT started (queued behind the agentic
+  layer's live-fire verification).
+
 ## V0.4 "Trusted Loop" (2026-09-11, feat/v0.4-response-authority)
 
 **Governance + verification — outcome verification is the market's dividing line.**
