@@ -2,7 +2,7 @@
 
 **AI-Native SIEM for macOS** — Real-time log ingestion, Sigma-based detection, ML-powered alert triage, and LLM-driven investigation assistance.
 
-> **Status (verified 2026-09-05, re-verified 2026-09-06, local-production release):** CI green on `main` · 1689 unit tests passing (mocked DB) · **8 integration tests PASSING against live Postgres (2026-09-05)** · 87% coverage (CI-enforced ≥80%) · 100 Sigma rules · 8 correlation rules · 7 sequence patterns · admin user-management API + Prometheus `/metrics` · OWASP LLM Top-10 red-team regression suite (41 probes — verified by collection) · **runs as a real local-production SIEM**: real osqueryd host telemetry → Sigma → alerts, loopback-only publishing, authenticated Redis, DB-enforced append-only audit trail (two-role deploy), verified backups + restore test, edge-triggered watchdog (see docs/PRODUCTION.md) · CI dependency/image scanning (image scan HIGH/CRITICAL at zero findings — enforced in-step, job still non-blocking until the Sep 16 flip; dependency audit advisory — 2 documented P4 risk-accepts, expire 2026-12-01). Counts are hand-verified against the code; no auto-updating badge.
+> **Status (verified 2026-09-10, local-production release):** CI green on `main` · 1711 unit tests passing (mocked DB) · **8 integration tests PASSING against live Postgres (2026-09-10)** · 88% coverage (CI-enforced ≥80%) · 100 Sigma rules · 8 correlation rules · 7 sequence patterns · admin user-management API + Prometheus `/metrics` · OWASP LLM Top-10 red-team regression suite (41 probes — verified by collection) · **runs as a real local-production SIEM**: real osqueryd host telemetry → Sigma → alerts, loopback-only publishing, authenticated Redis, DB-enforced append-only audit trail (two-role deploy), verified backups + restore test, edge-triggered watchdog (see docs/PRODUCTION.md) · CI dependency/image scanning **ENFORCING since 2026-09-10** (image scan HIGH/CRITICAL at zero findings; dependency audit gates with the 2 documented P4 risk-accepts ignored with rationale, expire 2026-12-01). Counts are hand-verified against the code; no auto-updating badge.
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow)]()
@@ -534,10 +534,10 @@ access from the dashboard.
 ## Testing
 
 ```bash
-# Run the full unit suite (1689 tests, mocked DB, ~30s)
+# Run the full unit suite (1711 tests, mocked DB, ~30s)
 poetry run pytest tests/unit/ -q --no-cov
 
-# With coverage report (gate: 80%; currently 87%)
+# With coverage report (gate: 80%; currently 88%)
 poetry run pytest tests/unit/ --cov=src --cov-report=term-missing -q
 
 # Integration tests (require a live PostgreSQL with the schema applied)
