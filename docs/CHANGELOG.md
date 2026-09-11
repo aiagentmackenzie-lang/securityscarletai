@@ -408,7 +408,7 @@ with CI green; tests went 1640 → 1683 passed, coverage holds 87%.
 
 ## 2026-09-06 — README run-modes overhaul
 
-- **docs (Sep 6, uncommitted)** — the single Quick Start conflated three
+- **docs (Sep 6, `35eac22`)** — the single Quick Start conflated three
   different things; the README now opens with **Running SecurityScarletAI**,
   one section per run mode:
   - **Demo** — full spin-up: generate real secrets (the app fail-fasts on the
@@ -434,3 +434,52 @@ with CI green; tests went 1640 → 1683 passed, coverage holds 87%.
     deployment seeds synthetic data" claim, 1683→1689 test counts,
     5→8 integration tests, the NeuralGuard mapper cross-repo path, and
     appended the missing Sep 5 CHANGELOG entry.
+
+## 2026-09-07 — Production go-live findings
+
+- **fix(ingest) (`f5e6696` merge, 9 commits)** — go-live live-fire found the
+  osquery `listening_ports` rows with EMPTY `source_ip`/`host_ip` poisoning
+  whole 100-event `executemany` batches (asyncpg INET parse error on
+  `''`): 1,550 events / 2.27 MB stranded in dead-letter from only 128 bad
+  rows. Fix: `_safe_ip` parser + field validators ('' → NULL) on
+  `host_ip`/`source_ip`/`destination_ip` in BOTH `NormalizedEvent` and
+  `IngestEvent` — the API schema is the choke point for every ingest path
+  (osquery parse, HTTP ingest, dead-letter replay). All 1,551 stranded
+  events replayed and recovered.
+- **fix(auth)** — admin bootstrap never set `must_change_password` (schema
+  default false, INSERT omitted the column): the documented forced
+  first-login change never engaged. Bootstrap now sets it true; the live
+  admin was remediated owner-side. First real admin login then exposed a
+  dashboard bug: the forced-change 403 was rendered as raw JSON
+  (`ceaa034`) — now handled with the set-new-password form + 2 regression
+  tests.
+- **docs(ops)** — `check_audit_grants` documents/uses `--app-role "$DB_USER"`
+  at every site (the bare documented command audited the OWNER role via the
+  process-env default and false-alarmed).
+- **ops remediations (same session)** — a `DEMO_SEED_ENABLED=true` flag on
+  the production `.env` was flipped to false (mode-guard violation; the
+  double gate prevented damage); the `demo_analyst` account seeded during
+  that window was deactivated owner-side; the missed-backup gap was closed
+  with a verified `backup_local.sh` run + restore test.
+- **P1 verification board executed with evidence**: correlation live-fire
+  (persistence_activated fires → persists → ATT&CK-mapped alert
+  end-to-end), live red-team 3/3 held against real Ollama (recorded in
+  `docs/AI.md`), restart drill (durability semantics measured: shipper
+  at-least-once, HTTP at-most-once), retention live-fire. Suite 1689 →
+  1702.
+
+## 2026-09-10 — Sigma param-type trap (rules 91/100)
+
+- **fix(sigma) (`4683e41`)** — rules 91 (`setuid_binary_set`) and 100
+  (`wmi_remote_execution`) failed EVERY scheduler run since they shipped
+  with asyncpg "expected str, got int" / "expected str, got dict": unquoted
+  YAML ints (`4755`/`4754`) bound as Python ints against the TEXT column
+  `process_cmdline`, and `- /node:` parsed as a YAML MAPPING
+  (`{'/node': None}`). Compiler-side fix at the choke point: `_coerce_param`
+  coerces every selection value per schema column type (TEXT=str,
+  INTEGER=int, INET=validated IP, pattern context=str; INTEGER columns cast
+  to ::text for LIKE-family), and anything unrepresentable fails the
+  selection SAFE to FALSE (F-20 pattern) — an empty selection `{}` also
+  fails safe now (was silently TRUE). Rule YAML hygiene: quoted values
+  (preserving the trailing space in `wmic `). Corpus guard test: no shipped
+  rule may produce an unbindable param. Suite 1702 → 1710.
