@@ -1,0 +1,70 @@
+# SecurityScarletAI -- Response Action Policy (V0.4 "Trusted Loop")
+#
+# The bounded response authority: which containment actions may run, under
+# what effect, and with what blast-radius limits. Loaded by
+# src/response/policy.py. FAIL-CLOSED by design:
+#   - an action type missing from this file is NEVER (not guessed)
+#   - a missing or unparseable policy file is NEVER for everything
+#   - max_per_day=0 means the action is disabled
+#
+# effect semantics:
+#   allow             -- executes immediately on request (low blast radius,
+#                        e.g. notifications); still recorded + verified
+#   approval_required -- HITL: an admin must approve (four-eyes: the
+#                        approver cannot be the requester) before execution
+#   never             -- refused at request time; nothing executes
+#
+# Every action here maps 1:1 to an executor in src/response/executors.py.
+
+response_policy:
+  version: 1
+  default_effect: never
+
+  actions:
+    # Allow tier -- informational, reversible, no system state change.
+    notify_slack:
+      effect: allow
+      max_per_day: 100
+      requires_case: false
+      description: "Send a Slack notification for an alert/case (webhook delivery is the verification)."
+
+    # Approval tier -- real state changes on hosts or accounts. Never
+    # auto-execute; each carries a human decision and a rollback note.
+    disable_siem_user:
+      effect: approval_required
+      max_per_day: 5
+      requires_case: true
+      description: "Deactivate a SIEM local user account (re-query: is_active + login refusal)."
+      rollback_note: "Re-enable the account (UPDATE siem_users SET is_active = true) after review."
+
+    quarantine_host:
+      effect: approval_required
+      max_per_day: 3
+      requires_case: true
+      description: "Quarantine a host's telemetry: the ingest endpoint refuses that host's events (re-query: quarantined_hosts + ingest rejection)."
+      rollback_note: "DELETE FROM quarantined_hosts WHERE host_name = <host>; telemetry resumes on the next ingest."
+
+    # Capability-gated tier -- shipped executors that require privileges or
+    # infrastructure this deployment does not run. They FAIL CLOSED with an
+    # honest reason when the capability is absent (no root for pf/dscl, no
+    # osquery fleet endpoint). They are never simulated or faked.
+    pf_block_ip:
+      effect: approval_required
+      max_per_day: 10
+      requires_case: true
+      description: "Add an IP to the pf scarletai_block table (root required; verify via pfctl -T show)."
+      rollback_note: "pfctl -a com.scarletai -t scarletai_block -T delete <ip>."
+
+    disable_macos_user:
+      effect: approval_required
+      max_per_day: 3
+      requires_case: true
+      description: "Disable a macOS local account via pwpolicy isDisabled (root required; verify via pwpolicy -getpolicy)."
+      rollback_note: "pwpolicy -u <user> -setpolicy 'isDisabled=0' after review."
+
+    isolate_host_fleet:
+      effect: approval_required
+      max_per_day: 3
+      requires_case: true
+      description: "Isolate a host through the osquery fleet endpoint (requires OSQUERY_FLEET_URL; fail-closed without it)."
+      rollback_note: "Lift the fleet isolation for the host through the fleet console/API."

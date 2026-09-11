@@ -424,3 +424,83 @@ CREATE TABLE IF NOT EXISTS case_events (
 CREATE INDEX IF NOT EXISTS idx_case_events_case ON case_events (case_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_case_events_type ON case_events (event_type);
 CREATE INDEX IF NOT EXISTS idx_case_events_alert ON case_events (alert_id) WHERE alert_id IS NOT NULL;
+
+
+-- ============================================================
+-- RESPONSE ACTIONS -- bounded response authority (V0.4 "Trusted Loop")
+-- Every proposed containment action lives here with its policy decision,
+-- approval trail, execution record, and post-action RE-QUERY verification
+-- (the before/after proof that the intended state change happened).
+-- action_type is a CLOSED vocabulary (enum, CHECK-enforced); the policy
+-- engine (src/response/policy.py) decides allow / approval_required /
+-- never from config/response_policy.yaml and fails closed on anything
+-- unknown. Containment actions NEVER auto-execute: HITL approval with
+-- the requester != approver (four-eyes) is enforced at the API layer.
+-- ============================================================
+DO $$ BEGIN
+    CREATE TYPE response_action_type AS ENUM (
+        'notify_slack', 'disable_siem_user', 'quarantine_host',
+        'pf_block_ip', 'disable_macos_user', 'isolate_host_fleet'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE response_action_status AS ENUM (
+        'requested', 'approved', 'rejected', 'executing', 'executed',
+        'verified', 'execution_failed', 'verification_failed'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+CREATE TABLE IF NOT EXISTS response_actions (
+    id               BIGSERIAL PRIMARY KEY,
+    case_id          INTEGER REFERENCES cases(id) ON DELETE SET NULL,
+    action_type      response_action_type NOT NULL,
+    params           JSONB NOT NULL DEFAULT '{}'::jsonb,
+    policy_effect    TEXT NOT NULL,
+    status           response_action_status NOT NULL DEFAULT 'requested',
+    requested_by     TEXT NOT NULL,
+    justification    TEXT,
+    approved_by      TEXT,
+    approval_note    TEXT,
+    rejection_reason TEXT,
+    executed_at      TIMESTAMPTZ,
+    verified_at      TIMESTAMPTZ,
+    evidence         JSONB NOT NULL DEFAULT '{}'::jsonb,
+    rollback_note    TEXT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_response_actions_case ON response_actions (case_id);
+CREATE INDEX IF NOT EXISTS idx_response_actions_status ON response_actions (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_response_actions_type ON response_actions (action_type, created_at DESC);
+
+-- Phase B: case_events.action_id now references response_actions
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_case_events_action'
+    ) THEN
+        ALTER TABLE case_events
+            ADD CONSTRAINT fk_case_events_action
+            FOREIGN KEY (action_id) REFERENCES response_actions(id) ON DELETE SET NULL;
+    END IF;
+END $$;
+
+
+-- ============================================================
+-- QUARANTINED HOSTS -- enforcement state for the quarantine_host action
+-- The ingest endpoint refuses events from hosts listed here (fail-closed:
+-- a quarantined host's telemetry does not enter the pipeline). Re-enabled
+-- by deleting the row; the action's verification re-queries this table.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS quarantined_hosts (
+    host_name      TEXT PRIMARY KEY,
+    reason         TEXT,
+    quarantined_by TEXT NOT NULL,
+    action_id      BIGINT,
+    quarantined_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_quarantined_hosts_at ON quarantined_hosts (quarantined_at DESC);
