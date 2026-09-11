@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -44,8 +44,8 @@ DECISION_TYPES = ("ai_triage", "correlation", "verdict", "response_action", "pol
 def _truncate(text: Any, n: int = 400) -> str | None:
     if text is None:
         return None
-    text = str(text)
-    return text[: n - 1] + "..." if len(text) > n else text
+    text_str: str = str(text)
+    return (text_str[: n - 1] + "...") if len(text_str) > n else text_str
 
 
 def _load_json(value: Any) -> dict:
@@ -55,7 +55,7 @@ def _load_json(value: Any) -> dict:
         return {}
     if isinstance(value, str):
         try:
-            return json.loads(value)
+            return cast("dict", json.loads(value))
         except (ValueError, TypeError):
             log.warning("decisions_jsonb_unparseable", preview=str(value)[:80])
             return {}
