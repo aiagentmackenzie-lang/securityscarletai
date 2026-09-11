@@ -4,6 +4,7 @@ approval with the four-eyes rule, rejection, execution guards, and the
 verified-outcome recording.
 """
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -307,6 +308,30 @@ class TestRejectAction:
 
 
 class TestExecuteGuards:
+    @pytest.mark.asyncio
+    async def test_jsonb_as_string_rows_survive_execution(self):
+        """Regression for the 2026-09-11 live-fire finding: asyncpg may
+        return JSONB columns as strings; dict(evidence_string) used to
+        crash execution with ValueError. The row is now normalized."""
+        from src.api.response import execute_action
+
+        pool, conn = _pool_and_conn()
+        approved = _action_row(status="approved")
+        approved["case_id"] = None
+        approved["params"] = json.dumps({"username": "bob"})
+        approved["evidence"] = json.dumps({"before": {"before_is_active": True}})
+        verified = dict(approved, status="verified")
+        conn.fetchrow.side_effect = [approved, approved, verified]
+        conn.fetchval.return_value = False  # verify re-query
+
+        with (
+            patch("src.api.response.get_pool", return_value=pool),
+            patch("src.response.executors.get_pool", return_value=pool),
+            patch("src.api.response.log_audit_action", new_callable=AsyncMock),
+        ):
+            result = await execute_action(1, user=_user("admin", "admin1"))
+        assert result["outcome"]["status"] == "verified"
+
     @pytest.mark.asyncio
     async def test_cannot_execute_requested_containment_action(self):
         from src.api.response import execute_action

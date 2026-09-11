@@ -114,6 +114,21 @@ def _json(data: Any) -> str:
     return json.dumps(data, default=str)
 
 
+def _load_json(value: Any) -> Any:
+    """JSONB columns come back as str in some asyncpg codec setups (the
+    cases module handles the same quirk for notes). Normalize to a dict.
+    Found live 2026-09-11: dict(evidence_string) crashed execution."""
+    if value is None or value == "":
+        return {}
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (ValueError, TypeError):
+            log.warning("response_jsonb_unparseable", preview=str(value)[:80])
+            return {}
+    return value
+
+
 # ───────────────────────────────────────────────────────────────
 # Execution + verification (shared by approve and execute endpoints)
 # ───────────────────────────────────────────────────────────────
@@ -125,8 +140,8 @@ async def _execute_and_verify(action_row: dict, approver: str | None) -> dict:
     Returns the final action state."""
     action_id = action_row["id"]
     action_type = str(action_row["action_type"])
-    params = action_row["params"] if isinstance(action_row["params"], dict) else {}
-    evidence: dict[str, Any] = dict(action_row["evidence"] or {})
+    params = _load_json(action_row["params"])
+    evidence: dict[str, Any] = dict(_load_json(action_row["evidence"]))
 
     executor_obj = get_executor(action_type)
     pool = await get_pool()
@@ -476,6 +491,8 @@ async def get_action(
         if not row:
             raise HTTPException(status_code=404, detail="Action not found")
         action = dict(row)
+        action["params"] = _load_json(action["params"])
+        action["evidence"] = _load_json(action.get("evidence"))
         if action.get("case_id"):
             case = await conn.fetchrow(
                 "SELECT id, title, status, severity FROM cases WHERE id = $1",
