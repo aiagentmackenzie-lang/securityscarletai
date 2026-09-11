@@ -17,6 +17,9 @@ Decision types and their sources of truth:
                      verified with the re-query proof)
   policy_refusal  -- audit_log response.refused rows (the policy engine's
                      refusals are decisions too)
+  agent_investigation -- agent_investigations (V0.4/5: the read-only agent's
+                     verdict DRAFT; actor_kind='ai'; the human HITL decision
+                     on the draft rides the audit chain as agent.hitl_decision)
 
 Read-only, analyst role or above, paginated, filterable. No endpoint in
 this module mutates anything.
@@ -24,9 +27,8 @@ this module mutates anything.
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -34,11 +36,19 @@ from src.api.auth import require_role
 from src.config.logging import get_logger
 from src.config.settings import settings
 from src.db.connection import get_pool
+from src.db.jsonb import load_jsonb
 
 log = get_logger("api.decisions")
 router = APIRouter(tags=["decisions"], prefix="/decisions")
 
-DECISION_TYPES = ("ai_triage", "correlation", "verdict", "response_action", "policy_refusal")
+DECISION_TYPES = (
+    "ai_triage",
+    "correlation",
+    "verdict",
+    "response_action",
+    "policy_refusal",
+    "agent_investigation",
+)
 
 
 def _truncate(text: Any, n: int = 400) -> str | None:
@@ -50,16 +60,11 @@ def _truncate(text: Any, n: int = 400) -> str | None:
 
 def _load_json(value: Any) -> dict:
     """JSONB columns come back as str in some asyncpg codec setups (the
-    same quirk is handled in cases.py and api/response.py)."""
-    if value is None:
-        return {}
-    if isinstance(value, str):
-        try:
-            return cast("dict", json.loads(value))
-        except (ValueError, TypeError):
-            log.warning("decisions_jsonb_unparseable", preview=str(value)[:80])
-            return {}
-    return value if isinstance(value, dict) else {}
+    same quirk is handled in cases.py and api/response.py). Alias of the
+    canonical src.db.jsonb.load_jsonb (LRN-20260911-001 -- one
+    implementation, reused everywhere)."""
+    result = load_jsonb(value, source="api.decisions")
+    return result if isinstance(result, dict) else {}
 
 
 @router.get("")
@@ -256,6 +261,48 @@ async def list_decisions(
                         "case_id": _load_json(r["new_values"]).get("case_id"),
                     },
                     "outcome": "refused",
+                }
+                for r in rows
+            ]
+
+        if decision_type in (None, "agent_investigation"):
+            rows = await conn.fetch(
+                """
+                SELECT id, created_at, updated_at, objective, alert_id, status,
+                       actor, requested_by, verdict_draft, hitl_state
+                FROM agent_investigations
+                WHERE verdict_draft IS NOT NULL
+                ORDER BY updated_at DESC
+                LIMIT $1
+                """,
+                per_type_limit,
+            )
+            records += [
+                {
+                    "id": f"agent_investigation:{r['id']}",
+                    "ts": r["updated_at"],
+                    "decision_type": "agent_investigation",
+                    "actor": r["actor"],
+                    "actor_kind": "ai",
+                    "subject_type": "agent_run",
+                    "subject_id": r["id"],
+                    "summary": (
+                        (
+                            _truncate(_load_json(r["verdict_draft"]).get("verdict", "unknown"), 300)
+                            or "unknown"
+                        )
+                        + f" (hitl: {r['hitl_state']})"
+                    ),
+                    "rationale": _truncate(_load_json(r["verdict_draft"]).get("rationale")),
+                    "evidence": {
+                        "objective": _truncate(r["objective"], 200),
+                        "alert_id": r["alert_id"],
+                        "run_status": r["status"],
+                        "hitl_state": r["hitl_state"],
+                        "requested_by": r["requested_by"],
+                        "confidence": _load_json(r["verdict_draft"]).get("confidence"),
+                    },
+                    "outcome": f"draft [{r['hitl_state']}]",
                 }
                 for r in rows
             ]

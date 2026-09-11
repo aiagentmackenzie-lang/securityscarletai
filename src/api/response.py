@@ -41,6 +41,7 @@ from src.api.cases import _record_case_event
 from src.config.logging import get_logger
 from src.config.settings import settings
 from src.db.connection import get_pool
+from src.db.jsonb import load_jsonb
 from src.response import policy as policy_mod
 from src.response.executors import get_executor
 
@@ -117,16 +118,10 @@ def _json(data: Any) -> str:
 def _load_json(value: Any) -> Any:
     """JSONB columns come back as str in some asyncpg codec setups (the
     cases module handles the same quirk for notes). Normalize to a dict.
-    Found live 2026-09-11: dict(evidence_string) crashed execution."""
-    if value is None or value == "":
-        return {}
-    if isinstance(value, str):
-        try:
-            return json.loads(value)
-        except (ValueError, TypeError):
-            log.warning("response_jsonb_unparseable", preview=str(value)[:80])
-            return {}
-    return value
+    Found live 2026-09-11: dict(evidence_string) crashed execution.
+    Alias of the canonical src.db.jsonb.load_jsonb (LRN-20260911-001 -- one
+    implementation, reused everywhere)."""
+    return load_jsonb(value, source="api.response")
 
 
 # ───────────────────────────────────────────────────────────────
