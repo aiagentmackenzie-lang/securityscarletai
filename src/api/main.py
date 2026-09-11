@@ -81,9 +81,13 @@ async def load_sigma_rules():
 
     pool = await get_pool()
     async with pool.acquire() as conn:
+        # Count from set arithmetic, NOT asyncpg command tags: proven 2026-09-10
+        # on PG17 that INSERT ... ON CONFLICT (name) DO UPDATE returns the tag
+        # 'INSERT 0 1' even when the UPDATE path fires — the old tag-based
+        # heuristic logged inserted=100/updated=0 on EVERY boot regardless of
+        # reality.
+        pre_names = {r["name"] for r in await conn.fetch("SELECT name FROM rules")}
         disk_names: set[str] = set()
-        inserted = 0
-        updated = 0
         for rule_file in sorted(RULES_DIR.rglob("*.yml")):
             try:
                 yaml_content = rule_file.read_text()
@@ -99,7 +103,7 @@ async def load_sigma_rules():
                 if level not in _VALID_SEVERITIES:
                     level = "medium"
 
-                result = await conn.execute(
+                await conn.execute(
                     """
                     INSERT INTO rules (
                         name, description, sigma_yaml, severity, enabled,
@@ -127,15 +131,12 @@ async def load_sigma_rules():
                     mitre_tactics,
                     mitre_techniques,
                 )
-                # asyncpg command tag: 'INSERT 0 1' vs 'UPDATE 1'.
-                if result.startswith("UPDATE"):
-                    updated += 1
-                else:
-                    inserted += 1
             except Exception as e:
                 log.error("rule_load_failed", file=str(rule_file), error=str(e))
 
         db_names = {r["name"] for r in await conn.fetch("SELECT name FROM rules")}
+        inserted = len(disk_names - pre_names)
+        updated = len(disk_names & pre_names)
         orphaned = db_names - disk_names
         log.info(
             "rules_reconciled",
