@@ -395,8 +395,38 @@ def render_top_hosts(alerts: list | None = None):
             st.error(f"Failed to load host data: {e.detail}")
 
 
-def render_mitre_heatmap(rules: list[dict]):
-    """Render MITRE ATT&CK technique coverage as metric cards + detail table."""
+def render_mitre_heatmap(rules: list[dict], coverage: dict | None = None):
+    """Render MITRE ATT&CK technique coverage as metric cards + detail table.
+
+    V0.3 — evidence-driven when a coverage map is supplied: rules are split
+    ARMED (telemetry seen in lookback — the rule can fire) vs DORMANT (rule
+    exists but its source/vocabulary has not been observed), and the
+    correlation chains join the rollup (previously invisible here). Tactic
+    counts then report DETECTABLE coverage, not aspirational rule counts.
+    Without coverage (endpoint unavailable) the legacy title-driven view
+    renders unchanged.
+    """
+    armed_by_name: dict[str, dict] = {}
+    correlation_rules: list[dict] = []
+    if coverage:
+        armed_by_name = {r["name"]: r for r in coverage.get("rules", [])}
+        correlation_rules = [r for r in coverage.get("rules", []) if r.get("kind") == "correlation"]
+
+    # Correlation chains are not in the rules table — append them so the
+    # heatmap reflects the full detection surface (only when coverage is
+    # available; the legacy view stays sigma-only).
+    if correlation_rules:
+        rules = list(rules) + [
+            {
+                "name": r["name"],
+                "severity": r["severity"],
+                "mitre_techniques": r["mitre_techniques"],
+                "mitre_tactics": r["mitre_tactics"],
+                "enabled": True,
+            }
+            for r in correlation_rules
+        ]
+
     if not rules:
         st.info("No rules loaded — MITRE coverage will show once rules are loaded.")
         return
@@ -407,6 +437,9 @@ def render_mitre_heatmap(rules: list[dict]):
         tactics = rule.get("mitre_tactics", []) or []
         sev = rule.get("severity", "medium")
         enabled = rule.get("enabled", True)
+        cov = armed_by_name.get(rule.get("name", ""))
+        armed = cov["armed"] if cov else None  # None = unknown (legacy view)
+        armed_reason = cov.get("reason", "") if cov else ""
 
         for tech in techniques:
             technique_data.append(
@@ -416,6 +449,8 @@ def render_mitre_heatmap(rules: list[dict]):
                     "Severity": sev,
                     "Enabled": enabled,
                     "Rule": rule.get("name", ""),
+                    "Armed": ({True: "armed", False: "dormant", None: ""}[armed]),
+                    "Reason": armed_reason,
                 }
             )
 
@@ -441,8 +476,13 @@ def render_mitre_heatmap(rules: list[dict]):
     }
 
     tactic_counts = {}
+    # Evidence-driven (V0.3): count only ARMED unique techniques per tactic —
+    # a dormant rule's technique is listed, not counted as coverage.
+    armed_df = df[df["Armed"] != "dormant"] if coverage else df
     for tactic_id, tactic_name in TACTIC_TITLES.items():
-        count = len(df[df["Tactics"].str.contains(tactic_id, na=False)]["Technique"].unique())
+        count = len(
+            armed_df[armed_df["Tactics"].str.contains(tactic_id, na=False)]["Technique"].unique()
+        )
         if count > 0:
             tactic_counts[tactic_name] = count
 
@@ -452,6 +492,15 @@ def render_mitre_heatmap(rules: list[dict]):
         f"</p>",
         unsafe_allow_html=True,
     )
+
+    if coverage:
+        summary = coverage.get("summary", {})
+        st.caption(
+            f"Evidence-driven: {summary.get('armed', 0)}/{summary.get('total_rules', 0)} "
+            f"rules ARMED (telemetry observed in the last "
+            f"{summary.get('lookback_hours', 0)}h) · {summary.get('dormant', 0)} dormant — "
+            f"dormant rules are listed below, not counted."
+        )
 
     if tactic_counts:
         cols = st.columns(min(len(tactic_counts), 4))
@@ -472,7 +521,9 @@ def render_mitre_heatmap(rules: list[dict]):
 
     with st.expander("Detailed Technique Coverage"):
         st.dataframe(
-            df[["Technique", "Tactics", "Severity", "Rule"]],
+            df[["Technique", "Tactics", "Severity", "Rule", "Armed", "Reason"]]
+            if coverage
+            else df[["Technique", "Tactics", "Severity", "Rule"]],
             use_container_width=True,
             hide_index=True,
         )

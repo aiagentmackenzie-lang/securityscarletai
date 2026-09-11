@@ -19,6 +19,7 @@ from src.api.auth_login import router as auth_login_router
 from src.api.cases import router as cases_router
 from src.api.chat import router as chat_router
 from src.api.correlation import router as correlation_router
+from src.api.detection import router as detection_router
 from src.api.health import router as health_router
 from src.api.hunt import router as hunt_router
 from src.api.ingest import router as ingest_router
@@ -292,6 +293,7 @@ app.include_router(auth_login_router, prefix="/api/v1")
 app.include_router(cases_router, prefix="/api/v1")
 app.include_router(query_router, prefix="/api/v1")
 app.include_router(logs_router, prefix="/api/v1")
+app.include_router(detection_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(metrics_router, prefix="/api/v1")
 

@@ -496,6 +496,17 @@ class ApiClient:
         """Fetch all detection rules."""
         return self._get("/rules") or []
 
+    def get_coverage(self, lookback_hours: int = 168) -> dict:
+        """Fetch the evidence-driven coverage map (V0.3: armed vs dormant).
+
+        Returns {} when the endpoint is unavailable — the heatmap falls back
+        to the legacy title-driven view rather than breaking the dashboard.
+        """
+        try:
+            return self._get("/detection/coverage", params={"lookback_hours": lookback_hours}) or {}
+        except ApiError:
+            return {}
+
     def get_rule(self, rule_id: int) -> dict:
         """Fetch a single rule by ID."""
         return self._get(f"/rules/{rule_id}")

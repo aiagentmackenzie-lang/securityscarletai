@@ -314,4 +314,3 @@ class TestRulesEndpoints:
         result = await get_rule(rule_name="brute_force_success", user=user)
         assert result["severity"] == "critical"
         assert "T1110" in result["mitre_techniques"]
-

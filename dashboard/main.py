@@ -668,7 +668,10 @@ def render_overview():
     with st.spinner("Loading MITRE ATT&CK coverage...", show_time=True):
         try:
             rules = get_api_client().get_rules()
-            render_mitre_heatmap(rules)
+            # V0.3: evidence-driven coverage (armed vs dormant). Graceful
+            # fallback to the legacy title-driven view when unavailable.
+            coverage = get_api_client().get_coverage()
+            render_mitre_heatmap(rules, coverage if coverage else None)
         except ApiError:
             st.info(
                 "Rule information unavailable — MITRE coverage will show when rules are loaded."
