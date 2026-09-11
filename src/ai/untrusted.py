@@ -164,9 +164,5 @@ def fence(content: Any, label: str = "telemetry") -> str:
     # neutralized by the engine, and raw rendering through Jinja autoescape
     # keeps the fence markers byte-exact for the model.
     return Markup(  # noqa: S704 — body is neutralized above; see docstring
-
-        f"{FENCE_OPEN} {label}\n"
-        f"{_PREAMBLE}\n"
-        f"{strip_instructions(body)}\n"
-        f"{FENCE_CLOSE}"
+        f"{FENCE_OPEN} {label}\n{_PREAMBLE}\n{strip_instructions(body)}\n{FENCE_CLOSE}"
     )

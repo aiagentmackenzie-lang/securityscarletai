@@ -53,8 +53,12 @@ class TestRecordUsage:
         """If the DB is down, record_usage returns False but does not raise."""
         with patch("src.ai.cost_tracker.get_pool", side_effect=Exception("DB down")):
             ok = await record_usage(
-                user="u", endpoint="e", model="m",
-                tokens_in=1, tokens_out=1, latency_ms=1,
+                user="u",
+                endpoint="e",
+                model="m",
+                tokens_in=1,
+                tokens_out=1,
+                latency_ms=1,
             )
         assert ok is False
 
@@ -71,9 +75,14 @@ class TestRecordUsage:
 
         with patch("src.ai.cost_tracker.get_pool", return_value=mock_pool):
             ok = await record_usage(
-                user="u", endpoint="ai.explain", model="template_library",
-                tokens_in=0, tokens_out=0, latency_ms=0,
-                fallback_used=True, warning="Ollama down",
+                user="u",
+                endpoint="ai.explain",
+                model="template_library",
+                tokens_in=0,
+                tokens_out=0,
+                latency_ms=0,
+                fallback_used=True,
+                warning="Ollama down",
             )
 
         assert ok is True
@@ -95,13 +104,15 @@ class TestGetUsageSummary:
     async def test_returns_normalized_summary(self):
         mock_pool = MagicMock()
         mock_conn = AsyncMock()
-        mock_conn.fetchrow = AsyncMock(return_value={
-            "call_count": 5,
-            "total_tokens_in": 100,
-            "total_tokens_out": 50,
-            "avg_latency_ms": 200,
-            "fallback_count": 1,
-        })
+        mock_conn.fetchrow = AsyncMock(
+            return_value={
+                "call_count": 5,
+                "total_tokens_in": 100,
+                "total_tokens_out": 50,
+                "avg_latency_ms": 200,
+                "fallback_count": 1,
+            }
+        )
         acquirer = MagicMock()
         acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
         acquirer.__aexit__ = AsyncMock(return_value=None)

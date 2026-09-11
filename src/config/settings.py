@@ -3,6 +3,7 @@ Centralized configuration for SecurityScarletAI.
 All settings are validated at startup. Missing required values cause immediate failure
 with a clear error message — not a silent None that blows up later.
 """
+
 from typing import Annotated, Optional
 from urllib.parse import quote_plus
 

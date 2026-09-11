@@ -19,6 +19,7 @@ caught before CI even builds:
   requirement, not build tooling),
 - no compose healthcheck may shell out to curl.
 """
+
 from __future__ import annotations
 
 import re
@@ -33,7 +34,9 @@ ENTRYPOINT = REPO_ROOT / "scripts" / "entrypoint.sh"
 class TestRuntimeImageBootDeps:
     def test_dockerfile_installs_postgresql_client(self):
         contents = DOCKERFILE.read_text()
-        assert re.search(r"apt-get install -y --no-install-recommends postgresql-client", contents), (
+        assert re.search(
+            r"apt-get install -y --no-install-recommends postgresql-client", contents
+        ), (
             "slim image must ship postgresql-client: entrypoint.sh applies schema via "
             "`psql -f` (ON_ERROR_STOP, statement-by-statement) and waits via pg_isready"
         )
@@ -49,9 +52,7 @@ class TestComposeHealthchecksCurlFree:
         contents = COMPOSE.read_text()
         # Comments may legitimately mention curl (regression history) — only
         # the executable probe lines matter.
-        code_lines = [
-            ln for ln in contents.splitlines() if not ln.lstrip().startswith("#")
-        ]
+        code_lines = [ln for ln in contents.splitlines() if not ln.lstrip().startswith("#")]
         healthcheck_blocks = re.findall(
             r"healthcheck:.*?(?=\n    \w|\Z)", "\n".join(code_lines), flags=re.DOTALL
         )

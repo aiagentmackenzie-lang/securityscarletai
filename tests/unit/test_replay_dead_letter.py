@@ -1,4 +1,5 @@
 """Tests for the dead-letter replay script (P1-E)."""
+
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,12 +19,15 @@ def _dead_letter_line(idx: int) -> str:
         event_type="start",
         raw_data={"i": idx},
     )
-    return json.dumps({
-        "dead_letter": True,
-        "written_at": datetime.now(tz=timezone.utc).isoformat(),
-        "error": "simulated outage",
-        "event": e.model_dump(mode="json"),
-    }, default=str)
+    return json.dumps(
+        {
+            "dead_letter": True,
+            "written_at": datetime.now(tz=timezone.utc).isoformat(),
+            "error": "simulated outage",
+            "event": e.model_dump(mode="json"),
+        },
+        default=str,
+    )
 
 
 class TestReplayFile:
@@ -34,10 +38,13 @@ class TestReplayFile:
         # A dead-letter file with 3 good lines + 1 malformed.
         f = tmp_path / "2026-08-26.jsonl"
         f.write_text(
-            _dead_letter_line(1) + "\n"
-            + _dead_letter_line(2) + "\n"
+            _dead_letter_line(1)
+            + "\n"
+            + _dead_letter_line(2)
+            + "\n"
             + "{not valid json}\n"
-            + _dead_letter_line(3) + "\n"
+            + _dead_letter_line(3)
+            + "\n"
         )
 
         # Stub the writer so no DB is needed.

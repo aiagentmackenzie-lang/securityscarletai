@@ -5,6 +5,7 @@ Full cases CRUD — create, update, resolve, and manage investigation cases.
 ALL data fetched through ApiClient — NO direct database access.
 Loading states: st.spinner() on fetches, st.toast() on actions.
 """
+
 import streamlit as st
 
 from dashboard.api_client import ApiError
@@ -106,7 +107,7 @@ def _render_case_card(case: dict, api):
 
     expander_title = (
         f'<span style="font-weight:600;color:#e8ecf1;">#{case_id} — {esc(case_title)}</span>'
-        + f' \u0026nbsp; {sev_html} \u0026nbsp; {status_html}'
+        + f" \u0026nbsp; {sev_html} \u0026nbsp; {status_html}"
         + f' \u003cspan style="color:#5a6578;"\u003e| {alert_count} alerts \u003c/span\u003e'
     )
 
@@ -123,44 +124,38 @@ def _render_case_card(case: dict, api):
         # Case Info
         col_info1, col_info2 = st.columns([2, 1])
         with col_info1:
-            desc = case_detail.get('description') or 'No description'
+            desc = case_detail.get("description") or "No description"
             st.markdown(
                 f"**Description:** <span style='color:#8b95a5;'>{esc(desc)}</span>",
                 unsafe_allow_html=True,
             )
             if case_detail.get("lessons_learned"):
-                st.markdown(
-                    f"**Lessons Learned:** {case_detail['lessons_learned']}"
-                )
+                st.markdown(f"**Lessons Learned:** {case_detail['lessons_learned']}")
             if case_detail.get("resolution_note"):
-                st.markdown(
-                    f"**Resolution Note:** {case_detail['resolution_note']}"
-                )
+                st.markdown(f"**Resolution Note:** {case_detail['resolution_note']}")
 
         with col_info2:
             st.markdown(
-                f"{status_html} <span style=\"color:#8b95a5;\">Status:</span> "
-                f"<span style=\"color:#e8ecf1;\">{esc(case_status)}</span>",
+                f'{status_html} <span style="color:#8b95a5;">Status:</span> '
+                f'<span style="color:#e8ecf1;">{esc(case_status)}</span>',
                 unsafe_allow_html=True,
             )
             st.markdown(
-                f"{sev_html} <span style=\"color:#8b95a5;\">Severity:</span> "
-                f"<span style=\"color:#e8ecf1;\">{esc(case_severity)}</span>",
+                f'{sev_html} <span style="color:#8b95a5;">Severity:</span> '
+                f'<span style="color:#e8ecf1;">{esc(case_severity)}</span>',
                 unsafe_allow_html=True,
             )
             st.markdown(
-                f"<span style=\"color:#8b95a5;\">Assigned:</span> "
-                f"<span style=\"color:#e8ecf1;\">{esc(assigned)}</span>",
+                f'<span style="color:#8b95a5;">Assigned:</span> '
+                f'<span style="color:#e8ecf1;">{esc(assigned)}</span>',
                 unsafe_allow_html=True,
             )
 
             created = (
-                case_detail.get("created_at", "")[:19]
-                if case_detail.get("created_at") else ""
+                case_detail.get("created_at", "")[:19] if case_detail.get("created_at") else ""
             )
             updated = (
-                case_detail.get("updated_at", "")[:19]
-                if case_detail.get("updated_at") else ""
+                case_detail.get("updated_at", "")[:19] if case_detail.get("updated_at") else ""
             )
             st.caption(f"Created: {created}")
             st.caption(f"Updated: {updated}")
@@ -235,8 +230,7 @@ def _render_status_management(case_id: int, case_status: str, case_detail: dict,
         lessons_learned = st.text_area(
             "Lessons Learned (required)",
             placeholder=(
-                "What did we learn from this investigation? "
-                "How can we prevent similar incidents?"
+                "What did we learn from this investigation? How can we prevent similar incidents?"
             ),
             key=f"lessons_{case_id}",
         )

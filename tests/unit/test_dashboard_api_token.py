@@ -9,6 +9,7 @@ Verifies:
 - ApiClient._headers prefers the session JWT over the env token.
 - ApiClient.has_service_auth() reflects whether the env token is set.
 """
+
 from __future__ import annotations
 
 import importlib

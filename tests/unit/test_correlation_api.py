@@ -158,8 +158,12 @@ class TestListMatchesEndpoint:
         user = {"sub": "test", "role": "viewer"}
         with patch.object(api_corr, "list_matches", new_callable=AsyncMock) as mock_list:
             mock_list.return_value = [
-                {"id": 1, "correlation_rule": "x", "severity": "high",
-                 "created_at": datetime(2026, 5, 31, tzinfo=timezone.utc)},
+                {
+                    "id": 1,
+                    "correlation_rule": "x",
+                    "severity": "high",
+                    "created_at": datetime(2026, 5, 31, tzinfo=timezone.utc),
+                },
             ]
             response = await get_correlation_matches(user=user)
 
@@ -224,6 +228,7 @@ class TestListMatchesEndpoint:
 
         # The string JSON should be parsed
         assert response.matches[0]["match_data"] == {"foo": "bar"}
+
 
 class TestMarkSeenEndpoint:
     @pytest.mark.asyncio

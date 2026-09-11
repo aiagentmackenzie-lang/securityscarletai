@@ -10,6 +10,7 @@ Each sequence defines:
 - time_window: Maximum allowed gap between trigger and followup
 - confidence: Base confidence score when the full chain is detected
 """
+
 from dataclasses import dataclass
 
 

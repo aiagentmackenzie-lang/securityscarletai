@@ -65,8 +65,14 @@ class TestLLMResultDataclass:
 
     def test_to_dict_serialization(self):
         r = LLMResult(
-            ok=True, text="x", source="ollama", model_used="m",
-            tokens_in=1, tokens_out=2, latency_ms=3, fallback_used=False,
+            ok=True,
+            text="x",
+            source="ollama",
+            model_used="m",
+            tokens_in=1,
+            tokens_out=2,
+            latency_ms=3,
+            fallback_used=False,
         )
         d = r.to_dict()
         assert isinstance(d, dict)
@@ -115,9 +121,7 @@ class TestQueryLLMContract:
 
         with patch("src.ai.ollama_client.httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
-            mock_client.post = AsyncMock(
-                side_effect=httpx.ConnectError("Connection refused")
-            )
+            mock_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_cls.return_value = mock_client
@@ -143,9 +147,7 @@ class TestQueryLLMContract:
 
         with patch("src.ai.ollama_client.httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
-            mock_client.post = AsyncMock(
-                side_effect=httpx.TimeoutException("timeout")
-            )
+            mock_client.post = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_cls.return_value = mock_client
@@ -189,7 +191,9 @@ class TestQueryLLMContract:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "response": "ok", "eval_count": 1, "prompt_eval_count": 1,
+            "response": "ok",
+            "eval_count": 1,
+            "prompt_eval_count": 1,
         }
         mock_response.raise_for_status = MagicMock()
 
@@ -201,7 +205,9 @@ class TestQueryLLMContract:
             mock_client_cls.return_value = mock_client
 
             result = await query_llm(
-                "test", prompt_version="v1.2.3", fallback_text="fb",
+                "test",
+                prompt_version="v1.2.3",
+                fallback_text="fb",
             )
 
         assert result.prompt_version == "v1.2.3"
@@ -246,9 +252,7 @@ class TestValidateOllamaModel:
 
         with patch("src.ai.ollama_client.httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
-            mock_client.get = AsyncMock(
-                side_effect=httpx.ConnectError("refused")
-            )
+            mock_client.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_cls.return_value = mock_client
@@ -266,9 +270,7 @@ class TestValidateOllamaModel:
         with patch("src.ai.ollama_client.httpx.AsyncClient") as mock_client_cls:
             mock_response = MagicMock()
             mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "models": [{"name": "some-other-model:latest"}]
-            }
+            mock_response.json.return_value = {"models": [{"name": "some-other-model:latest"}]}
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(return_value=mock_response)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)

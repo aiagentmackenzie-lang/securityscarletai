@@ -9,6 +9,7 @@ Correlation detection API endpoints (Agent A, Epic 2).
 - GET  /api/v1/correlation/rules/{n}   — Rule details
 - GET  /api/v1/correlation/sequences   — List sequence definitions
 """
+
 from datetime import datetime, timezone
 from typing import Annotated, Any, Awaitable, Callable, Dict, List, Optional
 
@@ -47,6 +48,7 @@ router = APIRouter(tags=["correlation"], prefix="/correlation")
 
 class CorrelationRunRequest(BaseModel):
     """Request body for POST /correlation/run."""
+
     as_of: Optional[str] = Field(
         None,
         description="ISO-8601 timestamp. Defaults to now() if omitted.",
@@ -60,6 +62,7 @@ class CorrelationRunRequest(BaseModel):
 
 class CorrelationResult(BaseModel):
     """Response for a single rule's matches (legacy shape)."""
+
     rule_name: str
     title: str
     description: str
@@ -71,6 +74,7 @@ class CorrelationResult(BaseModel):
 
 class CorrelationRunResponse(BaseModel):
     """Response for POST /correlation/run."""
+
     as_of: str
     total_matches: int
     persisted: int
@@ -79,6 +83,7 @@ class CorrelationRunResponse(BaseModel):
 
 class CorrelationMatchSummary(BaseModel):
     """Response for GET /correlation/matches."""
+
     total: int
     limit: int
     offset: int
@@ -136,8 +141,7 @@ def _parse_as_of(as_of) -> datetime:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Invalid as_of format. Expected ISO-8601 "
-                f"(e.g. 2026-05-31T22:00:00Z). Got: {as_of}"
+                f"Invalid as_of format. Expected ISO-8601 (e.g. 2026-05-31T22:00:00Z). Got: {as_of}"
             ),
         ) from e
 
@@ -296,6 +300,7 @@ async def get_correlation_matches(
         if "match_data" in s and not isinstance(s["match_data"], (dict, list)):
             # match_data is JSONB but asyncpg may return as str in some paths
             import json as _json
+
             try:
                 s["match_data"] = (
                     _json.loads(s["match_data"])

@@ -4,6 +4,7 @@ NL→SQL Query API endpoint.
 POST /api/v1/query — Convert natural language to SQL and execute
 GET  /api/v1/query/templates — List available query templates
 """
+
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Request, Response
@@ -27,7 +28,9 @@ class NLQueryRequest(BaseModel):
     """Natural language query request."""
 
     question: str = Field(
-        ..., min_length=1, max_length=500,
+        ...,
+        min_length=1,
+        max_length=500,
         description="Plain English security question",
     )
     session_id: Optional[str] = Field(
@@ -95,9 +98,7 @@ async def query_nl(
         # Dry run — generate SQL but don't execute
         result = await nl_to_sql(query_request.question, query_request.session_id)
 
-    return NLQueryResponse(
-        **{k: v for k, v in result.items() if k in NLQueryResponse.model_fields}
-    )
+    return NLQueryResponse(**{k: v for k, v in result.items() if k in NLQueryResponse.model_fields})
 
 
 @router.get(

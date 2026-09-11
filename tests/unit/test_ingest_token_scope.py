@@ -15,6 +15,7 @@ Covered:
   is just an invalid credential)
 - JWT users still ingest (get_ingest_client accepts access JWTs)
 """
+
 from __future__ import annotations
 
 import os
@@ -83,13 +84,15 @@ class TestIngestTokenOnIngestRouter:
     def test_scoped_token_accepted_on_ingest(self):
         client = _ingest_app()
         wpatches = _mock_writer()
-        with wpatches[0], wpatches[1], patch(
-            "src.db.connection.get_pool",
-            AsyncMock(side_effect=RuntimeError("no db")),
-        ), patch(
-            "src.detection.correlation.run_all_correlations", AsyncMock()
-        ), patch(
-            "src.api.websocket.broadcast_event", AsyncMock()
+        with (
+            wpatches[0],
+            wpatches[1],
+            patch(
+                "src.db.connection.get_pool",
+                AsyncMock(side_effect=RuntimeError("no db")),
+            ),
+            patch("src.detection.correlation.run_all_correlations", AsyncMock()),
+            patch("src.api.websocket.broadcast_event", AsyncMock()),
         ):
             r = client.post(
                 "/api/v1/ingest",
@@ -105,21 +108,20 @@ class TestIngestTokenOnIngestRouter:
 
         client = _ingest_app()
         wpatches = _mock_writer()
-        with wpatches[0], wpatches[1], patch(
-            "src.db.connection.get_pool",
-            AsyncMock(side_effect=RuntimeError("no db")),
-        ), patch(
-            "src.detection.correlation.run_all_correlations", AsyncMock()
-        ), patch(
-            "src.api.websocket.broadcast_event", AsyncMock()
+        with (
+            wpatches[0],
+            wpatches[1],
+            patch(
+                "src.db.connection.get_pool",
+                AsyncMock(side_effect=RuntimeError("no db")),
+            ),
+            patch("src.detection.correlation.run_all_correlations", AsyncMock()),
+            patch("src.api.websocket.broadcast_event", AsyncMock()),
         ):
             r = client.post(
                 "/api/v1/ingest",
                 json=[_ingest_event()],
-                headers={
-                    "Authorization": "Bearer "
-                    + settings.api_bearer_token.get_secret_value()
-                },
+                headers={"Authorization": "Bearer " + settings.api_bearer_token.get_secret_value()},
             )
         assert r.status_code == 202
 

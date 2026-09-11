@@ -148,6 +148,13 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
         # lines, S603/S607 test subprocess).
         run: poetry run ruff check scripts/ tests/
 
+      - name: Format check
+        # 2026-09-10: repo-wide bulk format landed (139 files) and the gate is
+        # now ENFORCED. Lesson from the NeuralGuard CI hotfix: `ruff check`
+        # cannot see format drift; an edit after a formatting pass silently
+        # reintroduces it. Run `ruff format` before every commit.
+        run: poetry run ruff format --check src/ dashboard/ scripts/ tests/
+
       - name: Type check
         # Pragmatic mypy config (see [tool.mypy] in pyproject.toml). Not
         # `strict` — strict produced 336 unenforced errors (a false signal).
@@ -178,13 +185,13 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
 
   # P3.5: dependency vulnerability audit (pip-audit) over the locked
   # dependency set installed in the same venv as the test job.
-  # POLICY: NON-BLOCKING for the first two weeks after Phase 3 (continue-on-
-  # error below) so pre-existing findings don't gate the remediation pipeline.
-  # Flip to enforcing in a follow-up once the initial findings are triaged
-  # into .trivyignore / dependency bumps — tracked as P3.5 follow-up.
+  # POLICY: ENFORCING since 2026-09-10 (flip executed 6 days ahead of the
+  # planned Sep 16 window — remediation verified complete: 126 findings
+  # triaged down to 2 documented risk-accepts, see
+  # docs/dependency-vuln-triage-2026-09-03.md). New findings gate CI and
+  # must be triaged (bump or rationale'd --ignore-vuln, never bare accepts).
   dependency-audit:
     runs-on: ubuntu-latest
-    continue-on-error: true # P3.5 policy: advisory until findings triaged
     steps:
       - uses: actions/checkout@v4
 
@@ -207,18 +214,29 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
           poetry install --no-root
 
       - name: pip-audit (locked dependency set)
+        # The two P4 risk-accepts (docs/dependency-vuln-triage-2026-09-03.md,
+        # expiry 2026-12-01). pip-audit reports PYSEC IDs with the CVEs as
+        # aliases; all four IDs are ignored so the accept holds regardless of
+        # which alias future pip-audit versions report:
+        # - ecdsa 0.19.2 Minerva timing side-channel (CVE-2024-23342 /
+        #   PYSEC-2026-1325): UNREACHABLE — JWT path is HS256-only, the ECDSA
+        #   code paths are dead (reachability-verified 2026-09-03).
+        # - diskcache 5.6.3 pickle de-serialization (CVE-2025-69872 /
+        #   PYSEC-2026-2447): requires attacker-controlled local write access;
+        #   precondition out of scope for the threat model.
         run: |
           poetry run pip install pip-audit
-          poetry run pip-audit --skip-editable
+          poetry run pip-audit --skip-editable \
+            --ignore-vuln PYSEC-2026-2447 --ignore-vuln PYSEC-2026-1325 \
+            --ignore-vuln CVE-2025-69872 --ignore-vuln CVE-2024-23342
 
   # P3.5: image vulnerability scan of the built Docker image (OS packages +
-  # Python site-packages) with Trivy. HIGH/CRITICAL exit-code 1 — but the
-  # JOB is non-blocking per the same two-week policy as dependency-audit.
-  # Accepted risks live in .trivyignore (each entry: CVE + rationale + date;
-  # entries without rationale must not be added).
+  # Python site-packages) with Trivy. HIGH/CRITICAL exit-code 1.
+  # ENFORCING since 2026-09-10 (zero findings at flip time). Accepted risks
+  # live in .trivyignore (each entry: CVE + rationale + date; entries without
+  # rationale must not be added).
   trivy-image-scan:
     runs-on: ubuntu-latest
-    continue-on-error: true # P3.5 policy: non-blocking first, enforce in follow-up
     steps:
       - uses: actions/checkout@v4
 

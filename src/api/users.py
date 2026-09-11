@@ -22,6 +22,7 @@ Security properties:
   entries, never in logs.
 - Passwords are hashed with hash_password() (bcrypt, SHA-256 pre-hash, pepper).
 """
+
 import secrets
 from datetime import datetime, timezone
 from typing import Literal, Optional
@@ -261,8 +262,11 @@ async def patch_user(
         target_type="user",
         target_id=user_id,
         old_values={"role": existing["role"], "is_active": existing["is_active"]},
-        new_values={"role": body.role, "is_active": body.is_active,
-                    "revoked_older_tokens": revoked},
+        new_values={
+            "role": body.role,
+            "is_active": body.is_active,
+            "revoked_older_tokens": revoked,
+        },
         ip_address=request.client.host if request.client else None,
     )
     return UserPatchResponse(**dict(row), revoked_older_tokens=revoked)

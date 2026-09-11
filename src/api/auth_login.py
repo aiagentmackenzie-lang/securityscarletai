@@ -9,6 +9,7 @@ GET  /api/v1/auth/me            - Get current user info (requires JWT)
 
 Users are stored in the siem_users table with bcrypt-hashed passwords.
 """
+
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -75,6 +76,7 @@ class UserInfoResponse(BaseModel):
 
 class ForceChangePasswordRequest(BaseModel):
     """Used when must_change_password is true - no current password required."""
+
     new_password: str = Field(..., min_length=8, max_length=200)
 
 
@@ -141,16 +143,12 @@ async def login(
             from src.api.login_lockout import register_failure
 
             client_ip = request.client.host if request.client else "unknown"
-            should_lock, lock_seconds = await register_failure(
-                row["username"], client_ip
-            )
+            should_lock, lock_seconds = await register_failure(row["username"], client_ip)
 
             new_attempts = (row.get("failed_login_attempts", 0) or 0) + 1
             lock_until = None
             if should_lock is True:
-                lock_until = datetime.now(tz=timezone.utc) + timedelta(
-                    seconds=lock_seconds
-                )
+                lock_until = datetime.now(tz=timezone.utc) + timedelta(seconds=lock_seconds)
             elif should_lock is None and new_attempts >= 5:
                 # legacy fallback (Redis unavailable)
                 lock_until = datetime.now(tz=timezone.utc) + timedelta(minutes=15)
@@ -285,6 +283,7 @@ async def change_password(
     # tokens remain valid until natural expiry.
     from src.api.redis_client import set_user_revoke_marker
     from src.config.settings import settings
+
     revoke_ttl = (settings.refresh_token_ttl_days + 1) * 24 * 3600
     await set_user_revoke_marker(payload["sub"], datetime.now(tz=timezone.utc), revoke_ttl)
 
@@ -334,6 +333,7 @@ async def force_change_password(
 
     log.info("force_password_changed", username=payload["sub"])
     return {"message": "Password changed successfully. You can now log in normally."}
+
 
 @router.post("/seed-admin")
 async def seed_admin_user(request: Request):
@@ -399,10 +399,14 @@ async def seed_admin_user(request: Request):
             detail="Users already exist. Use the login endpoint.",
         )
 
-    log.warning("seed_admin_created", message="Localhost-seeded admin user created - password reset forced on first login")  # noqa: E501
+    log.warning(
+        "seed_admin_created",
+        message="Localhost-seeded admin user created - password reset forced on first login",
+    )  # noqa: E501
     return {
-        "message": ("Admin user created (localhost-only seed). "
-                    "A password reset is required on first login."),
+        "message": (
+            "Admin user created (localhost-only seed). A password reset is required on first login."
+        ),
         "username": "admin",
         "must_change_password": True,
     }
@@ -418,6 +422,7 @@ async def refresh_token(request: RefreshRequest):
     from jose import JWTError, jwt
 
     from src.config.settings import settings as _settings
+
     try:
         payload = jwt.decode(
             request.refresh_token,
@@ -494,6 +499,7 @@ async def refresh_token(request: RefreshRequest):
 
     # Rotate: block old refresh, issue new pair.
     from src.api.redis_client import blocklist_jti
+
     if jti:
         await blocklist_jti(jti, _settings.refresh_token_ttl_days * 24 * 3600)
 

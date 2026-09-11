@@ -778,9 +778,9 @@ class TestCsvFormulaInjectionGuard:
     async def test_hostile_host_name_neutralized(self):
         with patch(
             "src.detection.alerts.get_pool",
-            AsyncMock(return_value=self._pool_with_row(
-                host_name='=HYPERLINK("http://evil","click")'
-            )),
+            AsyncMock(
+                return_value=self._pool_with_row(host_name='=HYPERLINK("http://evil","click")')
+            ),
         ):
             result = await export_alerts_csv(hours=24)
         assert "'=HYPERLINK" in result
@@ -790,9 +790,7 @@ class TestCsvFormulaInjectionGuard:
     async def test_hostile_description_neutralized(self):
         with patch(
             "src.detection.alerts.get_pool",
-            AsyncMock(return_value=self._pool_with_row(
-                description="@SUM(1+1)"
-            )),
+            AsyncMock(return_value=self._pool_with_row(description="@SUM(1+1)")),
         ):
             result = await export_alerts_csv(hours=24)
         assert "'@SUM" in result

@@ -250,13 +250,18 @@ Edge-triggered (alerts only on state change — no spam): API health endpoint
 
 ### Enforcing-flip plan (Sep 16, Raphael's two-week P3.5 window)
 
-Prep done; the flip is a mechanical diff when the window opens:
+**EXECUTED 2026-09-10, six days early** — the flip condition ("remediation
+verified complete") held before the window opened: pip-audit residual = the
+two documented risk-accepts only (pip-audit now reports them as PYSEC IDs,
+aliased to the CVEs; all four IDs ignored with the rationale above), trivy
+zero findings. The diff below is retained as the record of what the flip
+was.
 1. `trivy-image-scan`: currently **zero findings** — remove
-   `continue-on-error: true` from the job. Done.
-2. `dependency-audit`: add `--ignore-vuln CVE-2024-23342 --ignore-vuln
-   CVE-2025-69872` to the pip-audit step (the two P4 risk-accepts, documented
-   expiry 2026-12-01 — the ignore entries must carry the same rationale), then
-   remove `continue-on-error: true`.
+   `continue-on-error: true` from the job. Done (executed 2026-09-10).
+2. `dependency-audit`: add `--ignore-vuln` entries for the two P4
+   risk-accepts (expiry 2026-12-01, rationale in the YAML comment) then
+   remove `continue-on-error: true`. Done (executed 2026-09-10; ignore IDs
+   cover both the PYSEC and CVE aliases).
 3. `python -m scripts.check_audit_grants --strict --app-role "$DB_USER"` is a
    candidate boot gate once any deploy pipeline wants it (exits 0 in the
    local-prod posture; the app role must be explicit or via the exported

@@ -12,6 +12,7 @@ Features:
 ALL data fetched through ApiClient — NO direct database access.
 Loading states: st.status() for AI operations, st.spinner() for template/fetch loads.
 """
+
 import streamlit as st
 
 from dashboard.api_client import ApiError
@@ -68,16 +69,10 @@ def render_ai_chat():
 
                     if can_write():
                         if st.button("Retrain Models", key="retrain_btn"):
-                            with st.status(
-                                "Training AI models...",
-                                expanded=True
-                            ) as train_status:
+                            with st.status("Training AI models...", expanded=True) as train_status:
                                 try:
                                     result = api.ai_train()
-                                    train_status.update(
-                                        label="Training complete",
-                                        state="complete"
-                                    )
+                                    train_status.update(label="Training complete", state="complete")
                                     st.toast("Model training complete")
                                     st.success(
                                         f"Training complete: {result.get('message', 'Done')}"
@@ -153,9 +148,7 @@ def render_ai_chat():
                             "verify specifics against the alerts before acting."
                         )
                     st.markdown(response)
-                    st.session_state.chat_history.append(
-                        {"role": "assistant", "content": response}
-                    )
+                    st.session_state.chat_history.append({"role": "assistant", "content": response})
 
                 except ApiError as e:
                     status.update(label="Request failed", state="error")
@@ -229,6 +222,7 @@ def render_ai_chat():
                 results = result.get("results", [])
                 if results:
                     import pandas as pd
+
                     df = pd.DataFrame(results)
                     st.dataframe(df, use_container_width=True, hide_index=True)
                     st.caption(f"Query returned {len(results)} rows")

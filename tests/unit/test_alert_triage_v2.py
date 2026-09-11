@@ -13,6 +13,7 @@ Covers:
 - fold_accuracies is a list of 5 floats
 - Persisted model_path is non-None only on accept
 """
+
 from __future__ import annotations
 
 import math
@@ -77,9 +78,7 @@ def noisy_csv(tmp_path: Path) -> Path:
     with out.open("w", newline="") as f:
         writer = _csv.DictWriter(
             f,
-            fieldnames=[ALERT_ID_COLUMN]
-            + AlertTriageModel.FEATURES
-            + [LABEL_COLUMN],
+            fieldnames=[ALERT_ID_COLUMN] + AlertTriageModel.FEATURES + [LABEL_COLUMN],
         )
         writer.writeheader()
         for row in rows:
@@ -90,9 +89,7 @@ def noisy_csv(tmp_path: Path) -> Path:
 @pytest.fixture
 def empty_csv(tmp_path: Path) -> Path:
     out = tmp_path / "empty.csv"
-    out.write_text(
-        "alert_id," + ",".join(AlertTriageModel.FEATURES) + ",label\n"
-    )
+    out.write_text("alert_id," + ",".join(AlertTriageModel.FEATURES) + ",label\n")
     return out
 
 
@@ -169,10 +166,10 @@ class TestTrainV2Accepted:
         # postgres service container's credentials DO match and the row actually
         # wrote (CI red on main since 2026-09-02, unnoticed). Pin the seam
         # explicitly instead: DB unreachable, instantly, every environment.
-        with patch("src.ai.alert_triage.MODEL_DIR", tmp_path / "models"), patch(
-            "src.ai.alert_triage._db_reachable", return_value=False
-        ), patch(
-            "src.ai.alert_triage.get_pool", side_effect=OSError("no db in unit tests")
+        with (
+            patch("src.ai.alert_triage.MODEL_DIR", tmp_path / "models"),
+            patch("src.ai.alert_triage._db_reachable", return_value=False),
+            patch("src.ai.alert_triage.get_pool", side_effect=OSError("no db in unit tests")),
         ):
             result = await m.train_v2(csv_path=good_csv)
 
@@ -186,9 +183,7 @@ class TestTrainV2Accepted:
         assert "CalibratedClassifierCV" in (result["model_type"] or "")
 
     @pytest.mark.asyncio
-    async def test_five_fold_cv_returns_five_accuracies(
-        self, good_csv: Path, tmp_path: Path
-    ):
+    async def test_five_fold_cv_returns_five_accuracies(self, good_csv: Path, tmp_path: Path):
         m = AlertTriageModel(load=False)
         with patch("src.ai.alert_triage.MODEL_DIR", tmp_path / "models"):
             result = await m.train_v2(csv_path=good_csv)
@@ -276,8 +271,9 @@ class TestLatestProvenance:
         # latest_provenance calls get_pool directly (alert_triage.py:816); make it
         # fail INSTANTLY instead of paying the real 15s retry storm, then assert
         # the except path still returns None.
-        with patch("src.ai.alert_triage._db_reachable", return_value=False), patch(
-            "src.ai.alert_triage.get_pool", side_effect=OSError("no db in unit tests")
+        with (
+            patch("src.ai.alert_triage._db_reachable", return_value=False),
+            patch("src.ai.alert_triage.get_pool", side_effect=OSError("no db in unit tests")),
         ):
             result = await m.latest_provenance()
         assert result is None

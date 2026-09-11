@@ -11,6 +11,7 @@ src/detection/alerts.py::_is_suppressed) — that guard is noted in the UI.
 
 ALL data via ApiClient — NO direct DB access.
 """
+
 import streamlit as st
 
 from dashboard.api_client import ApiError
@@ -74,10 +75,7 @@ def render_suppressions_view() -> None:
             ):
                 try:
                     client.set_suppression_enabled(int(sup["id"]), not current)
-                    st.toast(
-                        f"Suppression #{sup['id']} "
-                        f"{'enabled' if not current else 'disabled'}"
-                    )
+                    st.toast(f"Suppression #{sup['id']} {'enabled' if not current else 'disabled'}")
                     st.rerun()
                 except ApiError as e:
                     st.error(f"Toggle failed: {e.detail}")

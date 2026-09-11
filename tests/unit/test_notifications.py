@@ -222,4 +222,3 @@ class TestSendAlertNotification:
             await send_alert_notification(alert)
             call_args = mock_slack.call_args[0][0]
             assert "prod-server-01" in call_args
-

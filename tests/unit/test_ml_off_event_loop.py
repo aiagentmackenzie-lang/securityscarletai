@@ -8,6 +8,7 @@ Deterministic proof: each fit records the thread it ran on, and the test
 asserts it is NOT the event-loop thread (asyncio.to_thread always executes
 in a worker thread; a sync call would run on the loop thread).
 """
+
 from __future__ import annotations
 
 import threading
@@ -34,10 +35,7 @@ def _mock_pool(rows):
 
 
 def _label_rows(n: int) -> list:
-    return [
-        {"id": i, "status": "resolved" if i % 2 == 0 else "false_positive"}
-        for i in range(n)
-    ]
+    return [{"id": i, "status": "resolved" if i % 2 == 0 else "false_positive"} for i in range(n)]
 
 
 def _csv_fixture(tmp_path: Path) -> Path:
@@ -135,11 +133,7 @@ async def test_ueba_train_fit_runs_off_event_loop_thread():
     with (
         patch(
             "src.ai.ueba.get_pool",
-            AsyncMock(
-                return_value=_mock_pool(
-                    [{"user_name": f"user{i}"} for i in range(5)]
-                )
-            ),
+            AsyncMock(return_value=_mock_pool([{"user_name": f"user{i}"} for i in range(5)])),
         ),
         patch.object(engine, "extract_user_features", fake_features),
         patch.object(engine, "_save_model"),

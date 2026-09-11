@@ -7,6 +7,7 @@ triage_model_provenance row. When the DB is unreachable, `provenance`
 must be None — the endpoint must still return 200 with all existing
 keys intact (backward compatibility).
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -19,12 +20,14 @@ class TestGetStatusIncludesProvenance:
     async def test_provenance_none_when_db_unreachable(self):
         # Stub out everything the endpoint calls so we only exercise
         # the new provenance-attachment branch.
-        with patch("src.api.ai.AlertTriageModel") as MockModel, patch(
-            "src.api.ai.get_ueba"
-        ) as mock_ueba, patch(
-            "src.api.health._cached_ollama_check",
-            new_callable=AsyncMock,
-            return_value=(False, None, "unreachable"),
+        with (
+            patch("src.api.ai.AlertTriageModel") as MockModel,
+            patch("src.api.ai.get_ueba") as mock_ueba,
+            patch(
+                "src.api.health._cached_ollama_check",
+                new_callable=AsyncMock,
+                return_value=(False, None, "unreachable"),
+            ),
         ):
             instance = MockModel.return_value
             instance.get_status.return_value = {
@@ -63,10 +66,14 @@ class TestGetStatusIncludesProvenance:
             "calibrated": True,
             "trained_at": "2026-06-01T00:00:00+00:00",
         }
-        with patch("src.api.ai.AlertTriageModel") as MockModel, patch(
-            "src.api.ai.get_ueba"
-        ) as mock_ueba, patch(
-            "src.api.health._cached_ollama_check", new_callable=AsyncMock, return_value=(False, None, "unreachable")
+        with (
+            patch("src.api.ai.AlertTriageModel") as MockModel,
+            patch("src.api.ai.get_ueba") as mock_ueba,
+            patch(
+                "src.api.health._cached_ollama_check",
+                new_callable=AsyncMock,
+                return_value=(False, None, "unreachable"),
+            ),
         ):
             instance = MockModel.return_value
             instance.get_status.return_value = {"is_trained": True, "model_type": "X"}
@@ -89,16 +96,18 @@ class TestGetStatusIncludesProvenance:
     async def test_provenance_lookup_exception_yields_none(self):
         # If latest_provenance() raises, the endpoint must swallow it
         # and still return a valid 200 with provenance=None.
-        with patch("src.api.ai.AlertTriageModel") as MockModel, patch(
-            "src.api.ai.get_ueba"
-        ) as mock_ueba, patch(
-            "src.api.health._cached_ollama_check", new_callable=AsyncMock, return_value=(False, None, "unreachable")
+        with (
+            patch("src.api.ai.AlertTriageModel") as MockModel,
+            patch("src.api.ai.get_ueba") as mock_ueba,
+            patch(
+                "src.api.health._cached_ollama_check",
+                new_callable=AsyncMock,
+                return_value=(False, None, "unreachable"),
+            ),
         ):
             instance = MockModel.return_value
             instance.get_status.return_value = {"is_trained": False}
-            instance.latest_provenance = AsyncMock(
-                side_effect=RuntimeError("db down")
-            )
+            instance.latest_provenance = AsyncMock(side_effect=RuntimeError("db down"))
             ueba_instance = MagicMock()
             ueba_instance.get_status.return_value = {"is_trained": False}
             mock_ueba.return_value = ueba_instance

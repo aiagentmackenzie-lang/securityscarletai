@@ -62,7 +62,7 @@ def test_not_condition_emits_not_operator():
     # Legacy `_parse_condition` handles `selection and not filter` (bare `not`
     # alone is not supported by the legacy parser, but no shipped rule uses it).
     sql, params = sigma_to_sql(
-        "title: t\nlogsource:\n  category: process\ndetection:\n  s:\n    process_name: \"x\"\n  f:\n    process_name: \"y\"\n  condition: s and not f\n"
+        'title: t\nlogsource:\n  category: process\ndetection:\n  s:\n    process_name: "x"\n  f:\n    process_name: "y"\n  condition: s and not f\n'
     )
     assert "NOT" in sql
     assert "x" in params
@@ -171,25 +171,36 @@ class TestBackendConditionMethods:
         from sigma.conversion.state import ConversionState
 
         b = self._backend()
-        assert b.convert_condition_contains("process_name", "$1", ConversionState()) == "process_name LIKE $1"
+        assert (
+            b.convert_condition_contains("process_name", "$1", ConversionState())
+            == "process_name LIKE $1"
+        )
 
     def test_startswith(self):
         from sigma.conversion.state import ConversionState
 
         b = self._backend()
-        assert b.convert_condition_startswith("process_name", "$1", ConversionState()) == "process_name LIKE $1"
+        assert (
+            b.convert_condition_startswith("process_name", "$1", ConversionState())
+            == "process_name LIKE $1"
+        )
 
     def test_endswith(self):
         from sigma.conversion.state import ConversionState
 
         b = self._backend()
-        assert b.convert_condition_endswith("file_path", "$1", ConversionState()) == "file_path LIKE $1"
+        assert (
+            b.convert_condition_endswith("file_path", "$1", ConversionState())
+            == "file_path LIKE $1"
+        )
 
     def test_regex(self):
         from sigma.conversion.state import ConversionState
 
         b = self._backend()
-        assert b.convert_condition_re("process_name", "$1", ConversionState()) == "process_name ~ $1"
+        assert (
+            b.convert_condition_re("process_name", "$1", ConversionState()) == "process_name ~ $1"
+        )
 
     def test_in(self):
         from sigma.conversion.state import ConversionState

@@ -107,17 +107,20 @@ class TestExplainAlert:
             "3. **Next steps**: Review login history"
         )
         mock_result = LLMResult(
-            ok=True, text=mock_explanation, source="ollama",
-            model_used="mistral:7b", tokens_in=20, tokens_out=15,
-            latency_ms=300, fallback_used=False, prompt_version="v1.0.0",
+            ok=True,
+            text=mock_explanation,
+            source="ollama",
+            model_used="mistral:7b",
+            tokens_in=20,
+            tokens_out=15,
+            latency_ms=300,
+            fallback_used=False,
+            prompt_version="v1.0.0",
         )
 
         with (
-
             patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)),
-
             patch("src.ai.cost_tracker.get_pool", side_effect=OSError("no db in unit tests")),
-
         ):
             result = await explain_alert(
                 rule_name="Brute Force SSH",
@@ -130,16 +133,26 @@ class TestExplainAlert:
             )
 
         assert result["source"] == "ollama"
-        assert "Brute Force SSH" in result["explanation"] or "brute force" in result["explanation"].lower()
+        assert (
+            "Brute Force SSH" in result["explanation"]
+            or "brute force" in result["explanation"].lower()
+        )
 
     @pytest.mark.asyncio
     async def test_explain_fallback_to_template(self):
         """Should fallback to template when LLM is unavailable."""
         template_text = get_template_explanation("brute_force_ssh") or ""
         mock_result = LLMResult(
-            ok=True, text=template_text, source="template_library", model_used=None,
-            tokens_in=0, tokens_out=0, latency_ms=0, fallback_used=True,
-            warning="Ollama not responding", prompt_version="v1.0.0",
+            ok=True,
+            text=template_text,
+            source="template_library",
+            model_used=None,
+            tokens_in=0,
+            tokens_out=0,
+            latency_ms=0,
+            fallback_used=True,
+            warning="Ollama not responding",
+            prompt_version="v1.0.0",
         )
         with (
             patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)),
@@ -163,13 +176,21 @@ class TestExplainAlert:
         # _generic_fallback builder. The mock should mirror what query_llm
         # would return: the fallback_text the caller passed in.
         from src.ai.alert_explanation import _generic_fallback
+
         fallback_text = _generic_fallback(
             "custom_alert_xyz", "Custom alert description", "medium", "workstation-01"
         )
         mock_result = LLMResult(
-            ok=True, text=fallback_text, source="template_library", model_used=None,
-            tokens_in=0, tokens_out=0, latency_ms=0, fallback_used=True,
-            warning="Ollama not responding", prompt_version="v1.0.0",
+            ok=True,
+            text=fallback_text,
+            source="template_library",
+            model_used=None,
+            tokens_in=0,
+            tokens_out=0,
+            latency_ms=0,
+            fallback_used=True,
+            warning="Ollama not responding",
+            prompt_version="v1.0.0",
         )
         with (
             patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)),
@@ -197,9 +218,15 @@ class TestExplainAlert:
         """Should include MITRE techniques and evidence in context."""
         mock_explanation = "Analysis of the alert."
         mock_result = LLMResult(
-            ok=True, text=mock_explanation, source="ollama",
-            model_used="mistral:7b", tokens_in=20, tokens_out=15,
-            latency_ms=300, fallback_used=False, prompt_version="v1.0.0",
+            ok=True,
+            text=mock_explanation,
+            source="ollama",
+            model_used="mistral:7b",
+            tokens_in=20,
+            tokens_out=15,
+            latency_ms=300,
+            fallback_used=False,
+            prompt_version="v1.0.0",
         )
 
         with (
@@ -227,9 +254,15 @@ class TestExplainAlert:
         """Should work with no MITRE techniques or evidence."""
         mock_explanation = "Simple explanation."
         mock_result = LLMResult(
-            ok=True, text=mock_explanation, source="ollama",
-            model_used="mistral:7b", tokens_in=20, tokens_out=15,
-            latency_ms=300, fallback_used=False, prompt_version="v1.0.0",
+            ok=True,
+            text=mock_explanation,
+            source="ollama",
+            model_used="mistral:7b",
+            tokens_in=20,
+            tokens_out=15,
+            latency_ms=300,
+            fallback_used=False,
+            prompt_version="v1.0.0",
         )
         with (
             patch("src.ai.alert_explanation.query_llm", AsyncMock(return_value=mock_result)),

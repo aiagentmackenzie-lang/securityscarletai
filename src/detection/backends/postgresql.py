@@ -12,6 +12,7 @@ the SecurityScarletAI logs table with all safety measures:
 - Intervals use safe INTERVAL '1 second' * $N pattern
 - Timeframe is converted to integer seconds (safe parameter)
 """
+
 import re
 from typing import Any, ClassVar, Iterable, Optional, cast
 
@@ -28,13 +29,27 @@ log = get_logger("detection.backends.postgresql")
 # ───────────────────────────────────────────────────────────
 # Column whitelist — same as in sigma.py, single source of truth
 # ───────────────────────────────────────────────────────────
-ALLOWED_COLUMNS = frozenset({
-    "event_type", "event_action", "event_category",
-    "host_name", "source_ip", "destination_ip", "destination_port",
-    "process_name", "process_pid", "process_cmdline", "process_path",
-    "user_name", "file_path", "file_hash",
-    "severity", "source", "host_ip",
-})
+ALLOWED_COLUMNS = frozenset(
+    {
+        "event_type",
+        "event_action",
+        "event_category",
+        "host_name",
+        "source_ip",
+        "destination_ip",
+        "destination_port",
+        "process_name",
+        "process_pid",
+        "process_cmdline",
+        "process_path",
+        "user_name",
+        "file_path",
+        "file_hash",
+        "severity",
+        "source",
+        "host_ip",
+    }
+)
 
 # Sigma field → logs table column mapping
 FIELD_MAPPING: dict[str, str] = {
@@ -286,10 +301,6 @@ class PostgreSQLBackend(TextQueryBackend):
                 f"HAVING COUNT({count_field}) > {threshold_param}"
             )
         else:
-            sql = (
-                f"SELECT * FROM logs "
-                f"WHERE {where_clause} AND {time_filter} "
-                f"ORDER BY time DESC"
-            )
+            sql = f"SELECT * FROM logs WHERE {where_clause} AND {time_filter} ORDER BY time DESC"
 
         return sql, self._params

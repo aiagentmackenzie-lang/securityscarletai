@@ -3,6 +3,7 @@ AI Chat API endpoint.
 
 POST /api/v1/ai/chat — Context-aware security chat
 """
+
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 
@@ -18,8 +19,11 @@ router = APIRouter(tags=["ai"])
 
 class ChatRequest(BaseModel):
     """Chat message request."""
+
     message: str = Field(
-        ..., min_length=1, max_length=1000,
+        ...,
+        min_length=1,
+        max_length=1000,
         description="Security question or command",
     )
     session_id: str | None = Field(
@@ -30,6 +34,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     """Chat response."""
+
     response: str
     context_used: bool
     warnings: list[str] | None = None

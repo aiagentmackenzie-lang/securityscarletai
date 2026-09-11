@@ -21,9 +21,9 @@ ACCENT_GLOW = "rgba(0,188,212,0.18)"
 
 # Brand scarlet (the shield mark) — used for the auth front door: wordmark
 # and the Sign In button. The app-wide functional accent stays cyan.
-BRAND_SCARLET = "#e11d48"         # rose-600 — shield mid, button base
+BRAND_SCARLET = "#e11d48"  # rose-600 — shield mid, button base
 BRAND_SCARLET_BRIGHT = "#f43f5e"  # rose-400 — shield top, wordmark
-BRAND_SCARLET_DEEP = "#be123c"    # rose-700 — button gradient end/hover
+BRAND_SCARLET_DEEP = "#be123c"  # rose-700 — button gradient end/hover
 TEXT_PRIMARY = "#e8ecf1"
 TEXT_SECONDARY = "#8b95a5"
 TEXT_MUTED = "#5a6578"
@@ -65,6 +65,7 @@ STATUS_CSS_MAP = {
 
 # ─── Helpers ──────────────────────────────────────────────────
 
+
 def badge(label: str, css_class: str) -> str:
     """HTML badge span.  The CSS class must exist in injected global styles.
 
@@ -95,14 +96,14 @@ def logo_svg(size: int = 64, id_prefix: str = "ss") -> str:
     return (
         f'<svg width="{size}" height="{size}" viewBox="0 0 64 64" '
         'fill="none" xmlns="http://www.w3.org/2000/svg">'
-        '<defs>'
+        "<defs>"
         f'<linearGradient id="{id_prefix}-shield" x1="10" y1="4" x2="54" y2="60" '
         'gradientUnits="userSpaceOnUse">'
         '<stop offset="0" stop-color="#f43f5e"/>'
         '<stop offset="0.55" stop-color="#e11d48"/>'
         '<stop offset="1" stop-color="#9f1239"/>'
-        '</linearGradient>'
-        '</defs>'
+        "</linearGradient>"
+        "</defs>"
         '<path d="M32 3 L55 11 V29 C55 44.5 45.5 55.5 32 61 '
         'C18.5 55.5 9 44.5 9 29 V11 Z" '
         f'fill="url(#{id_prefix}-shield)"/>'
@@ -113,7 +114,7 @@ def logo_svg(size: int = 64, id_prefix: str = "ss") -> str:
         'stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" '
         'fill="none"/>'
         '<circle cx="49" cy="33" r="1.6" fill="#00e5ff"/>'
-        '</svg>'
+        "</svg>"
     )
 
 

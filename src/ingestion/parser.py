@@ -14,6 +14,7 @@ osquery result log format (one JSON object per line):
   "action": "added"
 }
 """
+
 import json
 import socket
 from datetime import datetime, timezone

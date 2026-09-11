@@ -4,6 +4,7 @@ Configuration validation script.
 Verifies environment setup before starting SecurityScarletAI.
 Checks database, Ollama, osquery, and required directories.
 """
+
 import asyncio
 import sys
 from pathlib import Path
@@ -146,7 +147,9 @@ async def main():
         status = "✅ PASS" if passed else "❌ FAIL"
         print(f"{status:10} {name}")
 
-    all_critical_passed = all(r[1] for r in results if r[0] not in ["Ollama (optional)", "osquery (optional)"])
+    all_critical_passed = all(
+        r[1] for r in results if r[0] not in ["Ollama (optional)", "osquery (optional)"]
+    )
 
     if all_critical_passed:
         print("\n✅ All critical checks passed! Ready to start.")

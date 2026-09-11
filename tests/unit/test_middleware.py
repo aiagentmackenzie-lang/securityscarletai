@@ -332,11 +332,11 @@ class TestRequestBodyHashP3_2:
 
     @pytest.mark.asyncio
     async def test_chunked_post_body_hashed(self, mw):
-        chunks = [{"type": "http.request", "body": b"hello ", "more_body": True},
-                  {"type": "http.request", "body": b"chunked world", "more_body": False}]
-        request = _request_with_body(
-            headers=[(b"transfer-encoding", b"chunked")], messages=chunks
-        )
+        chunks = [
+            {"type": "http.request", "body": b"hello ", "more_body": True},
+            {"type": "http.request", "body": b"chunked world", "more_body": False},
+        ]
+        request = _request_with_body(headers=[(b"transfer-encoding", b"chunked")], messages=chunks)
         seen = {}
 
         async def call_next(req):
@@ -437,7 +437,6 @@ class TestRequestBodyHashP3_2:
         app.add_middleware(RequestValidationMiddleware)
         client = TestClient(app)
         payload = '{"k": "v"}'
-        resp = client.post("/echo", content=payload,
-                           headers={"content-type": "application/json"})
+        resp = client.post("/echo", content=payload, headers={"content-type": "application/json"})
         assert resp.status_code == 200
         assert resp.json()["body"] == payload

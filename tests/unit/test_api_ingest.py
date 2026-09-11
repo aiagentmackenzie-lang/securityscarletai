@@ -236,9 +236,7 @@ class TestBroadcastOffHotPath:
             patch("src.detection.correlation.run_all_correlations", AsyncMock()),
             patch("src.api.websocket.broadcast_event", failing_broadcast),
         ):
-            result = await ingest_events(
-                make_test_request(), MagicMock(), events, "token"
-            )
+            result = await ingest_events(make_test_request(), MagicMock(), events, "token")
             assert result.accepted == 1
             # Yield the loop so the _post_process background task runs —
             # the broadcast is NOT part of the request path anymore.

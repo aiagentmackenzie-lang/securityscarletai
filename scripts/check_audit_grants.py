@@ -17,6 +17,7 @@ Exit codes:
     1  -- --strict and at least one audit table is mutable by the app role
     2  -- could not determine the grant state (DB unreachable / table missing)
 """
+
 from __future__ import annotations
 
 import argparse
@@ -48,9 +49,7 @@ def evaluate_append_only(
         privs = grants.get(table, set())
         mutate = privs & MUTATE_PRIVILEGES
         if mutate:
-            problems.append(
-                f"{table}: app role has {sorted(mutate)} — append-only NOT enforced"
-            )
+            problems.append(f"{table}: app role has {sorted(mutate)} — append-only NOT enforced")
     return (len(problems) == 0, problems)
 
 

@@ -8,6 +8,7 @@ for monitoring/alerting.
 Backward compat: `checks["ollama"]` is still populated with the same
 string values as before so existing tests/monitors don't break.
 """
+
 import time
 from typing import Any, cast
 

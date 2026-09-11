@@ -62,6 +62,7 @@ async def get_pool():
         # Try loading from .env
         try:
             from dotenv import load_dotenv
+
             load_dotenv()
             database_url = os.environ.get("DATABASE_URL")
         except ImportError:
@@ -81,10 +82,13 @@ async def get_pool():
 async def check_column_exists(pool, column_name: str) -> bool:
     """Check if a column exists in siem_users."""
     async with pool.acquire() as conn:
-        result = await conn.fetchval("""
+        result = await conn.fetchval(
+            """
             SELECT COUNT(*) FROM information_schema.columns
             WHERE table_name = 'siem_users' AND column_name = $1
-        """, column_name)
+        """,
+            column_name,
+        )
         return result > 0
 
 
@@ -180,9 +184,7 @@ async def run_migration(dry_run: bool = False):
             print("   UPDATE siem_users SET must_change_password = true")
         else:
             async with pool.acquire() as conn:
-                affected = await conn.execute(
-                    "UPDATE siem_users SET must_change_password = true"
-                )
+                affected = await conn.execute("UPDATE siem_users SET must_change_password = true")
             count = int(affected.split()[-1])
             print(f"✅ Flagged {count} users for password reset on next login.")
 
@@ -193,15 +195,18 @@ async def run_migration(dry_run: bool = False):
             print("🔧 [DRY RUN] Would log migration in audit_log")
         else:
             async with pool.acquire() as conn:
-                await conn.execute("""
+                await conn.execute(
+                    """
                     INSERT INTO audit_log (actor, action, target_type, new_values)
                     VALUES ($1, $2, $3, $4)
                 """,
-                "system",
-                "user.password_migration",
-                "user",
-                '{"description": "M-10 SHA-256 pre-hash migration: all users flagged for password reset", "users_affected": ' + str(total_users) + '}',
-            )
+                    "system",
+                    "user.password_migration",
+                    "user",
+                    '{"description": "M-10 SHA-256 pre-hash migration: all users flagged for password reset", "users_affected": '
+                    + str(total_users)
+                    + "}",
+                )
             print("📝 Migration logged in audit_log.")
 
         print()
@@ -227,9 +232,7 @@ async def run_migration(dry_run: bool = False):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Migrate passwords for M-10 SHA-256 pre-hash fix"
-    )
+    parser = argparse.ArgumentParser(description="Migrate passwords for M-10 SHA-256 pre-hash fix")
     parser.add_argument(
         "--dry-run",
         action="store_true",

@@ -12,6 +12,7 @@ Endpoints:
   POST   /cases/{id}/notes             — Add a note to the case
   GET    /cases/{id}/notes             — Get all notes for a case
 """
+
 import json
 from datetime import datetime, timezone
 from typing import Annotated
@@ -195,7 +196,8 @@ async def get_case(
         alerts = []
         if alert_ids:
             alerts = [
-                dict(r) for r in await conn.fetch(
+                dict(r)
+                for r in await conn.fetch(
                     "SELECT id, time, rule_name, severity, status, "
                     "host_name, description, assigned_to "
                     "FROM alerts WHERE id = ANY($1)",
@@ -275,7 +277,8 @@ async def update_case(
         target_type="case",
         target_id=case_id,
         old_values={
-            k: str(v) for k, v in dict(current).items()
+            k: str(v)
+            for k, v in dict(current).items()
             if k in ("status", "assigned_to", "title", "lessons_learned")
         },
         new_values=update.model_dump(exclude_none=True),

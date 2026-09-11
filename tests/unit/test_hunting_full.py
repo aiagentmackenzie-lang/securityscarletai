@@ -366,11 +366,20 @@ class TestAnalyzeHuntingResults:
     async def test_analyze_with_llm(self):
         """Should return LLM analysis string."""
         with patch(
-            "src.ai.hunting_assistant.query_llm", AsyncMock(return_value=LLMResult(
-                ok=True, text="This looks suspicious.", source="ollama",
-                model_used="mistral:7b", tokens_in=10, tokens_out=8,
-                latency_ms=200, fallback_used=False, prompt_version="v1.0.0",
-            ))
+            "src.ai.hunting_assistant.query_llm",
+            AsyncMock(
+                return_value=LLMResult(
+                    ok=True,
+                    text="This looks suspicious.",
+                    source="ollama",
+                    model_used="mistral:7b",
+                    tokens_in=10,
+                    tokens_out=8,
+                    latency_ms=200,
+                    fallback_used=False,
+                    prompt_version="v1.0.0",
+                )
+            ),
         ):
             result = await analyze_hunting_results(
                 "C2 Beaconing", 5, [{"ip": "10.0.0.1", "count": 50}]
@@ -380,22 +389,46 @@ class TestAnalyzeHuntingResults:
     @pytest.mark.asyncio
     async def test_analyze_fallback_zero_results(self):
         """Should return template analysis for 0 results."""
-        with patch("src.ai.hunting_assistant.query_llm", AsyncMock(return_value=LLMResult(
-            ok=True, text="", source="template_library", model_used=None,
-            tokens_in=0, tokens_out=0, latency_ms=0, fallback_used=True,
-            warning="Ollama not responding", prompt_version="v1.0.0",
-        ))):
+        with patch(
+            "src.ai.hunting_assistant.query_llm",
+            AsyncMock(
+                return_value=LLMResult(
+                    ok=True,
+                    text="",
+                    source="template_library",
+                    model_used=None,
+                    tokens_in=0,
+                    tokens_out=0,
+                    latency_ms=0,
+                    fallback_used=True,
+                    warning="Ollama not responding",
+                    prompt_version="v1.0.0",
+                )
+            ),
+        ):
             result = await analyze_hunting_results("C2 Beaconing", 0, [])
         assert "No results" in result
 
     @pytest.mark.asyncio
     async def test_analyze_fallback_with_results(self):
         """Should return template analysis for results found."""
-        with patch("src.ai.hunting_assistant.query_llm", AsyncMock(return_value=LLMResult(
-            ok=True, text="", source="template_library", model_used=None,
-            tokens_in=0, tokens_out=0, latency_ms=0, fallback_used=True,
-            warning="Ollama not responding", prompt_version="v1.0.0",
-        ))):
+        with patch(
+            "src.ai.hunting_assistant.query_llm",
+            AsyncMock(
+                return_value=LLMResult(
+                    ok=True,
+                    text="",
+                    source="template_library",
+                    model_used=None,
+                    tokens_in=0,
+                    tokens_out=0,
+                    latency_ms=0,
+                    fallback_used=True,
+                    warning="Ollama not responding",
+                    prompt_version="v1.0.0",
+                )
+            ),
+        ):
             result = await analyze_hunting_results("Privilege Escalation", 10, [])
         assert "10 results" in result
 
@@ -414,11 +447,22 @@ class TestSuggestHuntsForAlert:
             "2. Search for similar alerts across the environment\n"
             "3. Investigate lateral movement patterns"
         )
-        with patch("src.ai.hunting_assistant.query_llm", AsyncMock(return_value=LLMResult(
-            ok=True, text=mock_response, source="ollama",
-            model_used="mistral:7b", tokens_in=20, tokens_out=15,
-            latency_ms=300, fallback_used=False, prompt_version="v1.0.0",
-        ))):
+        with patch(
+            "src.ai.hunting_assistant.query_llm",
+            AsyncMock(
+                return_value=LLMResult(
+                    ok=True,
+                    text=mock_response,
+                    source="ollama",
+                    model_used="mistral:7b",
+                    tokens_in=20,
+                    tokens_out=15,
+                    latency_ms=300,
+                    fallback_used=False,
+                    prompt_version="v1.0.0",
+                )
+            ),
+        ):
             result = await _suggest_hunts_for_alert(
                 {
                     "rule_name": "Brute Force SSH",
@@ -434,11 +478,23 @@ class TestSuggestHuntsForAlert:
     @pytest.mark.asyncio
     async def test_fallback_suggestions(self):
         """Should return fallback suggestions when LLM unavailable."""
-        with patch("src.ai.hunting_assistant.query_llm", AsyncMock(return_value=LLMResult(
-            ok=True, text="", source="template_library", model_used=None,
-            tokens_in=0, tokens_out=0, latency_ms=0, fallback_used=True,
-            warning="Ollama not responding", prompt_version="v1.0.0",
-        ))):
+        with patch(
+            "src.ai.hunting_assistant.query_llm",
+            AsyncMock(
+                return_value=LLMResult(
+                    ok=True,
+                    text="",
+                    source="template_library",
+                    model_used=None,
+                    tokens_in=0,
+                    tokens_out=0,
+                    latency_ms=0,
+                    fallback_used=True,
+                    warning="Ollama not responding",
+                    prompt_version="v1.0.0",
+                )
+            ),
+        ):
             result = await _suggest_hunts_for_alert(
                 {
                     "rule_name": "Brute Force SSH",
@@ -455,11 +511,22 @@ class TestSuggestHuntsForAlert:
     @pytest.mark.asyncio
     async def test_empty_llm_response(self):
         """Should handle empty LLM response with fallback."""
-        with patch("src.ai.hunting_assistant.query_llm", AsyncMock(return_value=LLMResult(
-            ok=True, text="", source="ollama",
-            model_used="mistral:7b", tokens_in=0, tokens_out=0,
-            latency_ms=10, fallback_used=False, prompt_version="v1.0.0",
-        ))):
+        with patch(
+            "src.ai.hunting_assistant.query_llm",
+            AsyncMock(
+                return_value=LLMResult(
+                    ok=True,
+                    text="",
+                    source="ollama",
+                    model_used="mistral:7b",
+                    tokens_in=0,
+                    tokens_out=0,
+                    latency_ms=10,
+                    fallback_used=False,
+                    prompt_version="v1.0.0",
+                )
+            ),
+        ):
             result = await _suggest_hunts_for_alert(
                 {
                     "rule_name": "Test",

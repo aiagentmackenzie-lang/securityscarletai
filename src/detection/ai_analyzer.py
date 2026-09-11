@@ -10,6 +10,7 @@ Analyzes alert evidence and generates:
 Uses shared ollama_client for consistent timeout/error handling/fallback
 instead of a separate raw httpx client.
 """
+
 import json
 from typing import Any, Optional, cast
 
@@ -45,13 +46,13 @@ def build_prompt(rule_name: str, severity: str, host_name: str, evidence: dict) 
         f"- Host: {fenced_host}\n"
         f"- Evidence: {fenced_evidence}\n\n"
         f"Respond in this EXACT JSON format (no other text):\n"
-        f'{{\n'
+        f"{{\n"
         f'  "summary": "One sentence describing what happened",\n'
         f'  "risk_score": 75,\n'
         f'  "verdict": "threat|suspicious|benign|false_positive",\n'
         f'  "response": ["Step 1", "Step 2", "Step 3"],\n'
         f'  "reasoning": "Why this verdict was chosen"\n'
-        f'}}\n\n'
+        f"}}\n\n"
         f"Risk score: 0-25=benign, "
         f"26-50=suspicious, "
         f"51-75=threat, "
@@ -107,6 +108,7 @@ async def analyze_alert(
     # query_llm returns an LLMResult; detect fallback via the structured
     # `fallback_used` flag or the canonical fallback text.
     from src.ai.ollama_client import FALLBACK_MESSAGE
+
     if raw_response.fallback_used or raw_response.text == FALLBACK_MESSAGE:
         log.warning("ai_analyzer_ollama_unavailable", alert_id=alert_id)
         return None

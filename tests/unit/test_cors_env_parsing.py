@@ -7,6 +7,7 @@ demands strict JSON for list fields at the EnvSettingsSource level — every
 container boot crashed before the NoDecode + validator fix. The documented
 .env.example uses the same bare-string form. All three forms must parse.
 """
+
 import pytest
 from pydantic import ValidationError
 from pydantic_settings.exceptions import SettingsError
@@ -16,9 +17,7 @@ def _build_with(monkeypatch, env_value: str):
     monkeypatch.setenv("API_CORS_ORIGINS", env_value)
     from src.config.settings import Settings
 
-    return Settings(
-        db_password="x" * 40, api_secret_key="0" * 40, api_bearer_token="b" * 20
-    )
+    return Settings(db_password="x" * 40, api_secret_key="0" * 40, api_bearer_token="b" * 20)
 
 
 class TestCorsEnvParsing:
@@ -38,9 +37,7 @@ class TestCorsEnvParsing:
         monkeypatch.delenv("API_CORS_ORIGINS", raising=False)
         from src.config.settings import Settings
 
-        s = Settings(
-            db_password="x" * 40, api_secret_key="0" * 40, api_bearer_token="b" * 20
-        )
+        s = Settings(db_password="x" * 40, api_secret_key="0" * 40, api_bearer_token="b" * 20)
         assert s.api_cors_origins == ["http://localhost:8501"]
 
     def test_broken_json_is_an_honest_error(self, monkeypatch):

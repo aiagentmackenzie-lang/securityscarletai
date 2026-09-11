@@ -11,6 +11,7 @@ Covers:
 - Instrumentation: correlation run duration, ingest + retention wiring
 - Router registered in main.py
 """
+
 import re
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -37,8 +38,9 @@ http_requests_total = METRICS._metrics["scarletai_http_requests_total"]  # noqa:
 http_request_duration = METRICS._metrics["scarletai_http_request_duration_seconds"]  # noqa: SLF001
 
 
-def _metrics_request(ip: str = "127.0.0.1", headers: list[tuple[bytes, bytes]] | None = None,
-                     method: str = "GET"):
+def _metrics_request(
+    ip: str = "127.0.0.1", headers: list[tuple[bytes, bytes]] | None = None, method: str = "GET"
+):
     scope = {
         "type": "http",
         "asgi": {"version": "3.0"},
@@ -129,10 +131,7 @@ class TestPathClass:
         assert path_class("/api/v1/ingest") == "/api/v1/ingest"
 
     def test_mixed(self):
-        assert (
-            path_class("/api/v1/users/42/reset-password")
-            == "/api/v1/users/{id}/reset-password"
-        )
+        assert path_class("/api/v1/users/42/reset-password") == "/api/v1/users/{id}/reset-password"
 
 
 class TestMetricsEndpoint:
@@ -186,17 +185,13 @@ class TestMetricsEndpoint:
     @pytest.mark.asyncio
     async def test_invalid_jwt_401(self):
         with pytest.raises(HTTPException) as exc:
-            await self._call(
-                ip="127.0.0.1", headers=[(b"authorization", b"Bearer not-a-jwt")]
-            )
+            await self._call(ip="127.0.0.1", headers=[(b"authorization", b"Bearer not-a-jwt")])
         assert exc.value.status_code == 401
 
     @pytest.mark.asyncio
     async def test_scrape_token_allows_remote(self):
         scrape_token = "metrics-scrape-secret-0123456789abcdef"
-        with patch(
-            "src.config.settings.settings.metrics_bearer_token", SecretStr(scrape_token)
-        ):
+        with patch("src.config.settings.settings.metrics_bearer_token", SecretStr(scrape_token)):
             resp = await prometheus_metrics(
                 request=_metrics_request(
                     ip="10.1.2.3",
@@ -260,7 +255,9 @@ class TestMetricsMiddleware:
         await mw.dispatch(req, call_next)
 
         after = _snapshot(http_requests_total)
-        key = tuple(sorted({"method": "POST", "path_class": "/api/v1/metrics", "status": "201"}.items()))
+        key = tuple(
+            sorted({"method": "POST", "path_class": "/api/v1/metrics", "status": "201"}.items())
+        )
         assert after.get(key, 0) == before.get(key, 0) + 1
         assert _hist_count(http_request_duration) == hist_before + 1
 
@@ -277,7 +274,9 @@ class TestMetricsMiddleware:
             await mw.dispatch(req, call_next)
 
         after = _snapshot(http_requests_total)
-        key = tuple(sorted({"method": "DELETE", "path_class": "/api/v1/metrics", "status": "500"}.items()))
+        key = tuple(
+            sorted({"method": "DELETE", "path_class": "/api/v1/metrics", "status": "500"}.items())
+        )
         assert after.get(key, 0) == before.get(key, 0) + 1
 
 
@@ -302,9 +301,12 @@ class TestInstrumentation:
                 as_of=datetime(2026, 9, 2, 8, 0, 0, tzinfo=timezone.utc)
             )
         assert _hist_count(http_request_duration) == count_before  # unchanged by corr run
-        assert _hist_count(
-            METRICS._metrics["scarletai_correlation_run_duration_seconds"]  # noqa: SLF001
-        ) == corr_before + 1
+        assert (
+            _hist_count(
+                METRICS._metrics["scarletai_correlation_run_duration_seconds"]  # noqa: SLF001
+            )
+            == corr_before + 1
+        )
 
     def test_ingest_endpoint_increments_counter(self):
         """The ingest endpoint references the accepted counter (wiring present)."""
@@ -360,6 +362,7 @@ class TestWriterProperties:
             event_type="type",
             raw_data={},
         )
+
         def _fake_flush_for(w):
             async def _flush():
                 w._buffer.clear()  # noqa: SLF001 — mirrors the real drain

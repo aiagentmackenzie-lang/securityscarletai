@@ -25,6 +25,7 @@ Design notes:
   case retention of audit_logs must be done by a superuser job (documented in
   DEPLOYMENT.md). The job attempts the delete and reports the outcome honestly.
 """
+
 from typing import Any
 
 from src.config.logging import get_logger

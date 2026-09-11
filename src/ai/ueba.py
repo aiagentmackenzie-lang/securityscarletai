@@ -11,6 +11,7 @@ Changes from Phase 0:
 - joblib + SHA256 integrity (already from Phase 0)
 - Model status API endpoint
 """
+
 import asyncio
 import hashlib
 import time
@@ -42,14 +43,14 @@ from src.ai.utils import (  # noqa: E402 — L-01: shared utility, after config 
 
 # Features to extract per user per day (updated with real calculations)
 UEBA_FEATURES = [
-    "login_hour_of_day",           # Most common login hour (normalized)
-    "unique_processes_count",       # How many distinct processes
-    "command_diversity",            # Shannon entropy of process names (real)
-    "network_connections_count",    # Outbound connections
-    "unique_destination_ips",      # Distinct IPs connected to
-    "file_access_count",           # File operations
-    "sudo_usage_count",            # Privilege escalations
-    "session_duration_minutes",   # Session length (real, not placeholder)
+    "login_hour_of_day",  # Most common login hour (normalized)
+    "unique_processes_count",  # How many distinct processes
+    "command_diversity",  # Shannon entropy of process names (real)
+    "network_connections_count",  # Outbound connections
+    "unique_destination_ips",  # Distinct IPs connected to
+    "file_access_count",  # File operations
+    "sudo_usage_count",  # Privilege escalations
+    "session_duration_minutes",  # Session length (real, not placeholder)
 ]
 
 
@@ -154,17 +155,20 @@ class UEBABaseline:
             login_hour = float(login_hour) if login_hour is not None else 9.0
 
             # Unique processes
-            unique_processes = await conn.fetchval(
-                """
+            unique_processes = (
+                await conn.fetchval(
+                    """
                 SELECT COUNT(DISTINCT process_name)
                 FROM logs
                 WHERE user_name = $1
                   AND event_category = 'process'
                   AND time > NOW() - INTERVAL '1 day' * $2
                 """,
-                user_name,
-                days,
-            ) or 0
+                    user_name,
+                    days,
+                )
+                or 0
+            )
 
             # Command diversity — Shannon entropy of process names (REAL)
             process_rows = await conn.fetch(
@@ -184,21 +188,25 @@ class UEBABaseline:
             command_diversity = _shannon_entropy(process_names)
 
             # Network connections
-            network_count = await conn.fetchval(
-                """
+            network_count = (
+                await conn.fetchval(
+                    """
                 SELECT COUNT(*)
                 FROM logs
                 WHERE user_name = $1
                   AND event_category = 'network'
                   AND time > NOW() - INTERVAL '1 day' * $2
                 """,
-                user_name,
-                days,
-            ) or 0
+                    user_name,
+                    days,
+                )
+                or 0
+            )
 
             # Unique destination IPs
-            unique_ips = await conn.fetchval(
-                """
+            unique_ips = (
+                await conn.fetchval(
+                    """
                 SELECT COUNT(DISTINCT destination_ip)
                 FROM logs
                 WHERE user_name = $1
@@ -206,26 +214,32 @@ class UEBABaseline:
                   AND destination_ip IS NOT NULL
                   AND time > NOW() - INTERVAL '1 day' * $2
                 """,
-                user_name,
-                days,
-            ) or 0
+                    user_name,
+                    days,
+                )
+                or 0
+            )
 
             # File operations
-            file_count = await conn.fetchval(
-                """
+            file_count = (
+                await conn.fetchval(
+                    """
                 SELECT COUNT(*)
                 FROM logs
                 WHERE user_name = $1
                   AND event_category = 'file'
                   AND time > NOW() - INTERVAL '1 day' * $2
                 """,
-                user_name,
-                days,
-            ) or 0
+                    user_name,
+                    days,
+                )
+                or 0
+            )
 
             # Sudo usage
-            sudo_count = await conn.fetchval(
-                """
+            sudo_count = (
+                await conn.fetchval(
+                    """
                 SELECT COUNT(*)
                 FROM logs
                 WHERE user_name = $1
@@ -236,9 +250,11 @@ class UEBABaseline:
                   )
                   AND time > NOW() - INTERVAL '1 day' * $2
                 """,
-                user_name,
-                days,
-            ) or 0
+                    user_name,
+                    days,
+                )
+                or 0
+            )
 
             # Session duration — derived from first/last event (REAL)
             # M-02: Note this is "activity span" not true session length.
@@ -256,11 +272,7 @@ class UEBABaseline:
                 days,
             )
 
-            if (
-                session_times
-                and session_times["first_event"]
-                and session_times["last_event"]
-            ):
+            if session_times and session_times["first_event"] and session_times["last_event"]:
                 first = session_times["first_event"]
                 last = session_times["last_event"]
                 if hasattr(first, "timestamp") and hasattr(last, "timestamp"):
@@ -321,21 +333,21 @@ class UEBABaseline:
         for user in user_names:
             features = await self.extract_user_features(user, days=min_days)
             if features:
-                feature_vectors.append([
-                    features["login_hour_of_day"],
-                    features["unique_processes_count"],
-                    features["command_diversity"],
-                    features["network_connections_count"],
-                    features["unique_destination_ips"],
-                    features["file_access_count"],
-                    features["sudo_usage_count"],
-                    features["session_duration_minutes"],
-                ])
+                feature_vectors.append(
+                    [
+                        features["login_hour_of_day"],
+                        features["unique_processes_count"],
+                        features["command_diversity"],
+                        features["network_connections_count"],
+                        features["unique_destination_ips"],
+                        features["file_access_count"],
+                        features["sudo_usage_count"],
+                        features["session_duration_minutes"],
+                    ]
+                )
 
         if len(feature_vectors) < 3:
-            log.warning(
-                "ueba_training_insufficient_vectors", count=len(feature_vectors)
-            )
+            log.warning("ueba_training_insufficient_vectors", count=len(feature_vectors))
             return False
 
         # Train model
@@ -389,16 +401,20 @@ class UEBABaseline:
             }
 
         # Create feature vector
-        X = np.array([[
-            features["login_hour_of_day"],
-            features["unique_processes_count"],
-            features["command_diversity"],
-            features["network_connections_count"],
-            features["unique_destination_ips"],
-            features["file_access_count"],
-            features["sudo_usage_count"],
-            features["session_duration_minutes"],
-        ]])
+        X = np.array(
+            [
+                [
+                    features["login_hour_of_day"],
+                    features["unique_processes_count"],
+                    features["command_diversity"],
+                    features["network_connections_count"],
+                    features["unique_destination_ips"],
+                    features["file_access_count"],
+                    features["sudo_usage_count"],
+                    features["session_duration_minutes"],
+                ]
+            ]
+        )
 
         # Scale and predict
         X_scaled = self.scaler.transform(X)  # type: ignore[union-attr]
@@ -448,9 +464,7 @@ class UEBABaseline:
         return {
             "is_trained": self.is_trained,
             "trained_at": (
-                datetime.fromtimestamp(
-                    self.trained_at, tz=timezone.utc
-                ).isoformat()
+                datetime.fromtimestamp(self.trained_at, tz=timezone.utc).isoformat()
                 if self.trained_at
                 else None
             ),

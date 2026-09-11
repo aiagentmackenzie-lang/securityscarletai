@@ -5,6 +5,7 @@ Endpoints: GET /users, POST /users, PATCH /users/{id}, POST /users/{id}/reset-pa
 All mutations audit-logged; deactivation/role-change/reset set the user_revoke marker;
 listing never exposes password_hash; viewer/analyst get 403.
 """
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -181,7 +182,9 @@ class TestPatchUser:
         with (
             patch("src.api.users.get_pool", return_value=pool),
             patch("src.api.users.log_audit_action", new=AsyncMock()),
-            patch("src.api.redis_client.set_user_revoke_marker", new=AsyncMock(return_value=True)) as rev,
+            patch(
+                "src.api.redis_client.set_user_revoke_marker", new=AsyncMock(return_value=True)
+            ) as rev,
         ):
             resp = await patch_user(
                 7,
@@ -214,7 +217,9 @@ class TestPatchUser:
         with (
             patch("src.api.users.get_pool", return_value=pool),
             patch("src.api.users.log_audit_action", new=AsyncMock()),
-            patch("src.api.redis_client.set_user_revoke_marker", new=AsyncMock(return_value=True)) as rev,
+            patch(
+                "src.api.redis_client.set_user_revoke_marker", new=AsyncMock(return_value=True)
+            ) as rev,
         ):
             resp = await patch_user(
                 3, UserPatchRequest(role="viewer"), request=make_test_request(), user=ADMIN
@@ -301,9 +306,7 @@ class TestPatchUser:
         from src.api.users import UserPatchRequest, patch_user
 
         with pytest.raises(HTTPException) as exc:
-            await patch_user(
-                1, UserPatchRequest(), request=make_test_request(), user=ADMIN
-            )
+            await patch_user(1, UserPatchRequest(), request=make_test_request(), user=ADMIN)
         assert exc.value.status_code == 422
 
     @pytest.mark.asyncio
@@ -327,7 +330,9 @@ class TestResetPassword:
         with (
             patch("src.api.users.get_pool", return_value=pool),
             patch("src.api.users.log_audit_action", new=AsyncMock()) as audit,
-            patch("src.api.redis_client.set_user_revoke_marker", new=AsyncMock(return_value=True)) as rev,
+            patch(
+                "src.api.redis_client.set_user_revoke_marker", new=AsyncMock(return_value=True)
+            ) as rev,
             patch("src.api.users.hash_password", return_value="$2b$12$fake") as hp,
         ):
             resp = await reset_password(4, request=make_test_request(), user=ADMIN)

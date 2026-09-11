@@ -3,6 +3,7 @@ Detection rules API endpoints.
 
 CRUD operations for Sigma detection rules.
 """
+
 from datetime import timedelta
 from typing import List, Optional
 
@@ -40,9 +41,7 @@ class RuleCreate(BaseModel):
     @classmethod
     def severity_must_be_known(cls, v: str) -> str:
         if v not in ALLOWED_SEVERITIES:
-            raise ValueError(
-                f"severity must be one of {sorted(ALLOWED_SEVERITIES)}, got {v!r}"
-            )
+            raise ValueError(f"severity must be one of {sorted(ALLOWED_SEVERITIES)}, got {v!r}")
         return v
 
 
@@ -50,6 +49,7 @@ class RulePatch(BaseModel):
     """Partial update for a rule (P1-15/P2-43). All fields optional; only the
     provided fields are updated. sigma_yaml is re-parsed and MITRE re-extracted
     only when provided."""
+
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     description: Optional[str] = None
     sigma_yaml: Optional[str] = None
@@ -64,9 +64,7 @@ class RulePatch(BaseModel):
     @classmethod
     def severity_must_be_known(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and v not in ALLOWED_SEVERITIES:
-            raise ValueError(
-                f"severity must be one of {sorted(ALLOWED_SEVERITIES)}, got {v!r}"
-            )
+            raise ValueError(f"severity must be one of {sorted(ALLOWED_SEVERITIES)}, got {v!r}")
         return v
 
 
@@ -247,8 +245,11 @@ async def update_rule(
             action="rule.update",
             target_type="rule",
             target_id=rule_id,
-            new_values={"name": updates.name, "enabled": updates.enabled,
-                       "severity": updates.severity},
+            new_values={
+                "name": updates.name,
+                "enabled": updates.enabled,
+                "severity": updates.severity,
+            },
         )
 
         # Reload scheduler

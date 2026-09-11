@@ -483,3 +483,18 @@ with CI green; tests went 1640 → 1683 passed, coverage holds 87%.
   fails safe now (was silently TRUE). Rule YAML hygiene: quoted values
   (preserving the trailing space in `wmic `). Corpus guard test: no shipped
   rule may produce an unbindable param. Suite 1702 → 1710.
+
+## 2026-09-10 — Format gate + enforcing flip (P3.5 closed)
+
+- **chore (bulk format)** — `ruff format` applied repo-wide (139 files
+  reformatted) after the check-only era left 141 files drifted; full suite
+  1710/0 + mypy clean on the mechanical commit (zero behavior change).
+  CI now ENFORCES `ruff format --check` (lesson from the NeuralGuard
+  hotfix: `ruff check` cannot see format drift).
+- **chore (enforcing flip, executed 6 days early)** — the Sep 16 flip
+  condition held early: pip-audit residual = the two documented
+  risk-accepts only (now reported as PYSEC-2026-2447/1325, aliased to
+  CVE-2025-69872/CVE-2024-23342; all four IDs ignored with rationale),
+  trivy zero findings. Both advisory jobs dropped `continue-on-error` —
+  dependency-audit and trivy-image-scan now gate CI. P3.5 two-week window
+  closed.

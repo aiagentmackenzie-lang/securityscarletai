@@ -33,10 +33,7 @@ async def run_rule(rule_id: int) -> None:
     pool = await get_pool()
     async with pool.acquire() as conn:
         # Load rule
-        rule = await conn.fetchrow(
-            "SELECT * FROM rules WHERE id = $1 AND enabled = TRUE",
-            rule_id
-        )
+        rule = await conn.fetchrow("SELECT * FROM rules WHERE id = $1 AND enabled = TRUE", rule_id)
 
         if not rule:
             log.warning("rule_not_found_or_disabled", rule_id=rule_id)
@@ -69,6 +66,7 @@ async def run_rule(rule_id: int) -> None:
                     # AI analysis on new alerts
                     if alert_id:
                         from src.detection.ai_analyzer import analyze_alert, enrich_alert
+
                         analysis = await analyze_alert(
                             alert_id=alert_id,
                             rule_name=rule["name"],
@@ -88,10 +86,7 @@ async def run_rule(rule_id: int) -> None:
                 )
             else:
                 # No matches — only update last_run
-                await conn.execute(
-                    "UPDATE rules SET last_run = NOW() WHERE id = $1",
-                    rule_id
-                )
+                await conn.execute("UPDATE rules SET last_run = NOW() WHERE id = $1", rule_id)
 
         except Exception as e:
             log.error("rule_execution_failed", rule_id=rule_id, error=str(e))
@@ -101,9 +96,7 @@ async def schedule_rules() -> None:
     """Schedule all enabled detection rules."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rules = await conn.fetch(
-            "SELECT id, run_interval FROM rules WHERE enabled = TRUE"
-        )
+        rules = await conn.fetch("SELECT id, run_interval FROM rules WHERE enabled = TRUE")
 
     for rule in rules:
         interval_seconds = rule["run_interval"].total_seconds()

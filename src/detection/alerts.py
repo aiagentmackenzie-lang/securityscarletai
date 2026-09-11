@@ -10,6 +10,7 @@ Features:
 - Notification triggers wired into alert creation
 - Alert export (CSV, STIX)
 """
+
 import csv
 import io
 import json
@@ -153,11 +154,20 @@ async def create_alert(
         # Add system note about creation
         await _add_note(conn, alert_id, "system", f"Alert created (severity: {escalated_severity})")
         if escalated_severity != severity:
-            await _add_note(conn, alert_id, "system",
-                            f"Severity escalated from {severity} to {escalated_severity}")
+            await _add_note(
+                conn,
+                alert_id,
+                "system",
+                f"Severity escalated from {severity} to {escalated_severity}",
+            )
 
-        log.info("alert_created", alert_id=alert_id, rule_name=rule_name,
-                 host_name=host_name, severity=escalated_severity)
+        log.info(
+            "alert_created",
+            alert_id=alert_id,
+            rule_name=rule_name,
+            host_name=host_name,
+            severity=escalated_severity,
+        )
 
         # ── Step 5: Trigger notifications ─────────────────────
         await _send_alert_notification(
@@ -197,18 +207,20 @@ async def _check_severity_escalation(
         new_idx = min(current_idx + 1, len(SEVERITY_ORDER) - 1)
         new_severity = SEVERITY_ORDER[new_idx]
         if new_severity != current_severity:
-            log.info("severity_escalated",
-                     rule_id=rule_id, host_name=host_name,
-                     from_severity=current_severity, to_severity=new_severity,
-                     recent_count=recent_count + 1)
+            log.info(
+                "severity_escalated",
+                rule_id=rule_id,
+                host_name=host_name,
+                from_severity=current_severity,
+                to_severity=new_severity,
+                recent_count=recent_count + 1,
+            )
             return new_severity
 
     return current_severity
 
 
-async def _is_suppressed(
-    conn, rule_name: str, host_name: str, severity: str
-) -> bool:
+async def _is_suppressed(conn, rule_name: str, host_name: str, severity: str) -> bool:
     """Check if an alert should be suppressed by suppression rules.
 
     H-11 fix: A suppression rule must match at least one of rule_name
@@ -247,11 +259,15 @@ async def _add_note(conn, alert_id: int, author: str, text: str) -> None:
         updated_at = NOW()
         WHERE id = $2
         """,
-        json.dumps([{
-            "author": author,
-            "text": text,
-            "time": datetime.now(timezone.utc).isoformat(),
-        }]),
+        json.dumps(
+            [
+                {
+                    "author": author,
+                    "text": text,
+                    "time": datetime.now(timezone.utc).isoformat(),
+                }
+            ]
+        ),
         alert_id,
     )
 
@@ -262,13 +278,16 @@ async def _send_alert_notification(
     """Send alert notification via configured channels (Slack, email)."""
     try:
         from src.response.notifications import send_alert_notification
-        await send_alert_notification({
-            "severity": severity,
-            "rule_name": rule_name,
-            "host_name": host_name,
-            "description": description,
-            "time": datetime.now(timezone.utc).isoformat(),
-        })
+
+        await send_alert_notification(
+            {
+                "severity": severity,
+                "rule_name": rule_name,
+                "host_name": host_name,
+                "description": description,
+                "time": datetime.now(timezone.utc).isoformat(),
+            }
+        )
     except Exception as e:
         log.warning("notification_failed", alert_id=alert_id, error=str(e))
 
@@ -276,6 +295,7 @@ async def _send_alert_notification(
 # ───────────────────────────────────────────────────────────────
 # Alert status updates
 # ───────────────────────────────────────────────────────────────
+
 
 async def update_alert_status(
     alert_id: int,
@@ -316,6 +336,7 @@ async def update_alert_status(
 # ───────────────────────────────────────────────────────────────
 # Bulk operations
 # ───────────────────────────────────────────────────────────────
+
 
 async def bulk_acknowledge(alert_ids: list[int], assigned_to: str) -> int:
     """Acknowledge multiple alerts at once (set status to 'investigating')."""
@@ -411,15 +432,20 @@ async def bulk_resolve(alert_ids: list[int], resolution_note: str = "Bulk resolv
 # Alert notes/timeline
 # ───────────────────────────────────────────────────────────────
 
+
 async def add_alert_note(alert_id: int, author: str, text: str) -> None:
     """Add an analyst note to an alert's timeline."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        note_entry = json.dumps([{
-            "author": author,
-            "text": text,
-            "time": datetime.now(timezone.utc).isoformat(),
-        }])
+        note_entry = json.dumps(
+            [
+                {
+                    "author": author,
+                    "text": text,
+                    "time": datetime.now(timezone.utc).isoformat(),
+                }
+            ]
+        )
 
         await conn.execute(
             """
@@ -442,6 +468,7 @@ async def add_alert_note(alert_id: int, author: str, text: str) -> None:
 # ───────────────────────────────────────────────────────────────
 # Alert statistics
 # ───────────────────────────────────────────────────────────────
+
 
 async def get_alert_stats(hours: int | None = None) -> dict:
     """Get alert statistics for dashboard.
@@ -493,6 +520,7 @@ async def get_alert_stats(hours: int | None = None) -> dict:
 # Alert suppression rules
 # ───────────────────────────────────────────────────────────────
 
+
 async def create_suppression_rule(
     rule_name: Optional[str],
     host_name: Optional[str],
@@ -521,8 +549,12 @@ async def create_suppression_rule(
             created_by,
         )
 
-        log.info("suppression_rule_created", suppression_id=suppression_id,
-                  rule_name=rule_name, host_name=host_name)
+        log.info(
+            "suppression_rule_created",
+            suppression_id=suppression_id,
+            rule_name=rule_name,
+            host_name=host_name,
+        )
         return cast(int, suppression_id)
 
 
@@ -530,9 +562,7 @@ async def list_suppression_rules() -> list[dict]:
     """List all alert suppression rules."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT * FROM alert_suppressions ORDER BY created_at DESC"
-        )
+        rows = await conn.fetch("SELECT * FROM alert_suppressions ORDER BY created_at DESC")
         return [dict(r) for r in rows]
 
 
@@ -584,6 +614,7 @@ async def delete_suppression_rule(suppression_id: int) -> bool:
 # Alert export
 # ───────────────────────────────────────────────────────────────
 
+
 def _csv_formula_safe(value: object) -> object:
     """Neutralize CSV formula injection (CWE-1236).
 
@@ -632,9 +663,7 @@ async def export_alerts_csv(hours: int = 24, status_filter: Optional[str] = None
         writer = csv.DictWriter(output, fieldnames=rows[0].keys())
         writer.writeheader()
         for row in rows:
-            writer.writerow(
-                {k: _csv_formula_safe(v) for k, v in dict(row).items()}
-            )
+            writer.writerow({k: _csv_formula_safe(v) for k, v in dict(row).items()})
 
     log.info("alerts_exported_csv", count=len(rows), hours=hours, status=status_filter)
     return output.getvalue()
@@ -660,20 +689,16 @@ async def export_alerts_stix(hours: int = 24) -> dict:
         d = dict(row)
         # Generate STIX Indicator object with valid UUID and STIX pattern
         # C-02 fix: Escape single quotes in host_name to prevent STIX pattern injection
-        safe_hostname = d['host_name'].replace("'", "\\'")
+        safe_hostname = d["host_name"].replace("'", "\\'")
         indicator = {
             "type": "indicator",
             "spec_version": "2.1",
             "id": f"indicator--{uuid.uuid4()}",
             "created": (
-                d["time"].isoformat()
-                if isinstance(d["time"], datetime)
-                else str(d["time"])
+                d["time"].isoformat() if isinstance(d["time"], datetime) else str(d["time"])
             ),
             "modified": (
-                d["time"].isoformat()
-                if isinstance(d["time"], datetime)
-                else str(d["time"])
+                d["time"].isoformat() if isinstance(d["time"], datetime) else str(d["time"])
             ),
             "name": d["rule_name"],
             "description": d["description"],
@@ -683,9 +708,7 @@ async def export_alerts_stix(hours: int = 24) -> dict:
             ),
             "pattern_type": "stix",
             "valid_from": (
-                d["time"].isoformat()
-                if isinstance(d["time"], datetime)
-                else str(d["time"])
+                d["time"].isoformat() if isinstance(d["time"], datetime) else str(d["time"])
             ),
             "labels": d.get("mitre_techniques", []),
             "confidence": 80 if d["severity"] in ("high", "critical") else 50,

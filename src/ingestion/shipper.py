@@ -5,6 +5,7 @@ Polls the result log every ~1s (seek/tell based, not a file-watcher) and stores 
 checkpoint (byte offset) so restarts don't re-ingest old data. (P2-07: the
 earlier docstring claimed watchfiles, but the implementation is polling.)
 """
+
 import asyncio
 import os
 from pathlib import Path

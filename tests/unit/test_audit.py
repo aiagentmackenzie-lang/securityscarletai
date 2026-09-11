@@ -9,6 +9,7 @@ Covers:
 - Audit middleware catches and logs write failures (request still succeeds)
 - GRANT/REVOKE hardening is documented in schema.sql
 """
+
 from __future__ import annotations
 
 import re

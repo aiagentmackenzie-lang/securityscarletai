@@ -49,13 +49,9 @@ class TestSuppressionRouting:
         """Cheap static guard: literal routes declared before the {alert_id}
         catch-all. Catches a future refactor re-ordering them without HTTP."""
         paths = [
-            r.path
-            for r in alerts_router.routes
-            if isinstance(r, APIRoute)
+            r.path for r in alerts_router.routes if isinstance(r, APIRoute)
         ]  # router-level paths carry the /alerts prefix
-        assert paths.index("/alerts/suppressions") < paths.index(
-            "/alerts/{alert_id}"
-        ), (
+        assert paths.index("/alerts/suppressions") < paths.index("/alerts/{alert_id}"), (
             "GET /suppressions declared after GET /{alert_id} — the literal "
             "path will be shadowed and 422 (regression of "
             "fix/suppressions-route-shadowing)"
@@ -69,9 +65,7 @@ class TestSuppressionRouting:
         ):
             resp = client.get("/api/v1/alerts/suppressions")
 
-        assert resp.status_code == 200, (
-            f"expected 200, got {resp.status_code}: {resp.text[:200]}"
-        )
+        assert resp.status_code == 200, f"expected 200, got {resp.status_code}: {resp.text[:200]}"
         assert resp.json() == []
 
     def test_alert_id_route_still_works(self, client):
@@ -118,9 +112,7 @@ class TestSuppressionRouting:
             "src.api.alerts.set_suppression_enabled",
             AsyncMock(return_value=True),
         ):
-            resp = client.patch(
-                "/api/v1/alerts/suppressions/5", json={"enabled": False}
-            )
+            resp = client.patch("/api/v1/alerts/suppressions/5", json={"enabled": False})
 
         assert resp.status_code == 200
         assert resp.json() == {"id": 5, "enabled": False, "status": "updated"}

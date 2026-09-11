@@ -16,6 +16,7 @@ Covered here:
 The Redis client is the shared singleton from src.api.redis_client, faked
 here with the same in-memory substitute used by the auth tests.
 """
+
 from __future__ import annotations
 
 import os
@@ -144,8 +145,9 @@ class TestNegativeCache:
 
     async def test_threat_ip_not_negative_cached(self, fake_redis):
         """A THREAT result goes to the IOC cache — never the negative cache."""
-        with _patched_live(lambda ip: _threat_result()), patch(
-            "src.intel.threat_intel.cache_ioc", AsyncMock()
+        with (
+            _patched_live(lambda ip: _threat_result()),
+            patch("src.intel.threat_intel.cache_ioc", AsyncMock()),
         ):
             enrichment = await enrich_ip_with_threat_intel("6.6.6.6")
         assert enrichment["threat_intel"]["match"] is True
@@ -202,6 +204,7 @@ class TestRedisDownFailOpen:
 
         redis_client._client = None  # noqa: SLF001
         monkeypatch.setattr(redis_client, "_last_failure_ts", 0.0)
+
         # Hermetic guarantee (2026-09-03): with a LIVE Redis on localhost:6379
         # (e.g. the compose demo stack), the lazy reconnect in _get_client()
         # satisfied `_client = None` — the "redis down" premise silently became

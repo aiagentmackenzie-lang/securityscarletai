@@ -8,6 +8,7 @@ Covers:
 - X-RateLimit-* headers are added by the middleware
 - Limiter is constructed with the Redis storage URI
 """
+
 from __future__ import annotations
 
 import pytest

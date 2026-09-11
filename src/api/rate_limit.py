@@ -19,6 +19,7 @@ Degradation (P2.1):
   backoff to recover without a restart. Rate-limit accuracy degrades to
   per-process memory; the service stays up.
 """
+
 from __future__ import annotations
 
 from typing import Awaitable, Callable
@@ -95,7 +96,7 @@ def user_or_ip_key(request: Request) -> str:
     """
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
-        token = auth_header[len("Bearer "):].strip()
+        token = auth_header[len("Bearer ") :].strip()
         try:
             # Unverified parse strictly for KEYING — the throwaway key plus
             # signature/expire checks disabled mean we never trust this for
@@ -122,9 +123,7 @@ def user_or_ip_key(request: Request) -> str:
 # ───────────────────────────────────────────────────────────────
 
 
-def rate_limit_exceeded_handler(
-    request: Request, exc: RateLimitExceeded
-) -> Response:
+def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> Response:
     """Return a JSON 429 with structured body and Retry-After header.
 
     Default slowapi handler returns plain text; SOC tooling expects JSON.
@@ -140,13 +139,8 @@ def rate_limit_exceeded_handler(
         # limits library normalizes compound strings to 'N per X minutes'
         # (slowapi's RateLimitExceeded.detail) — parse that FIRST: int() on
         # the partition segments would throw for the normalized form.
-        normalized = _re.match(
-            r"\d+\s+per\s+(\d+)\s*(seconds?|minutes?|hours?)", limit_str
-        )
-        compound = (
-            _re.match(r"(\d+)(minutes?|seconds?|hours?)", unit.strip())
-            if unit else None
-        )
+        normalized = _re.match(r"\d+\s+per\s+(\d+)\s*(seconds?|minutes?|hours?)", limit_str)
+        compound = _re.match(r"(\d+)(minutes?|seconds?|hours?)", unit.strip()) if unit else None
         if not normalized and unit and not compound:
             int(n_str.strip())  # validate legacy form parses
         if normalized:
@@ -174,8 +168,7 @@ def rate_limit_exceeded_handler(
 
     return Response(
         content=(
-            '{"error":"rate_limited","detail":"Too many requests",'
-            f'"retry_after":{retry_after}}}'
+            f'{{"error":"rate_limited","detail":"Too many requests","retry_after":{retry_after}}}'
         ),
         status_code=429,
         media_type="application/json",
@@ -215,6 +208,7 @@ class RateLimitHeadersMiddleware(BaseHTTPMiddleware):
         # that need exact counts can use the Retry-After header on 429.
         if "X-RateLimit-Reset" not in response.headers:
             import time as _time
+
             response.headers["X-RateLimit-Reset"] = str(
                 int(_time.time()) + self.DEFAULT_LIMIT_SECONDS
             )

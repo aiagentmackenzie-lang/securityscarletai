@@ -7,6 +7,7 @@ POST /api/v1/ai/triage/{id}   — Get triage prediction for alert
 GET  /api/v1/ai/ueba/{user}   — Get UEBA anomaly score for user
 POST /api/v1/ai/explain/{id}  — Generate AI explanation for alert
 """
+
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -27,11 +28,13 @@ router = APIRouter(tags=["ai"])
 
 class TrainRequest(BaseModel):
     """Model training request."""
+
     min_samples: int = 50
 
 
 class TrainResponse(BaseModel):
     """Model training response."""
+
     success: bool
     message: str
     samples: int | None = None
@@ -40,6 +43,7 @@ class TrainResponse(BaseModel):
 
 class StatusResponse(BaseModel):
     """Model status response."""
+
     triage: dict
     ueba: dict
     ollama_available: bool | None = None
@@ -47,6 +51,7 @@ class StatusResponse(BaseModel):
 
 class TriageResponse(BaseModel):
     """Alert triage prediction response."""
+
     alert_id: int
     prediction: str
     confidence: float | None = None
@@ -57,6 +62,7 @@ class TriageResponse(BaseModel):
 
 class UEBAResponse(BaseModel):
     """UEBA anomaly score response."""
+
     user_name: str
     anomaly_score: float | None = None
     is_anomaly: bool
@@ -66,6 +72,7 @@ class UEBAResponse(BaseModel):
 
 class ExplainResponse(BaseModel):
     """Alert explanation response."""
+
     alert_id: int
     explanation: str
     source: str | None = None

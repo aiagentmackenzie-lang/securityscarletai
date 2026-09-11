@@ -6,6 +6,7 @@ table. Non-blocking on failure — if the DB is down, we log and continue.
 The user-facing AI feature must never break because the cost tracker
 can't write.
 """
+
 from datetime import datetime, timezone
 from typing import Any, Optional
 

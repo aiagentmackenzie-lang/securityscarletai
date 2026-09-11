@@ -51,8 +51,9 @@ class TestLLMQuotaConfig:
         from limits import parse_many
 
         parsed = parse_many(LIMIT_LLM)
-        assert any(x.amount == 30 and x.multiples == (5, "minute") or
-                   "5 minute" in str(x) for x in parsed)
+        assert any(
+            x.amount == 30 and x.multiples == (5, "minute") or "5 minute" in str(x) for x in parsed
+        )
 
     def test_env_override(self, monkeypatch):
         from src.config.settings import Settings
@@ -113,9 +114,7 @@ class TestLLMQuotaWiring:
 
     def test_ai_explain_endpoint_marked(self):
         assert "src.api.ai.explain_alert_endpoint" in limiter._route_limits
-        assert "30 per 5 minute" in self._limit_strs_for(
-            "src.api.ai.explain_alert_endpoint"
-        )
+        assert "30 per 5 minute" in self._limit_strs_for("src.api.ai.explain_alert_endpoint")
         self._assert_user_keyed("src.api.ai.explain_alert_endpoint")
 
     def test_query_endpoint_marked(self):
@@ -125,16 +124,12 @@ class TestLLMQuotaWiring:
 
     def test_hunt_execute_endpoint_marked(self):
         assert "src.api.hunt.execute_hunt_template" in limiter._route_limits
-        assert "30 per 5 minute" in self._limit_strs_for(
-            "src.api.hunt.execute_hunt_template"
-        )
+        assert "30 per 5 minute" in self._limit_strs_for("src.api.hunt.execute_hunt_template")
         self._assert_user_keyed("src.api.hunt.execute_hunt_template")
 
     def test_hunt_from_alert_endpoint_marked(self):
         assert "src.api.hunt.hunt_from_alert_endpoint" in limiter._route_limits
-        assert "30 per 5 minute" in self._limit_strs_for(
-            "src.api.hunt.hunt_from_alert_endpoint"
-        )
+        assert "30 per 5 minute" in self._limit_strs_for("src.api.hunt.hunt_from_alert_endpoint")
         self._assert_user_keyed("src.api.hunt.hunt_from_alert_endpoint")
 
 

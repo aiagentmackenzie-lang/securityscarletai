@@ -30,6 +30,7 @@ Dry run (no writes):
 
 See docs/DEMO.md (section "Demo data freshness") for the full sequence.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -156,9 +157,7 @@ async def shift_case_notes(conn: asyncpg.Connection, delta_seconds: float) -> in
     for row in rows:
         new_notes = shift_iso_timestamps_in_json(row["notes"], delta)
         if new_notes is not None and new_notes != row["notes"]:
-            await conn.execute(
-                "UPDATE cases SET notes = $1 WHERE id = $2", new_notes, row["id"]
-            )
+            await conn.execute("UPDATE cases SET notes = $1 WHERE id = $2", new_notes, row["id"])
             updated += 1
     return updated
 
@@ -214,8 +213,10 @@ async def run(argv: list[str] | None = None) -> int:
         counts = await apply_shift(conn, delta_seconds)
         notes_rows = await shift_case_notes(conn, delta_seconds)
         total = sum(counts.values())
-        print(f"\n✅  Shifted {total} timestamp columns across {len(counts)} pairs "
-              f"(+{notes_rows} cases with embedded note timestamps).")
+        print(
+            f"\n✅  Shifted {total} timestamp columns across {len(counts)} pairs "
+            f"(+{notes_rows} cases with embedded note timestamps)."
+        )
         return 0
     finally:
         await conn.close()

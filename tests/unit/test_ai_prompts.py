@@ -9,7 +9,6 @@ Covers:
 - all_versions() returns all prompt versions
 """
 
-
 from src.ai.prompts import (
     ALERT_EXPLANATION_PROMPT_VERSION,
     ALERT_SUMMARY_PROMPT_VERSION,
@@ -116,7 +115,8 @@ class TestRenderAlertSummary:
 
     def test_zero_truncated(self):
         text, _, _ = render_alert_summary(
-            alert_summaries="- x", truncated_count=0,
+            alert_summaries="- x",
+            truncated_count=0,
         )
         # Should not say "and 0 more alerts"
         assert "0 more" not in text
@@ -125,7 +125,8 @@ class TestRenderAlertSummary:
 class TestRenderInvestigationSteps:
     def test_basic(self):
         text, version, h = render_investigation_steps(
-            alert_type="brute_force", host_name="ws-01",
+            alert_type="brute_force",
+            host_name="ws-01",
         )
         assert "brute_force" in text
         assert "ws-01" in text
@@ -133,13 +134,17 @@ class TestRenderInvestigationSteps:
 
     def test_with_user(self):
         text, _, _ = render_investigation_steps(
-            alert_type="x", host_name="h", user_name="alice",
+            alert_type="x",
+            host_name="h",
+            user_name="alice",
         )
         assert "alice" in text
 
     def test_without_user(self):
         text, _, _ = render_investigation_steps(
-            alert_type="x", host_name="h", user_name=None,
+            alert_type="x",
+            host_name="h",
+            user_name=None,
         )
         # Should not crash, and user_name shouldn't appear
         assert "User:" not in text
@@ -162,4 +167,5 @@ class TestPromptsImportSafety:
 
     def test_imports_without_db(self):
         from src.ai import prompts
+
         assert prompts is not None

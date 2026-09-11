@@ -8,6 +8,7 @@ Loading states: Every data fetch is wrapped in st.spinner() for UX polish.
 Performance: All alert data is fetched once via cached_alerts() then passed
   to chart functions — eliminates N+1 redundant API calls per page load.
 """
+
 import altair as alt
 import pandas as pd
 import streamlit as st
@@ -99,6 +100,7 @@ def _altair_theme():
 
 # Register theme — use the modern Altair 6 API
 try:
+
     @alt.theme.register("scarlet_dark", enable=True)
     def _altair_theme():
         return alt.theme.ThemeConfig(
@@ -137,6 +139,7 @@ except Exception:
 # Cached alerts fetch — single API call shared by all chart functions
 # ───────────────────────────────────────────────────────────────
 
+
 @st.cache_data(ttl=60)
 def cached_alerts(limit: int = 500) -> list:
     """Fetch alerts once per page load, cached for 60 seconds.
@@ -155,6 +158,7 @@ def cached_alerts(limit: int = 500) -> list:
 # ───────────────────────────────────────────────────────────────
 # Helpers
 # ───────────────────────────────────────────────────────────────
+
 
 def _colored_metric(label: str, value, delta=None, color=None):
     """Render a metric where the value is optionally colored.
@@ -182,8 +186,8 @@ def _colored_metric(label: str, value, delta=None, color=None):
     st.markdown(
         f'<div style="background:{BG_SURFACE};border:1px solid {BORDER_SUBTLE};'
         f'border-radius:0.5rem;padding:0.75rem 1rem;margin-bottom:0.5rem;">'
-        f'{label_html}{value_html}'
-        f'</div>',
+        f"{label_html}{value_html}"
+        f"</div>",
         unsafe_allow_html=True,
     )
 
@@ -191,6 +195,7 @@ def _colored_metric(label: str, value, delta=None, color=None):
 # ───────────────────────────────────────────────────────────────
 # Charts
 # ───────────────────────────────────────────────────────────────
+
 
 def render_severity_distribution(alerts: list | None = None):
     """Render alert severity distribution as a donut chart inside a card."""
@@ -213,33 +218,32 @@ def render_severity_distribution(alerts: list | None = None):
                 st.info("No alert data available")
                 return
 
-            df = pd.DataFrame([
-                {"Severity": k, "Count": v, "Color": SEVERITY_COLORS.get(k, "#78909c")}
-                for k, v in severity_counts.items()
-            ])
+            df = pd.DataFrame(
+                [
+                    {"Severity": k, "Count": v, "Color": SEVERITY_COLORS.get(k, "#78909c")}
+                    for k, v in severity_counts.items()
+                ]
+            )
 
             severity_rank = {s: i for i, s in enumerate(SEVERITY_ORDER)}
             df["Order"] = df["Severity"].map(severity_rank).fillna(99)
             df = df.sort_values("Order")
 
-            chart = (
-                alt.Chart(df)
-                .encode(
-                    theta=alt.Theta("Count:Q"),
-                    color=alt.Color(
-                        "Severity:N",
-                        scale=alt.Scale(
-                            domain=list(df["Severity"]),
-                            range=list(df["Color"]),
-                        ),
-                        legend=alt.Legend(
-                            orient="bottom",
-                            title=None,
-                            labelColor=TEXT_SECONDARY,
-                        ),
+            chart = alt.Chart(df).encode(
+                theta=alt.Theta("Count:Q"),
+                color=alt.Color(
+                    "Severity:N",
+                    scale=alt.Scale(
+                        domain=list(df["Severity"]),
+                        range=list(df["Color"]),
                     ),
-                    tooltip=["Severity", "Count"],
-                )
+                    legend=alt.Legend(
+                        orient="bottom",
+                        title=None,
+                        labelColor=TEXT_SECONDARY,
+                    ),
+                ),
+                tooltip=["Severity", "Count"],
             )
 
             pie = chart.mark_arc(
@@ -256,9 +260,7 @@ def render_severity_distribution(alerts: list | None = None):
             ).encode(text="Count:Q")
 
             full_chart = (
-                (pie + text)
-                .properties(width=300, height=300)
-                .configure_legend(labelFontSize=12)
+                (pie + text).properties(width=300, height=300).configure_legend(labelFontSize=12)
             )
             _chart_container(full_chart, "Alert Severity Distribution")
 
@@ -312,10 +314,7 @@ def render_alert_trend(alerts: list | None = None):
                         "severity:N",
                         scale=alt.Scale(
                             domain=SEVERITY_ORDER,
-                            range=[
-                                SEVERITY_COLORS.get(s, "#78909c")
-                                for s in SEVERITY_ORDER
-                            ],
+                            range=[SEVERITY_COLORS.get(s, "#78909c") for s in SEVERITY_ORDER],
                         ),
                         legend=alt.Legend(
                             orient="bottom",
@@ -357,8 +356,10 @@ def render_top_hosts(alerts: list | None = None):
                 host_counts[host] = host_counts.get(host, 0) + 1
 
             df = pd.DataFrame(
-                [{"Host": k, "Alerts": v} for k, v in
-                 sorted(host_counts.items(), key=lambda x: x[1], reverse=True)[:10]]
+                [
+                    {"Host": k, "Alerts": v}
+                    for k, v in sorted(host_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+                ]
             )
 
             if df.empty:
@@ -408,13 +409,15 @@ def render_mitre_heatmap(rules: list[dict]):
         enabled = rule.get("enabled", True)
 
         for tech in techniques:
-            technique_data.append({
-                "Technique": tech,
-                "Tactics": ", ".join(tactics) if tactics else "Unknown",
-                "Severity": sev,
-                "Enabled": enabled,
-                "Rule": rule.get("name", ""),
-            })
+            technique_data.append(
+                {
+                    "Technique": tech,
+                    "Tactics": ", ".join(tactics) if tactics else "Unknown",
+                    "Severity": sev,
+                    "Enabled": enabled,
+                    "Rule": rule.get("name", ""),
+                }
+            )
 
     if not technique_data:
         st.info("No MITRE ATT&CK mappings found in rules.")
@@ -423,11 +426,18 @@ def render_mitre_heatmap(rules: list[dict]):
     df = pd.DataFrame(technique_data)
 
     TACTIC_TITLES = {
-        "TA0001": "Initial Access", "TA0002": "Execution", "TA0003": "Persistence",
-        "TA0004": "Privilege Escalation", "TA0005": "Defense Evasion",
-        "TA0006": "Credential Access", "TA0007": "Discovery", "TA0008": "Lateral Movement",
-        "TA0009": "Collection", "TA0011": "Command and Control",
-        "TA0010": "Exfiltration", "TA0040": "Impact",
+        "TA0001": "Initial Access",
+        "TA0002": "Execution",
+        "TA0003": "Persistence",
+        "TA0004": "Privilege Escalation",
+        "TA0005": "Defense Evasion",
+        "TA0006": "Credential Access",
+        "TA0007": "Discovery",
+        "TA0008": "Lateral Movement",
+        "TA0009": "Collection",
+        "TA0011": "Command and Control",
+        "TA0010": "Exfiltration",
+        "TA0040": "Impact",
     }
 
     tactic_counts = {}
@@ -438,8 +448,8 @@ def render_mitre_heatmap(rules: list[dict]):
 
     st.markdown(
         f'<p style="color:{TEXT_PRIMARY};font-weight:700;font-size:1.05rem;margin:0 0 0.75rem 0;">'
-        f'MITRE ATT&CK Coverage'
-        f'</p>',
+        f"MITRE ATT&CK Coverage"
+        f"</p>",
         unsafe_allow_html=True,
     )
 
@@ -620,8 +630,8 @@ def render_host_risk_scores(alerts: list | None = None):
                 st.markdown(
                     f'<p style="color:{TEXT_PRIMARY};font-weight:700;'
                     f'font-size:1.05rem;margin:0.75rem 0;">'
-                    f'Host Risk Scores'
-                    f'</p>',
+                    f"Host Risk Scores"
+                    f"</p>",
                     unsafe_allow_html=True,
                 )
                 cols = st.columns(min(len(top_hosts), 5))

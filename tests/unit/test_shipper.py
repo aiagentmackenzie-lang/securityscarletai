@@ -7,6 +7,7 @@ Covers:
 - maybe_create_shipper returns None when disabled and a shipper when enabled
   (without needing a Postgres pool).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -111,9 +112,7 @@ def test_maybe_create_shipper_disabled_by_default(monkeypatch):
 def test_maybe_create_shipper_enabled(monkeypatch, tmp_path):
     monkeypatch.setattr(runner.settings, "enable_ingestion_shipper", True)
     monkeypatch.setattr(runner.settings, "osquery_log_path", str(tmp_path / "x.log"))
-    monkeypatch.setattr(
-        runner.settings, "shipper_checkpoint_path", str(tmp_path / "ckpt")
-    )
+    monkeypatch.setattr(runner.settings, "shipper_checkpoint_path", str(tmp_path / "ckpt"))
     ship = maybe_create_shipper(FakeWriter())  # type: ignore[arg-type]
     assert ship is not None
     assert isinstance(ship, FileShipper)
@@ -140,9 +139,7 @@ async def test_checkpoint_persists_without_home_dir(tmp_path, monkeypatch):
     tail + checkpoint successfully when its checkpoint_path is a writable,
     persistent path (the data/ volume) — regardless of what Path.home() is."""
     # Simulate the container: home resolves to a path that does not exist.
-    monkeypatch.setattr(
-        shipper.Path, "home", staticmethod(lambda: tmp_path / "nonexistent-home")
-    )
+    monkeypatch.setattr(shipper.Path, "home", staticmethod(lambda: tmp_path / "nonexistent-home"))
     log_file = tmp_path / "osqueryd.results.log"
     log_file.write_text(_process_line("python3") + "\n")
     ckpt = tmp_path / "ckpt"

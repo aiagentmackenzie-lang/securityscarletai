@@ -6,6 +6,7 @@ GET  /api/v1/hunt/templates              — List available hunt templates
 GET  /api/v1/hunt/gaps                   — MITRE ATT&CK gap analysis
 POST /api/v1/hunt/from-alert/{alert_id}  — Suggest hunts from an alert
 """
+
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
 
@@ -26,6 +27,7 @@ router = APIRouter(tags=["hunt"])
 
 class HuntExecuteResponse(BaseModel):
     """Hunt execution response."""
+
     success: bool
     hunt_id: str | None = None
     name: str | None = None
@@ -40,6 +42,7 @@ class HuntExecuteResponse(BaseModel):
 
 class HuntFromAlertResponse(BaseModel):
     """Hunt from alert response."""
+
     success: bool
     alert_id: int
     alert_rule: str | None = None
@@ -51,6 +54,7 @@ class HuntFromAlertResponse(BaseModel):
 
 class GapAnalysisResponse(BaseModel):
     """MITRE ATT&CK gap analysis response."""
+
     total_critical_techniques: int
     covered_by_rules: int
     covered_by_hunts: int

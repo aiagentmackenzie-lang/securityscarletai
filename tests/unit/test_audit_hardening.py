@@ -1,4 +1,5 @@
 """Tests for the audit grant check logic (P1-C)."""
+
 from scripts.check_audit_grants import AUDIT_TABLES, MUTATE_PRIVILEGES, evaluate_append_only
 
 

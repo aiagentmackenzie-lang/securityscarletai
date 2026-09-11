@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Manually run AI analysis on alerts that don't have ai_summary yet."""
+
 import asyncio
 import os
 import sys
@@ -26,6 +27,7 @@ async def main():
 
         # Parse evidence
         import json
+
         try:
             evidence = json.loads(alert["evidence"]) if alert["evidence"] else {}
         except (json.JSONDecodeError, ValueError):
@@ -41,7 +43,9 @@ async def main():
 
         if analysis:
             await enrich_alert(alert_id, analysis)
-            print(f"  ✅ Risk: {analysis.get('risk_score', '?')}/100 — {analysis.get('summary', '')[:80]}")
+            print(
+                f"  ✅ Risk: {analysis.get('risk_score', '?')}/100 — {analysis.get('summary', '')[:80]}"
+            )
         else:
             print("  ❌ Analysis failed")
 

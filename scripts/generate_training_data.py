@@ -16,6 +16,7 @@ Usage:
     python -m scripts.generate_training_data --output data/training/alerts_v3.csv
     python -m scripts.generate_training_data --n 500 --seed 7 --output /tmp/x.csv
 """
+
 from __future__ import annotations
 
 import argparse
@@ -27,17 +28,17 @@ from pathlib import Path
 
 # Feature column order MUST match AlertTriageModel.FEATURES in src/ai/alert_triage.py.
 FEATURE_COLUMNS = [
-    "severity_score",          # 0-1 based on severity
-    "hour_of_day",             # Normalized hour (0-1)
-    "rule_hit_count",          # How often this rule fires
-    "host_alert_count",        # Host's historical alert count
-    "asset_risk_score",        # Host risk score
-    "mitre_count",             # Number of MITRE techniques
-    "time_since_last_hours",   # Hours since last similar alert
-    "has_threat_intel",        # Boolean: TI match
-    "command_entropy",         # Shannon entropy of recent process names
+    "severity_score",  # 0-1 based on severity
+    "hour_of_day",  # Normalized hour (0-1)
+    "rule_hit_count",  # How often this rule fires
+    "host_alert_count",  # Host's historical alert count
+    "asset_risk_score",  # Host risk score
+    "mitre_count",  # Number of MITRE techniques
+    "time_since_last_hours",  # Hours since last similar alert
+    "has_threat_intel",  # Boolean: TI match
+    "command_entropy",  # Shannon entropy of recent process names
     "session_duration_hours",  # Duration of user session
-    "login_hour_deviation",    # Deviation from normal login hour
+    "login_hour_deviation",  # Deviation from normal login hour
 ]
 
 LABEL_COLUMN = "label"
@@ -116,10 +117,12 @@ def _fp_profile(rng: random.Random) -> dict:
         # Few MITRE techniques
         "mitre_count": _clamp(rng.betavariate(2, 6)),
         # Either very recent (auto-fire) or ancient (stale rule)
-        "time_since_last_hours": rng.choice([
-            _clamp(rng.betavariate(8, 2)),    # very recent
-            _clamp(rng.uniform(0.7, 1.0)),   # old
-        ]),
+        "time_since_last_hours": rng.choice(
+            [
+                _clamp(rng.betavariate(8, 2)),  # very recent
+                _clamp(rng.uniform(0.7, 1.0)),  # old
+            ]
+        ),
         # No threat intel
         "has_threat_intel": 1.0 if rng.random() < 0.05 else 0.0,
         # Boring, repetitive command set
@@ -189,8 +192,7 @@ def _validate_rows(rows: list[dict], expected_n: int) -> None:
         drift = abs(count - expected) / expected
         if drift > 0.02:
             raise ValueError(
-                f"label {label} drifted from 50/50: got {count}/{expected_n} "
-                f"({drift:.1%} off)"
+                f"label {label} drifted from 50/50: got {count}/{expected_n} ({drift:.1%} off)"
             )
 
     # IDs must be unique and dense.
@@ -252,10 +254,7 @@ def main(argv: list[str] | None = None) -> int:
 
     tp = sum(1 for r in rows if r[LABEL_COLUMN] == LABEL_TP)
     fp = sum(1 for r in rows if r[LABEL_COLUMN] == LABEL_FP)
-    print(
-        f"wrote {len(rows)} rows to {args.output} "
-        f"(tp={tp}, fp={fp}, seed={args.seed})"
-    )
+    print(f"wrote {len(rows)} rows to {args.output} (tp={tp}, fp={fp}, seed={args.seed})")
     return 0
 
 

@@ -36,9 +36,7 @@ async def refresh_threat_intel(
         return {"status": "completed", "results": results}
     except Exception as e:
         log.error("manual_refresh_failed", error=str(e))
-        raise HTTPException(
-            status_code=500, detail=str(e)
-        ) from None
+        raise HTTPException(status_code=500, detail=str(e)) from None
 
 
 @router.get("/lookup/ip/{ip_address}")

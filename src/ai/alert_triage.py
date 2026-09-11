@@ -11,6 +11,7 @@ Changes from Phase 0:
 - Model training + status API endpoints
 - Fallback when Ollama is down
 """
+
 import asyncio
 import csv
 import hashlib
@@ -29,6 +30,7 @@ from sklearn.ensemble import RandomForestClassifier
 try:
     from sklearn.calibration import CalibratedClassifierCV
     from sklearn.model_selection import StratifiedKFold
+
     _HAS_V2_DEPS = True
 except ImportError:  # pragma: no cover — defensive only
     _HAS_V2_DEPS = False
@@ -73,17 +75,17 @@ class AlertTriageModel:
     """ML model for alert triage and prioritization."""
 
     FEATURES = [
-        "severity_score",           # 0-1 based on severity
-        "hour_of_day",             # Normalized hour (0-1)
-        "rule_hit_count",          # How often this rule fires
-        "host_alert_count",        # Host's historical alert count
-        "asset_risk_score",        # Host risk score
-        "mitre_count",             # Number of MITRE techniques
-        "time_since_last_hours",   # Hours since last similar alert
-        "has_threat_intel",         # Boolean: TI match
-        "command_entropy",         # Shannon entropy of recent process names
+        "severity_score",  # 0-1 based on severity
+        "hour_of_day",  # Normalized hour (0-1)
+        "rule_hit_count",  # How often this rule fires
+        "host_alert_count",  # Host's historical alert count
+        "asset_risk_score",  # Host risk score
+        "mitre_count",  # Number of MITRE techniques
+        "time_since_last_hours",  # Hours since last similar alert
+        "has_threat_intel",  # Boolean: TI match
+        "command_entropy",  # Shannon entropy of recent process names
         "session_duration_hours",  # Duration of user session
-        "login_hour_deviation",     # Deviation from normal login hour
+        "login_hour_deviation",  # Deviation from normal login hour
     ]
 
     def __init__(self, load: bool = True):
@@ -172,8 +174,11 @@ class AlertTriageModel:
 
             # Severity score
             severity_map = {
-                "critical": 1.0, "high": 0.8, "medium": 0.5,
-                "low": 0.2, "info": 0.0,
+                "critical": 1.0,
+                "high": 0.8,
+                "medium": 0.5,
+                "low": 0.2,
+                "info": 0.0,
             }
             severity_score = severity_map.get(
                 alert["severity"].lower() if alert["severity"] else "info", 0.0
@@ -182,9 +187,7 @@ class AlertTriageModel:
             # Hour of day (normalized 0-1)
             alert_time = alert["time"]
             if isinstance(alert_time, str):
-                alert_time = datetime.fromisoformat(
-                    alert_time.replace("Z", "+00:00")
-                )
+                alert_time = datetime.fromisoformat(alert_time.replace("Z", "+00:00"))
             hour_of_day = alert_time.hour if hasattr(alert_time, "hour") else 12
 
             # Rule hit count (how often this rule fires)
@@ -241,9 +244,9 @@ class AlertTriageModel:
             time_since_normalized = min(time_since_hours / 168, 1.0)
 
             # Threat intel match
-            has_ti = 1.0 if alert.get("evidence") and "threat_intel" in str(
-                alert["evidence"]
-            ) else 0.0
+            has_ti = (
+                1.0 if alert.get("evidence") and "threat_intel" in str(alert["evidence"]) else 0.0
+            )
 
             # --- Real UEBA features ---
 
@@ -345,9 +348,7 @@ class AlertTriageModel:
             )
 
             if len(rows) < min_samples:
-                log.warning(
-                    "triage_training_insufficient_samples", count=len(rows)
-                )
+                log.warning("triage_training_insufficient_samples", count=len(rows))
                 return False
 
         # Extract features for each alert
@@ -363,9 +364,7 @@ class AlertTriageModel:
                 y.append(label)
 
         if len(X) < min_samples:
-            log.warning(
-                "triage_training_insufficient_features", count=len(X)
-            )
+            log.warning("triage_training_insufficient_features", count=len(X))
             return False
 
         # Train model
@@ -401,9 +400,7 @@ class AlertTriageModel:
                 raise RuntimeError("triage model missing before fit")
             model.fit(X_array, y_array)
             try:
-                cv_scores = cross_val_score(
-                    model, X_array, y_array, cv=min(5, len(X_array))
-                )
+                cv_scores = cross_val_score(model, X_array, y_array, cv=min(5, len(X_array)))
                 return float(cv_scores.mean()), float(cv_scores.std())
             except ValueError:
                 # Too few samples for CV — fall back to training accuracy
@@ -418,9 +415,7 @@ class AlertTriageModel:
                 cv_std=round(cv_std, 2),
             )
         else:
-            log.warning(
-                "triage_fallback_to_training_accuracy", accuracy=round(accuracy, 2)
-            )
+            log.warning("triage_fallback_to_training_accuracy", accuracy=round(accuracy, 2))
 
         self.is_trained = True
         self.trained_at = time.time()
@@ -531,10 +526,12 @@ class AlertTriageModel:
         scored_alerts = []
         for row in rows:
             prediction = await self.predict(row["id"])
-            scored_alerts.append({
-                **dict(row),
-                **prediction,
-            })
+            scored_alerts.append(
+                {
+                    **dict(row),
+                    **prediction,
+                }
+            )
 
         scored_alerts.sort(key=lambda x: x["priority_score"], reverse=True)
         return scored_alerts
@@ -544,17 +541,13 @@ class AlertTriageModel:
         return {
             "is_trained": self.is_trained,
             "trained_at": (
-                datetime.fromtimestamp(
-                    self.trained_at, tz=timezone.utc
-                ).isoformat()
+                datetime.fromtimestamp(self.trained_at, tz=timezone.utc).isoformat()
                 if self.trained_at
                 else None
             ),
             "training_samples": self.training_samples,
             "training_accuracy": (
-                round(self.training_accuracy, 2)
-                if self.training_accuracy is not None
-                else None
+                round(self.training_accuracy, 2) if self.training_accuracy is not None else None
             ),
             "features": self.FEATURES,
             "model_type": "RandomForestClassifier",
@@ -665,9 +658,8 @@ class AlertTriageModel:
         # (per-fold averaging weights small folds equally with large ones,
         # which biases the macro estimate).
         n_splits = min(V2_CV_SPLITS, n_samples)
-        skf = StratifiedKFold(
-            n_splits=n_splits, shuffle=True, random_state=V2_RANDOM_STATE
-        )
+        skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=V2_RANDOM_STATE)
+
         def _run_cv() -> Tuple[List[float], List[int], List[int]]:
             """CPU-bound per-fold calibrated fits — off the event loop (P2.7).
 
@@ -690,9 +682,7 @@ class AlertTriageModel:
                 )
                 fold_calibrated.fit(X_array[train_idx], y_array[train_idx])
                 preds = fold_calibrated.predict(X_array[test_idx])
-                fold_accuracies.append(
-                    float(np.mean(preds == y_array[test_idx]))
-                )
+                fold_accuracies.append(float(np.mean(preds == y_array[test_idx])))
                 cv_y_true.extend(y_array[test_idx].tolist())
                 cv_y_pred.extend(preds.tolist())
             return fold_accuracies, cv_y_true, cv_y_pred
@@ -775,9 +765,7 @@ class AlertTriageModel:
                 features=self.FEATURES,
             )
             if accepted and provenance_row_id is not None:
-                await _write_alert_labels(
-                    run_id=run_id, source_meta=source_meta
-                )
+                await _write_alert_labels(run_id=run_id, source_meta=source_meta)
         except Exception as e:  # noqa: BLE001
             log.warning("triage_v2_provenance_write_failed", error=str(e))
 
@@ -803,9 +791,7 @@ class AlertTriageModel:
             "provenance_row_id": provenance_row_id,
         }
         if not accepted:
-            result["reason"] = (
-                f"below_threshold:{cv_accuracy:.3f}<{min_cv_accuracy:.3f}"
-            )
+            result["reason"] = f"below_threshold:{cv_accuracy:.3f}<{min_cv_accuracy:.3f}"
         # Avoid duplicate-key collision if result already contains run_id.
         log.info("triage_v2_complete", **result)
         return result
@@ -848,23 +834,14 @@ class AlertTriageModel:
                 else None
             ),
             "recall": (
-                round(float(row["recall_score"]), 4)
-                if row["recall_score"] is not None
-                else None
+                round(float(row["recall_score"]), 4) if row["recall_score"] is not None else None
             ),
-            "f1": (
-                round(float(row["f1_score"]), 4)
-                if row["f1_score"] is not None
-                else None
-            ),
+            "f1": (round(float(row["f1_score"]), 4) if row["f1_score"] is not None else None),
             "calibrated": bool(row["calibrated"]),
             "trained_at": (
-                row["trained_at"].isoformat()
-                if row["trained_at"] is not None
-                else None
+                row["trained_at"].isoformat() if row["trained_at"] is not None else None
             ),
         }
-
 
 
 async def check_auto_train() -> bool:
@@ -1082,9 +1059,7 @@ async def _write_provenance(
     return int(row["id"]) if row else None
 
 
-async def _write_alert_labels(
-    *, run_id: str, source_meta: List[Dict[str, Any]]
-) -> int:
+async def _write_alert_labels(*, run_id: str, source_meta: List[Dict[str, Any]]) -> int:
     """
     Write analyst labels for each synthetic alert into alert_labels.
 
