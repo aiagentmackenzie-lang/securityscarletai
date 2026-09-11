@@ -256,6 +256,18 @@ async def compute_coverage(lookback_hours: int = 168, as_of: datetime | None = N
             "SELECT COUNT(*) FROM logs WHERE enrichment ? 'bytes_sent' AND time > $1::timestamptz",
             lookback_start,
         )
+        # Sigma rules -- sourced from the rules table (runtime truth,
+        # reconciled from disk on boot). Requirements from the stored
+        # sigma_yaml. NOTE: must run INSIDE the acquired connection --
+        # asyncpg releases it when the `async with` block exits and raises
+        # InterfaceError on any later fetch (caught live 2026-09-11).
+        rule_rows = await conn.fetch(
+            """
+            SELECT name, severity, mitre_tactics, mitre_techniques, sigma_yaml
+            FROM rules
+            WHERE enabled = TRUE
+            """
+        )
 
     # Live bucket snapshot for this run (shared across rules -- read-only).
     req_buckets = {**action_buckets}
@@ -286,15 +298,6 @@ async def compute_coverage(lookback_hours: int = 168, as_of: datetime | None = N
             }
         )
 
-    # Sigma rules -- sourced from the rules table (runtime truth, reconciled
-    # from disk on boot). Requirements from the stored sigma_yaml.
-    rule_rows = await conn.fetch(
-        """
-        SELECT name, severity, mitre_tactics, mitre_techniques, sigma_yaml
-        FROM rules
-        WHERE enabled = TRUE
-        """
-    )
     for row in rule_rows:
         req = extract_sigma_requirements(row["sigma_yaml"] or "")
         category = req["category"]
