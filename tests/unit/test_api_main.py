@@ -90,7 +90,8 @@ class TestLoadSigmaRules:
         no early return. execute is called once per disk file; fetch is called
         once for orphan (db-only) detection; the COUNT(*) fetchval probe is gone."""
         mock_conn = AsyncMock()
-        # asyncpg-style command tag for a fresh insert.
+        # asyncpg-style command tag for a fresh insert (the tag is no longer
+        # used for counting — set arithmetic replaced it).
         mock_conn.execute = AsyncMock(return_value="INSERT 0 1")
         mock_conn.fetch = AsyncMock(return_value=[])
 
@@ -130,8 +131,8 @@ class TestLoadSigmaRules:
 
         # one upsert execute per disk rule
         assert mock_conn.execute.await_count == 2
-        # orphan-detection fetch runs once after the loop
-        mock_conn.fetch.assert_awaited_once()
+        # fetch runs TWICE: pre-loop (existing names) + post-loop (orphans)
+        assert mock_conn.fetch.await_count == 2
         # the old early-return COUNT(*) probe is gone
         mock_conn.fetchval.assert_not_called()
 
@@ -167,8 +168,87 @@ class TestLoadSigmaRules:
 
         # bad file skipped — no execute for it
         assert mock_conn.execute.await_count == 0
-        # but the orphan-detection fetch still runs after the loop
-        mock_conn.fetch.assert_awaited_once()
+        # but both name fetches (pre + post) still run
+        assert mock_conn.fetch.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_rules_reconcile_counts_from_set_arithmetic(self, monkeypatch):
+        """2026-09-10: asyncpg returns 'INSERT 0 1' for INSERT ... ON CONFLICT
+        DO UPDATE even when the UPDATE path fires (proven on PG17) — the old
+        command-tag heuristic logged inserted=100/updated=0 on every boot.
+        Counts now come from set arithmetic over pre/post name sets."""
+        # structlog writes via PrintLoggerFactory — caplog can't see it;
+        # capture via the module logger seam (house pattern).
+        events: list[tuple] = []
+
+        class _Recorder:
+            @staticmethod
+            def info(event, **kw):
+                events.append((event, kw))
+
+            @staticmethod
+            def error(event, **kw):
+                events.append((event, kw))
+
+            @staticmethod
+            def warning(event, **kw):
+                events.append((event, kw))
+
+        monkeypatch.setattr("src.api.main.log", _Recorder())
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value="INSERT 0 1")
+        # pre-fetch: one rule already in DB; post-fetch: both + one orphan.
+        mock_conn.fetch = AsyncMock(
+            side_effect=[
+                [{"name": "Test Rule"}],
+                [{"name": "Test Rule"}, {"name": "Second Rule"}, {"name": "Only In DB"}],
+            ]
+        )
+
+        class AsyncCtx:
+            async def __aenter__(self):
+                return mock_conn
+
+            async def __aexit__(self, *args):
+                pass
+
+        mock_pool = AsyncMock()
+        mock_pool.acquire = MagicMock(return_value=AsyncCtx())
+
+        import tempfile
+
+        rule_yaml_a = (
+            "title: Test Rule\n"
+            "description: a\n"
+            "level: high\n"
+            "tags:\n"
+            "  - attack.t1059\n"
+            "logsource:\n"
+            "  category: process_creation\n"
+            "detection:\n"
+            "  selection:\n"
+            "    process_name: test.exe\n"
+            "  condition: selection\n"
+        )
+        rule_yaml_b = rule_yaml_a.replace("Test Rule", "Second Rule").replace(
+            "test.exe", "other.exe"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "rule_a.yml").write_text(rule_yaml_a)
+            (Path(tmpdir) / "rule_b.yml").write_text(rule_yaml_b)
+            with (
+                patch("src.api.main.get_pool", AsyncMock(return_value=mock_pool)),
+                patch("src.api.main.RULES_DIR", Path(tmpdir)),
+            ):
+                await load_sigma_rules()
+
+        reconciled = [kw for ev, kw in events if ev == "rules_reconciled"]
+        assert reconciled, "rules_reconciled log line missing"
+        kw = reconciled[0]
+        # 1 new (Second Rule) + 1 updated (Test Rule) + 1 orphan (Only In DB).
+        assert kw["inserted"] == 1
+        assert kw["updated"] == 1
+        assert kw["db_only"] == 1
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
