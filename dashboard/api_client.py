@@ -15,6 +15,7 @@ Usage in Streamlit views:
     api = ApiClient()
     alerts = api.get_alerts(status="new", limit=50)
 """
+
 import os
 import re
 from typing import Any
@@ -349,16 +350,25 @@ class ApiClient:
             try:
                 httpx.post(
                     f"{base_url}/auth/logout",
-                    headers={"Authorization": f"Bearer {token}",
-                              "Content-Type": "application/json"},
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json",
+                    },
                     timeout=REQUEST_TIMEOUT,
                 )
             except Exception:  # noqa: S110 — best-effort; never block local logout
                 # Best-effort — never block local logout on a server error.
                 pass
         for key in list(st.session_state.keys()):
-            if key in ("access_token", "username", "role", "authenticated",
-                       "user_verified", "last_role_verify", "api_client"):
+            if key in (
+                "access_token",
+                "username",
+                "role",
+                "authenticated",
+                "user_verified",
+                "last_role_verify",
+                "api_client",
+            ):
                 st.session_state.pop(key, None)
 
     # ───────────────────────────────────────────────────────────
@@ -378,8 +388,13 @@ class ApiClient:
     # Alerts
     # ───────────────────────────────────────────────────────────
 
-    def get_alerts(self, status: str | None = None, severity: str | None = None,
-                   limit: int = 100, offset: int = 0) -> list[dict]:
+    def get_alerts(
+        self,
+        status: str | None = None,
+        severity: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
         """Fetch alerts with optional filtering."""
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if status:
@@ -392,8 +407,13 @@ class ApiClient:
         """Fetch a single alert by ID."""
         return self._get(f"/alerts/{alert_id}")
 
-    def update_alert(self, alert_id: int, status: str | None = None,
-                     assigned_to: str | None = None, resolution_note: str | None = None) -> dict:
+    def update_alert(
+        self,
+        alert_id: int,
+        status: str | None = None,
+        assigned_to: str | None = None,
+        resolution_note: str | None = None,
+    ) -> dict:
         """Update alert status, assignment, or add resolution note."""
         data: dict[str, Any] = {}
         if status:
@@ -441,7 +461,9 @@ class ApiClient:
 
     def bulk_assign(self, alert_ids: list[int], assigned_to: str) -> dict:
         """Assign multiple alerts to a user."""
-        return self._post("/alerts/bulk/assign", {"alert_ids": alert_ids, "assigned_to": assigned_to})  # noqa: E501
+        return self._post(
+            "/alerts/bulk/assign", {"alert_ids": alert_ids, "assigned_to": assigned_to}
+        )  # noqa: E501
 
     # ───────────────────────────────────────────────────────────
     # Alert export
@@ -499,9 +521,7 @@ class ApiClient:
         """List all alert suppression rules (false-positive whitelist)."""
         return self._get("/alerts/suppressions")
 
-    def create_suppression(
-        self, rule_name: str | None, host_name: str | None, reason: str
-    ) -> dict:
+    def create_suppression(self, rule_name: str | None, host_name: str | None, reason: str) -> dict:
         """Create a suppression for a (rule_name, host_name) pair. At least one
         of rule_name / host_name must be set (the API rejects both-NULL)."""
         return self._post(
@@ -511,21 +531,23 @@ class ApiClient:
 
     def set_suppression_enabled(self, suppression_id: int, enabled: bool) -> dict:
         """Enable or disable a suppression rule (takes effect immediately)."""
-        return self._patch(
-            f"/alerts/suppressions/{suppression_id}", {"enabled": enabled}
-        )
+        return self._patch(f"/alerts/suppressions/{suppression_id}", {"enabled": enabled})
 
     def delete_suppression(self, suppression_id: int) -> dict:
         """Permanently delete a suppression rule."""
         return self._delete(f"/alerts/suppressions/{suppression_id}")
 
-
     # ───────────────────────────────────────────────────────────
     # Logs
     # ───────────────────────────────────────────────────────────
 
-    def get_logs(self, limit: int = 100, category: str | None = None,
-                 host: str | None = None, time_minutes: int | None = None) -> list[dict]:
+    def get_logs(
+        self,
+        limit: int = 100,
+        category: str | None = None,
+        host: str | None = None,
+        time_minutes: int | None = None,
+    ) -> list[dict]:
         """Fetch recent logs with optional filtering."""
         params: dict[str, Any] = {"limit": limit}
         if category:
@@ -561,7 +583,7 @@ class ApiClient:
     def lookup_ip(self, ip: str) -> dict:
         """Look up an IP in threat intel feeds."""
         # Validate IP format to prevent path traversal
-        if not re.match(r'^[0-9]{1,3}(\.[0-9]{1,3}){3}$', ip):
+        if not re.match(r"^[0-9]{1,3}(\.[0-9]{1,3}){3}$", ip):
             raise ApiError(400, f"Invalid IP address format: {ip}")
         return self._get(f"/threat-intel/lookup/ip/{quote(ip, safe='')}") or {}
 
@@ -645,8 +667,13 @@ class ApiClient:
     # Cases
     # ───────────────────────────────────────────────────────────
 
-    def get_cases(self, status: str | None = None, severity: str | None = None,
-                  limit: int = 100, offset: int = 0) -> list[dict]:
+    def get_cases(
+        self,
+        status: str | None = None,
+        severity: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
         """Fetch cases with optional filtering."""
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if status:
@@ -659,8 +686,14 @@ class ApiClient:
         """Fetch a single case by ID, including linked alerts."""
         return self._get(f"/cases/{case_id}")
 
-    def create_case(self, title: str, description: str = "", severity: str = "medium",
-                    alert_ids: list[int] | None = None, assigned_to: str | None = None) -> dict:
+    def create_case(
+        self,
+        title: str,
+        description: str = "",
+        severity: str = "medium",
+        alert_ids: list[int] | None = None,
+        assigned_to: str | None = None,
+    ) -> dict:
         """Create a new case."""
         data: dict[str, Any] = {"title": title, "description": description, "severity": severity}
         if alert_ids:

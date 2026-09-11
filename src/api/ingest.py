@@ -8,6 +8,7 @@ Security:
 - No raw SQL — everything goes through the writer
 - Rate limited (Epic 4) to LIMIT_INGEST per IP
 """
+
 import asyncio
 from datetime import datetime
 from typing import Annotated
@@ -41,6 +42,7 @@ _post_process_tasks: set["asyncio.Task[None]"] = set()
 
 class IngestEvent(BaseModel):
     """Schema for HTTP-ingested events. Stricter than internal events."""
+
     timestamp: datetime = Field(alias="@timestamp")
     host_name: str = Field(max_length=253)
     source: str = Field(max_length=100)
@@ -251,8 +253,6 @@ async def ingest_events(
         except Exception as e:
             # Best-effort — if we can't even schedule the task, log it
             # and return success to the agent (events are already written).
-            get_logger("api.ingest").warning(
-                "enrichment_schedule_failed", error=str(e)
-            )
+            get_logger("api.ingest").warning("enrichment_schedule_failed", error=str(e))
 
     return IngestResponse(accepted=count, message=f"Accepted {count} events")

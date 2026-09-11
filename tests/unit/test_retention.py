@@ -9,6 +9,7 @@ Covers:
 - Failures are swallowed (a retention error never raises to the caller).
 - The scheduler start/stop helpers wire APScheduler without error.
 """
+
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 

@@ -24,6 +24,7 @@ P2.5 quota protection (live lookups):
   ingestion because of Redis/cache state: every cache/budget error is logged
   and treated as a miss.
 """
+
 import asyncio
 import json
 from datetime import datetime, timedelta, timezone
@@ -58,13 +59,14 @@ FEED_REFRESH_INTERVAL_HOURS = 6
 # refresh) and returns the right string to the API.
 _feed_health: Dict[str, str] = {
     "abuseipdb": "never_refreshed",
-    "otx":       "never_refreshed",
-    "urlhaus":   "ok",   # URLhaus is always-OK (no key, no auth)
+    "otx": "never_refreshed",
+    "urlhaus": "ok",  # URLhaus is always-OK (no key, no auth)
 }
 
 # ───────────────────────────────────────────────────────────────
 # AbuseIPDB Client
 # ───────────────────────────────────────────────────────────────
+
 
 class AbuseIPDBClient:
     """AbuseIPDB API client — IP reputation checking."""
@@ -101,9 +103,7 @@ class AbuseIPDBClient:
                     "isp": data.get("isp"),
                     "domain": data.get("domain"),
                     "threat_type": (
-                        "malicious_ip"
-                        if data.get("abuseConfidenceScore", 0) > 50
-                        else None
+                        "malicious_ip" if data.get("abuseConfidenceScore", 0) > 50 else None
                     ),
                 }
             except httpx.TimeoutException:
@@ -143,6 +143,7 @@ class AbuseIPDBClient:
 # OTX Client
 # ───────────────────────────────────────────────────────────────
 
+
 class OTXClient:
     """AlienVault Open Threat Exchange client."""
 
@@ -167,13 +168,15 @@ class OTXClient:
 
                 indicators = []
                 for ind in data.get("results", []):
-                    indicators.append({
-                        "type": ind.get("type"),  # IPv4, domain, hostname, URL, etc.
-                        "value": ind.get("indicator"),
-                        "threat_type": ind.get("title", "unknown"),
-                        "confidence": ind.get("confidence", 50),
-                        "pulse_name": pulse_id,
-                    })
+                    indicators.append(
+                        {
+                            "type": ind.get("type"),  # IPv4, domain, hostname, URL, etc.
+                            "value": ind.get("indicator"),
+                            "threat_type": ind.get("title", "unknown"),
+                            "confidence": ind.get("confidence", 50),
+                            "pulse_name": pulse_id,
+                        }
+                    )
 
                 return indicators
             except Exception as e:
@@ -227,6 +230,7 @@ class OTXClient:
 # URLhaus Client
 # ───────────────────────────────────────────────────────────────
 
+
 class URLhausClient:
     """URLhaus malware URL database client."""
 
@@ -251,9 +255,7 @@ class URLhausClient:
                     "threat": data.get("threat", "unknown"),
                     "tags": data.get("tags", []),
                     "malware": (
-                        data.get("payloads", [{}])[0].get(
-                            "signature", "unknown"
-                        )
+                        data.get("payloads", [{}])[0].get("signature", "unknown")
                         if data.get("payloads")
                         else "unknown"
                     ),
@@ -275,12 +277,14 @@ class URLhausClient:
 
                 urls = []
                 for entry in data.get("urls", []):
-                    urls.append({
-                        "url": entry.get("url"),
-                        "threat": entry.get("threat"),
-                        "tags": entry.get("tags", []),
-                        "host": entry.get("host", ""),
-                    })
+                    urls.append(
+                        {
+                            "url": entry.get("url"),
+                            "threat": entry.get("threat"),
+                            "tags": entry.get("tags", []),
+                            "host": entry.get("host", ""),
+                        }
+                    )
 
                 return urls
             except Exception as e:
@@ -291,6 +295,7 @@ class URLhausClient:
 # ───────────────────────────────────────────────────────────────
 # Threat Intel Database Operations
 # ───────────────────────────────────────────────────────────────
+
 
 async def cache_ioc(
     ioc_type: str,
@@ -381,6 +386,7 @@ def _map_ioc_type(otx_type: str) -> str:
 # Scheduled Threat Intel Refresh
 # ───────────────────────────────────────────────────────────────
 
+
 async def refresh_all_feeds() -> Dict[str, int]:
     """
     Refresh all threat intel feeds.
@@ -397,13 +403,15 @@ async def refresh_all_feeds() -> Dict[str, int]:
         if urls:
             iocs = []
             for u in urls:
-                iocs.append({
-                    "type": "url",
-                    "value": u.get("url"),
-                    "threat_type": u.get("threat", "malware"),
-                    "confidence": 75,
-                    "metadata": {"tags": u.get("tags", []), "host": u.get("host", "")},
-                })
+                iocs.append(
+                    {
+                        "type": "url",
+                        "value": u.get("url"),
+                        "threat_type": u.get("threat", "malware"),
+                        "confidence": 75,
+                        "metadata": {"tags": u.get("tags", []), "host": u.get("host", "")},
+                    }
+                )
             count = await cache_iocs_bulk(iocs, source="urlhaus")
             results["urlhaus"] = count
         else:
@@ -420,12 +428,15 @@ async def refresh_all_feeds() -> Dict[str, int]:
         try:
             blacklist = await abuseipdb.get_blacklist(confidence_minimum=90)
             if blacklist:
-                iocs = [{
-                    "type": "IPv4",
-                    "value": ip,
-                    "threat_type": "malicious_ip",
-                    "confidence": 90,
-                } for ip in blacklist]
+                iocs = [
+                    {
+                        "type": "IPv4",
+                        "value": ip,
+                        "threat_type": "malicious_ip",
+                        "confidence": 90,
+                    }
+                    for ip in blacklist
+                ]
                 count = await cache_iocs_bulk(iocs, source="abuseipdb")
                 results["abuseipdb"] = count
             else:
@@ -476,6 +487,7 @@ async def refresh_all_feeds() -> Dict[str, int]:
 # ───────────────────────────────────────────────────────────────
 # IOC Matching (for enrichment pipeline)
 # ───────────────────────────────────────────────────────────────
+
 
 async def check_ioc_match(ioc_type: str, ioc_value: str) -> Optional[Dict]:
     """Check if an IOC matches cached threat intel data."""
@@ -617,7 +629,9 @@ async def enrich_ip_with_threat_intel(ip: str) -> Dict[str, Any]:
             # Cache for future lookups
             if result.get("threat_type"):
                 await cache_ioc(
-                    "ip", ip, "abuseipdb",
+                    "ip",
+                    ip,
+                    "abuseipdb",
                     result["threat_type"],
                     result.get("abuse_confidence", 0),
                 )
@@ -663,6 +677,7 @@ async def enrich_url_with_threat_intel(url: str) -> Dict[str, Any]:
 # Statistics
 # ───────────────────────────────────────────────────────────────
 
+
 async def get_threat_intel_stats() -> Dict[str, Any]:
     """Get threat intel statistics for the API endpoint."""
     pool = await get_pool()
@@ -674,9 +689,7 @@ async def get_threat_intel_stats() -> Dict[str, Any]:
         by_source = await conn.fetch(
             "SELECT source, COUNT(*) as count FROM threat_intel GROUP BY source"
         )
-        last_refresh = await conn.fetchval(
-            "SELECT MAX(fetched_at) FROM threat_intel"
-        )
+        last_refresh = await conn.fetchval("SELECT MAX(fetched_at) FROM threat_intel")
 
         return {
             "total_indicators": total or 0,
@@ -690,13 +703,13 @@ async def get_threat_intel_stats() -> Dict[str, Any]:
                 #   "no_key"          — API key not configured
                 #   "never_refreshed" — key set but no refresh has run yet
                 "abuseipdb": _feed_status_for("abuseipdb", settings.abuseipdb_api_key),
-                "otx":       _feed_status_for("otx",       settings.otx_api_key),
-                "urlhaus":   _feed_status_for("urlhaus",   "urlhaus"),  # always non-empty
+                "otx": _feed_status_for("otx", settings.otx_api_key),
+                "urlhaus": _feed_status_for("urlhaus", "urlhaus"),  # always non-empty
             },
             "feed_keys": {  # Operator-facing: was a key ever configured?
                 "abuseipdb": bool(settings.abuseipdb_api_key),
-                "otx":       bool(settings.otx_api_key),
-                "urlhaus":   True,
+                "otx": bool(settings.otx_api_key),
+                "urlhaus": True,
             },
         }
 
@@ -771,4 +784,3 @@ async def stop_threat_intel_scheduler():
     if _async_scheduler:
         _async_scheduler.shutdown()
         log.info("threat_intel_scheduler_stopped")
-

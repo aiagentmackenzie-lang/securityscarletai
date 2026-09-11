@@ -18,6 +18,7 @@ Best-effort: a malformed line is logged and skipped (the rest of the file
 still replays). A DB error mid-file stops that file and leaves it in place
 for the next run; already-replayed files are moved to processed/.
 """
+
 import asyncio
 import json
 import sys
@@ -116,9 +117,11 @@ async def replay_all(dead_letter_dir: Path = DEAD_LETTER_DIR) -> dict[str, int]:
 
 def main() -> None:
     summary = asyncio.run(replay_all())
-    print(f"Replay complete: {summary['files']} file(s), "
-          f"{summary['replayed']} event(s) re-ingested, "
-          f"{summary['skipped']} skipped.")
+    print(
+        f"Replay complete: {summary['files']} file(s), "
+        f"{summary['replayed']} event(s) re-ingested, "
+        f"{summary['skipped']} skipped."
+    )
     if summary["replayed"] == 0 and summary["files"] == 0:
         sys.exit(0)
 

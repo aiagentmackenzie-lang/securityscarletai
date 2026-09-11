@@ -13,6 +13,7 @@ Features:
 ALL data fetched through ApiClient — NO direct database access.
 Loading states: st.spinner() on fetches, st.toast() on actions, st.status() for AI ops.
 """
+
 import streamlit as st
 
 from dashboard.api_client import ApiClient, ApiError
@@ -52,11 +53,7 @@ def _expander_title(rule_name: str, sev_html: str, status_html: str, host_name: 
     """Alert-row expander title. rule_name and host_name are data-derived
     (rule names from the rules table, host names INGEST-FED via /ingest) —
     both escaped before entering the HTML-styled label (esc sweep)."""
-    title = (
-        f"<span style='font-weight:600;color:#e8ecf1;'>"
-        f"{esc(rule_name)}"
-        f"</span>"
-    )
+    title = f"<span style='font-weight:600;color:#e8ecf1;'>{esc(rule_name)}</span>"
     title += f" &nbsp; {sev_html} &nbsp; {status_html}"
     if host_name:
         title += f" <span style='color:#5a6578;'>| {esc(host_name)}</span>"
@@ -346,7 +343,8 @@ def render_alert_detail(alert: dict, api: ApiClient):
                 "Status",
                 status_options,
                 index=status_options.index(current_status)
-                    if current_status in status_options else 0,
+                if current_status in status_options
+                else 0,
                 key=f"status_{alert_id}",
                 label_visibility="collapsed",
             )
@@ -425,9 +423,7 @@ def render_alert_detail(alert: dict, api: ApiClient):
                             conf_str = f"({float(confidence):.1%})"
                         except (TypeError, ValueError):
                             conf_str = f"({confidence})"
-                        st.markdown(
-                            f"**Prediction:** {prediction} {conf_str}"
-                        )
+                        st.markdown(f"**Prediction:** {prediction} {conf_str}")
                         st.markdown(f"**Reasoning:** {reasoning}")
                     except ApiError as e:
                         status.update(label="AI triage failed", state="error")

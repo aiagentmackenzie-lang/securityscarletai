@@ -181,7 +181,9 @@ class TestIndividualRulesParse:
         assert "T1547" in rule.mitre_techniques
         sql, params = sigma_to_sql(content)
         # contains modifier produces parameterized values with % wildcards
-        assert any("LaunchAgents" in str(p) for p in params), f"LaunchAgents not in params: {params}"
+        assert any("LaunchAgents" in str(p) for p in params), (
+            f"LaunchAgents not in params: {params}"
+        )
 
     def test_rare_port_outbound_parses(self):
         rule, content = self._load_rule_by_id("20760a42-7d59-512e-bbb9-64ebbe1806e3")

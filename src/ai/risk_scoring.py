@@ -6,6 +6,7 @@ Combines multiple signals into unified risk scores for:
 - Users
 - Alerts
 """
+
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List
@@ -19,11 +20,12 @@ log = get_logger("ai.risk_scoring")
 @dataclass
 class RiskFactors:
     """Individual risk factor weights."""
-    alert_severity: float = 0.0      # Critical=1.0, High=0.8, Medium=0.5, Low=0.2
-    alert_count: float = 0.0         # Normalized count
-    anomaly_score: float = 0.0     # UEBA anomaly (0-1)
-    threat_intel_hits: float = 0.0 # Threat matches
-    exposure_score: float = 0.0    # Internet-facing, etc.
+
+    alert_severity: float = 0.0  # Critical=1.0, High=0.8, Medium=0.5, Low=0.2
+    alert_count: float = 0.0  # Normalized count
+    anomaly_score: float = 0.0  # UEBA anomaly (0-1)
+    threat_intel_hits: float = 0.0  # Threat matches
+    exposure_score: float = 0.0  # Internet-facing, etc.
 
 
 class RiskScorer:
@@ -163,7 +165,7 @@ class RiskScorer:
 
         factors.alert_severity = min(
             (critical * 1.0 + high * 0.5 + medium * 0.2) / 10,  # Normalize
-            1.0
+            1.0,
         )
         factors.alert_count = min(total / 50, 1.0)  # Normalize
 
@@ -184,11 +186,11 @@ class RiskScorer:
 
         # Calculate weighted risk
         risk_score = (
-            factors.alert_severity * RiskScorer.FACTOR_WEIGHTS["alert_severity"] +
-            factors.alert_count * RiskScorer.FACTOR_WEIGHTS["alert_count"] +
-            factors.anomaly_score * RiskScorer.FACTOR_WEIGHTS["anomaly_score"] +
-            factors.threat_intel_hits * RiskScorer.FACTOR_WEIGHTS["threat_intel"] +
-            factors.exposure_score * RiskScorer.FACTOR_WEIGHTS["exposure"]
+            factors.alert_severity * RiskScorer.FACTOR_WEIGHTS["alert_severity"]
+            + factors.alert_count * RiskScorer.FACTOR_WEIGHTS["alert_count"]
+            + factors.anomaly_score * RiskScorer.FACTOR_WEIGHTS["anomaly_score"]
+            + factors.threat_intel_hits * RiskScorer.FACTOR_WEIGHTS["threat_intel"]
+            + factors.exposure_score * RiskScorer.FACTOR_WEIGHTS["exposure"]
         ) * 100
 
         return {
@@ -338,13 +340,15 @@ class RiskScorer:
             crit_bonus = (r["crit_alerts"] or 0) * 20
             high_bonus = (r["high_alerts"] or 0) * 10
             risk_score = min(100.0, base_risk + crit_bonus + high_bonus)
-            scored.append({
-                "host_name": r["host_name"],
-                "risk_score": risk_score,
-                "total_alerts": r["total_alerts"] or 0,
-                "critical_alerts": r["crit_alerts"] or 0,
-                "high_alerts": r["high_alerts"] or 0,
-            })
+            scored.append(
+                {
+                    "host_name": r["host_name"],
+                    "risk_score": risk_score,
+                    "total_alerts": r["total_alerts"] or 0,
+                    "critical_alerts": r["crit_alerts"] or 0,
+                    "high_alerts": r["high_alerts"] or 0,
+                }
+            )
 
         return scored
 

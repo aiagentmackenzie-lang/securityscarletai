@@ -8,6 +8,7 @@ Enhanced with:
 - Suppression rules
 - Configurable filtering
 """
+
 import json
 from datetime import datetime
 from typing import Annotated, Optional
@@ -41,6 +42,7 @@ log = get_logger("api.alerts")
 # ───────────────────────────────────────────────────────────────
 # Request/Response models
 # ───────────────────────────────────────────────────────────────
+
 
 class AlertUpdate(BaseModel):
     status: str = Field(..., pattern=r"^(new|investigating|resolved|false_positive|closed)$")
@@ -78,6 +80,7 @@ class AlertResponse(BaseModel):
 # ───────────────────────────────────────────────────────────────
 # Alert listing and filtering
 # ───────────────────────────────────────────────────────────────
+
 
 @router.get("")
 async def list_alerts(
@@ -148,6 +151,7 @@ async def alert_statistics(
 # alert_id="suppressions" and 422s (fix/suppressions-route-shadowing).
 # ───────────────────────────────────────────────────────────────
 
+
 @router.get("/suppressions")
 async def list_suppressions(
     user: str = Depends(require_role("analyst")),
@@ -203,6 +207,7 @@ async def remove_suppression(
 # ───────────────────────────────────────────────────────────────
 # Single alert operations
 # ───────────────────────────────────────────────────────────────
+
 
 @router.get("/{alert_id}", response_model=AlertResponse)
 async def get_alert(
@@ -294,6 +299,7 @@ class LinkCaseRequest(BaseModel):
     Either provide case_id to link to an existing case,
     or provide title (and optionally description) to create a new case.
     """
+
     case_id: int | None = None
     title: str | None = None
     description: str | None = None
@@ -396,6 +402,7 @@ async def link_to_case(
 # Bulk operations
 # ───────────────────────────────────────────────────────────────
 
+
 @router.post("/bulk/acknowledge")
 async def bulk_acknowledge_alerts(
     op: BulkOperation,
@@ -442,6 +449,7 @@ async def bulk_resolve_alerts(
 # Alert export
 # ───────────────────────────────────────────────────────────────
 
+
 @router.get("/export/csv")
 async def export_csv(
     hours: int = 24,
@@ -451,6 +459,7 @@ async def export_csv(
     """Export alerts as CSV download."""
     csv_data = await export_alerts_csv(hours=hours, status_filter=status)
     from fastapi.responses import PlainTextResponse
+
     return PlainTextResponse(
         content=csv_data,
         media_type="text/csv",
@@ -465,5 +474,3 @@ async def export_stix(
 ):
     """Export alerts as STIX 2.1 bundle."""
     return await export_alerts_stix(hours=hours)
-
-

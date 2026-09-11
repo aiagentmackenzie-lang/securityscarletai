@@ -5,6 +5,7 @@ Rate limiting is now Redis-backed (via slowapi) with per-endpoint overrides
 configured in src/api/rate_limit.py. The Limiter singleton lives there;
 this module re-exports it for backward compat with existing imports.
 """
+
 import hashlib
 
 from fastapi import Request
@@ -44,7 +45,7 @@ def _decode_actor_from_request(request: Request) -> tuple[dict | None, str | Non
         if token and _hmac.compare_digest(token, api_bearer):
             return {"sub": "static-bearer", "role": "admin"}, "admin"
     except Exception as e:  # pragma: no cover — defensive; audit must not break
-        log.debug('static_bearer_check_failed', error=str(e))
+        log.debug("static_bearer_check_failed", error=str(e))
 
     try:
         from jose import jwt

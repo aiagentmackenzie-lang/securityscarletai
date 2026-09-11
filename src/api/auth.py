@@ -10,6 +10,7 @@ Security notes:
 - Unified auth: All endpoints accept both JWT (dashboard) and static bearer (API clients).
 - Epic 5 hardening: jti claim, Redis blocklist, user_revoke markers, refresh tokens.
 """
+
 import hashlib
 import hmac
 import secrets
@@ -225,9 +226,7 @@ def _static_bearer_identity(token: str) -> Optional[dict[str, Any]]:
     if secrets.compare_digest(token, settings.api_bearer_token.get_secret_value()):
         return {"sub": "api-client", "role": "admin"}
     ingest_token = settings.ingest_bearer_token
-    if ingest_token is not None and secrets.compare_digest(
-        token, ingest_token.get_secret_value()
-    ):
+    if ingest_token is not None and secrets.compare_digest(token, ingest_token.get_secret_value()):
         return {"sub": "ingest-client", "role": "viewer"}
     return None
 

@@ -10,6 +10,7 @@ Features:
 ALL data fetched through ApiClient — NO direct database access.
 Loading states: st.spinner() on fetches, st.status() for executions, st.toast() on actions.
 """
+
 import pandas as pd
 import streamlit as st
 
@@ -74,11 +75,13 @@ def render_hunt_view():
 
     st.header("Threat Hunting")
 
-    tab1, tab2, tab3 = st.tabs([
-        "Hunt Templates",
-        "MITRE ATT&CK Gaps",
-        "Execute Hunt",
-    ])
+    tab1, tab2, tab3 = st.tabs(
+        [
+            "Hunt Templates",
+            "MITRE ATT&CK Gaps",
+            "Execute Hunt",
+        ]
+    )
 
     # ─── Hunt Templates ───
     with tab1:
@@ -105,9 +108,7 @@ def render_hunt_view():
             for category, hunts in sorted(_group_templates(templates).items()):
                 with st.expander(f"{category} ({len(hunts)} hunts)"):
                     for hunt in hunts:
-                        st.markdown(
-                            f"**{hunt.get('name', 'Unknown')}**"
-                        )
+                        st.markdown(f"**{hunt.get('name', 'Unknown')}**")
                         st.caption(hunt.get("description", ""))
                         techniques = hunt.get("mitre", []) or []
                         if techniques:
@@ -211,9 +212,7 @@ def render_hunt_view():
                                 # Template matches carry matched_mitre; LLM
                                 # suggestions are name/description only.
                                 techniques = (
-                                    hunt.get("matched_mitre", [])
-                                    or hunt.get("mitre", [])
-                                    or []
+                                    hunt.get("matched_mitre", []) or hunt.get("mitre", []) or []
                                 )
                                 if techniques:
                                     st.write(

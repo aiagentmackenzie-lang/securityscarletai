@@ -10,6 +10,7 @@ go through TestClient with auth overridden, NOT direct calls):
 - limit below 1 / negative offset → 422
 - boundary value (exactly the cap) → accepted (handler runs)
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -102,9 +103,7 @@ class TestCorrelationMatchesPaginationBounds:
     def test_limit_at_cap_accepted(self):
         client = _make_client(correlation_router)
         # the handler delegates to the correlation engine — patch it, not get_pool
-        with patch(
-            "src.api.correlation.list_matches", AsyncMock(return_value=[])
-        ):
+        with patch("src.api.correlation.list_matches", AsyncMock(return_value=[])):
             r = client.get("/api/v1/correlation/matches", params={"limit": 1000})
         assert r.status_code == 200
 

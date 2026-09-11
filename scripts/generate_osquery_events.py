@@ -14,6 +14,7 @@ Usage:
 The FileShipper (src/ingestion/shipper.py) tails the same file when the API
 is started with ENABLE_INGESTION_SHIPPER=true.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -27,9 +28,7 @@ def _line(name: str, cmdline: str, action: str = "added") -> str:
         {
             "name": "processes",
             "hostIdentifier": "demo-mac.local",
-            "calendarTime": datetime.now(tz=timezone.utc).strftime(
-                "%a %b %d %H:%M:%S %Y UTC"
-            ),
+            "calendarTime": datetime.now(tz=timezone.utc).strftime("%a %b %d %H:%M:%S %Y UTC"),
             "unixTime": int(time.time()),
             "epoch": 0,
             "counter": 0,

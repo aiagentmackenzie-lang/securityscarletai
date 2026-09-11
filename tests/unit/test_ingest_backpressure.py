@@ -109,8 +109,9 @@ def ws_module():
     websocket._client_filters.clear()
 
 
-def _event(host: str = "web-server-01", severity: str = "high",
-           category: str = "process") -> "NormalizedEvent":  # noqa: F821
+def _event(
+    host: str = "web-server-01", severity: str = "high", category: str = "process"
+) -> "NormalizedEvent":  # noqa: F821
     from src.ingestion.schemas import NormalizedEvent
 
     return NormalizedEvent(
@@ -218,23 +219,17 @@ class TestCorrelationBounds:
         async def mock_detect_correlations_stub(*args, **kwargs):
             return []
 
-        with patch.object(
-            corr, "get_pool", AsyncMock(return_value=pool)
-        ), patch.object(
-            corr, "detect_payload_callback", AsyncMock(return_value=[match])
-        ), patch.object(
-            corr, "detect_brute_force_then_success", no_matches
-        ), patch.object(
-            corr, "detect_persistence_activated", no_matches
-        ), patch.object(
-            corr, "detect_data_exfiltration", no_matches
-        ), patch.object(
-            corr, "detect_privilege_escalation_chain", no_matches
-        ), patch.object(
-            corr, "detect_credential_theft_exfil", no_matches
-        ), patch.object(
-            corr, "detect_defense_evasion_cleanup", no_matches
-        ), patch.object(corr, "create_alert", AsyncMock()):
+        with (
+            patch.object(corr, "get_pool", AsyncMock(return_value=pool)),
+            patch.object(corr, "detect_payload_callback", AsyncMock(return_value=[match])),
+            patch.object(corr, "detect_brute_force_then_success", no_matches),
+            patch.object(corr, "detect_persistence_activated", no_matches),
+            patch.object(corr, "detect_data_exfiltration", no_matches),
+            patch.object(corr, "detect_privilege_escalation_chain", no_matches),
+            patch.object(corr, "detect_credential_theft_exfil", no_matches),
+            patch.object(corr, "detect_defense_evasion_cleanup", no_matches),
+            patch.object(corr, "create_alert", AsyncMock()),
+        ):
             result = await corr.run_all_correlations(
                 as_of=datetime(2026, 8, 28, tzinfo=timezone.utc), persist=True
             )
@@ -268,23 +263,17 @@ class TestCorrelationBounds:
 
         no_matches = AsyncMock(return_value=[])
 
-        with patch.object(
-            corr, "get_pool", AsyncMock(return_value=pool)
-        ), patch.object(
-            corr, "detect_payload_callback", AsyncMock(return_value=[match])
-        ), patch.object(
-            corr, "detect_brute_force_then_success", no_matches
-        ), patch.object(
-            corr, "detect_persistence_activated", no_matches
-        ), patch.object(
-            corr, "detect_data_exfiltration", no_matches
-        ), patch.object(
-            corr, "detect_privilege_escalation_chain", no_matches
-        ), patch.object(
-            corr, "detect_credential_theft_exfil", no_matches
-        ), patch.object(
-            corr, "detect_defense_evasion_cleanup", no_matches
-        ), patch.object(corr, "create_alert", AsyncMock()):
+        with (
+            patch.object(corr, "get_pool", AsyncMock(return_value=pool)),
+            patch.object(corr, "detect_payload_callback", AsyncMock(return_value=[match])),
+            patch.object(corr, "detect_brute_force_then_success", no_matches),
+            patch.object(corr, "detect_persistence_activated", no_matches),
+            patch.object(corr, "detect_data_exfiltration", no_matches),
+            patch.object(corr, "detect_privilege_escalation_chain", no_matches),
+            patch.object(corr, "detect_credential_theft_exfil", no_matches),
+            patch.object(corr, "detect_defense_evasion_cleanup", no_matches),
+            patch.object(corr, "create_alert", AsyncMock()),
+        ):
             result = await corr.run_all_correlations(
                 as_of=datetime(2026, 8, 28, tzinfo=timezone.utc), persist=True
             )

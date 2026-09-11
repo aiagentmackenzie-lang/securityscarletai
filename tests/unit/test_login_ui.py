@@ -35,7 +35,7 @@ class TestLogoSvg:
 
         svg = logo_svg(64, "abc")
         assert 'id="abc-shield"' in svg
-        assert 'url(#abc-shield)' in svg
+        assert "url(#abc-shield)" in svg
         # No un-prefixed id collisions across two renders
         svg_b = logo_svg(64, "xyz")
         assert 'id="xyz-shield"' in svg_b and 'id="abc-shield"' not in svg_b
@@ -134,7 +134,7 @@ class TestAuthCardCss:
         The toggle must overlay the field, not shrink it."""
         from dashboard.auth import LOGIN_CARD_CSS
 
-        assert "stTextInputRootElement\"] input" in LOGIN_CARD_CSS
+        assert 'stTextInputRootElement"] input' in LOGIN_CARD_CSS
         assert "width: 100% !important" in LOGIN_CARD_CSS
         assert "position: absolute" in LOGIN_CARD_CSS
 
@@ -146,7 +146,7 @@ class TestAuthCardCss:
         assert '[data-testid="stForm"] label' in LOGIN_CARD_CSS
         assert "color: #ffffff" in LOGIN_CARD_CSS
         # The old grey secondary must be gone from the label rule
-        label_block = LOGIN_CARD_CSS.split("[data-testid=\"stForm\"] label")[1]
+        label_block = LOGIN_CARD_CSS.split('[data-testid="stForm"] label')[1]
         label_block = label_block[: label_block.find("}}")]
         assert "#8b95a5" not in label_block
 

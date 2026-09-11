@@ -27,6 +27,7 @@ Currently:
   seam) — both override this fixture because pytest instantiates autouse
   fixtures first.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -48,9 +49,7 @@ def _inmem_rate_limit_storage():
     original_strategy_storage = _rl.limiter.limiter.storage
     original_headers_enabled = _rl.limiter._headers_enabled
     fallback_limiter = _rl.limiter._fallback_limiter
-    original_fallback_storage = (
-        fallback_limiter.storage if fallback_limiter is not None else None
-    )
+    original_fallback_storage = fallback_limiter.storage if fallback_limiter is not None else None
     mem = MemoryStorage()
     _rl.limiter._storage = mem  # noqa: SLF001
     _rl.limiter.limiter.storage = mem

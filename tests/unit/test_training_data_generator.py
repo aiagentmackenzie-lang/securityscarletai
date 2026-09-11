@@ -12,6 +12,7 @@ Covers:
 - Generator rejects n < 2
 - Generator rejects off-stratification drift
 """
+
 from __future__ import annotations
 
 import csv

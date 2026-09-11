@@ -30,9 +30,9 @@ class _FakeRedis:
         self._kv: dict[str, str] = {}
         self._ttls: dict[str, int] = {}
         self._sets: dict[str, set[str]] = {}
-        self.counters: dict[str, int] = {k: 0 for k in
-                                         ("incr", "expire", "sadd", "scard",
-                                          "delete", "get", "setex", "ttl")}
+        self.counters: dict[str, int] = {
+            k: 0 for k in ("incr", "expire", "sadd", "scard", "delete", "get", "setex", "ttl")
+        }
 
     # string ops
     async def setex(self, key: str, ttl: int, value: str) -> None:
@@ -166,7 +166,7 @@ class TestCompositeLockout:
             await register_failure("erin", "10.0.0.5")
         await register_success("erin".replace("erin", "dave") and "erina", "10.0.0.5")
         fresh = [await register_failure("erina", "10.0.0.5") for _ in range(5)]
-        assert [v for v,_ in fresh] == [False, False, False, False, True]
+        assert [v for v, _ in fresh] == [False, False, False, False, True]
 
     async def test_redis_down_returns_verdict_none(self):
         from src.api import redis_client
@@ -203,6 +203,7 @@ class TestRedisRetry:
             return fake_redis
 
         monkeypatch.setattr(redis_client, "_from_url", fake_from_url)
+
         # async sleep seam — collects backoff durations without awaiting real time
         async def fake_sleep(s: float) -> None:
             sleeps.append(s)
@@ -328,16 +329,13 @@ class TestRefreshMustChangePassword:
     async def test_refresh_blocked_with_force_token(self, fake_redis):
         from fastapi import HTTPException
 
-
         row = {
             "username": "hank",
             "role": "analyst",
             "is_active": True,
             "must_change_password": True,
         }
-        with patch(
-            "src.api.auth_login.get_pool", AsyncMock(return_value=self._login_pool(row))
-        ):
+        with patch("src.api.auth_login.get_pool", AsyncMock(return_value=self._login_pool(row))):
             with pytest.raises(HTTPException) as exc:
                 from src.api.auth_login import RefreshRequest, refresh_token
 
@@ -358,12 +356,8 @@ class TestRefreshMustChangePassword:
             "is_active": True,
             "must_change_password": False,
         }
-        with patch(
-            "src.api.auth_login.get_pool", AsyncMock(return_value=self._login_pool(row))
-        ):
-            result = await refresh_token(
-                RefreshRequest(refresh_token=_make_refresh_token("hank"))
-            )
+        with patch("src.api.auth_login.get_pool", AsyncMock(return_value=self._login_pool(row))):
+            result = await refresh_token(RefreshRequest(refresh_token=_make_refresh_token("hank")))
         assert result.access_token
 
     @pytest.mark.asyncio
@@ -373,13 +367,9 @@ class TestRefreshMustChangePassword:
         from src.api.auth_login import RefreshRequest, refresh_token
 
         row = None
-        with patch(
-            "src.api.auth_login.get_pool", AsyncMock(return_value=self._login_pool(row))
-        ):
+        with patch("src.api.auth_login.get_pool", AsyncMock(return_value=self._login_pool(row))):
             with pytest.raises(HTTPException) as exc:
-                await refresh_token(
-                    RefreshRequest(refresh_token=_make_refresh_token("ghost"))
-                )
+                await refresh_token(RefreshRequest(refresh_token=_make_refresh_token("ghost")))
         assert exc.value.status_code == 401
 
 
@@ -419,10 +409,14 @@ class TestEnumerationBurn:
         monkeypatch.setattr(auth_login, "hash_password", counting_hash)
 
         row = {
-            "id": 1, "username": "idle",
+            "id": 1,
+            "username": "idle",
             "password_hash": real_hash("whatever-long-pw"),
-            "role": "analyst", "is_active": False, "locked_until": None,
-            "failed_login_attempts": 0, "must_change_password": False,
+            "role": "analyst",
+            "is_active": False,
+            "locked_until": None,
+            "failed_login_attempts": 0,
+            "must_change_password": False,
         }
         with patch(
             "src.api.auth_login.get_pool",
@@ -432,9 +426,7 @@ class TestEnumerationBurn:
                 await login(
                     request=make_test_request(path="/api/v1/auth/login"),
                     response=MagicMock(),
-                    login_request=LoginRequest(
-                        username="idle", password="whatever-long-pw"
-                    ),
+                    login_request=LoginRequest(username="idle", password="whatever-long-pw"),
                 )
         assert exc.value.status_code == 401
         assert hash_calls["n"] == 1  # the burn ran exactly once in this branch

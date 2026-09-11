@@ -5,6 +5,7 @@ Authentication: Short-lived single-use WebSocket tokens obtained via
 a dedicated endpoint (POST /auth/ws-token). WS tokens have 5 min TTL
 and are separate from the main JWT, avoiding exposure in query params.
 """
+
 import asyncio
 from typing import Optional
 
@@ -39,10 +40,12 @@ WS_SEND_TIMEOUT_SECONDS = 1.0
 # Key: token string, Value: {"username": ..., "role": ..., "expires": float}
 _ws_tokens: dict[str, dict] = {}
 
+
 # H-05 fix: Periodic cleanup for expired WS tokens that were created but never used
 async def _cleanup_expired_ws_tokens():
     """Remove expired WS tokens to prevent memory leak."""
     import time
+
     now = time.time()
     expired = [k for k, v in _ws_tokens.items() if now > v["expires"] + 300]
     for k in expired:
@@ -121,10 +124,12 @@ async def websocket_logs(
         "websocket_connected",
         client=str(websocket.client),
         user=token_data.get("username"),
-        filters={"host": host_filter,
-        "category": category_filter,
-        "severity": severity_filter,
-    })
+        filters={
+            "host": host_filter,
+            "category": category_filter,
+            "severity": severity_filter,
+        },
+    )
 
     try:
         while True:
@@ -134,12 +139,14 @@ async def websocket_logs(
                 await websocket.send_text("pong")
             elif data == "filters":
                 # Client can request current filter status
-                await websocket.send_json({
-                    "type": "filters",
-                    "host_filter": host_filter,
-                    "category_filter": category_filter,
-                    "severity_filter": severity_filter,
-                })
+                await websocket.send_json(
+                    {
+                        "type": "filters",
+                        "host_filter": host_filter,
+                        "category_filter": category_filter,
+                        "severity_filter": severity_filter,
+                    }
+                )
 
     except WebSocketDisconnect:
         log.info("websocket_disconnected", client=str(websocket.client))
@@ -197,9 +204,7 @@ async def broadcast_event(event: NormalizedEvent) -> None:
             if client.client_state == WebSocketState.CONNECTED:
                 # P2.4: never let a slow client stall the broadcast (and with
                 # it, whatever called us). Timeout → evict the client.
-                await asyncio.wait_for(
-                    client.send_json(message), timeout=WS_SEND_TIMEOUT_SECONDS
-                )
+                await asyncio.wait_for(client.send_json(message), timeout=WS_SEND_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
             log.warning(
                 "ws_broadcast_slow_client_evicted",

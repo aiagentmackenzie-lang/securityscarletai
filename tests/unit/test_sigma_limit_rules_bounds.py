@@ -6,6 +6,7 @@
   heavy window queries), lookback ≤24h, threshold ≥1, severity restricted
   to the known enum (off-enum values used to 500 on the DB enum).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -44,7 +45,8 @@ class TestRuleModelBounds:
             from src.api.rules import RuleCreate
 
             RuleCreate(
-                name="t", sigma_yaml="title: t\ndetection:\n    condition: selection",
+                name="t",
+                sigma_yaml="title: t\ndetection:\n    condition: selection",
                 run_interval=1,
             )
 

@@ -11,6 +11,7 @@ Covers:
 
 Tests use fakeredis to avoid requiring a live Redis server.
 """
+
 from __future__ import annotations
 
 import os

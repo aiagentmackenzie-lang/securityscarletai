@@ -13,6 +13,7 @@ patches that other test modules (e.g. test_enrichment_pipeline.py) have
 applied to the pipeline module. Instead we manipulate the module-level
 flags directly, which is safe because we restore them in a fixture.
 """
+
 from __future__ import annotations
 
 import sys
@@ -51,15 +52,14 @@ class TestGeoipRetryOnMissingDb:
         # Patch the reader constructor to raise FileNotFoundError every
         # time, simulating a permanently-missing DB.
         fake_reader_mod = MagicMock()
-        fake_reader_mod.database.Reader.side_effect = FileNotFoundError(
-            "data/GeoLite2-City.mmdb"
-        )
-        with patch.dict(sys.modules, {"geoip2": fake_reader_mod, "geoip2.database": fake_reader_mod.database}):
+        fake_reader_mod.database.Reader.side_effect = FileNotFoundError("data/GeoLite2-City.mmdb")
+        with patch.dict(
+            sys.modules, {"geoip2": fake_reader_mod, "geoip2.database": fake_reader_mod.database}
+        ):
             # First call: tries to open, fails, returns None.
             assert pipeline._get_geoip_reader() is None
             assert pipeline._geoip_loaded is False, (
-                "After init failure, _geoip_loaded must remain False so "
-                "future calls can retry"
+                "After init failure, _geoip_loaded must remain False so future calls can retry"
             )
 
             # Force the throttle to expire so the next call actually retries.
@@ -74,7 +74,9 @@ class TestGeoipRetryOnMissingDb:
         fake_reader = MagicMock()
         fake_reader_mod = MagicMock()
         fake_reader_mod.database.Reader.return_value = fake_reader
-        with patch.dict(sys.modules, {"geoip2": fake_reader_mod, "geoip2.database": fake_reader_mod.database}):
+        with patch.dict(
+            sys.modules, {"geoip2": fake_reader_mod, "geoip2.database": fake_reader_mod.database}
+        ):
             reader = pipeline._get_geoip_reader()
             assert reader is fake_reader
             assert pipeline._geoip_loaded is True
@@ -88,7 +90,9 @@ class TestGeoipRetryOnMissingDb:
         only hit the FS once — the second is throttled."""
         fake_reader_mod = MagicMock()
         fake_reader_mod.database.Reader.side_effect = FileNotFoundError("nope")
-        with patch.dict(sys.modules, {"geoip2": fake_reader_mod, "geoip2.database": fake_reader_mod.database}):
+        with patch.dict(
+            sys.modules, {"geoip2": fake_reader_mod, "geoip2.database": fake_reader_mod.database}
+        ):
             pipeline._get_geoip_reader()  # First attempt
             # Second attempt within window — must be throttled
             pipeline._get_geoip_reader()
@@ -101,7 +105,9 @@ class TestGeoipRetryOnMissingDb:
         fake_reader = MagicMock()
         fake_reader_mod = MagicMock()
         fake_reader_mod.database.Reader.return_value = fake_reader
-        with patch.dict(sys.modules, {"geoip2": fake_reader_mod, "geoip2.database": fake_reader_mod.database}):
+        with patch.dict(
+            sys.modules, {"geoip2": fake_reader_mod, "geoip2.database": fake_reader_mod.database}
+        ):
             pipeline._get_geoip_reader()
             assert pipeline._geoip_loaded is True
 

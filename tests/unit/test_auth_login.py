@@ -34,7 +34,9 @@ class TestCreateJWT:
         token = create_jwt("analyst1", "analyst")
         from jose import jwt
 
-        payload = jwt.decode(token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(
+            token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+        )
         assert payload["sub"] == "analyst1"
         assert payload["role"] == "analyst"
 
@@ -43,7 +45,9 @@ class TestCreateJWT:
         token = create_jwt("admin1", "admin")
         from jose import jwt
 
-        payload = jwt.decode(token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(
+            token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+        )
         assert "exp" in payload
         assert payload["exp"] > datetime.now(tz=timezone.utc).timestamp()
 
@@ -52,7 +56,9 @@ class TestCreateJWT:
         token = create_jwt("superadmin", "admin")
         from jose import jwt
 
-        payload = jwt.decode(token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(
+            token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+        )
         assert payload["role"] == "admin"
 
     def test_create_jwt_viewer_role(self):
@@ -60,7 +66,9 @@ class TestCreateJWT:
         token = create_jwt("readonly", "viewer")
         from jose import jwt
 
-        payload = jwt.decode(token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(
+            token, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+        )
         assert payload["role"] == "viewer"
 
 
@@ -102,7 +110,9 @@ class TestLoginEndpoint:
                 from src.api.auth_login import LoginRequest, login
 
                 request = LoginRequest(username="testadmin", password="testpass123")
-                result = await login(make_test_request(), response=Response(), login_request=request)
+                result = await login(
+                    make_test_request(), response=Response(), login_request=request
+                )
 
                 assert result.access_token is not None
                 assert result.username == "testadmin"

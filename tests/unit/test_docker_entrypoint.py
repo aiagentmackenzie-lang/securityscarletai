@@ -10,6 +10,7 @@ We don't actually run the entrypoint (that would require a live Postgres,
 Redis, and a real training dataset). We just verify the script is well-formed
 and contains the expected milestones.
 """
+
 from __future__ import annotations
 
 import re

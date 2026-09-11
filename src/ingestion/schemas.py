@@ -4,6 +4,7 @@ Reference: https://www.elastic.co/guide/en/ecs/current/index.html
 
 Each osquery table maps to an ECS event.category + event.type combination.
 """
+
 from datetime import datetime
 from typing import Any, Optional
 
@@ -12,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 class NormalizedEvent(BaseModel):
     """A single security event normalized to ECS fields."""
+
     model_config = ConfigDict(populate_by_name=True)
 
     timestamp: datetime = Field(alias="@timestamp")
@@ -21,10 +23,10 @@ class NormalizedEvent(BaseModel):
     host_ip: Optional[str] = None
 
     # Event classification (ECS)
-    event_category: str        # process, network, file, authentication, configuration
-    event_type: str            # start, end, connection, creation, deletion, change, info
+    event_category: str  # process, network, file, authentication, configuration
+    event_type: str  # start, end, connection, creation, deletion, change, info
     event_action: Optional[str] = None  # specific action, e.g., "process_started"
-    source: str                # osquery table name or ingestion source
+    source: str  # osquery table name or ingestion source
 
     # Actor
     user_name: Optional[str] = None
@@ -73,16 +75,16 @@ class NormalizedEvent(BaseModel):
 # table is empty/deprecated on modern macOS (verified live against osquery
 # 5.23.1) and only added scheduler noise.
 OSQUERY_ECS_MAP: dict[str, dict[str, str]] = {
-    "processes":        {"event_category": "process",        "event_type": "info"},
-    "process_events":   {"event_category": "process",        "event_type": "start"},
-    "listening_ports":  {"event_category": "network",        "event_type": "connection"},
-    "open_sockets":     {"event_category": "network",        "event_type": "connection"},
-    "logged_in_users":  {"event_category": "authentication", "event_type": "start"},
-    "file_events":      {"event_category": "file",           "event_type": "change"},
-    "shell_history":    {"event_category": "process",        "event_type": "info"},
-    "crontab":          {"event_category": "configuration",  "event_type": "info"},
-    "startup_items":    {"event_category": "configuration",  "event_type": "info"},
-    "launchd_entries":  {"event_category": "configuration",  "event_type": "info"},
-    "user_ssh_keys":    {"event_category": "configuration",  "event_type": "info"},
-    "sip_config":       {"event_category": "configuration",  "event_type": "info"},
+    "processes": {"event_category": "process", "event_type": "info"},
+    "process_events": {"event_category": "process", "event_type": "start"},
+    "listening_ports": {"event_category": "network", "event_type": "connection"},
+    "open_sockets": {"event_category": "network", "event_type": "connection"},
+    "logged_in_users": {"event_category": "authentication", "event_type": "start"},
+    "file_events": {"event_category": "file", "event_type": "change"},
+    "shell_history": {"event_category": "process", "event_type": "info"},
+    "crontab": {"event_category": "configuration", "event_type": "info"},
+    "startup_items": {"event_category": "configuration", "event_type": "info"},
+    "launchd_entries": {"event_category": "configuration", "event_type": "info"},
+    "user_ssh_keys": {"event_category": "configuration", "event_type": "info"},
+    "sip_config": {"event_category": "configuration", "event_type": "info"},
 }

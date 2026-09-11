@@ -337,7 +337,9 @@ class TestBulkOperations:
 
         with patch("src.api.alerts.bulk_acknowledge", AsyncMock(return_value=5)):
             op = BulkOperation(alert_ids=[1, 2, 3, 4, 5])
-            result = await bulk_acknowledge_alerts(op=op, user={"sub": "analyst1", "role": "analyst"})
+            result = await bulk_acknowledge_alerts(
+                op=op, user={"sub": "analyst1", "role": "analyst"}
+            )
 
         assert result["acknowledged"] == 5
 
@@ -500,9 +502,7 @@ class TestSuppressionRules:
 
         with patch("src.api.alerts.delete_suppression_rule", AsyncMock(return_value=False)):
             with pytest.raises(HTTPException) as exc_info:
-                await remove_suppression(
-                    suppression_id=999, user={"sub": "admin", "role": "admin"}
-                )
+                await remove_suppression(suppression_id=999, user={"sub": "admin", "role": "admin"})
         assert exc_info.value.status_code == 404
 
 
@@ -559,7 +559,9 @@ class TestAddNote:
             patch("src.api.alerts.add_alert_note", AsyncMock()),
         ):
             note = AlertNote(text="Investigated this alert")
-            result = await add_note(alert_id=1, note=note, user={"sub": "analyst1", "role": "analyst"})
+            result = await add_note(
+                alert_id=1, note=note, user={"sub": "analyst1", "role": "analyst"}
+            )
 
         assert result["status"] == "note_added"
         assert result["alert_id"] == 1

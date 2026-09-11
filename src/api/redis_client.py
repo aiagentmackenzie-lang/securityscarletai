@@ -17,6 +17,7 @@ Design notes:
   authenticated request (auth.py), blocklist_jti / set_user_revoke_marker on
   auth mutations, and login_lockout on the login path.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -56,9 +57,7 @@ async def _get_client() -> Optional[aioredis.Redis]:
     global _client, _last_failure_ts
     if _client is not None:
         return _client
-    if _last_failure_ts and (
-        _time.monotonic() - _last_failure_ts < _FAILURE_COOLDOWN_SECONDS
-    ):
+    if _last_failure_ts and (_time.monotonic() - _last_failure_ts < _FAILURE_COOLDOWN_SECONDS):
         return None  # in cooldown after a failed round — don't hammer
 
     last_err: Optional[Exception] = None
@@ -135,6 +134,7 @@ def reset_client() -> None:
 # JWT blocklist (Epic 5)
 # ───────────────────────────────────────────────────────────────
 
+
 async def blocklist_jti(jti: str, ttl_seconds: int) -> bool:
     """Add a jti to the blocklist with TTL. Returns True on success."""
     client = await _get_client()
@@ -164,14 +164,13 @@ async def is_jti_blocked(jti: str) -> bool:
 # User revocation (Epic 5 — change-password invalidates all tokens)
 # ───────────────────────────────────────────────────────────────
 
+
 def _user_revoke_key(username: str) -> str:
     """F-09: one fixed key per user — latest revocation wins, no SCAN to read."""
     return f"{_KEY_PREFIX}user_revoke:{username}"
 
 
-async def set_user_revoke_marker(
-    username: str, issued_at: datetime, ttl_seconds: int
-) -> bool:
+async def set_user_revoke_marker(username: str, issued_at: datetime, ttl_seconds: int) -> bool:
     """Set a user_revoke marker. All tokens issued BEFORE this ts are invalid.
 
     F-09: writes the ts to the fixed key scarletai:v1:user_revoke:<username>

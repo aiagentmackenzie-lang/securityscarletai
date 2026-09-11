@@ -98,13 +98,15 @@ class TestRunAllCorrelationsContract:
         async def fake_fetch(sql, *args, **kwargs):
             call_count["n"] += 1
             if call_count["n"] == 1:
-                return [{
-                    "host_name": "server-01",
-                    "source_ip": "10.0.0.5",
-                    "user_name": "admin",
-                    "success_time": datetime(2026, 5, 31, 21, 55, tzinfo=timezone.utc),
-                    "failed_count": 5,
-                }]
+                return [
+                    {
+                        "host_name": "server-01",
+                        "source_ip": "10.0.0.5",
+                        "user_name": "admin",
+                        "success_time": datetime(2026, 5, 31, 21, 55, tzinfo=timezone.utc),
+                        "failed_count": 5,
+                    }
+                ]
             return []
 
         mock_conn.fetch = AsyncMock(side_effect=fake_fetch)
@@ -199,11 +201,15 @@ class TestCorrelationIdEnrichment:
         async def fake_fetch(*args, **kwargs):
             call_count["n"] += 1
             if call_count["n"] == 1:
-                return [{
-                    "host_name": "h1", "source_ip": "10.0.0.1", "user_name": "u",
-                    "success_time": datetime(2026, 5, 31, tzinfo=timezone.utc),
-                    "failed_count": 3,
-                }]
+                return [
+                    {
+                        "host_name": "h1",
+                        "source_ip": "10.0.0.1",
+                        "user_name": "u",
+                        "success_time": datetime(2026, 5, 31, tzinfo=timezone.utc),
+                        "failed_count": 3,
+                    }
+                ]
             return []
 
         mock_conn.fetch = AsyncMock(side_effect=fake_fetch)
@@ -221,7 +227,9 @@ class TestCorrelationIdEnrichment:
         m = result["matches"][0]
         assert "correlation_id" in m
         # Should be a valid UUID4 hex
-        assert re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", m["correlation_id"])
+        assert re.match(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", m["correlation_id"]
+        )
         assert m["severity"] == "critical"
         assert m["title"] == "Brute Force → Successful Login"
         assert "TA0006" in m["mitre_tactics"]
@@ -238,12 +246,20 @@ class TestCorrelationIdEnrichment:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 return [
-                    {"host_name": "h1", "source_ip": "1.1.1.1", "user_name": "u",
-                     "success_time": datetime(2026, 5, 31, tzinfo=timezone.utc),
-                     "failed_count": 3},
-                    {"host_name": "h2", "source_ip": "2.2.2.2", "user_name": "u2",
-                     "success_time": datetime(2026, 5, 31, tzinfo=timezone.utc),
-                     "failed_count": 4},
+                    {
+                        "host_name": "h1",
+                        "source_ip": "1.1.1.1",
+                        "user_name": "u",
+                        "success_time": datetime(2026, 5, 31, tzinfo=timezone.utc),
+                        "failed_count": 3,
+                    },
+                    {
+                        "host_name": "h2",
+                        "source_ip": "2.2.2.2",
+                        "user_name": "u2",
+                        "success_time": datetime(2026, 5, 31, tzinfo=timezone.utc),
+                        "failed_count": 4,
+                    },
                 ]
             return []
 
@@ -446,6 +462,7 @@ class TestSerializeMatchData:
 
     def test_serializes_decimal(self):
         from decimal import Decimal
+
         m = {"bytes": Decimal("100.5")}
         out = corr._serialize_match_data(m)
         assert "100.5" in out

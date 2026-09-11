@@ -9,6 +9,7 @@ mocked, and the log file is a real tmp_path file.
 NOTE: CHECKPOINT_FILE is patched to a tmp path for the WHOLE test (via the
 `ckpt` fixture) so _save_checkpoint never writes to the real home checkpoint.
 """
+
 import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -21,14 +22,16 @@ from src.ingestion.shipper import FileShipper
 
 def _osquery_line(table: str = "processes", pid: str = "123") -> str:
     """Build a valid osquery result-log line for a mapped table."""
-    return json.dumps({
-        "name": table,
-        "hostIdentifier": "host01",
-        "calendarTime": "Mon Mar 21 12:00:00 2026 UTC",
-        "unixTime": 1774267200,
-        "columns": {"pid": pid, "name": "python3"},
-        "action": "added",
-    })
+    return json.dumps(
+        {
+            "name": table,
+            "hostIdentifier": "host01",
+            "calendarTime": "Mon Mar 21 12:00:00 2026 UTC",
+            "unixTime": 1774267200,
+            "columns": {"pid": pid, "name": "python3"},
+            "action": "added",
+        }
+    )
 
 
 @pytest.fixture

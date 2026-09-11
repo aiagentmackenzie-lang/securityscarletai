@@ -7,6 +7,7 @@ can show degraded-mode indicators.
 
 Includes prompt injection defense (same approach as nl2sql.py).
 """
+
 import re
 from typing import Any, Dict, Optional
 
@@ -126,7 +127,7 @@ async def build_security_context() -> str:
 
     lines = ["Current Security Environment (last 7 days):"]
 
-    if summary and summary['total'] > 0:
+    if summary and summary["total"] > 0:
         lines.append(
             f"- Alerts (7d): {summary['total']} total "
             f"({summary['critical']} critical, {summary['high']} high, "
@@ -143,9 +144,7 @@ async def build_security_context() -> str:
     untrusted_lines: list[str] = []
 
     if top_hosts:
-        host_list = ", ".join(
-            f"{h['host_name']} ({h['alert_count']})" for h in top_hosts[:5]
-        )
+        host_list = ", ".join(f"{h['host_name']} ({h['alert_count']})" for h in top_hosts[:5])
         untrusted_lines.append(f"- Top hosts by alerts: {host_list}")
 
     if recent_alerts:

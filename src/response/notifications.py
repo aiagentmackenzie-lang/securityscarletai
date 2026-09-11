@@ -1,6 +1,7 @@
 """
 Notification handlers for Slack and Email alerts.
 """
+
 from typing import Optional
 
 import httpx
@@ -65,12 +66,12 @@ async def send_alert_notification(alert: dict) -> bool:
         "info": "⚪",
     }.get(alert.get("severity", "").lower(), "⚪")
 
-    message = f"""{severity_emoji} *Security Alert: {alert.get('severity', 'UNKNOWN').upper()}*
+    message = f"""{severity_emoji} *Security Alert: {alert.get("severity", "UNKNOWN").upper()}*
 
-*Rule:* {alert.get('rule_name', 'Unknown')}
-*Host:* {alert.get('host_name', 'Unknown')}
-*Time:* {alert.get('time', 'Unknown')[:19]}
-*Description:* {alert.get('description', 'No description')}
+*Rule:* {alert.get("rule_name", "Unknown")}
+*Host:* {alert.get("host_name", "Unknown")}
+*Time:* {alert.get("time", "Unknown")[:19]}
+*Description:* {alert.get("description", "No description")}
 
 View in Dashboard: {settings.dashboard_public_url}"""
 

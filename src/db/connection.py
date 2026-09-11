@@ -3,6 +3,7 @@ Async PostgreSQL connection pool using asyncpg.
 Singleton pool — initialize once at startup, share everywhere.
 Includes retry with exponential backoff for deployment robustness.
 """
+
 import asyncio
 
 import asyncpg

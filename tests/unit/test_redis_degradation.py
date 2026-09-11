@@ -18,6 +18,7 @@ Covered here:
 - With Redis in cooldown (simulated outage), auth/lockout calls fail open
   immediately — no event-loop stall.
 """
+
 from __future__ import annotations
 
 import os
@@ -45,7 +46,8 @@ class TestRateLimiterMemoryFallback:
         assert limiter._in_memory_fallback_enabled is True  # noqa: SLF001
         assert limiter._fallback_limiter is not None  # noqa: SLF001
         assert isinstance(  # noqa: SLF001
-            limiter._fallback_limiter.storage, MemoryStorage  # noqa: SLF001
+            limiter._fallback_limiter.storage,
+            MemoryStorage,  # noqa: SLF001
         )
 
     def test_storage_failure_engages_fallback_without_500(self, monkeypatch):

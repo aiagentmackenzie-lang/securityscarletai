@@ -15,6 +15,7 @@ class TestAutoRefreshFallback:
     def test_has_autorefresh_flag_true_when_available(self):
         """When streamlit_autorefresh is installed, HAS_AUTOREFRESH should be True."""
         from dashboard.main import HAS_AUTOREFRESH
+
         assert isinstance(HAS_AUTOREFRESH, bool)
 
     def test_autorefresh_import_does_not_crash(self):
@@ -23,14 +24,22 @@ class TestAutoRefreshFallback:
             import importlib
 
             import dashboard.main
+
             importlib.reload(dashboard.main)
 
     def test_page_refresh_intervals_defined(self):
         """Every page should have a refresh interval defined."""
         from dashboard.main import PAGE_REFRESH_MS
+
         expected_pages = [
-            "overview", "logs", "alerts", "rules", "cases",
-            "ai_chat", "hunting", "audit",
+            "overview",
+            "logs",
+            "alerts",
+            "rules",
+            "cases",
+            "ai_chat",
+            "hunting",
+            "audit",
         ]
         for page in expected_pages:
             assert page in PAGE_REFRESH_MS, f"Missing refresh interval for page: {page}"
@@ -38,11 +47,13 @@ class TestAutoRefreshFallback:
     def test_ai_chat_never_auto_refreshes(self):
         """AI chat should never auto-refresh (preserves chat context)."""
         from dashboard.main import PAGE_REFRESH_MS
+
         assert PAGE_REFRESH_MS["ai_chat"] == 0, "AI chat should have 0 refresh interval"
 
     def test_refresh_intervals_are_reasonable(self):
         """Refresh intervals should be between 10-120 seconds."""
         from dashboard.main import PAGE_REFRESH_MS
+
         for page, ms in PAGE_REFRESH_MS.items():
             if ms == 0:
                 continue
@@ -63,6 +74,7 @@ class TestLoadingStatePatterns:
             render_severity_sparklines,
             render_top_hosts,
         )
+
         assert callable(render_severity_distribution)
         assert callable(render_alert_trend)
         assert callable(render_top_hosts)
@@ -79,6 +91,7 @@ class TestLoadingStatePatterns:
         from dashboard.hunt_view import render_hunt_view
         from dashboard.logs_view import render_log_viewer
         from dashboard.rules_view import render_rules_view
+
         assert callable(render_log_viewer)
         assert callable(render_alert_list)
         assert callable(render_rules_view)
@@ -89,6 +102,7 @@ class TestLoadingStatePatterns:
     def test_main_page_routing_dict(self):
         """PAGES dict should contain all expected page routes without emoji."""
         from dashboard.main import ADMIN_PAGES, PAGES
+
         assert "Overview" in PAGES
         assert "Live Logs" in PAGES
         assert "Alerts" in PAGES
@@ -105,24 +119,28 @@ class TestDarkThemeCSS:
     def test_dark_theme_css_exists(self):
         """Dark theme CSS should be defined."""
         from dashboard.main import DARK_THEME_CSS
+
         assert len(DARK_THEME_CSS) > 100
         assert "background-color" in DARK_THEME_CSS
 
     def test_dark_theme_has_animations(self):
         """Dark theme CSS should include fade-in animation."""
         from dashboard.main import DARK_THEME_CSS
+
         assert "fadeInContent" in DARK_THEME_CSS
         assert "@keyframes" in DARK_THEME_CSS
 
     def test_dark_theme_has_button_transitions(self):
         """Dark theme CSS should include button transition effects."""
         from dashboard.main import DARK_THEME_CSS
+
         assert "transition" in DARK_THEME_CSS.lower()
         assert "hover" in DARK_THEME_CSS.lower()
 
     def test_dark_theme_has_badge_classes(self):
         """Dark theme CSS should include severity/status badge classes."""
         from dashboard.main import DARK_THEME_CSS
+
         assert ".badge-critical" in DARK_THEME_CSS
         assert ".badge-high" in DARK_THEME_CSS
         assert ".badge-medium" in DARK_THEME_CSS
@@ -140,6 +158,7 @@ class TestDarkThemeCSS:
             TEXT_PRIMARY,
             TEXT_SECONDARY,
         )
+
         assert BG_APP.startswith("#")
         assert BG_SURFACE.startswith("#")
         assert BG_ELEVATED.startswith("#")
@@ -151,6 +170,7 @@ class TestDarkThemeCSS:
     def test_dark_theme_has_sidebar_active_state(self):
         """Sidebar nav should have active state styling."""
         from dashboard.main import DARK_THEME_CSS
+
         assert "aria-selected" in DARK_THEME_CSS
 
 
@@ -159,24 +179,28 @@ class TestBadgeSystem:
 
     def test_severity_badge_html(self):
         from dashboard.ui_utils import sev_badge
+
         html = sev_badge("critical")
         assert 'class="badge badge-critical"' in html
         assert "CRITICAL" in html
 
     def test_status_badge_html(self):
         from dashboard.ui_utils import status_badge
+
         html = status_badge("new")
         assert 'class="badge badge-new"' in html
         assert "NEW" in html
 
     def test_all_severities_badge(self):
         from dashboard.ui_utils import sev_badge
+
         for sev in ["critical", "high", "medium", "low", "info"]:
             html = sev_badge(sev)
             assert sev.upper() in html
 
     def test_all_statuses_badge(self):
         from dashboard.ui_utils import status_badge
+
         for st in ["new", "investigating", "resolved", "false_positive", "closed"]:
             html = status_badge(st)
             assert st.replace("_", " ").upper() in html
@@ -188,9 +212,14 @@ class TestBadgeSystem:
             STATUS_COLORS,
             STATUS_CSS_MAP,
         )
+
         assert set(SEV_CSS_MAP.keys()) == {"critical", "high", "medium", "low", "info"}
         assert set(STATUS_CSS_MAP.keys()) == {
-            "new", "investigating", "resolved", "false_positive", "closed"
+            "new",
+            "investigating",
+            "resolved",
+            "false_positive",
+            "closed",
         }
         assert len(SEVERITY_COLORS) == 5
         assert len(STATUS_COLORS) == 5
@@ -202,27 +231,32 @@ class TestChartsThemeConfig:
     def test_severity_colors_complete(self):
         """Severity color map should cover all severity levels."""
         from dashboard.charts import SEVERITY_COLORS
+
         expected_keys = {"critical", "high", "medium", "low", "info"}
         assert set(SEVERITY_COLORS.keys()) == expected_keys
 
     def test_severity_order_complete(self):
         """Severity order should be from highest to lowest."""
         from dashboard.charts import SEVERITY_ORDER
+
         assert SEVERITY_ORDER == ["critical", "high", "medium", "low", "info"]
 
     def test_dark_theme_tokens(self):
         """Chart module should mirror the design tokens from main."""
         from dashboard.charts import BG_SURFACE, TEXT_PRIMARY, TEXT_SECONDARY
+
         assert BG_SURFACE.startswith("#")
         assert TEXT_PRIMARY.startswith("#")
         assert TEXT_SECONDARY.startswith("#")
 
     def test_chart_container_helper_exists(self):
         from dashboard.charts import _chart_container
+
         assert callable(_chart_container)
 
     def test_colored_metric_exists(self):
         from dashboard.charts import _colored_metric
+
         assert callable(_colored_metric)
 
 
@@ -231,12 +265,14 @@ class TestQuickActions:
 
     def test_quick_actions_defined(self):
         from dashboard.ai_chat_view import QUICK_ACTIONS
+
         assert len(QUICK_ACTIONS) > 0
         assert any("investigate" in a.lower() for a in QUICK_ACTIONS)
         assert any("posture" in a.lower() or "summar" in a.lower() for a in QUICK_ACTIONS)
 
     def test_quick_actions_are_questions(self):
         from dashboard.ai_chat_view import QUICK_ACTIONS
+
         for action in QUICK_ACTIONS:
             assert isinstance(action, str)
             assert len(action) > 5
@@ -247,6 +283,7 @@ class TestRuleTemplates:
 
     def test_rule_templates_defined(self):
         from dashboard.rules_view import RULE_TEMPLATES
+
         assert len(RULE_TEMPLATES) >= 4
         assert "Process Execution" in RULE_TEMPLATES
         assert "Network Connection" in RULE_TEMPLATES
@@ -255,6 +292,7 @@ class TestRuleTemplates:
 
     def test_rule_templates_have_yaml(self):
         from dashboard.rules_view import RULE_TEMPLATES
+
         for name, template in RULE_TEMPLATES.items():
             assert "title:" in template or "{name}" in template
             assert "detection:" in template
@@ -299,12 +337,14 @@ class TestKeyboardShortcuts:
 
     def test_keyboard_shortcuts_js_exists(self):
         from dashboard.main import KEYBOARD_SHORTCUTS_JS
+
         assert "keydown" in KEYBOARD_SHORTCUTS_JS
         assert "Overview" in KEYBOARD_SHORTCUTS_JS
         assert "Live Logs" in KEYBOARD_SHORTCUTS_JS
 
     def test_keyboard_shortcuts_7_pages(self):
         from dashboard.main import KEYBOARD_SHORTCUTS_JS
+
         assert "num >= 1 && num <= 7" in KEYBOARD_SHORTCUTS_JS
 
 
@@ -314,5 +354,6 @@ class TestLoginPageStyling:
     def test_tokens_used_in_auth(self):
         """Auth module should import design tokens for the login card."""
         from dashboard.auth import BG_SURFACE
+
         assert callable(BG_SURFACE) is False
         assert isinstance(BG_SURFACE, str)

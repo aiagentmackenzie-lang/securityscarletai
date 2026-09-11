@@ -7,6 +7,7 @@ Design decisions:
 - Failed batches are written to a dead letter queue for retry
 - NEVER silently drops data
 """
+
 import asyncio
 import json
 from datetime import datetime, timezone
@@ -222,17 +223,19 @@ class LogWriter:
         try:
             with open(dead_letter_file, "a") as f:
                 for e in batch:
-                    payload = (
-                        e.model_dump(mode="json")
-                        if hasattr(e, "model_dump")
-                        else e.__dict__
+                    payload = e.model_dump(mode="json") if hasattr(e, "model_dump") else e.__dict__
+                    f.write(
+                        json.dumps(
+                            {
+                                "dead_letter": True,
+                                "written_at": now_iso,
+                                "error": error,
+                                "event": payload,
+                            },
+                            default=str,
+                        )
+                        + "\n"
                     )
-                    f.write(json.dumps({
-                        "dead_letter": True,
-                        "written_at": now_iso,
-                        "error": error,
-                        "event": payload,
-                    }, default=str) + "\n")
             log.info("dead_letter_written", count=len(batch), file=str(dead_letter_file))
         except Exception as write_error:
             log.error("dead_letter_write_failed", error=str(write_error))

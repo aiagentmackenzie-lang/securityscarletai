@@ -3,6 +3,7 @@ Structured logging setup using structlog.
 Every log line is JSON with: timestamp, level, component, message, and context.
 This lets you grep/jq your own SIEM's logs when something breaks.
 """
+
 import logging
 import sys
 from typing import cast

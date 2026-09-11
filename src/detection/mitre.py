@@ -3,6 +3,7 @@ MITRE ATT&CK data loader.
 
 Downloads and caches ATT&CK tactics and techniques from the official STIX data.
 """
+
 import json
 from pathlib import Path
 from typing import Optional
@@ -95,10 +96,13 @@ class MitreAttackData:
         # Save cache
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         with open(CACHE_FILE, "w") as f:
-            json.dump({
-                "tactics": self._tactics,
-                "techniques": self._techniques,
-            }, f)
+            json.dump(
+                {
+                    "tactics": self._tactics,
+                    "techniques": self._techniques,
+                },
+                f,
+            )
 
         self._loaded = True
         log.info("mitre_downloaded", tactics=len(self._tactics), techniques=len(self._techniques))

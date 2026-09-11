@@ -181,10 +181,7 @@ class TestValidateSQLStructure:
     def test_siem_users_password_dump_rejected(self):
         """The headline P0-A exploit: an analyst asking the LLM to dump
         password hashes must be rejected before execution."""
-        sql = (
-            "SELECT username, password_hash FROM siem_users "
-            "ORDER BY username DESC LIMIT 100"
-        )
+        sql = "SELECT username, password_hash FROM siem_users ORDER BY username DESC LIMIT 100"
         is_valid, reason = validate_sql_structure(sql)
         assert not is_valid
         assert "siem_users" in reason
@@ -207,10 +204,7 @@ class TestValidateSQLStructure:
 
     def test_subquery_into_siem_users_rejected(self):
         """Exfil via subquery: outer FROM logs, inner FROM siem_users."""
-        sql = (
-            "SELECT * FROM logs WHERE host_name IN "
-            "(SELECT host_name FROM siem_users) LIMIT 10"
-        )
+        sql = "SELECT * FROM logs WHERE host_name IN (SELECT host_name FROM siem_users) LIMIT 10"
         is_valid, reason = validate_sql_structure(sql)
         assert not is_valid
         assert "siem_users" in reason

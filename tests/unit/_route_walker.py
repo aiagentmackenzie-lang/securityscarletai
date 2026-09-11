@@ -9,6 +9,7 @@ registration must resolve EFFECTIVE paths the way requests see them.
 
 Used by the router-wiring tests (users/metrics/ops-honesty/api-main).
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator

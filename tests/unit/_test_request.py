@@ -5,6 +5,7 @@ Currently provides a small helper to build a real starlette.Request object
 that slowapi will accept (slowapi insists the request be a starlette.Request,
 not a MagicMock, so decorators can introspect scope.client for the IP).
 """
+
 from __future__ import annotations
 
 from fastapi import Request

@@ -49,7 +49,11 @@ class TestShiftIsoTimestampsInJson:
         notes = json.dumps(
             [
                 {"text": "Blocked IP", "author": "jsmith", "timestamp": base.isoformat()},
-                {"text": "No lateral movement", "author": "jsmith", "timestamp": (base + timedelta(hours=2)).isoformat()},
+                {
+                    "text": "No lateral movement",
+                    "author": "jsmith",
+                    "timestamp": (base + timedelta(hours=2)).isoformat(),
+                },
             ]
         )
         out = shift_iso_timestamps_in_json(notes, timedelta(days=3))
@@ -59,7 +63,9 @@ class TestShiftIsoTimestampsInJson:
         assert parsed[0]["text"] == "Blocked IP"
 
     def test_preserves_non_timestamp_keys(self):
-        notes = json.dumps([{"text": "t", "author": "a", "timestamp": "2026-08-25T07:51:03.417031+00:00"}])
+        notes = json.dumps(
+            [{"text": "t", "author": "a", "timestamp": "2026-08-25T07:51:03.417031+00:00"}]
+        )
         out = json.loads(shift_iso_timestamps_in_json(notes, timedelta(days=1)))
         assert out[0]["text"] == "t"
         assert out[0]["author"] == "a"

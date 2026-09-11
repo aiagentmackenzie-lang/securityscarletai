@@ -16,6 +16,7 @@ Changes from Phase 0:
 - Hunt history tracking
 - Ollama fallback for analysis
 """
+
 import asyncio
 import json
 from typing import Any, Dict, List
@@ -64,8 +65,7 @@ HUNTING_QUERY_TEMPLATES: List[Dict[str, Any]] = [
             "ORDER BY login_count ASC LIMIT 100"
         ),
         "description": (
-            "Find new service accounts with low login counts "
-            "(possible lateral movement)"
+            "Find new service accounts with low login counts (possible lateral movement)"
         ),
     },
     {
@@ -157,10 +157,7 @@ HUNTING_QUERY_TEMPLATES: List[Dict[str, Any]] = [
             "GROUP BY host_name, destination_ip, destination_port "
             "ORDER BY conn_count DESC LIMIT 100"
         ),
-        "description": (
-            "Find unusual outbound connections "
-            "(rare ports, high volume)"
-        ),
+        "description": ("Find unusual outbound connections (rare ports, high volume)"),
     },
     {
         "id": "persistence_launch_agents",
@@ -176,10 +173,7 @@ HUNTING_QUERY_TEMPLATES: List[Dict[str, Any]] = [
             "OR file_path ILIKE '%/LaunchDaemons/%') "
             "ORDER BY time DESC LIMIT 100"
         ),
-        "description": (
-            "Find new LaunchAgent/LaunchDaemon creation "
-            "(macOS persistence)"
-        ),
+        "description": ("Find new LaunchAgent/LaunchDaemon creation (macOS persistence)"),
     },
 ]
 
@@ -234,9 +228,7 @@ async def execute_hunt(hunt_id: str, actor: str | None = None) -> Dict[str, Any]
         # Analyze results with LLM if we have data
         analysis = None
         if results:
-            analysis = await analyze_hunting_results(
-                template["name"], len(results), results[:5]
-            )
+            analysis = await analyze_hunting_results(template["name"], len(results), results[:5])
 
         return {
             "success": True,
@@ -295,27 +287,32 @@ async def hunt_from_alert(alert_id: int) -> Dict[str, Any]:
     for template in HUNTING_QUERY_TEMPLATES:
         overlap = set(mitre_techniques) & set(template.get("mitre", []))
         if overlap:
-            matching_hunts.append({
-                "id": template["id"],
-                "name": template["name"],
-                "category": template["category"],
-                "matched_mitre": list(overlap),
-            })
+            matching_hunts.append(
+                {
+                    "id": template["id"],
+                    "name": template["name"],
+                    "category": template["category"],
+                    "matched_mitre": list(overlap),
+                }
+            )
 
     # Always include lateral movement + persistence hunts for critical/high
     if alert["severity"] in ("critical", "high"):
         core_hunts = [
-            t for t in HUNTING_QUERY_TEMPLATES
+            t
+            for t in HUNTING_QUERY_TEMPLATES
             if t["category"] in ("lateral_movement", "persistence")
         ]
         for t in core_hunts:
             if not any(h["id"] == t["id"] for h in matching_hunts):
-                matching_hunts.append({
-                    "id": t["id"],
-                    "name": t["name"],
-                    "category": t["category"],
-                    "matched_mitre": ["related_to_alert"],
-                })
+                matching_hunts.append(
+                    {
+                        "id": t["id"],
+                        "name": t["name"],
+                        "category": t["category"],
+                        "matched_mitre": ["related_to_alert"],
+                    }
+                )
 
     # Generate LLM-based hunt suggestions
     llm_suggestions = await _suggest_hunts_for_alert(alert_data)
@@ -382,10 +379,12 @@ async def _suggest_hunts_for_alert(alert_data: Dict) -> List[Dict]:
     for line in response.text.split("\n"):
         line = line.strip()
         if line and line[0].isdigit() and "." in line[:3]:
-            suggestions.append({
-                "name": line.split(".", 1)[1].strip(),
-                "description": "",
-            })
+            suggestions.append(
+                {
+                    "name": line.split(".", 1)[1].strip(),
+                    "description": "",
+                }
+            )
 
     return suggestions if suggestions else [{"name": "Custom Hunt", "description": response.text}]
 
@@ -393,6 +392,7 @@ async def _suggest_hunts_for_alert(alert_data: Dict) -> List[Dict]:
 # ---------------------------------------------------------------------------
 # MITRE ATT&CK gap analysis
 # ---------------------------------------------------------------------------
+
 
 async def mitre_gap_analysis() -> Dict[str, Any]:
     """
@@ -427,27 +427,48 @@ async def mitre_gap_analysis() -> Dict[str, Any]:
     # Define important techniques to check against
     critical_techniques = {
         # Initial Access
-        "T1190", "T1133", "T1078",
+        "T1190",
+        "T1133",
+        "T1078",
         # Execution
-        "T1059", "T1204", "T1566",
+        "T1059",
+        "T1204",
+        "T1566",
         # Persistence
-        "T1547", "T1053", "T1037", "T1543",
+        "T1547",
+        "T1053",
+        "T1037",
+        "T1543",
         # Privilege Escalation
-        "T1548", "T1068",
+        "T1548",
+        "T1068",
         # Defense Evasion
-        "T1070", "T1027", "T1140",
+        "T1070",
+        "T1027",
+        "T1140",
         # Credential Access
-        "T1110", "T1003", "T1552",
+        "T1110",
+        "T1003",
+        "T1552",
         # Discovery
-        "T1083", "T1046", "T1087",
+        "T1083",
+        "T1046",
+        "T1087",
         # Lateral Movement
-        "T1021", "T1570", "T1563",
+        "T1021",
+        "T1570",
+        "T1563",
         # Collection
-        "T1560", "T1074",
+        "T1560",
+        "T1074",
         # Exfiltration
-        "T1048", "T1041", "T1567",
+        "T1048",
+        "T1041",
+        "T1567",
         # Command and Control
-        "T1071", "T1573", "T1105",
+        "T1071",
+        "T1573",
+        "T1105",
     }
 
     # Determine gaps
@@ -461,30 +482,36 @@ async def mitre_gap_analysis() -> Dict[str, Any]:
         # Find relevant hunt templates
         for template in HUNTING_QUERY_TEMPLATES:
             if gap in template.get("mitre", []):
-                suggested_hunts.append({
-                    "technique": gap,
-                    "hunt_id": template["id"],
-                    "hunt_name": template["name"],
-                })
+                suggested_hunts.append(
+                    {
+                        "technique": gap,
+                        "hunt_id": template["id"],
+                        "hunt_name": template["name"],
+                    }
+                )
                 break
         else:
-            suggested_hunts.append({
-                "technique": gap,
-                "hunt_id": None,
-                "hunt_name": f"Create custom hunt for {gap}",
-            })
+            suggested_hunts.append(
+                {
+                    "technique": gap,
+                    "hunt_id": None,
+                    "hunt_name": f"Create custom hunt for {gap}",
+                }
+            )
 
     return {
         "total_critical_techniques": len(critical_techniques),
         "covered_by_rules": len(covered_from_rules),
         "covered_by_hunts": len(covered_from_hunts),
-        "total_covered": len(
-            (covered_from_rules | covered_from_hunts) & critical_techniques
-        ),
+        "total_covered": len((covered_from_rules | covered_from_hunts) & critical_techniques),
         "coverage_percentage": round(
             len((covered_from_rules | covered_from_hunts) & critical_techniques)
-            / len(critical_techniques) * 100, 1
-        ) if critical_techniques else 0,
+            / len(critical_techniques)
+            * 100,
+            1,
+        )
+        if critical_techniques
+        else 0,
         "gaps": sorted(gaps),
         "gap_hunts": suggested_hunts,
         "rule_techniques": sorted(covered_techniques),
@@ -586,11 +613,13 @@ async def save_hunt_history(
             """,
             actor or "hunting_assistant",
             "hunt.execute",
-            json.dumps({
-                "hunt_id": hunt_id,
-                "hunt_name": hunt_name,
-                "result_count": result_count,
-            }),
+            json.dumps(
+                {
+                    "hunt_id": hunt_id,
+                    "hunt_name": hunt_name,
+                    "result_count": result_count,
+                }
+            ),
         )
     log.info(
         "hunt_executed",

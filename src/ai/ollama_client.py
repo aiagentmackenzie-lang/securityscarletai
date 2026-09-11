@@ -6,6 +6,7 @@ fallback behavior visible to callers and to the end user. If Ollama is
 down, the result still resolves successfully with `source="template_library"`
 and `fallback_used=True`, so the SIEM keeps working.
 """
+
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Optional
@@ -34,6 +35,7 @@ class LLMResult:
     `fallback_used` is True iff Ollama was unreachable and we served a
     template. `warning` is a user-facing message when fallback fires.
     """
+
     ok: bool
     text: str
     source: SourceType

@@ -422,11 +422,13 @@ class TestLoginForcePasswordChange:
         assert mock_state["role"] == "admin"
 
     def test_login_password_change_required_raises_with_token(self, client):
-        body = {"detail": {
-            "message": "Password change required before login",
-            "code": "PASSWORD_CHANGE_REQUIRED",
-            "force_change_token": "FORCE.JWT.TOKEN",
-        }}
+        body = {
+            "detail": {
+                "message": "Password change required before login",
+                "code": "PASSWORD_CHANGE_REQUIRED",
+                "force_change_token": "FORCE.JWT.TOKEN",
+            }
+        }
         mock_resp = self._mock_resp(401, body)
         with patch("httpx.post", return_value=mock_resp):
             with patch("streamlit.session_state", _SessionState()):
@@ -442,11 +444,13 @@ class TestLoginForcePasswordChange:
         # first-ever admin login dumped raw JSON into the login form instead
         # of rendering the set-new-password form. The CODE is the contract,
         # not the status.
-        body = {"detail": {
-            "message": "Password change required before login",
-            "code": "PASSWORD_CHANGE_REQUIRED",
-            "force_change_token": "FORCE.JWT.403",
-        }}
+        body = {
+            "detail": {
+                "message": "Password change required before login",
+                "code": "PASSWORD_CHANGE_REQUIRED",
+                "force_change_token": "FORCE.JWT.403",
+            }
+        }
         mock_resp = self._mock_resp(403, body)
         with patch("httpx.post", return_value=mock_resp):
             with patch("streamlit.session_state", _SessionState()):

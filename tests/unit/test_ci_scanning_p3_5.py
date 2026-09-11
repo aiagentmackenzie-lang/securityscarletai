@@ -12,6 +12,7 @@ Guards the wiring contract:
 - .trivyignore exists and every non-comment entry carries rationale context
   (no wave-through CVE accepts)
 """
+
 from pathlib import Path
 
 import yaml

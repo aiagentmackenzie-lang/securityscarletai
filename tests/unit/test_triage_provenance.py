@@ -18,6 +18,7 @@ These tests are the second-line check behind the live-DB INSERT. The
 DB is unreachable in CI, so they exercise the writer's parameter
 plumbing and the train_v2 result shape, plus a static schema check.
 """
+
 from __future__ import annotations
 
 import math
@@ -68,9 +69,7 @@ class TestTrainV2ResultIncludesPRF:
             assert math.isfinite(v), f"result[{key!r}] is non-finite"
 
     @pytest.mark.asyncio
-    async def test_prf_matches_accuracy_on_perfect_data(
-        self, good_csv: Path, tmp_path: Path
-    ):
+    async def test_prf_matches_accuracy_on_perfect_data(self, good_csv: Path, tmp_path: Path):
         # Synthetic well-separated data classifies perfectly. PRF should
         # all be 1.0 (or 0.0 if sklearn returns zero_division fallback).
         m = AlertTriageModel(load=False)
@@ -95,28 +94,28 @@ class TestTrainV2ResultIncludesPRF:
         rng = _random.Random(0)  # noqa: S311 — noisy test data, not crypto
         rows = []
         for i in range(200):
-            rows.append({
-                ALERT_ID_COLUMN: i + 1,
-                "severity_score": rng.random(),
-                "hour_of_day": rng.random(),
-                "rule_hit_count": rng.random(),
-                "host_alert_count": rng.random(),
-                "asset_risk_score": rng.random(),
-                "mitre_count": rng.random(),
-                "time_since_last_hours": rng.random(),
-                "has_threat_intel": rng.random(),
-                "command_entropy": rng.random(),
-                "session_duration_hours": rng.random(),
-                "login_hour_deviation": rng.random(),
-                LABEL_COLUMN: "true_positive" if i < 100 else "false_positive",
-            })
+            rows.append(
+                {
+                    ALERT_ID_COLUMN: i + 1,
+                    "severity_score": rng.random(),
+                    "hour_of_day": rng.random(),
+                    "rule_hit_count": rng.random(),
+                    "host_alert_count": rng.random(),
+                    "asset_risk_score": rng.random(),
+                    "mitre_count": rng.random(),
+                    "time_since_last_hours": rng.random(),
+                    "has_threat_intel": rng.random(),
+                    "command_entropy": rng.random(),
+                    "session_duration_hours": rng.random(),
+                    "login_hour_deviation": rng.random(),
+                    LABEL_COLUMN: "true_positive" if i < 100 else "false_positive",
+                }
+            )
         noisy = tmp_path / "noisy.csv"
         with noisy.open("w", newline="") as f:
             w = _csv.DictWriter(
                 f,
-                fieldnames=[ALERT_ID_COLUMN]
-                + AlertTriageModel.FEATURES
-                + [LABEL_COLUMN],
+                fieldnames=[ALERT_ID_COLUMN] + AlertTriageModel.FEATURES + [LABEL_COLUMN],
             )
             w.writeheader()
             for row in rows:
@@ -151,8 +150,10 @@ class TestWriteProvenanceParameterBinding:
         mock_pool_instance = MagicMock()
         mock_pool_instance.acquire = MagicMock(return_value=mock_acquirer)
 
-        with patch("src.ai.alert_triage._db_reachable", return_value=True), \
-             patch("src.ai.alert_triage.get_pool", new_callable=AsyncMock) as mock_pool:
+        with (
+            patch("src.ai.alert_triage._db_reachable", return_value=True),
+            patch("src.ai.alert_triage.get_pool", new_callable=AsyncMock) as mock_pool,
+        ):
             mock_pool.return_value = mock_pool_instance
             await _write_provenance(
                 run_id="v2-test-001",
@@ -188,19 +189,21 @@ class TestWriteProvenanceParameterBinding:
         # $16=feature_importances (json str), $17=features (json str),
         # $18=model_path, $19=run_metadata.
         assert positional[0] is not None and "INSERT" in positional[0]
-        assert len(positional[1]) == 64 and all(c in "0123456789abcdef" for c in positional[1])  # $1 model_hash (sha256 hex of run_id; model file absent)
-        assert positional[2] == 2                      # $2 training_samples
-        assert positional[3] == 0.85                   # $3 cv_accuracy
-        assert positional[4] == "v2-test-001"          # $4 run_id
-        assert positional[7] == "data/x.csv"           # $7 source_csv
-        assert positional[8] == 2                      # $8 n_samples
-        assert positional[9] == 1                      # $9 n_positive (1 true_positive)
-        assert positional[10] == 1                     # $10 n_negative (1 false_positive)
-        assert positional[11] == 0.85                   # $11 accuracy_score (= cv_accuracy)
-        assert positional[12] == 0.84                   # $12 precision_score
-        assert positional[13] == 0.86                   # $13 recall_score
-        assert positional[14] == 0.85                   # $14 f1_score
-        assert positional[18] == "/tmp/model.joblib"   # $18 model_path
+        assert len(positional[1]) == 64 and all(
+            c in "0123456789abcdef" for c in positional[1]
+        )  # $1 model_hash (sha256 hex of run_id; model file absent)
+        assert positional[2] == 2  # $2 training_samples
+        assert positional[3] == 0.85  # $3 cv_accuracy
+        assert positional[4] == "v2-test-001"  # $4 run_id
+        assert positional[7] == "data/x.csv"  # $7 source_csv
+        assert positional[8] == 2  # $8 n_samples
+        assert positional[9] == 1  # $9 n_positive (1 true_positive)
+        assert positional[10] == 1  # $10 n_negative (1 false_positive)
+        assert positional[11] == 0.85  # $11 accuracy_score (= cv_accuracy)
+        assert positional[12] == 0.84  # $12 precision_score
+        assert positional[13] == 0.86  # $13 recall_score
+        assert positional[14] == 0.85  # $14 f1_score
+        assert positional[18] == "/tmp/model.joblib"  # $18 model_path
 
     @pytest.mark.asyncio
     async def test_prf_none_is_passed_through(self):
@@ -212,8 +215,10 @@ class TestWriteProvenanceParameterBinding:
         mock_pool_instance = MagicMock()
         mock_pool_instance.acquire = MagicMock(return_value=mock_acquirer)
 
-        with patch("src.ai.alert_triage._db_reachable", return_value=True), \
-             patch("src.ai.alert_triage.get_pool", new_callable=AsyncMock) as mock_pool:
+        with (
+            patch("src.ai.alert_triage._db_reachable", return_value=True),
+            patch("src.ai.alert_triage.get_pool", new_callable=AsyncMock) as mock_pool,
+        ):
             mock_pool.return_value = mock_pool_instance
             await _write_provenance(
                 run_id="v2-test-002",
@@ -269,9 +274,7 @@ class TestSchemaHasModernProvenanceColumns:
             "model_path",
             "run_metadata",
         ):
-            assert f"ADD COLUMN IF NOT EXISTS {col}" in block, (
-                f"ALTER block missing {col}"
-            )
+            assert f"ADD COLUMN IF NOT EXISTS {col}" in block, f"ALTER block missing {col}"
 
     def test_alter_block_uses_if_not_exists(self):
         schema_path = Path(__file__).resolve().parents[2] / "src" / "db" / "schema.sql"
@@ -287,6 +290,4 @@ class TestSchemaHasModernProvenanceColumns:
         adds = re.findall(r"ADD\s+COLUMN[^\n,]+", block, re.IGNORECASE)
         assert adds, "no ADD COLUMN statements found"
         for stmt in adds:
-            assert "IF NOT EXISTS" in stmt, (
-                f"non-idempotent ADD COLUMN: {stmt!r}"
-            )
+            assert "IF NOT EXISTS" in stmt, f"non-idempotent ADD COLUMN: {stmt!r}"

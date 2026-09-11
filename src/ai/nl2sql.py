@@ -13,6 +13,7 @@ Security layers:
 6. Result size limit — max 1000 rows returned
 7. Execution timeout — 5 seconds max per query
 """
+
 import asyncio
 import re
 import time
@@ -49,15 +50,38 @@ CONVERSATION_TTL_SECONDS = 1800  # 30 minutes
 ALLOWED_NL2SQL_TABLES = frozenset({"logs", "alerts"})
 
 # FROM / JOIN keywords that introduce a table reference.
-_FROM_JOIN_KEYWORDS = {"FROM", "JOIN", "INNER JOIN", "LEFT JOIN", "RIGHT JOIN",
-                       "FULL JOIN", "CROSS JOIN", "LEFT OUTER JOIN",
-                       "RIGHT OUTER JOIN", "FULL OUTER JOIN", "NATURAL JOIN"}
+_FROM_JOIN_KEYWORDS = {
+    "FROM",
+    "JOIN",
+    "INNER JOIN",
+    "LEFT JOIN",
+    "RIGHT JOIN",
+    "FULL JOIN",
+    "CROSS JOIN",
+    "LEFT OUTER JOIN",
+    "RIGHT OUTER JOIN",
+    "FULL OUTER JOIN",
+    "NATURAL JOIN",
+}
 
 # Keywords that END a FROM/JOIN table-list clause (so the next Identifier is
 # NOT a table ref — it's a column/alias in WHERE/SELECT/etc.).
-_CLAUSE_ENDERS = {"WHERE", "GROUP BY", "ORDER BY", "HAVING", "LIMIT", "UNION",
-                  "EXCEPT", "INTERSECT", "WITH", "RETURNING", "WINDOW",
-                  "FETCH", "OFFSET", "FOR"}
+_CLAUSE_ENDERS = {
+    "WHERE",
+    "GROUP BY",
+    "ORDER BY",
+    "HAVING",
+    "LIMIT",
+    "UNION",
+    "EXCEPT",
+    "INTERSECT",
+    "WITH",
+    "RETURNING",
+    "WINDOW",
+    "FETCH",
+    "OFFSET",
+    "FOR",
+}
 
 
 def _next_significant(tokens: list, idx: int):
@@ -123,9 +147,7 @@ def _extract_table_refs(sql: str) -> tuple[set[str], set[str]]:
                     for t in inner
                     if not t.is_whitespace
                 )
-                inner_paren = next(
-                    (t for t in inner if isinstance(t, Parenthesis)), None
-                )
+                inner_paren = next((t for t in inner if isinstance(t, Parenthesis)), None)
                 if has_as and inner_paren is not None:
                     name = _real_name(tok)
                     if name:
@@ -177,6 +199,7 @@ def _extract_table_refs(sql: str) -> tuple[set[str], set[str]]:
         _walk(stmt)
 
     return refs, cte_names
+
 
 # Forbid these patterns anywhere in generated SQL (case-insensitive).
 # Uses negative lookbehind (?<![a-z_]) instead of \b so pg_ functions like
@@ -287,8 +310,11 @@ SYSTEM_PROMPT = (  # noqa: S608 — f-string is a prompt template, not SQL injec
 QUERY_TEMPLATES: Dict[str, Dict[str, Any]] = {
     "failed_logins": {
         "keywords": [
-            "failed login", "failed logins", "login failure",
-            "authentication failure", "failed auth",
+            "failed login",
+            "failed logins",
+            "login failure",
+            "authentication failure",
+            "failed auth",
         ],
         "sql": (
             "SELECT time, host_name, user_name, source_ip, event_action "
@@ -327,8 +353,11 @@ QUERY_TEMPLATES: Dict[str, Dict[str, Any]] = {
     },
     "rare_ports": {
         "keywords": [
-            "rare port", "unusual port", "rare ports",
-            "unusual outbound", "suspicious connection",
+            "rare port",
+            "unusual port",
+            "rare ports",
+            "unusual outbound",
+            "suspicious connection",
         ],
         "sql": (
             "SELECT time, host_name, destination_ip, destination_port "
@@ -449,6 +478,7 @@ QUERY_TEMPLATES: Dict[str, Dict[str, Any]] = {
 # Conversation context management (in-memory, per session)
 # ---------------------------------------------------------------------------
 
+
 class ConversationContext:
     """Track NL→SQL conversation state for follow-up queries."""
 
@@ -459,11 +489,13 @@ class ConversationContext:
         self.last_used: float = time.time()
 
     def add_query(self, natural_language: str, sql: str, row_count: int = 0) -> None:
-        self.queries.append({
-            "question": natural_language,
-            "sql": sql,
-            "row_count": row_count,
-        })
+        self.queries.append(
+            {
+                "question": natural_language,
+                "sql": sql,
+                "row_count": row_count,
+            }
+        )
         self.last_used = time.time()
         # Keep only recent turns
         if len(self.queries) > MAX_CONVERSATION_TURNS:
@@ -489,9 +521,9 @@ class ConversationContext:
             lines.append(f"  Q{i}: {fence(q['question'], label=q_label)}")
             # Sanitize: only include SELECT/FROM/WHERE/GROUP/ORDER/LIMIT keywords
             # Strip raw column names, function calls, and string literals
-            safe_sql = re.sub(r"'[^']*'", "'?'", q['sql'])  # Redact string literals
+            safe_sql = re.sub(r"'[^']*'", "'?'", q["sql"])  # Redact string literals
             lines.append(f"  SQL{i}: {safe_sql}")
-            if q['row_count']:
+            if q["row_count"]:
                 lines.append(f"  (returned {q['row_count']} rows)")
         lines.append(
             "\nThe user may reference previous queries with "
@@ -537,6 +569,7 @@ conversation_manager = ConversationManager()
 # Input sanitization
 # ---------------------------------------------------------------------------
 
+
 def sanitize_input(text: str) -> tuple[str, List[str]]:
     """
     Sanitize natural language input before sending to LLM.
@@ -578,6 +611,7 @@ def sanitize_input(text: str) -> tuple[str, List[str]]:
 # ---------------------------------------------------------------------------
 # SQL validation (multi-layer)
 # ---------------------------------------------------------------------------
+
 
 def validate_sql_structure(sql: str) -> tuple[bool, str]:
     """
@@ -630,7 +664,7 @@ def validate_sql_structure(sql: str) -> tuple[bool, str]:
     # Check for semicolons (no statement stacking)
     if ";" in sql.rstrip(";"):  # Allow trailing semicolon only
         semicolon_pos = sql.find(";")
-        remaining = sql[semicolon_pos + 1:].strip()
+        remaining = sql[semicolon_pos + 1 :].strip()
         if remaining:  # Stuff after semicolon = stacking
             return False, "Multiple statements not allowed"
 
@@ -672,14 +706,14 @@ def add_safety_limits(sql: str) -> str:
             # Strategy: find the last ') SELECT' (allowing any whitespace between
             # the ')' and SELECT, P2-19 — was a literal ') SELECT' that missed
             # ')	SELECT' / ')  SELECT' / ')\nSELECT').
-            paren_select_match = list(re.finditer(r'\)\s+SELECT', sql, re.IGNORECASE))
+            paren_select_match = list(re.finditer(r"\)\s+SELECT", sql, re.IGNORECASE))
             if paren_select_match:
                 # Insert LIMIT after the final SELECT's ORDER BY or before end
-                insert_pos = paren_select_match[-1].end() - len('SELECT')  # at SELECT start
+                insert_pos = paren_select_match[-1].end() - len("SELECT")  # at SELECT start
                 remainder = sql[insert_pos:].strip()
-                if 'ORDER BY' in remainder.upper():
+                if "ORDER BY" in remainder.upper():
                     # Find end of ORDER BY clause and insert LIMIT after it
-                    ob_match = re.search(r'ORDER\s+BY\s+[^;]+', remainder, re.IGNORECASE)
+                    ob_match = re.search(r"ORDER\s+BY\s+[^;]+", remainder, re.IGNORECASE)
                     if ob_match:
                         end_pos = insert_pos + ob_match.end()
                         sql = sql[:end_pos] + f" LIMIT {min(500, MAX_RESULT_ROWS)}" + sql[end_pos:]
@@ -752,6 +786,7 @@ async def estimate_query_cost(sql: str) -> tuple[int, str]:
 # NL→SQL conversion
 # ---------------------------------------------------------------------------
 
+
 async def nl_to_sql(
     natural_language: str,
     session_id: Optional[str] = None,
@@ -800,10 +835,7 @@ async def nl_to_sql(
         # LLM failed or returned unsafe output
         return {
             "success": False,
-            "error": (
-                "AI service unavailable. "
-                "Please try again later or use different phrasing."
-            ),
+            "error": ("AI service unavailable. Please try again later or use different phrasing."),
             "warnings": warnings,
             "session_id": session_id,
         }
@@ -955,6 +987,7 @@ async def nl_query(
 # LLM generation
 # ---------------------------------------------------------------------------
 
+
 async def _llm_generate(natural_language: str, ctx: ConversationContext) -> Optional[str]:
     """Generate SQL from natural language using LLM. Returns None on failure."""
     # Build prompt with conversation context
@@ -1008,6 +1041,7 @@ Return ONLY the SQL query. No explanation, no markdown code blocks, no comments.
 # Template matching
 # ---------------------------------------------------------------------------
 
+
 def template_match(nl_query: str) -> Optional[str]:
     """Match natural language to a pre-built template query (fast path)."""
     nl_lower = nl_query.lower()
@@ -1031,6 +1065,7 @@ def template_match(nl_query: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 # API helpers
 # ---------------------------------------------------------------------------
+
 
 def get_available_templates() -> List[Dict[str, Any]]:
     """Get list of available query templates with descriptions."""

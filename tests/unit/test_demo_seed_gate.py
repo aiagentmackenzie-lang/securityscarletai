@@ -7,6 +7,7 @@ AND the publicly documented demo credential into production deployments.
 Demo seeding is now opt-in via DEMO_SEED_ENABLED (settings.demo_seed_enabled,
 default False).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -40,9 +41,7 @@ class TestSeedShortCircuit:
         monkeypatch.setattr(sdd.settings, "demo_seed_enabled", False)
 
         async def _forbidden_connect(*args, **kwargs):
-            raise AssertionError(
-                "asyncpg.connect must not be called when demo seed is disabled"
-            )
+            raise AssertionError("asyncpg.connect must not be called when demo seed is disabled")
 
         monkeypatch.setattr(sdd.asyncpg, "connect", _forbidden_connect)
 

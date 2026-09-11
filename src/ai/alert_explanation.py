@@ -17,6 +17,7 @@ Contract (returned dict keys):
   - prompt_version     (str)  — which prompt template produced this output
   - cost_recorded      (bool) — True if written to ai_usage table
 """
+
 import json
 from typing import Any, Dict, List, Optional
 

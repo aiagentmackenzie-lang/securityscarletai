@@ -122,11 +122,16 @@ class TestChatIntegration:
             patch("src.ai.chat.query_llm", new_callable=AsyncMock) as mock_llm,
             patch("src.ai.cost_tracker.get_pool", side_effect=OSError("no db in unit tests")),
         ):
-
             mock_llm.return_value = LLMResult(
-                ok=True, text=FALLBACK_MESSAGE, source="template_library",
-                model_used=None, tokens_in=0, tokens_out=0, latency_ms=0,
-                fallback_used=True, warning="Ollama not responding — using local analysis rules",
+                ok=True,
+                text=FALLBACK_MESSAGE,
+                source="template_library",
+                model_used=None,
+                tokens_in=0,
+                tokens_out=0,
+                latency_ms=0,
+                fallback_used=True,
+                warning="Ollama not responding — using local analysis rules",
             )
 
             with patch("src.ai.chat.build_security_context", new_callable=AsyncMock) as mock_ctx:
@@ -155,10 +160,14 @@ class TestChatIntegration:
             patch("src.ai.chat.query_llm", new_callable=AsyncMock) as mock_llm,
             patch("src.ai.cost_tracker.get_pool", side_effect=OSError("no db in unit tests")),
         ):
-
             mock_llm.return_value = LLMResult(
-                ok=True, text="I can help with security questions.", source="ollama",
-                model_used="mistral:7b", tokens_in=10, tokens_out=8, latency_ms=200,
+                ok=True,
+                text="I can help with security questions.",
+                source="ollama",
+                model_used="mistral:7b",
+                tokens_in=10,
+                tokens_out=8,
+                latency_ms=200,
                 fallback_used=False,
             )
 
@@ -179,10 +188,14 @@ class TestChatIntegration:
             patch("src.ai.chat.query_llm", new_callable=AsyncMock) as mock_llm,
             patch("src.ai.cost_tracker.get_pool", side_effect=OSError("no db in unit tests")),
         ):
-
             mock_llm.return_value = LLMResult(
-                ok=True, text="Focus on the 2 critical alerts first.", source="ollama",
-                model_used="mistral:7b", tokens_in=10, tokens_out=8, latency_ms=200,
+                ok=True,
+                text="Focus on the 2 critical alerts first.",
+                source="ollama",
+                model_used="mistral:7b",
+                tokens_in=10,
+                tokens_out=8,
+                latency_ms=200,
                 fallback_used=False,
             )
 

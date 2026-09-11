@@ -8,6 +8,7 @@ Three roles:
 
 This module uses the API client for authentication — NO direct DB access.
 """
+
 import os
 import time
 
@@ -211,8 +212,7 @@ def render_force_password_change_form():
     with st.form("force_pw_form"):
         st.markdown(brand_header_html("forcepw"), unsafe_allow_html=True)
         st.info(
-            f"Welcome, **{username}**. Your account requires a new password "
-            f"before first login."
+            f"Welcome, **{username}**. Your account requires a new password before first login."
         )
         new_password = st.text_input(
             "New password", type="password", placeholder="At least 8 characters"
@@ -245,8 +245,7 @@ def render_force_password_change_form():
                         # Shouldn't happen after a successful change, but
                         # surface it clearly if it does.
                         st.error(
-                            "Password changed but the reset flag is still set. "
-                            "Contact an admin."
+                            "Password changed but the reset flag is still set. Contact an admin."
                         )
                     except ApiError as e:
                         st.error(f"Could not change password: {e.detail}")
@@ -272,13 +271,9 @@ def render_login_page():
         st.markdown(brand_header_html("login"), unsafe_allow_html=True)
         username = st.text_input("Username", placeholder="admin")
         password = st.text_input("Password", type="password", placeholder="Enter password")
-        submitted = st.form_submit_button(
-            "Sign In", use_container_width=True, type="primary"
-        )
+        submitted = st.form_submit_button("Sign In", use_container_width=True, type="primary")
         st.markdown(
-            '<p class="auth-card-footer">'
-            "JWT authentication &middot; Role-based access control"
-            "</p>",
+            '<p class="auth-card-footer">JWT authentication &middot; Role-based access control</p>',
             unsafe_allow_html=True,
         )
 

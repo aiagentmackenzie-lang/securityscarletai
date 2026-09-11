@@ -27,6 +27,7 @@ Design decisions:
       host pattern); anything remote needs an analyst-or-above JWT.
   /health is unchanged (unauthenticated liveness stays separate).
 """
+
 import hmac
 import re
 import time
@@ -143,9 +144,7 @@ class Histogram:
                 cumulative = sum(entry["buckets"][: i + 1])
                 labels = dict(key)
                 labels["le"] = _fmt(upper)
-                lines.append(
-                    f"{self.name}_bucket{_labels_str(labels)} {cumulative}"
-                )
+                lines.append(f"{self.name}_bucket{_labels_str(labels)} {cumulative}")
             inf_labels = dict(key)
             inf_labels["le"] = "+Inf"
             lines.append(f"{self.name}_bucket{_labels_str(inf_labels)} {entry['count']}")

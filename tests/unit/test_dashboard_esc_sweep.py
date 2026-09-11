@@ -29,8 +29,8 @@ class TestEscContract:
     """esc() neutralizes every HTML-executable construct."""
 
     def test_img_onerror(self):
-        assert "<img" not in esc('<img src=x onerror=alert(1)>')
-        assert "&lt;img" in esc('<img src=x onerror=alert(1)>')
+        assert "<img" not in esc("<img src=x onerror=alert(1)>")
+        assert "&lt;img" in esc("<img src=x onerror=alert(1)>")
 
     def test_script_tag(self):
         assert "<script>" not in esc("<script>alert(1)</script>")
@@ -50,7 +50,7 @@ class TestBadgeEscapes:
     helper must escape at the choke point."""
 
     def test_hostile_label_inert(self):
-        out = badge('<img src=x onerror=alert(1)>', "badge-new")
+        out = badge("<img src=x onerror=alert(1)>", "badge-new")
         assert "<img" not in out
         assert "&lt;img" in out
         assert out.startswith('<span class="badge badge-new">')
@@ -66,7 +66,7 @@ class TestCaseNoteCardEscapes:
 
     def test_hostile_note_is_inert(self):
         html = _note_card_html(
-            '<img src=x onerror=alert(1)>',
+            "<img src=x onerror=alert(1)>",
             "<script>fetch('/steal?token='+document.cookie)</script>",
             "2026-08-28T17:00:00",
         )
@@ -91,7 +91,7 @@ class TestAlertNoteCardEscapes:
 
     def test_hostile_note_is_inert(self):
         html = _alert_note_card_html(
-            '<img src=x onerror=alert(1)>',
+            "<img src=x onerror=alert(1)>",
             "<script>alert(document.domain)</script>",
             "2026-09-01T20:00:00",
         )
@@ -101,7 +101,7 @@ class TestAlertNoteCardEscapes:
         assert "&lt;img" in html
 
     def test_hostile_timestamp_is_inert(self):
-        html = _alert_note_card_html("jsmith", "note", '><svg onload=alert(1)>')
+        html = _alert_note_card_html("jsmith", "note", "><svg onload=alert(1)>")
         assert "<svg" not in html
         assert "&lt;svg" in html
 
@@ -119,7 +119,8 @@ class TestAlertExpanderTitleEscapes:
 
     def test_hostile_host_is_inert(self):
         title = _alert_expander_title(
-            "Reverse Shell", "<span class='badge badge-critical'>CRIT</span>",
+            "Reverse Shell",
+            "<span class='badge badge-critical'>CRIT</span>",
             "<span class='badge badge-new'>NEW</span>",
             "evil</p><img src=x onerror=alert(1)>",
         )
@@ -127,9 +128,7 @@ class TestAlertExpanderTitleEscapes:
         assert "&lt;img" in title
 
     def test_hostile_rule_name_is_inert(self):
-        title = _alert_expander_title(
-            "<script>alert(1)</script>", "", "", ""
-        )
+        title = _alert_expander_title("<script>alert(1)</script>", "", "", "")
         assert "<script>" not in title
         assert "&lt;script&gt;" in title
 
@@ -146,18 +145,14 @@ class TestColoredMetricEscapes:
     def _capture(monkeypatch, module):
         """Patch the module-own ``st`` reference; return the capture list."""
         captured: list[str] = []
-        monkeypatch.setattr(
-            module.st, "markdown", lambda html, **kw: captured.append(html)
-        )
+        monkeypatch.setattr(module.st, "markdown", lambda html, **kw: captured.append(html))
         return captured
 
     def test_charts_colored_metric_escapes_label_and_value(self, monkeypatch):
         from dashboard import charts
 
         captured = self._capture(monkeypatch, charts)
-        charts._colored_metric(
-            '<img src=x onerror=alert(1)>', '<script>evil()</script>'
-        )
+        charts._colored_metric("<img src=x onerror=alert(1)>", "<script>evil()</script>")
         assert len(captured) == 1
         html = captured[0]
         assert "<img" not in html
@@ -187,10 +182,8 @@ class TestColoredMetricEscapes:
         from dashboard import ui_utils
 
         captured: list[str] = []
-        monkeypatch.setattr(
-            "streamlit.markdown", lambda html, **kw: captured.append(html)
-        )
-        ui_utils.colored_metric('<img src=x onerror=alert(1)>', "<script>x</script>")
+        monkeypatch.setattr("streamlit.markdown", lambda html, **kw: captured.append(html))
+        ui_utils.colored_metric("<img src=x onerror=alert(1)>", "<script>x</script>")
         assert captured and "<img" not in captured[0]
         assert "<script>" not in captured[0]
 
@@ -210,9 +203,7 @@ class TestLogoutBaseUrl:
             posted.append(url)
 
         monkeypatch.setattr("dashboard.api_client.httpx.post", fake_post)
-        monkeypatch.setattr(
-            "dashboard.api_client.st.session_state", {"access_token": "tok-123"}
-        )
+        monkeypatch.setattr("dashboard.api_client.st.session_state", {"access_token": "tok-123"})
         import dashboard.api_client as live
 
         live.ApiClient.logout()
@@ -225,9 +216,7 @@ class TestLogoutBaseUrl:
             posted.append(url)
 
         monkeypatch.setattr("dashboard.api_client.httpx.post", fake_post)
-        monkeypatch.setattr(
-            "dashboard.api_client.st.session_state", {"access_token": "tok-123"}
-        )
+        monkeypatch.setattr("dashboard.api_client.st.session_state", {"access_token": "tok-123"})
         import dashboard.api_client as live
 
         client = live.ApiClient("http://custom.example:9999/api/v1")
@@ -258,7 +247,5 @@ class TestLogoutBaseUrl:
         import dashboard.api_client as live
 
         monkeypatch.setattr("dashboard.api_client.httpx.post", boom)
-        monkeypatch.setattr(
-            "dashboard.api_client.st.session_state", {"access_token": "tok-123"}
-        )
+        monkeypatch.setattr("dashboard.api_client.st.session_state", {"access_token": "tok-123"})
         live.ApiClient.logout()  # must not raise

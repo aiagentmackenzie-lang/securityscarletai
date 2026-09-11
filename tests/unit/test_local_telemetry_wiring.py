@@ -81,17 +81,27 @@ class TestOsqueryConf:
         # These are LaunchAgent CLI flags (machine-specific, user-writable):
         # baking them into the conf broke the user-agent boot (pidfile check
         # failed against /var/osquery — root-only).
-        for forbidden in ("logger_path", "database_path", "pidfile",
-                          "extensions_socket", "logger_mode"):
+        for forbidden in (
+            "logger_path",
+            "database_path",
+            "pidfile",
+            "extensions_socket",
+            "logger_mode",
+        ):
             assert forbidden not in opts, forbidden
         s = _OSCONF.read_text()
         assert "/var/osquery" not in s
 
     def test_launchagent_example_has_required_flags(self):
         s = (_repo / "deploy" / "osqueryd.launchagent.plist.example").read_text()
-        for flag in ("--config_path=", "--logger_path=", "--database_path=",
-                     "--pidfile=", "--logger_mode=0644",
-                     "--extensions_socket="):
+        for flag in (
+            "--config_path=",
+            "--logger_path=",
+            "--database_path=",
+            "--pidfile=",
+            "--logger_mode=0644",
+            "--extensions_socket=",
+        ):
             assert flag in s
         # The bare-binary copy trap: osqueryd must run from inside its .app
         # bundle (signature covers bundle resources; a standalone copy is

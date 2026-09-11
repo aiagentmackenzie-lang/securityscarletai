@@ -6,6 +6,7 @@ are CHANGE_ME-gated at startup — a deployment booting with a placeholder
 documented in the repo must crash loudly instead of running on a public
 secret.
 """
+
 from __future__ import annotations
 
 import secrets

@@ -5,6 +5,7 @@ CRUD interface for Sigma detection rules.
 ALL data fetched through ApiClient — NO direct database access.
 Loading states: st.spinner() on fetches, st.toast() on actions.
 """
+
 import streamlit as st
 
 from dashboard.api_client import ApiError
@@ -127,14 +128,16 @@ def render_rules_view():
         # Rule table
         table_data = []
         for r in filtered_rules:
-            table_data.append({
-                "ID": r.get("id", ""),
-                "Name": r.get("name", ""),
-                "Severity": r.get("severity", "").upper(),
-                "Enabled": "Enabled" if r.get("enabled") else "Disabled",
-                "Last Run": str(r.get("last_run", ""))[:19] if r.get("last_run") else "Never",
-                "Matches": r.get("match_count", 0),
-            })
+            table_data.append(
+                {
+                    "ID": r.get("id", ""),
+                    "Name": r.get("name", ""),
+                    "Severity": r.get("severity", "").upper(),
+                    "Enabled": "Enabled" if r.get("enabled") else "Disabled",
+                    "Last Run": str(r.get("last_run", ""))[:19] if r.get("last_run") else "Never",
+                    "Matches": r.get("match_count", 0),
+                }
+            )
 
         if table_data:
             st.dataframe(table_data, use_container_width=True, hide_index=True)
@@ -178,7 +181,7 @@ def render_rules_view():
                             with st.spinner(f"{'Disabling' if is_enabled else 'Enabling'} rule..."):
                                 try:
                                     api.update_rule(r["id"], {"enabled": not is_enabled})
-                                    action = 'enabled' if not is_enabled else 'disabled'
+                                    action = "enabled" if not is_enabled else "disabled"
                                     st.toast(f"Rule {action}")
                                     st.success(f"Rule {action}")
                                     st.rerun()
@@ -219,14 +222,18 @@ def render_rules_view():
             )
 
             from collections import defaultdict
-            template_vars = defaultdict(str, {
-                "name": name or "Rule Name",
-                "description": description or "",
-                "severity": severity,
-                "process_name": "python",
-                "port": "4444",
-                "path": "/tmp",  # noqa: S108 — sample rule template value, not a real temp path
-            })
+
+            template_vars = defaultdict(
+                str,
+                {
+                    "name": name or "Rule Name",
+                    "description": description or "",
+                    "severity": severity,
+                    "process_name": "python",
+                    "port": "4444",
+                    "path": "/tmp",  # noqa: S108 — sample rule template value, not a real temp path
+                },
+            )
             default_yaml = RULE_TEMPLATES[template].format_map(template_vars)
             sigma_yaml = st.text_area("Sigma Rule (YAML)", value=default_yaml, height=300)
 
@@ -241,13 +248,15 @@ def render_rules_view():
                 else:
                     with st.spinner("Creating rule..."):
                         try:
-                            api.create_rule({
-                                "name": name,
-                                "description": description,
-                                "sigma_yaml": sigma_yaml,
-                                "severity": severity,
-                                "run_interval": run_interval,
-                            })
+                            api.create_rule(
+                                {
+                                    "name": name,
+                                    "description": description,
+                                    "sigma_yaml": sigma_yaml,
+                                    "severity": severity,
+                                    "run_interval": run_interval,
+                                }
+                            )
                             st.toast(f"Rule '{name}' created")
                             st.success(f"Rule '{name}' created successfully!")
                             st.rerun()

@@ -137,13 +137,15 @@ class TestAnalyzeAlert:
     @pytest.mark.asyncio
     async def test_successful_analysis(self):
         """Should parse valid query_llm response."""
-        analysis_json = json.dumps({
-            "summary": "SSH brute force detected",
-            "risk_score": 75,
-            "verdict": "threat",
-            "response": ["Block IP", "Notify admin"],
-            "reasoning": "Multiple failed logins from same IP",
-        })
+        analysis_json = json.dumps(
+            {
+                "summary": "SSH brute force detected",
+                "risk_score": 75,
+                "verdict": "threat",
+                "response": ["Block IP", "Notify admin"],
+                "reasoning": "Multiple failed logins from same IP",
+            }
+        )
 
         with patch("src.detection.ai_analyzer.query_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = _llm_result(analysis_json)
@@ -216,8 +218,13 @@ class TestAnalyzeAlert:
     @pytest.mark.asyncio
     async def test_markdown_no_lang_json_response(self):
         """Should parse JSON wrapped in generic markdown code block."""
-        analysis = {"summary": "test", "risk_score": 30, "verdict": "benign",
-                     "response": [], "reasoning": "ok"}
+        analysis = {
+            "summary": "test",
+            "risk_score": 30,
+            "verdict": "benign",
+            "response": [],
+            "reasoning": "ok",
+        }
         raw = f"```\n{json.dumps(analysis)}\n```"
 
         with patch("src.detection.ai_analyzer.query_llm", new_callable=AsyncMock) as mock_llm:

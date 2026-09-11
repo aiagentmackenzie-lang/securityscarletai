@@ -10,6 +10,7 @@ Enrichments applied (in order):
 Designed to be called from the ingestion pipeline (writer.py)
 for automatic enrichment of every incoming event.
 """
+
 import asyncio
 import ipaddress
 import socket
@@ -56,6 +57,7 @@ def _get_geoip_reader():
 
     try:
         import geoip2.database
+
         _geoip_reader = geoip2.database.Reader("data/GeoLite2-City.mmdb")
         _geoip_loaded = True
         log.info("geoip_db_loaded")
@@ -175,6 +177,7 @@ async def enrich_dns_reverse_async(ip: str) -> dict[str, Any]:
 async def enrich_with_threat_intel(ip: str) -> dict[str, Any]:
     """Enrich an IP with threat intel data from cache and live APIs."""
     from src.intel.threat_intel import enrich_ip_with_threat_intel
+
     try:
         return await enrich_ip_with_threat_intel(ip)
     except Exception as e:
@@ -261,11 +264,10 @@ async def enrich_event_dict(event_data: dict) -> dict:
 
     class _Event:
         """Minimal event-like object for enrichment."""
+
         def __init__(self, source_ip, destination_ip):
             self.source_ip = source_ip
             self.destination_ip = destination_ip
 
     event = _Event(source_ip, destination_ip)
     return await enrich_event(event)
-
-

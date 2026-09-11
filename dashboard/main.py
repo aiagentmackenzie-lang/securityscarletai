@@ -16,6 +16,7 @@ Pages:
   - AI Chat: Context-aware security assistant
   - Hunting: Threat hunting templates & MITRE gaps
 """
+
 import sys
 from pathlib import Path
 
@@ -38,6 +39,7 @@ from dashboard.ui_utils import logo_svg
 
 try:
     from streamlit_autorefresh import st_autorefresh
+
     HAS_AUTOREFRESH = True
 except ImportError:
     HAS_AUTOREFRESH = False
@@ -47,13 +49,13 @@ except ImportError:
 # ───────────────────────────────────────────────────────────
 
 # Elevation layers (darker = deeper in the stack)
-BG_APP = "#090c14"          # Deepest background
-BG_SURFACE = "#0f1420"      # Cards, forms, expanders
-BG_ELEVATED = "#161d2e"     # Hover states, active items
-BG_INPUT = "#1a2236"        # Inputs, textareas
+BG_APP = "#090c14"  # Deepest background
+BG_SURFACE = "#0f1420"  # Cards, forms, expanders
+BG_ELEVATED = "#161d2e"  # Hover states, active items
+BG_INPUT = "#1a2236"  # Inputs, textareas
 
 # Accent
-ACCENT = "#00bcd4"          # Cyan primary
+ACCENT = "#00bcd4"  # Cyan primary
 ACCENT_HOVER = "#00acc1"
 ACCENT_GLOW = "rgba(0,188,212,0.18)"
 
@@ -362,6 +364,7 @@ def status_badge(status: str) -> str:
     css = STATUS_CSS_MAP.get(status.lower().replace(" ", "_"), "badge-closed")
     return badge(status.replace("_", " ").upper(), css)
 
+
 # Brand favicon (scarlet shield mark). Falls back to the emoji if the
 # asset is missing (e.g. a stripped checkout).
 _FAVICON = Path(__file__).parent / "assets" / "favicon.png"
@@ -385,6 +388,7 @@ st.markdown(DARK_THEME_CSS, unsafe_allow_html=True)
 # Authentication Gate
 # ───────────────────────────────────────────────────────────
 
+
 def check_auth():
     """Check authentication state. Returns True if authenticated."""
     if "authenticated" not in st.session_state:
@@ -396,6 +400,7 @@ def check_auth():
 
     # L-11 fix: Call require_auth() to re-verify token periodically
     from dashboard.auth import require_auth
+
     if not require_auth():
         st.session_state.authenticated = False
         st.rerun()
@@ -431,7 +436,7 @@ PAGE_REFRESH_MS = {
     "suppressions": 120000,
     "rules": 120000,
     "cases": 60000,
-    "ai_chat": 0,       # Never auto-refresh (chat context matters)
+    "ai_chat": 0,  # Never auto-refresh (chat context matters)
     "hunting": 120000,
     "audit": 60000,
 }
@@ -517,8 +522,7 @@ def render_sidebar():
             )
 
             st.sidebar.markdown(
-                f"{db_icon}&nbsp;&nbsp;Database: "
-                f"<span style='color:#e8ecf1'>{db_status}</span>",
+                f"{db_icon}&nbsp;&nbsp;Database: <span style='color:#e8ecf1'>{db_status}</span>",
                 unsafe_allow_html=True,
             )
             st.sidebar.markdown(
@@ -617,6 +621,7 @@ def render_sidebar():
 # Page Renderers
 # ───────────────────────────────────────────────────────────
 
+
 def render_overview():
     """Dashboard overview page with metrics, charts, and recent alerts."""
     from dashboard.charts import (
@@ -632,6 +637,7 @@ def render_overview():
 
     # Fetch alerts once — all chart functions reuse this single fetch
     from dashboard.charts import cached_alerts
+
     alerts = cached_alerts()
 
     # Top-level metrics with loading state
@@ -674,13 +680,15 @@ def render_overview():
     if alerts:
         table_data = []
         for a in alerts[:20]:
-            table_data.append({
-                "Time": a.get("time", "")[:19] if a.get("time") else "",
-                "Rule": a.get("rule_name", ""),
-                "Severity": a.get("severity", "").upper(),
-                "Status": a.get("status", "").replace("_", " ").upper(),
-                "Host": a.get("host_name", ""),
-            })
+            table_data.append(
+                {
+                    "Time": a.get("time", "")[:19] if a.get("time") else "",
+                    "Rule": a.get("rule_name", ""),
+                    "Severity": a.get("severity", "").upper(),
+                    "Status": a.get("status", "").replace("_", " ").upper(),
+                    "Host": a.get("host_name", ""),
+                }
+            )
         st.dataframe(table_data, use_container_width=True, hide_index=True)
     else:
         st.info("No alerts yet. Detection rules run automatically every 60 seconds.")
@@ -704,16 +712,17 @@ def render_audit():
             if entries:
                 table_data = []
                 for e in entries:
-                    table_data.append({
-                        "Time": e.get("created_at", "")[:19] if e.get("created_at") else "",
-                        "Actor": e.get("actor", ""),
-                        "Action": e.get("action", ""),
-                        "Target": f"{e.get('target_type', '')} #{e.get('target_id', '')}",
-                        "Details": (
-                            str(e.get("new_values", ""))[:100]
-                            if e.get("new_values") else ""
-                        ),
-                    })
+                    table_data.append(
+                        {
+                            "Time": e.get("created_at", "")[:19] if e.get("created_at") else "",
+                            "Actor": e.get("actor", ""),
+                            "Action": e.get("action", ""),
+                            "Target": f"{e.get('target_type', '')} #{e.get('target_id', '')}",
+                            "Details": (
+                                str(e.get("new_values", ""))[:100] if e.get("new_values") else ""
+                            ),
+                        }
+                    )
                 st.dataframe(table_data, use_container_width=True, hide_index=True)
             else:
                 st.info("No audit log entries found.")
@@ -724,6 +733,7 @@ def render_audit():
 # ───────────────────────────────────────────────────────────
 # Main Application
 # ───────────────────────────────────────────────────────────
+
 
 def main():
     """Main application entry point."""
@@ -740,24 +750,31 @@ def main():
         render_overview()
     elif page_key == "logs":
         from dashboard.logs_view import render_log_viewer
+
         render_log_viewer()
     elif page_key == "alerts":
         from dashboard.alerts_view import render_alert_list
+
         render_alert_list()
     elif page_key == "suppressions":
         from dashboard.suppressions_view import render_suppressions_view
+
         render_suppressions_view()
     elif page_key == "rules":
         from dashboard.rules_view import render_rules_view
+
         render_rules_view()
     elif page_key == "cases":
         from dashboard.cases_view import render_cases_view
+
         render_cases_view()
     elif page_key == "ai_chat":
         from dashboard.ai_chat_view import render_ai_chat
+
         render_ai_chat()
     elif page_key == "hunting":
         from dashboard.hunt_view import render_hunt_view
+
         render_hunt_view()
     elif page_key == "audit":
         render_audit()

@@ -4,6 +4,7 @@ Keeps the startup/shutdown wiring in ``src.api.main`` thin and makes the
 enable/disable gate unit-testable without spinning up the whole FastAPI
 lifespan (which needs a Postgres pool).
 """
+
 from __future__ import annotations
 
 from pathlib import Path

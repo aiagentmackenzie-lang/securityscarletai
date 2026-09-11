@@ -3,6 +3,7 @@ Shared utilities for AI modules.
 
 Extracted from ueba.py and alert_triage.py to avoid duplication.
 """
+
 import math
 from typing import Dict, List
 

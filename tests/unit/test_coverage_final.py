@@ -209,7 +209,8 @@ class TestAiExplainEndpoint:
                 await explain_alert_endpoint(
                     request=make_test_request(path="/api/v1/ai/explain/9999"),
                     response=Response(),
-                    alert_id=9999, _user={"sub": "analyst1", "role": "analyst"},
+                    alert_id=9999,
+                    _user={"sub": "analyst1", "role": "analyst"},
                 )
             assert exc_info.value.status_code == 404
 
