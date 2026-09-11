@@ -8,8 +8,7 @@ logsource:
     category: file
 detection:
     selection:
-        event_type: start
-        event_action|contains: creation
+        event_action: file_created
         file_path|contains: /Users/
     filter_legitimate:
         file_path|contains:

@@ -529,7 +529,7 @@ async def detect_privilege_escalation_chain(
     SELECT
         p.host_name,
         p.user_name AS escalated_user,
-        p.process_name AS escalation_method,
+        p.escalation_method,
         p.priv_time,
         r.root_process,
         r.process_cmdline,

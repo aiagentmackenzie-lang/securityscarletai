@@ -49,6 +49,50 @@ INGESTED_CATEGORIES = {
     "intrusion_detection",
 }
 
+# Future-source waivers (V0.3 rule-quality gate + coverage). A rule listed
+# here intentionally selects vocabulary no ingested producer emits; it is
+# DORMANT-BY-SOURCE with the documented reason — NOT a lie of inclusion and
+# NOT an accident. Removing a waiver requires shipping the source first.
+# Keys are lowercase title-normalized rule names (title lowercased,
+# non-alphanumerics → "_"; titles are the rule identity in the rules table).
+WAIVED_FUTURE_SOURCES: dict[str, str] = {
+    # --- Windows / Active Directory sources ---
+    "anomalous_kerberos_ticket_request": "future source: Windows security event log (Kerberos TGS)",
+    "kerberoasting_service_ticket_request": "future source: Windows security event log",
+    "ntlm_relay_attempt": "future source: Windows SMB/NTLM telemetry",
+    "pass_the_hash_smb_authentication": "future source: Windows SMB telemetry",
+    "admin_ipc_share_access": "future source: Windows SMB telemetry",
+    "rdp_login_from_anomalous_source": "future source: Windows RDP logon events",
+    "multiple_account_lockouts": "future source: account-lockout events (not in utmpx/osquery)",
+    "new_account_created": "future source: account-management audit log",
+    # --- DNS-content sources (resolver logs; socket telemetry has no
+    # query content — these detections are meaningless without it) ---
+    "high_volume_dns_exfil_indicator": "future source: DNS resolver query logs",
+    "dns_tunneling_indicators": "future source: DNS resolver query logs",
+    "suspicious_dns_query": "future source: DNS resolver query logs",
+    # --- Byte-counting / volume sources ---
+    "large_outbound_https_transfer": (
+        "future source: egress byte accounting (enrichment bytes_sent)"
+    ),
+    # --- SaaS / cloud audit sources ---
+    "api_key_usage_from_new_ip": "future source: SaaS audit log",
+    "new_admin_account_creation": "future source: SaaS/cloud audit log",
+    "saas_permission_escalation": "future source: SaaS audit log",
+    "bulk_data_download": "future source: SaaS download/egress audit",
+    "cloud_access_key_leaked_in_logs": "future source: CloudTrail / cloud log source",
+    "impossible_travel_distant_logins": "future source: SaaS login logs with geo enrichment",
+}
+
+
+def _waiver_key(rule_name: str) -> str:
+    """Normalize a rule name/title the same way on both consumers (DB rows
+    from the rules table and file stems from the gate): lowercase,
+    non-alphanumeric → underscore."""
+    import re as _re
+
+    return _re.sub(r"[^a-z0-9]+", "_", rule_name.lower()).strip("_")
+
+
 # Correlation-chain requirements in bucket form. Bucket = (category, action)
 # or (category, None) = any action in that category. "all"/"any" semantics
 # per rule. Special buckets:
@@ -255,6 +299,20 @@ async def compute_coverage(lookback_hours: int = 168, as_of: datetime | None = N
         req = extract_sigma_requirements(row["sigma_yaml"] or "")
         category = req["category"]
         tokens = req["action_tokens"]
+        waiver = _waiver_key(row["name"])
+        if waiver in WAIVED_FUTURE_SOURCES:
+            output_rules.append(
+                {
+                    "name": row["name"],
+                    "kind": "sigma",
+                    "severity": row["severity"],
+                    "mitre_tactics": row["mitre_tactics"] or [],
+                    "mitre_techniques": row["mitre_techniques"] or [],
+                    "armed": False,
+                    "reason": f"waived: {WAIVED_FUTURE_SOURCES[waiver]}",
+                }
+            )
+            continue
         if category is not None and category not in INGESTED_CATEGORIES:
             armed, reason = False, f"source category '{category}' not ingested"
         elif tokens:

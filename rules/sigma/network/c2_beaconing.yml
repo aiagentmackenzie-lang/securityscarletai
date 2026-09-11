@@ -8,7 +8,7 @@ logsource:
     category: network
 detection:
     selection:
-        event_type: start
+        event_type: connection
         event_category: network
     condition: selection | count(destination_ip) by source_ip > 20
 timeframe: 1h

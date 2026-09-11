@@ -8,7 +8,7 @@ logsource:
     category: network
 detection:
     selection:
-        event_action: outbound_connection
+        event_action: network_connection
     condition: selection | count(destination_ip) by destination_ip > 200
 level: high
 tags:
