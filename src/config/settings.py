@@ -220,6 +220,16 @@ class Settings(BaseSettings):
     mcp_bearer_token: Optional[SecretStr] = None
     mcp_port: int = 8002
 
+    # --- AI-usage emission (V0.4/5 item 3: AI as a detection domain) ---
+    # URL the MCP server POSTs its mcp_tool_call / mcp_tool_denied events
+    # to (the real ingest pipe, scoped INGEST_BEARER_TOKEN). Empty =
+    # emission disabled for that component (documented, not silent -- the
+    # append-only audit chain is the source of truth for MCP calls).
+    ai_usage_ingest_url: str = ""
+    # Hostname stamped on AI-usage events emitted by this component (defaults
+    # to the machine hostname; the mcp compose service pins scarletai-mcp).
+    ai_usage_hostname: Optional[str] = None
+
     # --- Threat Intel ---
     # When False, the threat-intel refresh scheduler is NOT started and no
     # external feed calls are made (URLhaus/AbuseIPDB/OTX). IOC enrichment

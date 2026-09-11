@@ -51,6 +51,11 @@ KNOWN_TOKENS = {
     vocabulary.EVENT_ACTION_COMMAND_OBSERVED,
     vocabulary.EVENT_ACTION_AUTH_FAILED,
     vocabulary.EVENT_ACTION_VERDICT_BLOCK,
+    # AI-usage domain (V0.4/5 item 3)
+    vocabulary.EVENT_ACTION_AI_AGENT_RUN,
+    vocabulary.EVENT_ACTION_MCP_TOOL_CALL,
+    vocabulary.EVENT_ACTION_MCP_TOOL_DENIED,
+    vocabulary.EVENT_ACTION_AI_PROMPT_INJECTION,
 }
 
 # Legal event_type values per category -- a rule demanding event_type=start
@@ -62,6 +67,7 @@ LEGAL_EVENT_TYPES = {
     "authentication": {"start", "end"},
     "configuration": {"info"},
     "intrusion_detection": {"info"},
+    "ai": {"info", "start", "end"},
 }
 
 REQUIRED_FIELDS = (

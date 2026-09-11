@@ -47,6 +47,7 @@ INGESTED_CATEGORIES = {
     "authentication",
     "configuration",
     "intrusion_detection",
+    "ai",  # V0.4/5 item 3: the SIEM watches its own AI agents (src/ingestion/ai_usage.py)
 }
 
 # Future-source waivers (V0.3 rule-quality gate + coverage). A rule listed

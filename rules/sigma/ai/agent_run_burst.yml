@@ -1,0 +1,25 @@
+title: AI Agent Run Burst
+id: AD5E8D6F-F765-4D8C-8F0E-D276F08F1CA5
+status: stable
+description: >
+  An unusual burst of read-only agentic investigations from one acting
+  identity -- a runaway agent loop, an abuse of the investigation surface,
+  or a compromised analyst credential spinning the AI up (OWASP Agentic
+  Top 10 2026: ASI10 rogue agents, ASI09 human-agent trust exploitation).
+  Producer contract: src/ingestion/ai_usage.py.
+author: SecurityScarletAI
+date: 2026/09/11
+logsource:
+    category: ai
+detection:
+    selection:
+        event_category: ai
+        event_action: ai_agent_run
+        event_type: start
+    condition: selection | count(*) by user_name > 20
+timeframe: 15m
+level: medium
+tags:
+    - attack.execution
+    - attack.ta0002
+    - attack.t1059
