@@ -10,9 +10,9 @@ detection:
     selection:
         process_name: chmod
         process_cmdline|contains:
-            - u+s
-            - 4755
-            - 4754
+            - "u+s"
+            - "4755"
+            - "4754"
     condition: selection
 level: medium
 tags:

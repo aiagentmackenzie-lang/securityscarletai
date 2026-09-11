@@ -15,10 +15,12 @@ The legacy parser gives us:
 - Column name validation against a whitelist.
 - AND / OR / AND-NOT / plain-AND conditions and Sigma aggregation (count by).
 """
+
+import ipaddress
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 import yaml
 
@@ -33,19 +35,49 @@ MAX_DETECTION_ROWS = 1000
 # ───────────────────────────────────────────────────────────────
 # Column whitelist — used by both pySigma backend and legacy parser
 # ───────────────────────────────────────────────────────────────
-ALLOWED_COLUMNS = frozenset({
-    "event_type", "event_action", "event_category",
-    "host_name", "source_ip", "destination_ip", "destination_port",
-    "process_name", "process_pid", "process_cmdline", "process_path",
-    "user_name", "file_path", "file_hash",
-    "severity", "source", "host_ip",
-})
+ALLOWED_COLUMNS = frozenset(
+    {
+        "event_type",
+        "event_action",
+        "event_category",
+        "host_name",
+        "source_ip",
+        "destination_ip",
+        "destination_port",
+        "process_name",
+        "process_pid",
+        "process_cmdline",
+        "process_path",
+        "user_name",
+        "file_path",
+        "file_hash",
+        "severity",
+        "source",
+        "host_ip",
+    }
+)
 
 # INET-typed columns. LIKE-family modifiers (contains/startswith/endswith/re)
 # are not defined for inet in Postgres ("operator does not exist: inet ~~ text"),
 # so LIKE comparisons use the text form host(col)::text. Equality on inet with a
 # valid IP string still works without a cast.
 INET_COLUMNS = frozenset({"source_ip", "destination_ip", "host_ip"})
+
+# INTEGER-typed columns. Equality params must be Python ints for asyncpg; a str
+# value binds as "expected int, got str".
+INT_COLUMNS = frozenset({"process_pid", "destination_port"})
+
+
+class UnsupportedSigmaValue(ValueError):
+    """A Sigma detection value the SQL compiler cannot represent faithfully.
+
+    Raised during selection parsing; the selection is failed SAFE to FALSE
+    (match nothing, log loudly) — never widened to TRUE (F-20 pattern).
+    Examples: mapping values (YAML `- /node:` parses as {"/node": None}),
+    null values, non-numeric strings against INTEGER columns, non-IP strings
+    against INET equality.
+    """
+
 
 # Timeframe validation regex
 TIMEFRAME_PATTERN = re.compile(r"^(\d+)([mhd])$")
@@ -54,6 +86,7 @@ TIMEFRAME_PATTERN = re.compile(r"^(\d+)([mhd])$")
 @dataclass
 class SigmaRule:
     """Parsed Sigma rule structure — compatible with legacy format."""
+
     id: str
     title: str
     description: str
@@ -87,11 +120,7 @@ def _extract_mitre_tags(tags: list[str]) -> tuple[list[str], list[str]]:
     Tactics: attack.ta* prefix (e.g., attack.ta0001 → TA0001)
     Techniques: attack.t* prefix but NOT attack.ta* (e.g., attack.t1110 → T1110)
     """
-    tactics = [
-        t.replace("attack.", "").upper()
-        for t in tags
-        if t.startswith("attack.ta")
-    ]
+    tactics = [t.replace("attack.", "").upper() for t in tags if t.startswith("attack.ta")]
     techniques = [
         t.replace("attack.", "").upper()
         for t in tags
@@ -128,6 +157,7 @@ def _timeframe_to_seconds(timeframe: Optional[str]) -> int:
 # pySigma-based parsing (primary, spec-compliant)
 # ───────────────────────────────────────────────────────────────
 
+
 def parse_sigma_rule(yaml_content: str) -> SigmaRule:
     """
     Parse a Sigma rule from YAML string.
@@ -151,6 +181,7 @@ def _extract_condition_string(detection: dict) -> str:
 # ───────────────────────────────────────────────────────────────
 # Legacy parsing (fallback for rules that pySigma can't handle)
 # ───────────────────────────────────────────────────────────────
+
 
 class SigmaParser:
     """Legacy Sigma YAML parser — used as fallback when pySigma fails."""
@@ -223,9 +254,7 @@ class SigmaParser:
 
         return self._build_simple_query(rule, where_clause)
 
-    def _build_aggregation_query(
-        self, rule, agg_match, filters
-    ) -> tuple[str, list[Any]]:
+    def _build_aggregation_query(self, rule, agg_match, filters) -> tuple[str, list[Any]]:
         """Build an aggregation (GROUP BY) SQL query."""
         base_condition = agg_match.group(1).strip()
         count_field_raw = agg_match.group(2).strip() or "*"
@@ -310,53 +339,141 @@ class SigmaParser:
         selection = detection[name]
         conditions = []
 
-        for field, value in selection.items():
-            modifier_match = re.match(r"^(\w+)\|(\w+)$", field)
-            if modifier_match:
-                field_name = modifier_match.group(1)
-                modifier = modifier_match.group(2)
-                sql_field = self._map_field(field_name)
+        try:
+            for field, value in selection.items():
+                modifier_match = re.match(r"^(\w+)\|(\w+)$", field)
+                if modifier_match:
+                    field_name = modifier_match.group(1)
+                    modifier = modifier_match.group(2)
+                    sql_field = self._map_field(field_name)
 
-                if modifier in self.MODIFIERS:
-                    # LIKE-family operators don't exist for inet; compare on the
-                    # text form (e.g. host(source_ip)::text LIKE '10.%').
-                    like_field = (
-                        f"host({sql_field})::text"
-                        if sql_field in INET_COLUMNS
-                        else sql_field
-                    )
-                    if isinstance(value, list):
-                        or_conditions = []
-                        for v in value:
-                            or_conditions.append(
-                                self.MODIFIERS[modifier](like_field, self._add_param(v))
+                    if modifier in self.MODIFIERS:
+                        # LIKE-family operators don't exist for inet ("operator
+                        # does not exist: inet ~~ text") or for integer columns;
+                        # compare on the text form (e.g. host(source_ip)::text
+                        # LIKE '10.%', destination_port::text LIKE '44%').
+                        if sql_field in INET_COLUMNS:
+                            like_field = f"host({sql_field})::text"
+                        elif sql_field in INT_COLUMNS:
+                            like_field = f"{sql_field}::text"
+                        else:
+                            like_field = sql_field
+                        if isinstance(value, list):
+                            or_conditions = []
+                            for v in value:
+                                or_conditions.append(
+                                    self.MODIFIERS[modifier](
+                                        like_field,
+                                        self._add_param(
+                                            self._coerce_param(sql_field, v, usage="pattern")
+                                        ),
+                                    )
+                                )
+                            conditions.append(f"({' OR '.join(or_conditions)})")
+                        else:
+                            conditions.append(
+                                self.MODIFIERS[modifier](
+                                    like_field,
+                                    self._add_param(
+                                        self._coerce_param(sql_field, value, usage="pattern")
+                                    ),
+                                )
                             )
-                        conditions.append(f"({' OR '.join(or_conditions)})")
                     else:
+                        log.warning("unknown_modifier", modifier=modifier, field=field)
                         conditions.append(
-                            self.MODIFIERS[modifier](
-                                like_field, self._add_param(value)
-                            )
+                            f"{sql_field} = {self._add_param(self._coerce_param(sql_field, value))}"
                         )
                 else:
-                    log.warning("unknown_modifier", modifier=modifier, field=field)
-                    conditions.append(f"{sql_field} = {self._add_param(value)}")
-            else:
-                sql_field = self._map_field(field)
-                if isinstance(value, list):
-                    params = [self._add_param(v) for v in value]
-                    placeholders = ", ".join(
-                        f"${p}" if not str(p).startswith("$") else str(p)
-                        for p in params
-                    )
-                    conditions.append(f"{sql_field} IN ({placeholders})")
-                elif value == "*":
-                    # Sigma wildcard-all: field is present (any value).
-                    conditions.append(f"{sql_field} IS NOT NULL")
-                else:
-                    conditions.append(f"{sql_field} = {self._add_param(value)}")
+                    sql_field = self._map_field(field)
+                    if isinstance(value, list):
+                        coerced = [self._coerce_param(sql_field, v) for v in value]
+                        params = [self._add_param(v) for v in coerced]
+                        placeholders = ", ".join(
+                            f"${p}" if not str(p).startswith("$") else str(p) for p in params
+                        )
+                        conditions.append(f"{sql_field} IN ({placeholders})")
+                    elif value == "*":
+                        # Sigma wildcard-all: field is present (any value).
+                        conditions.append(f"{sql_field} IS NOT NULL")
+                    else:
+                        conditions.append(
+                            f"{sql_field} = {self._add_param(self._coerce_param(sql_field, value))}"
+                        )
+        except UnsupportedSigmaValue as exc:
+            # Fail-safe (F-20 pattern): a value the compiler cannot represent
+            # faithfully must make the selection match NOTHING, never widen it
+            # (dropping one condition of a selection would match MORE). Rule
+            # 91/100 class: unbindable params crashed EVERY run with asyncpg
+            # "expected str, got int/dict".
+            log.warning(
+                "selection_unsupported_value_rule_never_matches",
+                field=field,
+                reason=str(exc),
+            )
+            return "FALSE"
 
-        return " AND ".join(conditions) if conditions else "TRUE"
+        if not conditions:
+            # Empty selection ({}): previously compiled to TRUE — another
+            # match-everything alert storm. Fail-safe to FALSE.
+            log.warning("empty_selection_rule_never_matches", name=name)
+            return "FALSE"
+
+        return " AND ".join(conditions)
+
+    def _coerce_param(self, column: str, value: Any, *, usage: str = "eq") -> Any:
+        """Coerce a Sigma selection value to the type asyncpg can bind.
+
+        usage="pattern": LIKE-family / regex context — the comparison runs on
+        the text form of the column, so the param is always a str.
+        usage="eq": bind per the schema column type (TEXT/INTEGER/INET).
+
+        Raises UnsupportedSigmaValue for anything that cannot be represented
+        faithfully; callers fail the selection to FALSE.
+        """
+        if isinstance(value, Mapping) or isinstance(value, (list, tuple)):
+            raise UnsupportedSigmaValue(f"mapping/sequence value not supported: {value!r}")
+        if value is None:
+            raise UnsupportedSigmaValue("null value (Sigma null-selector unsupported)")
+
+        if usage == "pattern":
+            if isinstance(value, bool):
+                return "true" if value else "false"
+            if isinstance(value, (str, int, float)):
+                return str(value)
+            raise UnsupportedSigmaValue(f"unusable pattern value: {value!r}")
+
+        # usage == "eq"
+        if column in INT_COLUMNS:
+            if isinstance(value, bool):
+                raise UnsupportedSigmaValue("boolean against an INTEGER column")
+            if isinstance(value, int):
+                return value
+            if isinstance(value, float) and value.is_integer():
+                return int(value)
+            if isinstance(value, str) and value.strip().lstrip("+-").isdigit():
+                return int(value)
+            raise UnsupportedSigmaValue(
+                f"non-numeric value against INTEGER column {column}: {value!r}"
+            )
+
+        if column in INET_COLUMNS:
+            if not isinstance(value, str):
+                raise UnsupportedSigmaValue(f"non-string against INET column {column}: {value!r}")
+            try:
+                ipaddress.ip_address(value)
+            except ValueError as exc:
+                raise UnsupportedSigmaValue(
+                    f"invalid IP for INET equality on {column}: {value!r}"
+                ) from exc
+            return value
+
+        # TEXT columns: str as-is; scalars coerced to their string form.
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, (str, int, float)):
+            return str(value)
+        raise UnsupportedSigmaValue(f"unusable value for column {column}: {value!r}")
 
     def _map_field(self, sigma_field: str) -> str:
         """Map Sigma field names to database column names with validation."""
@@ -394,6 +511,7 @@ class SigmaParser:
 # ───────────────────────────────────────────────────────────────
 # Public API — same interface, pySigma-powered internally
 # ───────────────────────────────────────────────────────────────
+
 
 def sigma_to_sql(yaml_content: str) -> tuple[str, list[Any]]:
     """

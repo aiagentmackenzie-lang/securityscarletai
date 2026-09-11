@@ -58,7 +58,9 @@ def test_every_rule_uses_legacy_parameterized_path():
         assert "$" in sql, f"{rule_file.name}: no placeholders in SQL: {sql[:80]}"
         assert "INTERVAL '1 second'" in sql, f"{rule_file.name}: no safe lookback: {sql[:80]}"
         assert params is not None
-        assert len(params) > 0, f"{rule_file.name}: empty params (no parameterized values): {sql[:80]}"
+        assert len(params) > 0, (
+            f"{rule_file.name}: empty params (no parameterized values): {sql[:80]}"
+        )
 
 
 def test_every_rule_has_mitre_tags():
@@ -91,3 +93,43 @@ def test_corpus_covers_key_mitre_tactics():
         found.update(rule.mitre_tactics)
     missing = required - found
     assert not missing, f"corpus missing required MITRE tactics: {sorted(missing)}"
+
+
+def test_no_rule_produces_unbindable_param_types():
+    """Rules 91/100 class (2026-09-10): unbindable params (dict from a YAML
+    mapping like `- /node:`, or Python ints against TEXT columns) crashed
+    EVERY scheduler run with asyncpg 'expected str, got int/dict'. No shipped
+    rule may produce a param asyncpg cannot bind: str (TEXT/pattern) or int
+    (INTEGER) only — never dict/list/None/bool/float."""
+    bad: list[tuple[str, str]] = []
+    for rule_file in _all_rule_files():
+        _sql, params = sigma_to_sql(rule_file.read_text())
+        for p in params:
+            if isinstance(p, (dict, list)) or p is None or isinstance(p, (bool, float)):
+                bad.append((rule_file.name, f"unbindable param {p!r}"))
+            elif not isinstance(p, (str, int)):
+                bad.append((rule_file.name, f"unexpected param type {type(p).__name__}: {p!r}"))
+    assert not bad, "rules with unbindable param types:\n" + "\n".join(
+        f"  {n}: {msg}" for n, msg in bad
+    )
+
+
+def test_regression_rule_91_setuid_params_are_strings():
+    """Rule 91 (setuid_binary_set.yml) failed every run: unquoted YAML ints
+    bound as Python ints against TEXT. After the fix the values are quoted
+    in the YAML AND coerced compiler-side."""
+    rule_file = RULES_DIR / "process" / "setuid_binary_set.yml"
+    sql, params = sigma_to_sql(rule_file.read_text())
+    assert "4755" in params and "4754" in params
+    assert all(isinstance(p, str) for p in params if not isinstance(p, int))
+
+
+def test_regression_rule_100_wmi_mapping_value_compiles():
+    """Rule 100 (wmi_remote_execution.yml) failed every run: `- /node:` parsed
+    as a YAML MAPPING {'/node': None}. After the fix the value is quoted
+    (string '/node:'), and the trailing space in 'wmic ' is preserved
+    (unquoted YAML scalars silently strip trailing whitespace)."""
+    rule_file = RULES_DIR / "process" / "wmi_remote_execution.yml"
+    sql, params = sigma_to_sql(rule_file.read_text())
+    assert "/node:" in params
+    assert "wmic " in params  # trailing space preserved by quoting

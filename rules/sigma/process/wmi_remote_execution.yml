@@ -9,9 +9,9 @@ logsource:
 detection:
     selection:
         process_cmdline|contains:
-            - wmic 
-            - Invoke-WmiMethod
-            - /node:
+            - "wmic "
+            - "Invoke-WmiMethod"
+            - "/node:"
     condition: selection
 level: medium
 tags:
