@@ -231,7 +231,7 @@ class TestCorrelationIdEnrichment:
             r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", m["correlation_id"]
         )
         assert m["severity"] == "critical"
-        assert m["title"] == "Brute Force → Successful Login"
+        assert m["title"] == "Brute Force -> Successful Login"
         assert "TA0006" in m["mitre_tactics"]
         assert "T1110" in m["mitre_techniques"]
 

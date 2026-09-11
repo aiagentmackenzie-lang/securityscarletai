@@ -19,9 +19,7 @@ logsource:
     category: authentication
 detection:
     selection_failed:
-        event_action|contains:
-            - failed
-            - ssh
+        event_action: auth_failed
     condition: selection_failed | count(*) by source_ip > 3
 timeframe: 10m
 level: critical

@@ -9,7 +9,7 @@ logsource:
 detection:
     selection:
         destination_port: 22
-        event_action: outbound_connection
+        event_action: network_connection
     condition: selection
 level: low
 tags:

@@ -8,7 +8,7 @@ logsource:
     category: file
 detection:
     selection:
-        event_type: start
+        event_action: file_created
         file_path|contains: LaunchAgents
     condition: selection
 level: high

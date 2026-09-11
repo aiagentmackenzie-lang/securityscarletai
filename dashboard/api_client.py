@@ -1,7 +1,7 @@
 """
 Synchronous API client for the SecurityScarletAI dashboard.
 
-ALL dashboard code must use this client — NO direct database access.
+ALL dashboard code must use this client -- NO direct database access.
 This module handles auth, retries, error handling, and response formatting.
 
 M-04 note: This client uses synchronous httpx (not async) because Streamlit
@@ -25,12 +25,12 @@ import httpx
 import streamlit as st
 
 # ───────────────────────────────────────────────────────────────
-# Configuration — from environment / .env
+# Configuration -- from environment / .env
 # ───────────────────────────────────────────────────────────────
 
 API_BASE_URL = os.environ.get("SCARLET_API_URL", "http://localhost:8000/api/v1")
 REQUEST_TIMEOUT = 15.0  # seconds (default)
-AI_TIMEOUT = 60.0  # seconds (AI chat/explain/hunt — longer for LLM inference)
+AI_TIMEOUT = 60.0  # seconds (AI chat/explain/hunt -- longer for LLM inference)
 
 # Epic 10: static service-to-service auth token for the dashboard
 # container. Used as a fallback bearer when no user JWT is in the
@@ -54,7 +54,7 @@ if DASHBOARD_API_TOKEN is not None:
     import warnings
 
     warnings.warn(
-        "DASHBOARD_API_TOKEN is set — the dashboard will skip login and act "
+        "DASHBOARD_API_TOKEN is set -- the dashboard will skip login and act "
         "as an admin client. This is only safe behind an auth-gating proxy "
         "(Caddy basicauth / IAP / IP allowlist). Expose the dashboard "
         "unauthenticated with this token set and anyone reaching it gets "
@@ -63,7 +63,7 @@ if DASHBOARD_API_TOKEN is not None:
         stacklevel=1,
     )
     print(
-        "⚠️  DASHBOARD_API_TOKEN is set — the dashboard skips login and acts "
+        "⚠️  DASHBOARD_API_TOKEN is set -- the dashboard skips login and acts "
         "as an admin client. Gate it behind an auth proxy (Caddy basicauth / "
         "IAP / IP allowlist) or anyone reaching the dashboard URL gets full "
         "admin SIEM access. Leave it empty to force JWT login.",
@@ -112,8 +112,8 @@ class ApiClient:
         """Build auth headers.
 
         Priority:
-          1. Session JWT (interactive login) — used by all views.
-          2. DASHBOARD_API_TOKEN (env) — used when no JWT is in the
+          1. Session JWT (interactive login) -- used by all views.
+          2. DASHBOARD_API_TOKEN (env) -- used when no JWT is in the
              session (headless / docker dashboard, scheduled refresh).
         The API's unified auth dependency accepts either, so a
         bearer-from-env works as service-to-service auth.
@@ -240,7 +240,7 @@ class ApiClient:
 
         Raises PasswordChangeRequiredError if the account has
         must_change_password set (the API returns 403 with a
-        force_change_token — accepted on 401 too for contract tolerance);
+        force_change_token -- accepted on 401 too for contract tolerance);
         the caller should prompt for a new password,
         call force_change_password(), then login() again. We call httpx
         directly (not self._post) because _handle_response discards 401
@@ -270,7 +270,7 @@ class ApiClient:
             # from plain bad-credentials/forbidden. The API raises 403
             # (authenticated but forbidden until rotation) with the
             # PASSWORD_CHANGE_REQUIRED code + one-off token; earlier contract
-            # docs said 401. Accept the CODE on either status — found live
+            # docs said 401. Accept the CODE on either status -- found live
             # 2026-09-07 when the first admin login 403'd straight through
             # this handler and dumped raw JSON into the login form.
             try:
@@ -285,14 +285,14 @@ class ApiClient:
                 pass
             if r.status_code == 401:
                 raise ApiError(401, "Invalid username or password")
-            # 403 WITHOUT the code: a genuine forbidden — surface the detail.
+            # 403 WITHOUT the code: a genuine forbidden -- surface the detail.
             try:
                 detail = r.json().get("detail", r.text[:200])
             except Exception:
                 detail = r.text[:200]
             raise ApiError(403, detail)
 
-        # Other non-2xx (e.g. 429 rate limited) — surface the detail.
+        # Other non-2xx (e.g. 429 rate limited) -- surface the detail.
         try:
             detail = r.json().get("detail", r.text[:200])
         except Exception:
@@ -304,7 +304,7 @@ class ApiClient:
         PasswordChangeRequiredError. Does not require the current password.
 
         POSTs to /auth/force-change-password with the force_change_token as the
-        Bearer (not the session token — the force_change_token is a one-off JWT
+        Bearer (not the session token -- the force_change_token is a one-off JWT
         with force_password_change=true). Returns {"message": ...} on success.
         """
         try:
@@ -337,7 +337,7 @@ class ApiClient:
 
         POSTs the current access token to /auth/logout so the server blocklists
         its jti (so a leaked token stops working immediately). Best-effort: any
-        error is ignored — clearing local session is always done. L-09 fix:
+        error is ignored -- clearing local session is always done. L-09 fix:
         clear all auth-related keys.
 
         F-19: accepts an instance and posts to THAT client's base_url. The
@@ -356,8 +356,8 @@ class ApiClient:
                     },
                     timeout=REQUEST_TIMEOUT,
                 )
-            except Exception:  # noqa: S110 — best-effort; never block local logout
-                # Best-effort — never block local logout on a server error.
+            except Exception:  # noqa: S110 -- best-effort; never block local logout
+                # Best-effort -- never block local logout on a server error.
                 pass
         for key in list(st.session_state.keys()):
             if key in (
@@ -496,6 +496,17 @@ class ApiClient:
         """Fetch all detection rules."""
         return self._get("/rules") or []
 
+    def get_coverage(self, lookback_hours: int = 168) -> dict:
+        """Fetch the evidence-driven coverage map (V0.3: armed vs dormant).
+
+        Returns {} when the endpoint is unavailable -- the heatmap falls back
+        to the legacy title-driven view rather than breaking the dashboard.
+        """
+        try:
+            return self._get("/detection/coverage", params={"lookback_hours": lookback_hours}) or {}
+        except ApiError:
+            return {}
+
     def get_rule(self, rule_id: int) -> dict:
         """Fetch a single rule by ID."""
         return self._get(f"/rules/{rule_id}")
@@ -514,7 +525,7 @@ class ApiClient:
         self._delete(f"/rules/{rule_id}")
 
     # ───────────────────────────────────────────────────────────
-    # Alert suppressions (AI-triage differentiation — P4.2)
+    # Alert suppressions (AI-triage differentiation -- P4.2)
     # ───────────────────────────────────────────────────────────
 
     def list_suppressions(self) -> list[dict]:
@@ -624,7 +635,7 @@ class ApiClient:
         return self._post("/ai/chat", {"message": message}, timeout=AI_TIMEOUT) or {}
 
     # ───────────────────────────────────────────────────────────
-    # NL→SQL Query
+    # NL->SQL Query
     # ───────────────────────────────────────────────────────────
 
     def query(self, question: str) -> dict:
@@ -632,7 +643,7 @@ class ApiClient:
         return self._post("/query", {"question": question}, timeout=AI_TIMEOUT) or {}
 
     def get_query_templates(self) -> list[dict]:
-        """Get available NL→SQL query templates."""
+        """Get available NL->SQL query templates."""
         return self._get("/query/templates") or []
 
     # ───────────────────────────────────────────────────────────
@@ -652,7 +663,7 @@ class ApiClient:
         return self._get("/hunt/gaps") or {}
 
     def hunt_from_alert(self, alert_id: int) -> dict:
-        """Suggest hunts from an alert (LLM path — needs the longer timeout)."""
+        """Suggest hunts from an alert (LLM path -- needs the longer timeout)."""
         return self._post(f"/hunt/from-alert/{alert_id}", timeout=AI_TIMEOUT) or {}
 
     # ───────────────────────────────────────────────────────────

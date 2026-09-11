@@ -1,8 +1,10 @@
 """
-Tests for Correlation Engine v2.
+Tests for Correlation Engine v3.
 
-Tests sequence definitions, correlation rule metadata,
-and parameterized SQL safety.
+Tests correlation rule metadata and parameterized SQL safety.
+The decorative sequences module was removed in P1.2b -- SEQUENCE_DEFINITIONS
+had zero engine consumers; the live engine is the hand-written SQL in
+src/detection/correlation.py.
 """
 
 from src.detection.correlation import (
@@ -10,54 +12,6 @@ from src.detection.correlation import (
     get_correlation_rule_info,
     list_correlation_rules,
 )
-from src.detection.sequences import (
-    SEQUENCE_DEFINITIONS,
-    list_sequences,
-)
-
-
-class TestSequenceDefinitions:
-    """Test the sequence-based detection definitions."""
-
-    def test_at_least_five_sequences(self):
-        """Must define at least 5 attack sequences."""
-        assert len(SEQUENCE_DEFINITIONS) >= 5
-
-    def test_all_sequences_have_required_fields(self):
-        """Each sequence must have all required fields."""
-        for seq in SEQUENCE_DEFINITIONS:
-            assert seq.name, f"Sequence missing name: {seq}"
-            assert seq.title, f"Sequence missing title: {seq.name}"
-            assert seq.description, f"Sequence missing description: {seq.name}"
-            assert seq.severity in ("low", "medium", "high", "critical"), (
-                f"Sequence {seq.name} has invalid severity: {seq.severity}"
-            )
-            assert seq.trigger_category, f"Sequence {seq.name} missing trigger_category"
-            assert seq.followup_category, f"Sequence {seq.name} missing followup_category"
-            assert seq.join_key, f"Sequence {seq.name} missing join_key"
-            assert seq.time_window_minutes > 0, f"Sequence {seq.name} has invalid time_window"
-            assert len(seq.mitre_tactics) > 0, f"Sequence {seq.name} missing MITRE tactics"
-            assert len(seq.mitre_techniques) > 0, f"Sequence {seq.name} missing MITRE techniques"
-            assert 0 < seq.confidence_base <= 100, (
-                f"Sequence {seq.name} has invalid confidence: {seq.confidence_base}"
-            )
-
-    def test_sequence_names_are_unique(self):
-        """Sequence names must be unique."""
-        names = [seq.name for seq in SEQUENCE_DEFINITIONS]
-        assert len(names) == len(set(names)), f"Duplicate sequence names: {names}"
-
-    def test_list_sequences(self):
-        """list_sequences should return all sequences as dicts."""
-        seqs = list_sequences()
-        assert len(seqs) >= 5
-        for s in seqs:
-            assert "name" in s
-            assert "title" in s
-            assert "severity" in s
-            assert "mitre_tactics" in s
-            assert "mitre_techniques" in s
-            assert "confidence_base" in s
 
 
 class TestCorrelationRules:

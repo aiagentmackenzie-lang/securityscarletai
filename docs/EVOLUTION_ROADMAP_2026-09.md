@@ -145,6 +145,22 @@ mid-market price with data sovereignty."
 
 ## Recommended sequencing (three tracks, one rule: detections that fire first)
 
+> **STATUS 2026-09-11: V0.3 "Trusted Engine" DELIVERED** (branch
+> feat/v0.3-trusted-engine): P1.2b vocabulary pass + all 8 chains
+> live-fire verified; identity/auth telemetry shipped (auth-shipper
+> contract + macOS unified-log shipper); osquery-fim.conf prepared
+> (validation pending TCC live pass — credential-theft/data-exfil file
+> paths arm on FIM, cmdline paths already live); evidence-driven
+> coverage map shipped (/detection/coverage + armed/dormant heatmap);
+> rule-quality CI shipped (sigma structural + vocabulary gate + waiver
+> registry + DB-backed per-chain true/false matrix). BONUS (live-fire
+> finding): scheduler pool deadlock found and fixed (bounded rule
+> queries + connection release + async LLM enrichment). Remaining from
+> this phase's list: FIM TCC validation on-host; detectability map
+> dashboard polish (heatmap now evidence-driven — done); rule-quality
+> FP-rate gates over the benign corpus (next phase).
+
+
 | Phase | Theme | Items |
 |---|---|---|
 | **V0.3 "Trusted Engine"** | Detection truth | P1.2b pass → identity log source → FIM → detectability map → rule-quality CI |

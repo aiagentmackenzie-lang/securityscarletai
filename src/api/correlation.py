@@ -7,7 +7,10 @@ Correlation detection API endpoints (Agent A, Epic 2).
 - POST /api/v1/correlation/matches/{id}/seen — Mark a match as reviewed
 - GET  /api/v1/correlation/rules       — List available rules
 - GET  /api/v1/correlation/rules/{n}   — Rule details
-- GET  /api/v1/correlation/sequences   — List sequence definitions
+
+(The former /correlation/sequences endpoint was removed with the decorative
+sequences module — P1.2b: SEQUENCE_DEFINITIONS had zero engine consumers;
+the live engine is the SQL in src/detection/correlation.py.)
 """
 
 from datetime import datetime, timezone
@@ -34,7 +37,6 @@ from src.detection.correlation import (
     persist_match,
     run_all_correlations,
 )
-from src.detection.sequences import list_sequences
 
 log = get_logger("api.correlation")
 
@@ -108,12 +110,6 @@ async def get_rule(rule_name: str, user: dict = Depends(get_current_user)):
     if not info:
         raise HTTPException(status_code=404, detail=f"Correlation rule '{rule_name}' not found")
     return {"name": rule_name, **info}
-
-
-@router.get("/sequences")
-async def list_sequence_rules(user: dict = Depends(get_current_user)):
-    """List all available event sequence definitions."""
-    return list_sequences()
 
 
 # ───────────────────────────────────────────────────────────────

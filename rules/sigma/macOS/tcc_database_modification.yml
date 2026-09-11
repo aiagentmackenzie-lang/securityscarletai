@@ -8,8 +8,10 @@ logsource:
     category: file
 detection:
     selection:
-        event_type: start
-        file_path|contains: Library/Application Support/com.apple.TCC/TCC.db
+        event_action:
+            - file_modified
+            - file_created
+        file_path|contains: com.apple.TCC/TCC.db
     condition: selection
 level: critical
 tags:

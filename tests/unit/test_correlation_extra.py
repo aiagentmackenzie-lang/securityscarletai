@@ -93,7 +93,7 @@ class TestGetCorrelationRuleInfo:
     def test_existing_rule(self):
         result = get_correlation_rule_info("brute_force_success")
         assert result is not None
-        assert result["title"] == "Brute Force → Successful Login"
+        assert result["title"] == "Brute Force -> Successful Login"
 
     def test_nonexistent_rule(self):
         result = get_correlation_rule_info("nonexistent_rule")

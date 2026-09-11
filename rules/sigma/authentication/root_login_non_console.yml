@@ -8,8 +8,7 @@ logsource:
     category: authentication
 detection:
     selection:
-        event_type: start
-        event_action|contains: login
+        event_action: auth_success
         user_name: root
     condition: selection
 level: high

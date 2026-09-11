@@ -3,6 +3,19 @@ Detection rule scheduler using APScheduler.
 
 Replaces Celery+Redis for single-machine deployments.
 Schedules Sigma rules to run at configured intervals.
+
+V0.3 hardening (live-fire finding, 2026-09-11): the scheduler froze the
+whole API when a tick had >= pool-size rules with matches. Root cause:
+run_rule HELD its pool connection across create_alert (which acquires a
+SECOND connection) and the LLM enrichment (30s each, per match) -- with
+every connection held awaiting another one, the pool dead-locked forever
+(DB idle, CPU 0%, health hangs). Fixes:
+  1. NO connection is held across alert creation or enrichment.
+  2. LLM enrichment is fire-and-forget (bounded), never awaited in the
+     scheduler path -- the ai_summary column was always documented as
+     "filled async"; the awaited-inline version contradicted that.
+  3. The rule query is bounded by RULE_QUERY_TIMEOUT -- a slow query
+     fails the rule (fail-closed, logged) instead of wedging the tick.
 """
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -17,6 +30,50 @@ log = get_logger("detection.scheduler")
 
 scheduler = AsyncIOScheduler()
 
+RULE_QUERY_TIMEOUT_SECONDS = 60
+_ENRICH_MAX_CONCURRENT = 2
+_enrich_semaphore = None  # created lazily inside the running loop
+_enrich_tasks: set = set()  # F-17: keep fire-and-forget tasks GC-alive
+
+
+def _get_enrich_semaphore():
+    """Lazy semaphore bound to the running loop (recreated after restarts)."""
+    global _enrich_semaphore
+    if _enrich_semaphore is None:
+        import asyncio
+
+        _enrich_semaphore = asyncio.Semaphore(_ENRICH_MAX_CONCURRENT)
+    return _enrich_semaphore
+
+
+def _schedule_enrichment(alert_id: int, rule: dict, row: dict) -> None:
+    """Fire-and-forget AI enrichment for one alert, bounded by a semaphore.
+
+    The scheduler tick must NEVER block on the LLM: an Ollama call is up to
+    30s per alert, and N matched alerts would hold the tick (and, in the
+    old shape, its pool connection) for minutes. Failures are logged; the
+    alert simply ships without ai_summary (documented async fill).
+    """
+    import asyncio
+
+    from src.detection.ai_analyzer import analyze_alert, enrich_alert
+
+    async def _run() -> None:
+        async with _get_enrich_semaphore():
+            analysis = await analyze_alert(
+                alert_id=alert_id,
+                rule_name=rule["name"],
+                severity=rule["severity"],
+                host_name=row.get("host_name", "unknown"),
+                evidence=dict(row),
+            )
+            if analysis:
+                await enrich_alert(alert_id, analysis)
+
+    task = asyncio.create_task(_run())
+    _enrich_tasks.add(task)
+    task.add_done_callback(_enrich_tasks.discard)
+
 
 async def run_rule(rule_id: int) -> None:
     """
@@ -25,9 +82,11 @@ async def run_rule(rule_id: int) -> None:
     Steps:
     1. Load rule from database
     2. Generate SQL from Sigma YAML
-    3. Execute query
-    4. Create alerts if matches found
+    3. Execute query (bounded -- a slow query fails the rule, never the API)
+    4. Create alerts if matches found (NO connection held across this)
     """
+    import asyncio
+
     log.info("running_rule", rule_id=rule_id)
 
     pool = await get_pool()
@@ -35,22 +94,29 @@ async def run_rule(rule_id: int) -> None:
         # Load rule
         rule = await conn.fetchrow("SELECT * FROM rules WHERE id = $1 AND enabled = TRUE", rule_id)
 
-        if not rule:
-            log.warning("rule_not_found_or_disabled", rule_id=rule_id)
-            return
+    if not rule:
+        log.warning("rule_not_found_or_disabled", rule_id=rule_id)
+        return
 
-        try:
-            # Parse Sigma and generate SQL
-            sql, params = sigma_to_sql(rule["sigma_yaml"])
+    try:
+        # Parse Sigma and generate SQL
+        sql, params = sigma_to_sql(rule["sigma_yaml"])
 
-            # Execute detection query
-            rows = await conn.fetch(sql, *params)
+        # Execute detection query -- bounded: a slow/heavy query fails THIS
+        # rule (fail-closed) instead of wedging a connection for minutes.
+        async with pool.acquire() as conn:
+            rows = await asyncio.wait_for(
+                conn.fetch(sql, *params), timeout=RULE_QUERY_TIMEOUT_SECONDS
+            )
 
-            if rows:
-                log.info("rule_matched", rule_id=rule_id, matches=len(rows))
+        if rows:
+            log.info("rule_matched", rule_id=rule_id, matches=len(rows))
 
-                # Create alerts for each match
-                for row in rows:
+            # Create alerts WITHOUT holding a connection: create_alert
+            # acquires its own; enrichment is fire-and-forget (bounded). A
+            # tick with many matching rules must never starve the pool.
+            for row in rows:
+                try:
                     alert_id = await create_alert(
                         rule_id=rule_id,
                         rule_name=rule["name"],
@@ -62,22 +128,19 @@ async def run_rule(rule_id: int) -> None:
                         evidence=dict(row),
                         risk_score=None,
                     )
-
-                    # AI analysis on new alerts
                     if alert_id:
-                        from src.detection.ai_analyzer import analyze_alert, enrich_alert
+                        _schedule_enrichment(alert_id, rule, row)
+                except Exception as e:
+                    log.error(
+                        "rule_alert_create_failed",
+                        rule_id=rule_id,
+                        error=str(e),
+                    )
 
-                        analysis = await analyze_alert(
-                            alert_id=alert_id,
-                            rule_name=rule["name"],
-                            severity=rule["severity"],
-                            host_name=row.get("host_name", "unknown"),
-                            evidence=dict(row),
-                        )
-                        if analysis:
-                            await enrich_alert(alert_id, analysis)
-
-                # Update rule stats (match + last_run in single update)
+        # Update rule stats (match + last_run in single update) -- short
+        # acquisition, never held across alert/enrichment work.
+        async with pool.acquire() as conn:
+            if rows:
                 await conn.execute(
                     "UPDATE rules SET last_match = NOW(), match_count = match_count + $1, "
                     "last_run = NOW() WHERE id = $2",
@@ -85,11 +148,16 @@ async def run_rule(rule_id: int) -> None:
                     rule_id,
                 )
             else:
-                # No matches — only update last_run
                 await conn.execute("UPDATE rules SET last_run = NOW() WHERE id = $1", rule_id)
 
-        except Exception as e:
-            log.error("rule_execution_failed", rule_id=rule_id, error=str(e))
+    except asyncio.TimeoutError:
+        log.error(
+            "rule_query_timeout",
+            rule_id=rule_id,
+            timeout=RULE_QUERY_TIMEOUT_SECONDS,
+        )
+    except Exception as e:
+        log.error("rule_execution_failed", rule_id=rule_id, error=str(e))
 
 
 async def schedule_rules() -> None:

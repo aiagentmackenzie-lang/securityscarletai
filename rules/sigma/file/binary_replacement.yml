@@ -8,12 +8,11 @@ logsource:
     category: file
 detection:
     selection:
-        event_type: start
+        event_action: file_modified
         file_path|contains:
             - /usr/bin/
             - /usr/sbin/
             - /usr/lib/
-        event_action|contains: modification
     condition: selection
 level: high
 tags:

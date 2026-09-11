@@ -8,7 +8,7 @@ logsource:
     category: file
 detection:
     selection:
-        event_type: start
+        event_action: file_modified
         file_path|contains: /crontab
     condition: selection
 level: medium

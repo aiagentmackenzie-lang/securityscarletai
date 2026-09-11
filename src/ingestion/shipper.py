@@ -1,5 +1,5 @@
 """
-Log shipper — tails osquery result logs and feeds them to the ingestion pipeline.
+Log shipper -- tails osquery result logs and feeds them to the ingestion pipeline.
 
 Polls the result log every ~1s (seek/tell based, not a file-watcher) and stores a
 checkpoint (byte offset) so restarts don't re-ingest old data. (P2-07: the
@@ -13,6 +13,7 @@ from pathlib import Path
 from src.config.logging import get_logger
 from src.db.writer import LogWriter
 from src.ingestion.parser import parse_osquery_line
+from src.ingestion.schemas import parse_normalized_line
 
 log = get_logger("ingestion.shipper")
 
@@ -24,14 +25,29 @@ class FileShipper:
 
     P2-22: the checkpoint file is per-instance (``checkpoint_path``) so multiple
     shippers watching different logs don't clobber each other's offset. Defaults
-    to the legacy single global path for backward compatibility — the
+    to the legacy single global path for backward compatibility -- the
     single-shipper deployment (``maybe_create_shipper``) is unaffected.
+
+    ``format`` selects the line parser:
+      - "osquery"    -- osquery result-log lines (default; the telemetry pipe)
+      - "normalized" -- one NDJSON NormalizedEvent per line (the auth
+        shipper's output format, V0.3 identity telemetry; the same shape the
+        API /ingest contract accepts)
     """
 
-    def __init__(self, log_path: str, writer: LogWriter, checkpoint_path: Path | None = None):
+    def __init__(
+        self,
+        log_path: str,
+        writer: LogWriter,
+        checkpoint_path: Path | None = None,
+        format: str = "osquery",  # noqa: A002 -- public keyword, mirrors parse format
+    ):
         self.log_path = Path(log_path)
         self.writer = writer
         self.checkpoint_path = Path(checkpoint_path) if checkpoint_path else CHECKPOINT_FILE
+        if format not in ("osquery", "normalized"):
+            raise ValueError(f"unsupported shipper format: {format!r}")
+        self.format = format
         self._offset = self._load_checkpoint()
         self._inode = self._get_inode()  # H-15: track inode for rotation detection
         self._running = False
@@ -45,7 +61,7 @@ class FileShipper:
             return None
 
     async def run(self) -> None:
-        """Main loop — tail the file forever."""
+        """Main loop -- tail the file forever."""
         self._running = True
         log.info("shipper_started", path=str(self.log_path), offset=self._offset)
 
@@ -88,13 +104,14 @@ class FileShipper:
 
     async def _read_new_lines(self) -> None:
         """Read new lines from the current offset."""
+        parser = parse_osquery_line if self.format == "osquery" else parse_normalized_line
         with open(self.log_path, "r") as f:
             f.seek(self._offset)
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
-                event = parse_osquery_line(line)
+                event = parser(line)
                 if event:
                     await self.writer.write(event)
                     self._events_shipped += 1

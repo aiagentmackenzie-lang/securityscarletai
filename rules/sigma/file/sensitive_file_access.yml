@@ -5,20 +5,19 @@ description: Detects access to sensitive system files like /etc/shadow, .ssh dir
 author: SecurityScarletAI
 date: 2026/05/03
 logsource:
-    category: process
+    category: file
 detection:
-    selection_shadow:
-        file_path|contains: /etc/shadow
-    selection_ssh:
-        file_path|contains: .ssh/id_rsa
-    selection_ssh_keys:
-        file_path|contains: .ssh/authorized_keys
-    selection_kerberos:
-        file_path|contains: /etc/krb5.keytab
-    selection_hosts:
+    selection_access:
+        event_action: file_opened
+        file_path|contains:
+            - /etc/shadow
+            - .ssh/id_rsa
+            - .ssh/authorized_keys
+            - /etc/krb5.keytab
+    selection_hosts_modified:
+        event_action: file_modified
         file_path|contains: /etc/hosts
-        event_action|contains: modification
-    condition: selection_shadow or selection_ssh or selection_ssh_keys or selection_kerberos or selection_hosts
+    condition: selection_access or selection_hosts_modified
 level: high
 tags:
     - attack.credential_access

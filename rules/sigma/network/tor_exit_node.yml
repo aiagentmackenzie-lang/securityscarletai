@@ -8,7 +8,7 @@ logsource:
     category: network
 detection:
     selection:
-        event_type: start
+        event_type: connection
         destination_port:
             - 9001
             - 9050
