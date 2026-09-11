@@ -228,3 +228,99 @@ def test_parameterized_lookback_aggregation_query():
     assert "INTERVAL '1 second' *" in sql
     # 5 minutes = 300 seconds
     assert 300 in params
+
+
+# ───────────────────────────────────────────────────────────
+# Param-type coercion — asyncpg binding traps (2026-09-10)
+#
+# Rules 91/100 class: unbindable param types crashed EVERY scheduler run
+# ("expected str, got int" / "expected str, got dict"). The compiler now
+# coerces per schema column type and fails SAFE to FALSE for values it
+# cannot represent faithfully.
+# ───────────────────────────────────────────────────────────
+
+
+def test_numeric_contains_value_coerced_to_str_for_text_column():
+    """Unquoted YAML ints (rule 91: setuid 4755/4754) must arrive as strings
+    against the TEXT column process_cmdline — never as Python ints."""
+    yaml_rule = """
+title: Setuid Test
+logsource:
+    category: process
+detection:
+    selection:
+        process_name: chmod
+        process_cmdline|contains:
+            - u+s
+            - 4755
+    condition: selection
+"""
+    sql, params = sigma_to_sql(yaml_rule)
+    # Params: event_category filter, process_name, then the contains list.
+    assert params[:4] == ["process", "chmod", "u+s", "4755"]
+    assert "4755" in params and isinstance(params[3], str)
+
+
+def test_mapping_value_failsafe_never_over_fires():
+    """A mapping value (YAML `- /node:` parses as {'/node': None}) cannot be
+    compiled faithfully — the selection must fail SAFE to FALSE (match
+    nothing, log loudly), never drop the condition and match MORE."""
+    yaml_rule = """
+title: WMI Test
+logsource:
+    category: process
+detection:
+    selection:
+        process_cmdline|contains:
+            - wmic
+            - /node:
+    condition: selection
+"""
+    sql, params = sigma_to_sql(yaml_rule)
+    assert "FALSE" in sql
+    # No dict/None param may ever reach the SQL layer.
+    assert not any(isinstance(p, (dict, list)) or p is None for p in params)
+
+
+def test_int_column_string_value_coerced_to_int():
+    """A digit-string against an INTEGER column binds as int (asyncpg would
+    reject the str with 'expected int, got str')."""
+    yaml_rule = """
+title: Port Test
+detection:
+    selection:
+        destination_port: "445"
+    condition: selection
+"""
+    _sql, params = sigma_to_sql(yaml_rule)
+    assert 445 in params
+
+
+def test_invalid_inet_equality_failsafe():
+    """A non-IP string against INET equality would crash every run
+    (asyncpg inet parse error) — the selection must fail safe to FALSE."""
+    yaml_rule = """
+title: INET Test
+detection:
+    selection:
+        source_ip: "not-an-ip"
+    condition: selection
+"""
+    sql, params = sigma_to_sql(yaml_rule)
+    assert "FALSE" in sql
+    assert "not-an-ip" not in params
+
+
+def test_like_on_int_column_casts_to_text():
+    """LIKE-family modifiers on INTEGER columns must compare on the text form
+    ('operator does not exist: integer ~~ text' otherwise)."""
+    yaml_rule = """
+title: Port Prefix Test
+detection:
+    selection:
+        destination_port|startswith: "4"
+    condition: selection
+"""
+    sql, params = sigma_to_sql(yaml_rule)
+    assert "destination_port::text" in sql
+    assert "4" in params
