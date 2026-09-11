@@ -40,3 +40,26 @@ def maybe_create_shipper(writer: LogWriter) -> FileShipper | None:
     )
     log.info("shipper_enabled", path=settings.osquery_log_path)
     return shipper
+
+
+def maybe_create_auth_shipper(writer: LogWriter) -> FileShipper | None:
+    """Return a normalized-format FileShipper iff the auth pipe is enabled.
+
+    V0.3 identity telemetry: tails ``settings.auth_events_log_path`` —
+    NDJSON lines in the auth-vocabulary contract (auth_failed/auth_success,
+    src/ingestion/auth_source.py), written by scripts/auth_log_shipper.py
+    (macOS unified log, sshd-focused). Independent enable flag + checkpoint
+    so the two shippers never clobber each other (P2-22 per-instance
+    checkpoints).
+    """
+    if not settings.enable_auth_shipper:
+        log.info("auth_shipper_disabled")
+        return None
+    shipper = FileShipper(
+        settings.auth_events_log_path,
+        writer,
+        checkpoint_path=Path(settings.auth_shipper_checkpoint_path),
+        format="normalized",
+    )
+    log.info("auth_shipper_enabled", path=settings.auth_events_log_path)
+    return shipper

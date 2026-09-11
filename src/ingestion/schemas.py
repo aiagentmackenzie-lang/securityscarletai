@@ -5,10 +5,15 @@ Reference: https://www.elastic.co/guide/en/ecs/current/index.html
 Each osquery table maps to an ECS event.category + event.type combination.
 """
 
-from datetime import datetime
+import json
+from datetime import datetime, timezone
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+
+from src.config.logging import get_logger
+
+log = get_logger("ingestion.schemas")
 
 
 class NormalizedEvent(BaseModel):
@@ -168,7 +173,11 @@ def derive_event_action(table_name: str, action: str, columns: dict) -> Optional
         if table_name == "shell_history":
             return EVENT_ACTION_COMMAND_OBSERVED
         if table_name in (
-            "crontab", "startup_items", "launchd_entries", "user_ssh_keys", "sip_config"
+            "crontab",
+            "startup_items",
+            "launchd_entries",
+            "user_ssh_keys",
+            "sip_config",
         ):
             return EVENT_ACTION_CONFIG_OBSERVED
     return None
@@ -192,3 +201,60 @@ def _file_action_token(fim_action: str) -> str:
     if a:  # updated/written/modified/attr/… → change semantics
         return EVENT_ACTION_FILE_MODIFIED
     return EVENT_ACTION_FILE_EVENT
+
+
+def parse_normalized_line(raw_line: str) -> Optional[NormalizedEvent]:
+    """Parse one NDJSON NormalizedEvent line (the normalized shipper format).
+
+    Used by FileShipper(format="normalized") for the auth shipper's output.
+    The contract mirrors the API /ingest schema strictness: host_name,
+    event_category, event_type and source are REQUIRED (a line missing any
+    is skipped — fail-closed, never guessed); @timestamp defaults to now.
+    Never raises — a stuck parser kills the pipeline.
+    """
+    try:
+        data = json.loads(raw_line)
+    except json.JSONDecodeError as e:
+        log.warning("normalized_parse_failed", error=str(e), line_preview=raw_line[:200])
+        return None
+    if not isinstance(data, dict):
+        log.warning("normalized_parse_not_object", line_preview=raw_line[:200])
+        return None
+
+    required = ("host_name", "event_category", "event_type", "source")
+    missing = [k for k in required if not data.get(k)]
+    if missing:
+        log.warning("normalized_parse_missing_fields", fields=missing)
+        return None
+
+    try:
+        return NormalizedEvent(
+            **{
+                "@timestamp": data.get("@timestamp") or datetime.now(timezone.utc),
+                "host_name": data["host_name"],
+                "event_category": data["event_category"],
+                "event_type": data["event_type"],
+                "event_action": data.get("event_action"),
+                "source": data["source"],
+                "user_name": data.get("user_name"),
+                "process_name": data.get("process_name"),
+                "process_pid": data.get("process_pid"),
+                "process_cmdline": data.get("process_cmdline"),
+                "process_path": data.get("process_path"),
+                "source_ip": data.get("source_ip"),
+                "destination_ip": data.get("destination_ip"),
+                "destination_port": data.get("destination_port"),
+                "file_path": data.get("file_path"),
+                "file_hash": data.get("file_hash"),
+                "severity": data.get("severity"),
+                "enrichment": data.get("enrichment") or {},
+                "raw_data": (
+                    data.get("raw_data")
+                    if isinstance(data.get("raw_data"), dict)
+                    else {"line": data}
+                ),
+            }
+        )
+    except ValidationError as e:
+        log.warning("normalized_parse_invalid", error=str(e))
+        return None

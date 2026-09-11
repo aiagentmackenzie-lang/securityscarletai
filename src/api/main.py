@@ -166,12 +166,18 @@ async def lifespan(app: FastAPI):
     await load_sigma_rules()
 
     # Start ingestion shipper (osquery tail) if enabled. OFF by default.
-    from src.ingestion.runner import maybe_create_shipper
+    from src.ingestion.runner import maybe_create_auth_shipper, maybe_create_shipper
 
     shipper = maybe_create_shipper(writer)
     shipper_task: Optional[asyncio.Task] = None
     if shipper is not None:
         shipper_task = asyncio.create_task(shipper.run())
+
+    # Start auth shipper (V0.3 identity telemetry) if enabled. OFF by default.
+    auth_shipper = maybe_create_auth_shipper(writer)
+    auth_shipper_task: Optional[asyncio.Task] = None
+    if auth_shipper is not None:
+        auth_shipper_task = asyncio.create_task(auth_shipper.run())
 
     # Start detection scheduler
     from src.detection.scheduler import schedule_rules
@@ -210,13 +216,21 @@ async def lifespan(app: FastAPI):
 
     await stop_scheduler()
 
-    # Stop the ingestion shipper if it was started
+    # Stop the ingestion shippers if they were started
     if shipper is not None:
         shipper.stop()
     if shipper_task is not None:
         shipper_task.cancel()
         try:
             await shipper_task
+        except asyncio.CancelledError:
+            pass
+    if auth_shipper is not None:
+        auth_shipper.stop()
+    if auth_shipper_task is not None:
+        auth_shipper_task.cancel()
+        try:
+            await auth_shipper_task
         except asyncio.CancelledError:
             pass
 

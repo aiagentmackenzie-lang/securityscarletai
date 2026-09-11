@@ -154,6 +154,16 @@ class Settings(BaseSettings):
     # to override.
     shipper_checkpoint_path: str = "data/shipper_checkpoint"
 
+    # --- Auth shipper (V0.3 identity telemetry) ---
+    # Tails the auth shipper's NDJSON output (the auth-vocabulary contract,
+    # src/ingestion/auth_source.py) as a SECOND FileShipper instance in
+    # normalized format. OFF by default — deployments without an auth
+    # source are unaffected (the brute-force chain then reports DORMANT in
+    # the coverage map instead of silently never firing).
+    enable_auth_shipper: bool = False
+    auth_events_log_path: str = "data/osquery/auth_events.log"
+    auth_shipper_checkpoint_path: str = "data/auth_shipper_checkpoint"
+
     # --- Threat Intel ---
     # When False, the threat-intel refresh scheduler is NOT started and no
     # external feed calls are made (URLhaus/AbuseIPDB/OTX). IOC enrichment
