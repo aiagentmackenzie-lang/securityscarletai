@@ -1,5 +1,5 @@
 """
-Cases CRUD API — Full case management independent of alerts.
+Cases CRUD API + durable case timeline (V0.4 "Trusted Loop").
 
 Endpoints:
   GET    /cases                        — List cases with optional filters
@@ -10,12 +10,28 @@ Endpoints:
   POST   /cases/{id}/alerts            — Link an alert to this case
   DELETE /cases/{id}/alerts/{alert_id}  — Unlink an alert from case
   POST   /cases/{id}/notes             — Add a note to the case
-  GET    /cases/{id}/notes             — Get all notes for a case
+  GET   /cases/{id}/notes              — Get all notes for a case
+
+V0.4 durable case object (append-only timeline, closed vocabulary):
+  POST   /cases/{id}/verdict           — Record an adjudication verdict
+  GET    /cases/{id}/timeline          — Full event timeline (oldest first)
+  GET    /cases/{id}/summary           — Case rollup: verdicts, event counts, status
+
+Governance rules:
+- case_events is append-only: this module INSERTs and SELECTs, never UPDATEs
+  or DELETEs. There is no endpoint that mutates or removes timeline events.
+- The event vocabulary is closed (DB CHECK via case_event_type enum) and
+  each event family is authored by exactly one dedicated flow: verdicts by
+  POST /verdict, notes by POST /notes, evidence by the alert link/unlink
+  endpoints, status changes by PATCH, creation by POST /cases. Response
+  action events arrive from the Phase B response module.
+- A case cannot be resolved or closed without at least one verdict event:
+  nobody closes an unadjudicated case.
 """
 
 import json
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -58,6 +74,66 @@ class AlertLink(BaseModel):
 
 class CaseNote(BaseModel):
     text: str = Field(..., min_length=1, max_length=5000)
+
+
+# Closed verdict vocabulary — aligns with alert_labels ground truth
+# (true_positive / false_positive / needs_review) plus 'benign' for
+# confirmed-harmless artifacts (e.g. operator-generated patterns).
+VERDICTS = ("true_positive", "false_positive", "benign", "needs_review")
+
+
+class CaseVerdict(BaseModel):
+    verdict: str = Field(..., pattern="^(true_positive|false_positive|benign|needs_review)$")
+    rationale: str = Field(..., min_length=1, max_length=5000)
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    alert_id: int | None = None
+
+
+# ───────────────────────────────────────────────────────────────
+# Helper: durable case events (append-only timeline)
+# ───────────────────────────────────────────────────────────────
+
+
+async def _record_case_event(
+    conn,
+    case_id: int,
+    event_type: str,
+    actor: str,
+    payload: dict | None = None,
+    *,
+    actor_kind: str = "human",
+    alert_id: int | None = None,
+    action_id: int | None = None,
+) -> int | None:
+    """Insert one case event. Best-effort like audit (never breaks the
+    mutation), but the timeline is the case's continuity record, so a
+    failed insert is loudly logged."""
+    try:
+        event_id = await conn.fetchval(
+            """
+            INSERT INTO case_events
+                (case_id, event_type, actor, actor_kind, payload, alert_id, action_id)
+            VALUES ($1, $2::case_event_type, $3, $4, $5::jsonb, $6, $7)
+            RETURNING id
+            """,
+            case_id,
+            event_type,
+            actor,
+            actor_kind,
+            json.dumps(payload or {}, default=str),
+            alert_id,
+            action_id,
+        )
+        return cast("int | None", event_id)
+    except Exception as e:
+        log.error(
+            "case_event_insert_failed",
+            case_id=case_id,
+            event_type=event_type,
+            actor=actor,
+            error=str(e),
+        )
+        return None
 
 
 # ───────────────────────────────────────────────────────────────
@@ -155,6 +231,23 @@ async def create_case(
                     case_id,
                     aid,
                 )
+                # Durable timeline: each pre-linked alert is an evidence event
+                await _record_case_event(
+                    conn,
+                    case_id,
+                    "evidence_linked",
+                    username,
+                    {"alert_id": aid},
+                    alert_id=aid,
+                )
+        # Durable timeline: case creation itself is an event
+        await _record_case_event(
+            conn,
+            case_id,
+            "created",
+            username,
+            {"title": case.title, "severity": case.severity},
+        )
 
     # Audit log
     await log_audit_action(
@@ -216,7 +309,11 @@ async def update_case(
     update: CaseUpdate,
     user: dict = Depends(require_role("analyst")),
 ):
-    """Update case fields. When resolving/closing, lessons_learned is required."""
+    """Update case fields.
+
+    When resolving/closing: lessons_learned is required AND the case must
+    carry at least one verdict event on its timeline (governance gate).
+    """
     # Validate lessons_learned on resolve/close
     _validate_resolve(update)
 
@@ -259,6 +356,26 @@ async def update_case(
         if not set_clauses:
             return dict(current)
 
+        # Governance gate: a case cannot leave 'open'/'in_progress' for a
+        # terminal state (resolved/closed) without an adjudicated verdict on
+        # its timeline. Nobody closes an unadjudicated case.
+        if update.status in ("resolved", "closed") and current["status"] not in (
+            "resolved",
+            "closed",
+        ):
+            has_verdict = await conn.fetchval(
+                "SELECT 1 FROM case_events WHERE case_id = $1 AND event_type = 'verdict' LIMIT 1",
+                case_id,
+            )
+            if not has_verdict:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "case has no verdict on its timeline — "
+                        "POST /cases/{id}/verdict before resolving or closing"
+                    ),
+                )
+
         set_clauses.append(f"updated_at = ${param_idx}")
         params.append(datetime.now(tz=timezone.utc))
         param_idx += 1
@@ -269,6 +386,24 @@ async def update_case(
             f"RETURNING *"
         )
         row = await conn.fetchrow(sql, *params)
+
+        # Durable timeline: status transitions are recorded automatically
+        if update.status and update.status != current["status"]:
+            await _record_case_event(
+                conn,
+                case_id,
+                "status_change",
+                username,
+                {"from": current["status"], "to": update.status},
+            )
+            if update.status == "closed":
+                await _record_case_event(
+                    conn,
+                    case_id,
+                    "closed",
+                    username,
+                    {"resolution_note": update.resolution_note},
+                )
 
     # Audit log
     await log_audit_action(
@@ -305,9 +440,30 @@ async def delete_case(
         if current["status"] == "closed":
             raise HTTPException(status_code=400, detail="Case is already closed")
 
+        # Governance gate: admin soft-delete closes the case — same verdict
+        # rule as PATCH. Nobody closes an unadjudicated case.
+        has_verdict = await conn.fetchval(
+            "SELECT 1 FROM case_events WHERE case_id = $1 AND event_type = 'verdict' LIMIT 1",
+            case_id,
+        )
+        if not has_verdict:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "case has no verdict on its timeline — POST /cases/{id}/verdict before closing"
+                ),
+            )
+
         row = await conn.fetchrow(
             "UPDATE cases SET status = 'closed', updated_at = NOW() WHERE id = $1 RETURNING *",
             case_id,
+        )
+        await _record_case_event(
+            conn,
+            case_id,
+            "closed",
+            username,
+            {"via": "soft_delete_endpoint"},
         )
 
     # Audit log
@@ -365,6 +521,15 @@ async def link_alert(
             case_id,
             alert_id,
         )
+        # Durable timeline: evidence linkage is an event
+        await _record_case_event(
+            conn,
+            case_id,
+            "evidence_linked",
+            username,
+            {"alert_id": alert_id},
+            alert_id=alert_id,
+        )
 
     # Audit log
     await log_audit_action(
@@ -418,6 +583,16 @@ async def unlink_alert(
             "UPDATE alerts SET case_id = NULL, updated_at = NOW() WHERE id = $1",
             alert_id,
         )
+        # Durable timeline: evidence removal is an event too (append-only —
+        # the removal is recorded, the history is never erased)
+        await _record_case_event(
+            conn,
+            case_id,
+            "evidence_unlinked",
+            username,
+            {"alert_id": alert_id},
+            alert_id=alert_id,
+        )
 
     # Audit log
     await log_audit_action(
@@ -465,6 +640,16 @@ async def add_case_note(
         if not updated:
             raise HTTPException(status_code=404, detail="Case not found")
 
+        # Durable timeline: notes are events as well (legacy JSONB column
+        # stays for backwards compatibility with existing dashboards)
+        await _record_case_event(
+            conn,
+            case_id,
+            "note",
+            username,
+            {"text": note.text, "legacy_notes_column": True},
+        )
+
     # Audit log
     await log_audit_action(
         actor=username,
@@ -494,3 +679,161 @@ async def get_case_notes(
         if isinstance(notes, str):
             notes = json.loads(notes)
         return notes if notes else []
+
+
+@router.post("/{case_id}/verdict")
+async def record_verdict(
+    case_id: int,
+    verdict: CaseVerdict,
+    user: dict = Depends(require_role("analyst")),
+):
+    """Record an adjudication verdict on the case timeline (governed decision).
+
+    A verdict without a rationale is not accepted — the rationale IS the
+    decision record. Rides the audit chain like every other mutation.
+    """
+    pool = await get_pool()
+    username = user.get("sub", "unknown")
+
+    async with pool.acquire() as conn:
+        case_row = await conn.fetchrow("SELECT id, status FROM cases WHERE id = $1", case_id)
+        if not case_row:
+            raise HTTPException(status_code=404, detail="Case not found")
+
+        if verdict.alert_id is not None:
+            alert_row = await conn.fetchval("SELECT 1 FROM alerts WHERE id = $1", verdict.alert_id)
+            if not alert_row:
+                raise HTTPException(status_code=404, detail="Referenced alert not found")
+
+        payload: dict = {
+            "verdict": verdict.verdict,
+            "rationale": verdict.rationale,
+        }
+        if verdict.confidence is not None:
+            payload["confidence"] = verdict.confidence
+
+        event_id = await _record_case_event(
+            conn,
+            case_id,
+            "verdict",
+            username,
+            payload,
+            alert_id=verdict.alert_id,
+        )
+
+    await log_audit_action(
+        actor=username,
+        action="case.verdict",
+        target_type="case",
+        target_id=case_id,
+        new_values={
+            "verdict": verdict.verdict,
+            "rationale": verdict.rationale[:200],
+            "event_id": event_id,
+        },
+    )
+
+    log.info(
+        "case_verdict_recorded",
+        case_id=case_id,
+        verdict=verdict.verdict,
+        user=username,
+    )
+    return {
+        "case_id": case_id,
+        "event_id": event_id,
+        "event_type": "verdict",
+        "verdict": verdict.verdict,
+    }
+
+
+@router.get("/{case_id}/timeline")
+async def get_case_timeline(
+    case_id: int,
+    event_type: str | None = Query(None, description="Filter by event type"),
+    limit: Annotated[int, Query(ge=1, le=1000)] = 500,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    user: dict = Depends(get_current_user),
+):
+    """The durable case timeline: every event, oldest first.
+
+    This is the continuity record — evidence, verdicts, notes, status
+    transitions, and (Phase B) response actions with their approvals and
+    verifications, in one ordered list.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        case_row = await conn.fetchval("SELECT id FROM cases WHERE id = $1", case_id)
+        if not case_row:
+            raise HTTPException(status_code=404, detail="Case not found")
+
+        conditions = ["case_id = $1"]
+        params: list = [case_id]
+        if event_type:
+            params.append(event_type)
+            conditions.append(f"event_type = ${len(params)}::case_event_type")
+
+        params.extend([limit, offset])
+        limit_idx = len(params) - 1
+        offset_idx = len(params)
+
+        rows = await conn.fetch(
+            f"SELECT id, event_type, actor, actor_kind, payload, alert_id, "  # noqa: S608
+            f"action_id, created_at "
+            f"FROM case_events WHERE {' AND '.join(conditions)} "
+            f"ORDER BY created_at ASC, id ASC LIMIT ${limit_idx} OFFSET ${offset_idx}",
+            *params,
+        )
+        return [dict(r) for r in rows]
+
+
+@router.get("/{case_id}/summary")
+async def get_case_summary(
+    case_id: int,
+    user: dict = Depends(get_current_user),
+):
+    """Case rollup: verdicts, event counts by type, status, evidence count.
+
+    The one-glance governance view of the case: was it adjudicated, by whom,
+    on how much evidence, and what has been done about it.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        case_row = await conn.fetchrow(
+            "SELECT id, title, status, severity, assigned_to, created_at, updated_at "
+            "FROM cases WHERE id = $1",
+            case_id,
+        )
+        if not case_row:
+            raise HTTPException(status_code=404, detail="Case not found")
+
+        event_counts = {
+            r["event_type"]: r["n"]
+            for r in await conn.fetch(
+                "SELECT event_type, COUNT(*) AS n FROM case_events "
+                "WHERE case_id = $1 GROUP BY event_type",
+                case_id,
+            )
+        }
+        verdicts = [
+            dict(r)
+            for r in await conn.fetch(
+                "SELECT id, actor, payload, alert_id, created_at FROM case_events "
+                "WHERE case_id = $1 AND event_type = 'verdict' "
+                "ORDER BY created_at ASC",
+                case_id,
+            )
+        ]
+        linked_alerts = await conn.fetchval(
+            "SELECT COALESCE(array_length(alert_ids, 1), 0) FROM cases WHERE id = $1",
+            case_id,
+        )
+
+        return {
+            **dict(case_row),
+            "event_counts": event_counts,
+            "verdicts": verdicts,
+            "adjudicated": event_counts.get("verdict", 0) > 0,
+            "linked_alerts": linked_alerts or 0,
+            "total_events": sum(event_counts.values()),
+        }
