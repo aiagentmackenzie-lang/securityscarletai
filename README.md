@@ -2,7 +2,7 @@
 
 **AI-Native SIEM for macOS** — Real-time log ingestion, Sigma-based detection, ML-powered alert triage, and LLM-driven investigation assistance.
 
-> **Status (verified 2026-09-10, local-production release):** CI green on `main` · 1711 unit tests passing (mocked DB) · **8 integration tests PASSING against live Postgres (2026-09-10)** · 88% coverage (CI-enforced ≥80%) · 100 Sigma rules · 8 correlation rules · 7 sequence patterns · admin user-management API + Prometheus `/metrics` · OWASP LLM Top-10 red-team regression suite (41 probes — verified by collection) · **runs as a real local-production SIEM**: real osqueryd host telemetry → Sigma → alerts, loopback-only publishing, authenticated Redis, DB-enforced append-only audit trail (two-role deploy), verified backups + restore test, edge-triggered watchdog (see docs/PRODUCTION.md) · CI dependency/image scanning **ENFORCING since 2026-09-10** (image scan HIGH/CRITICAL at zero findings; dependency audit gates with the 2 documented P4 risk-accepts ignored with rationale, expire 2026-12-01). Counts are hand-verified against the code; no auto-updating badge.
+> **Status (verified 2026-09-11, V0.3 Trusted Engine):** CI green on `main` · 1750 unit tests passing (mocked DB) · **27 integration tests PASSING against live Postgres (2026-09-11)** · 87% coverage (CI-enforced ≥80%) · 100 Sigma rules (vocabulary-verified by CI gate) · 8 correlation rules (ALL live-fire verified 2026-09-11 — every chain fires + persists on real telemetry) · identity/auth telemetry (macOS unified-log sshd shipper, closed auth vocabulary) · evidence-driven detection-coverage map (`GET /detection/coverage`: armed vs dormant rules; 86/108 armed on real telemetry) · scheduler hardened against pool deadlock (live-fire finding; bounded queries + async LLM enrichment) · admin user-management API + Prometheus `/metrics` · OWASP LLM Top-10 red-team regression suite (41 probes — verified by collection) · **runs as a real local-production SIEM**: real osqueryd host telemetry → Sigma → alerts, loopback-only publishing, authenticated Redis, DB-enforced append-only audit trail (two-role deploy), verified backups + restore test, edge-triggered watchdog (see docs/PRODUCTION.md) · CI dependency/image scanning **ENFORCING since 2026-09-10** (image scan HIGH/CRITICAL at zero findings; dependency audit gates with the 2 documented P4 risk-accepts ignored with rationale, expire 2026-12-01). Counts are hand-verified against the code; no auto-updating badge.
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow)]()
@@ -25,7 +25,7 @@
 |-------|-----------|---------|
 | **Ingestion** | FastAPI + asyncpg | High-throughput log collection (osquery tail via the FileShipper, HTTP API), fire-and-forget enrichment, rate-limited per IP |
 | **Storage** | PostgreSQL 17 + Redis 7 | Time-series logs, alerts, cases, correlation matches, AI usage + cost tracking; Redis for rate-limit state and JWT blocklist |
-| **Detection** | Legacy Sigma parser + custom PostgreSQL backend | 100 Sigma rules → parameterized SQL, 7-rule correlation engine with event-driven `as_of` semantics, 7 sequence patterns (exposed via `/correlation/sequences`). The pySigma backend is retained as a unit-tested module but is **off the production path** (P0-04). |
+| **Detection** | Legacy Sigma parser + custom PostgreSQL backend | 100 Sigma rules (vocabulary-gated in CI) -> parameterized SQL, 8-chain correlation engine with event-driven `as_of` semantics -- ALL 8 chains live-fire verified 2026-09-11. The decorative sequences module was removed in V0.3 (zero engine consumers). The pySigma backend is retained as a unit-tested module but is **off the production path** (P0-04). |
 | **Enrichment** | GeoIP2 + DNS + Threat Intel | MaxMind GeoIP (with periodic retry), AbuseIPDB, OTX, URLhaus, severity boost on TI match |
 | **AI / ML** | Ollama + sklearn | NL→SQL (7-layer safety), calibrated Random Forest triage with provenance, Isolation Forest UEBA, hunting assistant, versioned prompt templates, per-call cost tracking |
 | **Dashboard** | Streamlit + WebSocket | Real-time alerts, cases, hunting, AI chat; JWT or service-to-service bearer auth |
@@ -534,10 +534,10 @@ access from the dashboard.
 ## Testing
 
 ```bash
-# Run the full unit suite (1711 tests, mocked DB, ~30s)
+# Run the full unit suite (1750 tests, mocked DB, ~30s)
 poetry run pytest tests/unit/ -q --no-cov
 
-# With coverage report (gate: 80%; currently 88%)
+# With coverage report (gate: 80%; currently 87%)
 poetry run pytest tests/unit/ --cov=src --cov-report=term-missing -q
 
 # Integration tests (require a live PostgreSQL with the schema applied)
@@ -676,7 +676,7 @@ securityscarletai/
 │   │   ├── chat.py          # /ai/chat AI chat endpoint
 │   │   ├── hunt.py          # /hunt/templates, /hunt/gaps, /hunt/{id}/execute, /hunt/from-alert
 │   │   ├── query.py         # /query NL→SQL
-│   │   ├── correlation.py   # /correlation/rules, /run, /matches, /sequences
+│   │   ├── correlation.py   # /correlation/rules, /run, /matches
 │   │   ├── threat_intel.py  # /threat-intel/stats|refresh|lookup
 │   │   ├── audit.py         # /audit/requests (DB-backed audit log query)
 │   │   ├── auth.py          # JWT helpers, RBAC, password hashing, jti, refresh
@@ -706,7 +706,6 @@ securityscarletai/
 │   ├── detection/           # Detection engine
 │   │   ├── sigma.py         # Legacy SigmaParser + parameterized SQL (pySigma backend retained off-path)
 │   │   ├── correlation.py   # 8 correlation rules (as_of, persist)
-│   │   ├── sequences.py     # 7 event sequence patterns (exposed via /correlation/sequences)
 │   │   ├── alerts.py        # Alert lifecycle management
 │   │   ├── scheduler.py     # Rule scheduler + hourly auto-train check
 │   │   ├── mitre.py         # MITRE ATT&CK STIX cache + gap analysis
@@ -779,7 +778,7 @@ securityscarletai/
 │   ├── analyze_alerts.py         # Ad-hoc alert analysis helper
 │   ├── validate_config.py        # Validate .env / settings
 │   └── backup.sh                 # Reference pg_dump backup script (pgpass-based)
-├── tests/                   # 1711 unit tests + 8 integration tests (pass live — 2026-09-10)
+├── tests/                   # 1750 unit tests + 27 integration tests (pass live — 2026-09-11)
 ├── docs/                    # PRODUCTION.md, TESTING-ROADMAP.md, DEMO.md, RULES.md, AI.md,
 │                            # DEPLOYMENT.md, AIR-GAPPED.md, ATTACK-SCENARIOS.md, CHANGELOG.md,
 │                            # EVOLUTION_ROADMAP_2026-09.md, dependency-vuln-triage-2026-09-03.md

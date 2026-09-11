@@ -1,4 +1,39 @@
-# Changelog
+# CHANGELOG
+
+## V0.3 "Trusted Engine" (2026-09-11, feat/v0.3-trusted-engine)
+
+**Detection truth — the phase's rule: detections that fire on reality.**
+
+- P1.2b correlation vocabulary pass: closed, ECS-aligned event_action
+  vocabulary at the parser (fail-closed — raw action preserved in
+  raw_data); 5 of 6 blocked correlation chains fixed in SQL (priv-esc,
+  credential-theft, defense-evasion, data-exfil, brute-force).
+- ALL 8 correlation chains live-fire verified on the standing stack
+  (2026-09-11): fire + persist + ATT&CK-mapped alerts.
+- Identity/auth telemetry: closed auth-event contract + macOS unified-log
+  sshd shipper (watermark dedup, atomic state) + second FileShipper
+  instance (normalized format). The parser never fakes auth failures.
+- Evidence-driven coverage map: GET /detection/coverage — per-rule
+  armed/dormant with reasons; MITRE heatmap counts ARMED techniques only;
+  correlation chains join the rollup. 86/108 rules armed on real telemetry.
+- Rule-quality CI: sigma structural gate (UUID/fields/levels/condition),
+  vocabulary gate (closed tokens, |contains semantics), waiver registry
+  (18 documented future-source rules, bidirectional with coverage), and
+  the per-chain true/false matrix in Postgres-backed integration tests
+  (16 sigma rules fixed to the vocabulary; 17 dead event_type filters
+  caught by the gate).
+- Scheduler pool-deadlock fix (live-fire finding): run_rule no longer
+  holds connections across alert creation/LLM enrichment; enrichment is
+  bounded fire-and-forget; rule queries bounded by a 60s fail-closed
+  timeout.
+- Decorative sequences module + /correlation/sequences endpoint removed
+  (zero engine consumers).
+- osquery-fim.conf overlay prepared (file_events + process_events), gated
+  on EndpointSecurity/FDA live validation — not silently enabled.
+- Generator gains --matrix mode: one event sequence per chain in real
+  pipeline shapes (the reusable live-fire harness).
+- Counts: 1750 unit tests / 27 integration tests / 87% coverage.
+
 
 Fixes shipped on SecurityScarletAI, newest last. This is the **public** record
 of what was fixed — it lists resolved issues, not open ones. The full

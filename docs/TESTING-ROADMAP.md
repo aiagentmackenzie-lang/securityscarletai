@@ -111,7 +111,31 @@ owner-side prune via the backup script.
 **Pass criteria:** business tables pruned; `audit_logs` untouched by the app
 (sentinel -2 in logs); `backup_local.sh` audit-prune reports `ok`.
 
-## P1.2b — Correlation vocabulary pass (opened by the 2026-09-07 live-fire)
+## P1.2b — Correlation vocabulary pass — CLOSED 2026-09-11 (V0.3 "Trusted Engine")
+
+The pass landed on `feat/v0.3-trusted-engine` and was live-fire verified on
+the standing stack the same day. The closed event_action vocabulary now
+lives in `src/ingestion/schemas.py` (derive_event_action + the documented
+ingest convention); detector SQL, Sigma rules, and the auth shipper all
+consume it. Per-chain final status (ALL 8 chains fire + persist, live-fire
+2026-09-11, 21 correlation matches + ATT&CK-mapped alerts):
+
+| Chain | Was | Now |
+|---|---|---|
+| brute_force_success | no auth-failure source | FIXED: auth shipper (sshd, auth_failed/auth_success) — live-fired |
+| payload_callback | — | verified firing (was already fixed 2026-09-07) |
+| persistence_activated | — | verified firing |
+| data_exfiltration | bytes never populated | FIXED: + connection-burst path (real socket telemetry) — live-fired |
+| privilege_escalation_chain | uid mapping + auth-category trigger dead | FIXED: sudo/su/doas process events + POSIX uid-0 convention + FP control — live-fired |
+| credential_theft_exfil | file_path-only trigger dead | FIXED: cmdline reader-path (non-ssh .ssh access) + FIM path — live-fired |
+| defense_evasion_cleanup | logs.severity never populated | FIXED: alert-driven trigger (high/critical alert -> rm on log paths) — live-fired |
+| ai_verdict_block_sustained | no NeuralGuard events | FIXED (ops): NeuralGuard verdict events via POST /ingest — live-fired |
+
+The decorative `SEQUENCE_DEFINITIONS` block was deleted (zero engine
+consumers) along with the `/correlation/sequences` endpoint. CI now
+enforces the matrix: `tests/integration/test_correlation_matrix.py`
+(true/false event pairs per chain) + `tests/unit/test_sigma_rule_quality.py`
+(structure + vocabulary + waiver discipline).
 
 P1.2 ran live: all 8 chains executed, 0 matches. Audit of detector SQL vs
 real ingestion shapes — 7 of 8 chains are structurally unable to fire on
