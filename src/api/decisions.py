@@ -24,6 +24,7 @@ this module mutates anything.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
@@ -45,6 +46,20 @@ def _truncate(text: Any, n: int = 400) -> str | None:
         return None
     text = str(text)
     return text[: n - 1] + "..." if len(text) > n else text
+
+
+def _load_json(value: Any) -> dict:
+    """JSONB columns come back as str in some asyncpg codec setups (the
+    same quirk is handled in cases.py and api/response.py)."""
+    if value is None:
+        return {}
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (ValueError, TypeError):
+            log.warning("decisions_jsonb_unparseable", preview=str(value)[:80])
+            return {}
+    return value if isinstance(value, dict) else {}
 
 
 @router.get("")
@@ -131,7 +146,7 @@ async def list_decisions(
                     "summary": (
                         f"chain '{r['correlation_rule']}' matched (severity={r['severity']})"
                     ),
-                    "rationale": _truncate(r["match_data"]),
+                    "rationale": _truncate(_load_json(r["match_data"])),
                     "evidence": {"rule": r["correlation_rule"], "severity": r["severity"]},
                     "outcome": "matched",
                 }
@@ -158,14 +173,14 @@ async def list_decisions(
                     "actor_kind": "human",
                     "subject_type": "case",
                     "subject_id": r["case_id"],
-                    "summary": _truncate(r["payload"].get("verdict", "unknown"), 300),
-                    "rationale": _truncate(r["payload"].get("rationale")),
+                    "summary": _truncate(_load_json(r["payload"]).get("verdict", "unknown"), 300),
+                    "rationale": _truncate(_load_json(r["payload"]).get("rationale")),
                     "evidence": {
                         "case_id": r["case_id"],
                         "alert_id": r["alert_id"],
-                        "confidence": r["payload"].get("confidence"),
+                        "confidence": _load_json(r["payload"]).get("confidence"),
                     },
-                    "outcome": str(r["payload"].get("verdict", "unknown")),
+                    "outcome": str(_load_json(r["payload"]).get("verdict", "unknown")),
                 }
                 for r in rows
             ]
@@ -200,7 +215,7 @@ async def list_decisions(
                     "evidence": {
                         "case_id": r["case_id"],
                         "policy_effect": r["policy_effect"],
-                        "verification": (r["evidence"] or {}).get("verification"),
+                        "verification": (_load_json(r["evidence"]) or {}).get("verification"),
                     },
                     "outcome": str(r["status"]),
                 }
@@ -233,12 +248,12 @@ async def list_decisions(
                     "actor_kind": "system",
                     "subject_type": "response_action",
                     "subject_id": r["target_id"],
-                    "summary": _truncate((r["new_values"] or {}).get("reason"), 300)
+                    "summary": _truncate(_load_json(r["new_values"]).get("reason"), 300)
                     or "policy refused the action",
-                    "rationale": _truncate((r["new_values"] or {}).get("reason")),
+                    "rationale": _truncate(_load_json(r["new_values"]).get("reason")),
                     "evidence": {
-                        "action_type": (r["new_values"] or {}).get("action_type"),
-                        "case_id": (r["new_values"] or {}).get("case_id"),
+                        "action_type": _load_json(r["new_values"]).get("action_type"),
+                        "case_id": _load_json(r["new_values"]).get("case_id"),
                     },
                     "outcome": "refused",
                 }
