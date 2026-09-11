@@ -99,6 +99,10 @@ services:
       # Scoped ingest token (P2.6) + metrics scrape token (P3.3) pass-through
       # (empty = feature disabled, matching settings defaults).
       INGEST_BEARER_TOKEN: ${INGEST_BEARER_TOKEN:-}
+      # Scoped read-only role for the SIEM MCP server (V0.4/5 item 2): the
+      # entrypoint provisions it via the owner DSN when the password is set.
+      DB_READONLY_USER: ${DB_READONLY_USER:-}
+      DB_READONLY_PASSWORD: ${DB_READONLY_PASSWORD:-}
       METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN:-}
       # Password pepper (P2-9) pass-through (empty = disabled). MUST be set
       # BEFORE the first user hash is created (local-prod cutover); setting it

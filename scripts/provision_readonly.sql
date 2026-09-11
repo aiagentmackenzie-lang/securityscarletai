@@ -35,8 +35,10 @@
 -- pass it with psql -v.
 
 -- Create the role if absent (idempotent); rotate the password on re-apply.
-SELECT 1 FROM pg_roles WHERE rolname = :'role' \gset
-\if :{?found}
+-- COALESCE so the probe ALWAYS returns a row (\gset errors on empty input
+-- under ON_ERROR_STOP; found live 2026-09-11 on first provisioning).
+SELECT COALESCE((SELECT 1 FROM pg_roles WHERE rolname = :'role'), 0) AS found \gset
+\if :found
 \else
 CREATE ROLE :"role" LOGIN;
 \endif
