@@ -1,0 +1,25 @@
+title: MCP Tool Denial Burst
+id: 12BC231E-EFDD-4967-B916-98EEA323FAD8
+status: stable
+description: >
+  An MCP client session is hammering the SIEM's tool gate with denials --
+  tool-misuse probing, a rug-pull-style surface scan, or a runaway agent
+  loop (OWASP Agentic Top 10 2026: ASI02 tool misuse and exploitation,
+  ASI10 rogue agents; nearest ATT&CK neighbor: brute-forcing an access
+  control, documented as approximate in docs/AI_USAGE_DETECTIONS.md).
+  Producer contract: src/ingestion/ai_usage.py.
+author: SecurityScarletAI
+date: 2026/09/11
+logsource:
+    category: ai
+detection:
+    selection:
+        event_category: ai
+        event_action: mcp_tool_denied
+    condition: selection | count(*) by user_name > 10
+timeframe: 15m
+level: high
+tags:
+    - attack.credential_access
+    - attack.ta0006
+    - attack.t1110

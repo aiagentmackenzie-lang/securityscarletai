@@ -2,7 +2,7 @@
 
 **AI-Native SIEM for macOS** — Real-time log ingestion, Sigma-based detection, ML-powered alert triage, and LLM-driven investigation assistance.
 
-> **Status (verified 2026-09-11, V0.4 Trusted Loop):** CI green on `main` · 1851 unit tests passing (mocked DB) · **27 integration tests PASSING against live Postgres (2026-09-11)** · 86% coverage (CI-enforced ≥80%) · 100 Sigma rules (vocabulary-verified by CI gate) · 8 correlation rules (ALL live-fire verified 2026-09-11 — every chain fires + persists on real telemetry) · **durable case object**: append-only `case_events` timeline with closed event vocabulary, verdicts with mandatory rationale, governance gates (nobody resolves/closes an unadjudicated case) · **bounded response authority**: policy engine (allow / approval_required / never, fail-closed), HITL approval with four-eyes (requester cannot self-approve), post-action RE-QUERY verification (before/after proof, mode recorded), rollback notes, quarantine enforcement at the ingest endpoint — 6 action types, 3 live-verified on this deployment (`disable_siem_user`, `quarantine_host`, `notify_slack`), 3 capability-gated fail-closed (`pf_block_ip`, `disable_macos_user`, `isolate_host_fleet`) · **governed decision records** (`GET /decisions`: AI triage, correlation, verdicts, response actions, policy refusals in one read-only surface) · **purple-loop validation** (`scripts/purple_loop.py`: live-fire → per-run coverage score; 2026-09-11 run: 8/8 chains, 20 alerts, 18 rules, 13 ATT&CK techniques) · identity/auth telemetry (macOS unified-log sshd shipper, closed auth vocabulary) · evidence-driven detection-coverage map (`GET /detection/coverage`: armed vs dormant rules; 86/108 armed on real telemetry) · admin user-management API + Prometheus `/metrics` · OWASP LLM Top-10 red-team regression suite (41 probes — verified by collection) · **runs as a real local-production SIEM**: real osqueryd host telemetry → Sigma → alerts, loopback-only publishing, authenticated Redis, DB-enforced append-only audit trail (two-role deploy), verified backups + restore test, edge-triggered watchdog (see docs/PRODUCTION.md) · CI dependency/image scanning **ENFORCING since 2026-09-10** (image scan HIGH/CRITICAL at zero findings; dependency audit gates with the 2 documented P4 risk-accepts ignored with rationale, expire 2026-12-01). Counts are hand-verified against the code; no auto-updating badge.
+> **Status (verified 2026-09-11, V0.4/5 Agentic SOC):** CI green on `main` · 1929 unit tests passing (mocked DB) · **27 integration tests PASSING against live Postgres (2026-09-11)** · 86% coverage (CI-enforced ≥80%, 1929-test L3 run) · 104 Sigma rules (vocabulary-verified by CI gate) · 8 correlation rules (ALL live-fire verified 2026-09-11 — every chain fires + persists on real telemetry) · **durable case object**: append-only `case_events` timeline with closed event vocabulary, verdicts with mandatory rationale, governance gates (nobody resolves/closes an unadjudicated case) · **bounded response authority**: policy engine (allow / approval_required / never, fail-closed), HITL approval with four-eyes (requester cannot self-approve), post-action RE-QUERY verification (before/after proof, mode recorded), rollback notes, quarantine enforcement at the ingest endpoint — 6 action types, 3 live-verified on this deployment (`disable_siem_user`, `quarantine_host`, `notify_slack`), 3 capability-gated fail-closed (`pf_block_ip`, `disable_macos_user`, `isolate_host_fleet`) · **governed decision records** (`GET /decisions`: AI triage, correlation, verdicts, response actions, policy refusals in one read-only surface) · **purple-loop validation** (`scripts/purple_loop.py`: live-fire → per-run coverage score; 2026-09-11 run: 8/8 chains, 20 alerts, 18 rules, 13 ATT&CK techniques) · identity/auth telemetry (macOS unified-log sshd shipper, closed auth vocabulary) · evidence-driven detection-coverage map (`GET /detection/coverage`: armed vs dormant rules; 90/112 armed on real telemetry) · admin user-management API + Prometheus `/metrics` · **Agentic SOC (V0.4/5)**: read-only investigation agent (plan->query->correlate->verdict DRAFT, HITL-gated), SIEM MCP server (investigate/hunt/explain over a scoped read-only DB role), AI-usage detection domain (4 Sigma rules, agent/MCP/LLM events as first-class telemetry) · OWASP LLM Top-10 red-team regression suite (41 probes — verified by collection) · **runs as a real local-production SIEM**: real osqueryd host telemetry → Sigma → alerts, loopback-only publishing, authenticated Redis, DB-enforced append-only audit trail (two-role deploy), verified backups + restore test, edge-triggered watchdog (see docs/PRODUCTION.md) · CI dependency/image scanning **ENFORCING since 2026-09-10** (image scan HIGH/CRITICAL at zero findings; dependency audit gates with the 2 documented P4 risk-accepts ignored with rationale, expire 2026-12-01). Counts are hand-verified against the code; no auto-updating badge.
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow)]()
@@ -382,6 +382,10 @@ Key endpoints (all under `/api/v1`):
 | `/auth/login` | POST | Login (rate-limited 5/min/IP) |
 | `/auth/me` | GET | Current user info |
 | `/auth/change-password` | POST | Change password (invalidates all sessions) |
+| `/agent/investigate` | POST | Run a read-only agentic investigation (plan->query->correlate->verdict DRAFT; analyst) |
+| `/agent/runs` | GET | List agent investigation runs (read-only) |
+| `/agent/runs/{id}` | GET | One agent run record (read-only) |
+| `/agent/runs/{id}/hitl` | POST | HITL gate: confirm/reject the AI verdict draft (human, mandatory note) |
 | `/cases` | GET/POST | Case management CRUD |
 | `/cases/{id}/verdict` | POST | Record an adjudication verdict (rationale mandatory) |
 | `/cases/{id}/timeline` | GET | The durable case timeline (append-only events) |
@@ -517,6 +521,44 @@ proof is recorded:
    detection, and scores the run against the coverage map (chains fired,
    rules fired, ATT&CK technique hit rate over ARMED techniques). The
    2026-09-11 live-fire report is committed under `runs/`.
+
+## The Agentic SOC (V0.4/5)
+
+Investigation and summarization are commodity. The defensible frontier is a
+GOVERNED agentic SOC: read-only agents inside the existing guardrails, the
+SIEM as an MCP server for the analyst's agents, and AI usage itself as a
+detection domain.
+
+1. **Read-only agentic investigation** (`src/agents/investigator.py`):
+   plan-generate -> query -> correlate -> verdict DRAFT, wrapped around the
+   existing NL->SQL core -- every query rides the full guardrail stack
+   (sanitize, structural validation, table allowlist, cost gate, row cap,
+   timeout), and the agent has NO write tools. Every step rides the
+   append-only audit chain; the verdict is always a DRAFT born with
+   `hitl_state='required'`; only a human confirms or rejects it
+   (`POST /agent/runs/{id}/hitl`, mandatory note). Committing a verdict to
+   a case stays the human-only case-verdict path. LLM fallbacks are never
+   trusted (a canned template answer fails the run honestly).
+2. **SIEM MCP server** (`src/mcp_server/`): JSON-RPC 2.0 over HTTP POST
+   (SSE refused, fail-closed) exposing exactly three read-only tools --
+   `investigate`, `hunt`, `explain`. The process runs as a SCOPED
+   READ-ONLY DB role (`scripts/provision_readonly.sql`: SELECT-only on
+   SIEM data, append-only audit INSERTs), verified at boot against
+   `information_schema` -- on drift the server refuses tools. Every call
+   rides the audit chain with `mcp:<session>` attribution. Live-verified
+   2026-09-11: `UPDATE logs AS scarletai_readonly` -> permission denied.
+3. **AI-usage detection domain** (`src/ingestion/ai_usage.py` +
+   `rules/sigma/ai/`): agent runs, MCP tool calls/denials, and
+   prompt-injection detections are first-class telemetry with the
+   auth-source discipline (one shape contract, closed vocabulary,
+   producers map in via POST /ingest). Four Sigma rules (injection,
+   denial burst, tool volume, agent-run burst) with OWASP Agentic ASI
+   mappings in `docs/AI_USAGE_DETECTIONS.md`; the SIEM watches its own
+   agent and MCP server (dogfooded live: MCP calls land in the domain).
+   `scripts/generate_ai_usage_events.py` drives the true/false matrix.
+4. **Fleet/TimescaleDB**: deliberately NOT started in this phase
+   (multi-host collection is a bigger lift; queued behind the agentic
+   layer being live-fire verified).
 
 ## Dashboard
 

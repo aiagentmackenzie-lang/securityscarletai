@@ -1,0 +1,285 @@
+{
+  "chains_total": 8,
+  "chains_fired": 8,
+  "chain_score": 1.0,
+  "alerts_fired": 15,
+  "distinct_rules_fired": 13,
+  "rules_fired": [
+    "Data Exfiltration Volume",
+    "Download and Execute Pattern",
+    "Hidden File Creation in User Directories",
+    "LaunchAgent Persistence Created",
+    "Living-off-the-Land Binary Execution",
+    "Log File Deletion",
+    "Login from Unusual Geography",
+    "Outbound Connection to Rare/C2 Port",
+    "Privilege Escalation via Sudo",
+    "Renamed System Binary (Masquerading)",
+    "Reverse Shell Pattern Detected",
+    "Script Interpreter from Unexpected Location",
+    "ai_verdict_block_sustained"
+  ],
+  "techniques_hit": [
+    "T1036",
+    "T1048",
+    "T1059",
+    "T1070",
+    "T1071",
+    "T1078",
+    "T1190",
+    "T1218",
+    "T1547",
+    "T1548",
+    "T1564"
+  ],
+  "techniques_hit_armed": [
+    "T1036",
+    "T1048",
+    "T1059",
+    "T1070",
+    "T1071",
+    "T1078",
+    "T1190",
+    "T1218",
+    "T1547",
+    "T1548",
+    "T1564"
+  ],
+  "armed_techniques_total": 36,
+  "technique_hit_rate_armed": 0.306,
+  "armed_techniques_not_hit_by_this_run": [
+    "T1003",
+    "T1021",
+    "T1027",
+    "T1041",
+    "T1047",
+    "T1053",
+    "T1055",
+    "T1074",
+    "T1090",
+    "T1098",
+    "T1110",
+    "T1176",
+    "T1213",
+    "T1486",
+    "T1505",
+    "T1543",
+    "T1546",
+    "T1550",
+    "T1552",
+    "T1553",
+    "T1555",
+    "T1560",
+    "T1562",
+    "T1567",
+    "T1606"
+  ],
+  "coverage_summary": {
+    "total_rules": 112,
+    "armed": 90,
+    "dormant": 22,
+    "lookback_hours": 168,
+    "as_of": "2026-09-11T19:32:27.704406+00:00"
+  },
+  "run_window_start": "2026-09-11T19:28:34.181684+00:00",
+  "chains_detail": [
+    [
+      "live-matrix-ai_verdict_block_sustained",
+      true
+    ],
+    [
+      "live-matrix-brute_force_success",
+      true
+    ],
+    [
+      "live-matrix-credential_theft_exfil",
+      true
+    ],
+    [
+      "live-matrix-data_exfiltration",
+      true
+    ],
+    [
+      "live-matrix-defense_evasion_cleanup",
+      true
+    ],
+    [
+      "live-matrix-payload_callback",
+      true
+    ],
+    [
+      "live-matrix-persistence_activated",
+      true
+    ],
+    [
+      "live-matrix-privilege_escalation_chain",
+      true
+    ]
+  ],
+  "chain_matches_persisted": 7,
+  "match_hosts": [
+    "live-matrix-ai_verdict_block_sustained",
+    "live-matrix-brute_force_success",
+    "live-matrix-credential_theft_exfil",
+    "live-matrix-data_exfiltration",
+    "live-matrix-persistence_activated",
+    "live-matrix-privilege_escalation_chain"
+  ],
+  "mode": "matrix",
+  "coverage_before": {
+    "armed": 90,
+    "total_rules": 112
+  },
+  "alerts": [
+    {
+      "id": 356,
+      "host_name": "live-matrix-defense_evasion_cleanup",
+      "rule_name": "Script Interpreter from Unexpected Location",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1059"
+      ],
+      "time": "2026-09-11 19:29:13.976638+00:00"
+    },
+    {
+      "id": 357,
+      "host_name": "live-matrix-defense_evasion_cleanup",
+      "rule_name": "Download and Execute Pattern",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1059"
+      ],
+      "time": "2026-09-11 19:29:13.985551+00:00"
+    },
+    {
+      "id": 358,
+      "host_name": "live-matrix-defense_evasion_cleanup",
+      "rule_name": "Reverse Shell Pattern Detected",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1059"
+      ],
+      "time": "2026-09-11 19:29:13.988385+00:00"
+    },
+    {
+      "id": 359,
+      "host_name": "live-matrix-payload_callback",
+      "rule_name": "Outbound Connection to Rare/C2 Port",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1071"
+      ],
+      "time": "2026-09-11 19:30:13.979580+00:00"
+    },
+    {
+      "id": 360,
+      "host_name": "live-matrix-defense_evasion_cleanup",
+      "rule_name": "Log File Deletion",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1070"
+      ],
+      "time": "2026-09-11 19:30:13.987442+00:00"
+    },
+    {
+      "id": 361,
+      "host_name": "live-matrix-privilege_escalation_chain",
+      "rule_name": "Privilege Escalation via Sudo",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1548"
+      ],
+      "time": "2026-09-11 19:30:13.988723+00:00"
+    },
+    {
+      "id": 362,
+      "host_name": "live-matrix-persistence_activated",
+      "rule_name": "Hidden File Creation in User Directories",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1564"
+      ],
+      "time": "2026-09-11 19:30:13.989120+00:00"
+    },
+    {
+      "id": 364,
+      "host_name": "live-matrix-privilege_escalation_chain",
+      "rule_name": "Script Interpreter from Unexpected Location",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1059"
+      ],
+      "time": "2026-09-11 19:30:13.997862+00:00"
+    },
+    {
+      "id": 363,
+      "host_name": "live-matrix-privilege_escalation_chain",
+      "rule_name": "Renamed System Binary (Masquerading)",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1036"
+      ],
+      "time": "2026-09-11 19:30:13.998037+00:00"
+    },
+    {
+      "id": 365,
+      "host_name": "live-matrix-persistence_activated",
+      "rule_name": "LaunchAgent Persistence Created",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1547"
+      ],
+      "time": "2026-09-11 19:30:13.999236+00:00"
+    },
+    {
+      "id": 366,
+      "host_name": "live-matrix-persistence_activated",
+      "rule_name": "Living-off-the-Land Binary Execution",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1218"
+      ],
+      "time": "2026-09-11 19:31:13.981562+00:00"
+    },
+    {
+      "id": 368,
+      "host_name": "live-matrix-brute_force_success",
+      "rule_name": "Login from Unusual Geography",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1078"
+      ],
+      "time": "2026-09-11 19:31:13.986775+00:00"
+    },
+    {
+      "id": 369,
+      "host_name": "live-matrix-data_exfiltration",
+      "rule_name": "Data Exfiltration Volume",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1048"
+      ],
+      "time": "2026-09-11 19:31:13.988491+00:00"
+    },
+    {
+      "id": 370,
+      "host_name": "live-matrix-payload_callback",
+      "rule_name": "Renamed System Binary (Masquerading)",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1036"
+      ],
+      "time": "2026-09-11 19:31:13.989318+00:00"
+    },
+    {
+      "id": 371,
+      "host_name": "live-matrix-ai_verdict_block_sustained",
+      "rule_name": "ai_verdict_block_sustained",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1190"
+      ],
+      "time": "2026-09-11 19:31:54.785973+00:00"
+    }
+  ]
+}

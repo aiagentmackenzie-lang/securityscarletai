@@ -38,6 +38,7 @@ from src.config.logging import get_logger
 from src.config.settings import settings
 from src.db.connection import get_pool
 from src.db.jsonb import load_jsonb
+from src.ingestion.ai_usage import build_ai_usage_event
 
 log = get_logger("api.agents")
 router = APIRouter(tags=["agent"], prefix="/agent")
@@ -54,6 +55,30 @@ def _require_agent_enabled() -> None:
             status_code=status.HTTP_423_LOCKED,
             detail="agentic investigation is disabled (AGENT_ENABLED=false)",
         )
+
+
+async def _emit_ai_usage(result: AgentRunResult) -> None:
+    """Emit the run-lifecycle AI-usage event through the real pipe (V0.4/5
+    item 3: the SIEM watches its own AI agents). The run-level event is the
+    detection-domain signal (Sigma rules key on it); the audit chain holds
+    the step-level detail. Best-effort: a failed emission is logged, never
+    raised -- same posture as the file shippers."""
+    from src.services.writer import writer
+
+    try:
+        event = build_ai_usage_event(
+            "agent_run_end",
+            actor=result.requested_by,
+            detail={
+                "run_id": result.run_id,
+                "status": result.status,
+                "verdict": (result.verdict_draft or {}).get("verdict"),
+                "hitl_state": result.hitl_state,
+            },
+        )
+        await writer.write(event)
+    except Exception as e:  # telemetry is best-effort; the run result stands
+        log.warning("ai_usage_emit_failed", run_id=result.run_id, error=str(e))
 
 
 def _audit_for(run_id: int | None, ip_address: str | None) -> Any:
@@ -177,6 +202,8 @@ async def investigate(
     except ValueError as e:
         # Empty objective after sanitization -- 400, nothing was created.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+    await _emit_ai_usage(result)
 
     return {
         "id": result.run_id,

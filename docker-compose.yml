@@ -181,6 +181,14 @@ services:
       # calls, fail-closed).
       MCP_BEARER_TOKEN: "${MCP_BEARER_TOKEN:?Set MCP_BEARER_TOKEN in .env (openssl rand -base64 32)}"
       MCP_PORT: "8002"
+      # AI-usage telemetry (V0.4/5 item 3): the MCP server emits its own
+      # tool-call events through the REAL ingest pipe (the scoped read-only
+      # DB role must not write logs directly). INGEST_BEARER_TOKEN is the
+      # viewer-class ingest credential; AI_USAGE_INGEST_URL points at the
+      # API inside the compose network.
+      INGEST_BEARER_TOKEN: ${INGEST_BEARER_TOKEN:-}
+      AI_USAGE_INGEST_URL: "${AI_USAGE_INGEST_URL:-http://api:8000/api/v1/ingest}"
+      AI_USAGE_HOSTNAME: "scarletai-mcp"
       API_HOST: 0.0.0.0
       API_PORT: 8000
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

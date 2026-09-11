@@ -137,6 +137,15 @@ EVENT_ACTION_COMMAND_OBSERVED = "command_observed"
 EVENT_ACTION_AUTH_FAILED = "auth_failed"  # auth shipper / any real auth source
 EVENT_ACTION_VERDICT_BLOCK = "verdict_block"  # NeuralGuard AI-firewall verdicts
 
+# AI-usage domain (V0.4/5 "Agentic SOC", item 3): the SIEM watches its own
+# AI agents. Emitted by src/ingestion/ai_usage.py (the shape contract shared
+# by the API agent path, the MCP server, and the matrix generator) via
+# POST /ingest -- the same producer convention as NeuralGuard verdicts.
+EVENT_ACTION_AI_AGENT_RUN = "ai_agent_run"  # agentic investigation lifecycle
+EVENT_ACTION_MCP_TOOL_CALL = "mcp_tool_call"  # an allowed MCP tool call
+EVENT_ACTION_MCP_TOOL_DENIED = "mcp_tool_denied"  # a denied/failed MCP call
+EVENT_ACTION_AI_PROMPT_INJECTION = "ai_prompt_injection"  # detected injection
+
 
 def derive_event_action(table_name: str, action: str, columns: dict) -> Optional[str]:
     """Map (table, osquery differential action, columns) -> vocabulary token.

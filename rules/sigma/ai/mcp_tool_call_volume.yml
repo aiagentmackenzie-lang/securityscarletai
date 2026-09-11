@@ -1,0 +1,25 @@
+title: MCP Tool Call High Volume
+id: EE18AB91-43C6-4E96-BF60-9DE0FECE5BB7
+status: stable
+description: >
+  Sustained high-rate MCP tool calls from one acting identity -- a runaway
+  agent loop, data scraping through the SIEM's read-only MCP surface, or
+  resource abuse (OWASP Agentic Top 10 2026: ASI02 tool misuse and exploitation,
+  ASI10 rogue agents; the SIEM is an information repository, so
+  attack.t1213 is a direct mapping). Producer contract:
+  src/ingestion/ai_usage.py.
+author: SecurityScarletAI
+date: 2026/09/11
+logsource:
+    category: ai
+detection:
+    selection:
+        event_category: ai
+        event_action: mcp_tool_call
+    condition: selection | count(*) by user_name > 50
+timeframe: 15m
+level: medium
+tags:
+    - attack.collection
+    - attack.ta0009
+    - attack.t1213

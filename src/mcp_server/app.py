@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import socket
 import time
 from contextlib import asynccontextmanager
 from typing import Any
@@ -26,6 +27,7 @@ from fastapi.responses import JSONResponse
 
 from src.config.logging import get_logger, setup_logging
 from src.config.settings import settings
+from src.ingestion.ai_usage import build_ai_usage_event, emit_ai_usage_event
 from src.mcp_server import protocol as rpc
 from src.mcp_server.tools import TOOL_IMPLEMENTATIONS, call_tool, tool_catalog, verify_scoped_role
 
@@ -126,6 +128,26 @@ def _audit_fn(session: str) -> tuple[str, Any]:
     return actor, _audit
 
 
+async def _emit_tool_event(
+    *, kind: str, actor: str, tool: str | None, session: str, detail: dict
+) -> None:
+    """Emit one AI-usage event through the real ingest pipe (V0.4/5 item 3:
+    the SIEM watches its own MCP surface). Best-effort: the append-only
+    audit row is the source of truth; a failed emission is logged."""
+    try:
+        event = build_ai_usage_event(
+            kind,
+            actor=actor,
+            tool=tool,
+            session=session or None,
+            detail=detail,
+            host_name=getattr(settings, "ai_usage_hostname", None) or socket.gethostname(),
+        )
+        await emit_ai_usage_event(event)
+    except Exception as e:  # telemetry is best-effort; the tool result stands
+        log.warning("mcp_ai_usage_emit_failed", tool=tool, error=str(e)[:200])
+
+
 @app.get("/healthz")
 async def healthz() -> dict:
     return {
@@ -214,6 +236,13 @@ async def mcp_endpoint(request: "Request") -> "JSONResponse":
             )
         if not isinstance(name, str):
             await audit("mcp.tool_denied", {"tool": None, "reason": "invalid_params"}, actor)
+            await _emit_tool_event(
+                kind="mcp_tool_denied",
+                actor=actor,
+                tool=None,
+                session=session,
+                detail={"reason": "invalid_params"},
+            )
             return JSONResponse(
                 content=rpc.error_response(
                     request_id, rpc.INVALID_PARAMS, "params.name must be a string"
@@ -226,6 +255,13 @@ async def mcp_endpoint(request: "Request") -> "JSONResponse":
                 "mcp.tool_denied",
                 {"tool": name, "reason": "unknown_tool"},
                 actor,
+            )
+            await _emit_tool_event(
+                kind="mcp_tool_denied",
+                actor=actor,
+                tool=name if isinstance(name, str) else None,
+                session=session,
+                detail={"reason": "unknown_tool"},
             )
             return JSONResponse(
                 content=rpc.error_response(
@@ -245,6 +281,13 @@ async def mcp_endpoint(request: "Request") -> "JSONResponse":
             # agent loop sees and reacts to it), plus the audit row.
             log.warning("mcp_tool_error", tool=name, actor=actor, error=err)
             await audit("mcp.tool_call", {"tool": name, "error": err, "latency_ms": elapsed}, actor)
+            await _emit_tool_event(
+                kind="mcp_tool_denied",
+                actor=actor,
+                tool=name,
+                session=session,
+                detail={"error": err, "latency_ms": elapsed},
+            )
             return JSONResponse(
                 content=rpc.result_response(request_id, rpc.error_result(err)),
                 headers=headers,
@@ -253,6 +296,13 @@ async def mcp_endpoint(request: "Request") -> "JSONResponse":
             "mcp.tool_call",
             {"tool": name, "latency_ms": elapsed},
             actor,
+        )
+        await _emit_tool_event(
+            kind="mcp_tool_call",
+            actor=actor,
+            tool=name,
+            session=session,
+            detail={"latency_ms": elapsed},
         )
         return JSONResponse(
             content=rpc.result_response(request_id, rpc.text_result(result)),

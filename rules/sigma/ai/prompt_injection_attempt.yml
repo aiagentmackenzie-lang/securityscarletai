@@ -1,0 +1,27 @@
+title: AI Prompt Injection Attempt
+id: 2CCCA538-DBBB-4643-A7CD-B2BEA4B9A0C6
+status: stable
+description: >
+  A prompt-injection detection against the SIEM's own AI surface (agent
+  inputs, MCP tool arguments, or a producer's mapped injection verdict).
+  Primary mapping: OWASP Agentic Top 10 2026 (ASI01 agent goal hijack --
+  prompt injection via log content; ASI09 human-agent trust exploitation).
+  The ATT&CK tag below is the nearest-neighbor (the AI surface is an
+  application being probed) and is documented as approximate in
+  docs/AI_USAGE_DETECTIONS.md. Producer contract:
+  src/ingestion/ai_usage.py (source=ai_usage, category=ai).
+author: SecurityScarletAI
+date: 2026/09/11
+logsource:
+    category: ai
+detection:
+    selection:
+        event_category: ai
+        event_action: ai_prompt_injection
+    condition: selection
+timeframe: 1h
+level: high
+tags:
+    - attack.initial_access
+    - attack.ta0001
+    - attack.t1190
