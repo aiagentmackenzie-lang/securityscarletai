@@ -145,6 +145,61 @@ services:
       start_period: 60s
     restart: unless-stopped  # M-18: restart policy added
 
+  mcp:
+    # V0.4/5 item 2: the SIEM as an MCP server (investigate / hunt / explain,
+    # all read-only). Same image as the API, different command + SCOPED
+    # READ-ONLY DB role. Fail-closed: refuses to serve without MCP_BEARER_TOKEN
+    # and refuses tools if the boot-time DB-scope check fails.
+    build:
+      context: .
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
+    container_name: scarletai-mcp
+    command: ["python", "-m", "src.mcp_server"]
+    ports:
+      - "8002:8002"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: scarletai
+      # SCOPED READ-ONLY ROLE (two-role posture extension): this process
+      # connects as scarletai_readonly, never as the app role or owner.
+      # The role is provisioned by the API's entrypoint (owner path) before
+      # this service starts (depends_on api healthy).
+      DB_USER: ${DB_READONLY_USER:-scarletai_readonly}
+      DB_PASSWORD: "${DB_READONLY_PASSWORD:?Set DB_READONLY_PASSWORD in .env (openssl rand -base64 32)}"
+      # Settings-contract requirements (shared settings class). The MCP
+      # server never uses these for auth decisions -- MCP auth is
+      # MCP_BEARER_TOKEN only.
+      API_SECRET_KEY: ${API_SECRET_KEY:?Set API_SECRET_KEY in .env}
+      API_BEARER_TOKEN: ${API_BEARER_TOKEN:?Set API_BEARER_TOKEN in .env}
+      # MCP auth token (constant-time compared; unset = server refuses all
+      # calls, fail-closed).
+      MCP_BEARER_TOKEN: "${MCP_BEARER_TOKEN:?Set MCP_BEARER_TOKEN in .env (openssl rand -base64 32)}"
+      MCP_PORT: "8002"
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      # Ollama runs on the host, reached via host.docker.internal.
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-mistral:7b}
+      AGENT_ENABLED: ${AGENT_ENABLED:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # The scoped role is provisioned by the API entrypoint (owner path);
+      # api healthy implies the role exists and the schema is applied.
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/healthz', timeout=8)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
   dashboard:
     # Epic 10: Streamlit dashboard. Reuses the API image (same Python deps,
     # same source tree mounted). When DASHBOARD_API_TOKEN is set, the

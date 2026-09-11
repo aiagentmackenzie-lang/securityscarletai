@@ -119,6 +119,15 @@ class Settings(BaseSettings):
     # settings load (found live 2026-09-04).
     redis_password: Optional[SecretStr] = None
 
+    # Declared so .env parsing accepts the key (pydantic-settings v2
+    # forbids extra keys). Two-role posture extension (V0.4/5 item 2): the
+    # SCOPED READ-ONLY role for the SIEM MCP server -- provisioned by the
+    # API entrypoint (owner path), used by the scarletai-mcp compose
+    # service. The MCP process runs AS this role; its grants are verified
+    # at boot (src/mcp_server/tools.verify_scoped_role).
+    db_readonly_user: Optional[str] = None
+    db_readonly_password: Optional[SecretStr] = None
+
     # --- osquery ---
     osquery_log_path: str = "/opt/homebrew/var/log/osquery/osqueryd.results.log"
     osquery_config_path: str = "/opt/homebrew/etc/osquery/osquery.conf"
@@ -190,6 +199,26 @@ class Settings(BaseSettings):
     # Max NL queries the planner may propose per run (each is fully
     # re-validated; this bounds LLM round-trips, not trust).
     agent_plan_max_queries: int = Field(default=3, ge=1, le=6)
+
+    # --- SIEM MCP server (V0.4/5 "Agentic SOC", item 2) ---
+    # The SIEM as an MCP server for the analyst's agents. Transport: JSON-RPC
+    # 2.0 over streamable-HTTP POST (request/response only; SSE refused,
+    # fail-closed -- same posture as NeuralGuard's gateway). Tools:
+    # investigate / hunt / explain -- ALL read-only.
+    #
+    # Fail-closed by design:
+    #   - MCP_BEARER_TOKEN unset -> every call refused 503 (no silent open
+    #     server).
+    #   - The MCP process must run as the SCOPED READ-ONLY DB role
+    #     (DB_USER=scarletai_readonly + DB_READONLY_PASSWORD in the compose
+    #     service); at boot it verifies the role has no UPDATE/DELETE/INSERT
+    #     on SIEM data tables and refuses tool calls otherwise.
+    #   - Unknown tools are denied, never guessed.
+    # Note: the Settings contract still requires API_BEARER_TOKEN/API_SECRET_KEY
+    # in the MCP process (shared settings class); the MCP server never uses
+    # them for auth decisions -- MCP auth is MCP_BEARER_TOKEN only.
+    mcp_bearer_token: Optional[SecretStr] = None
+    mcp_port: int = 8002
 
     # --- Threat Intel ---
     # When False, the threat-intel refresh scheduler is NOT started and no

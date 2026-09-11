@@ -110,6 +110,26 @@ else
     echo "[entrypoint] DATABASE_SUPERUSER_URL not set -- audit tables are append-only by convention only (not DB-enforced). See docs/DEPLOYMENT.md -> Audit immutability."
 fi
 
+# --- 2d. Scoped read-only role for the SIEM MCP server (V0.4/5 item 2) ---
+# Provisioned by the OWNER when DATABASE_SUPERUSER_URL + DB_READONLY_PASSWORD
+# are set. The SQL is piped via STDIN with psql \set lines built in bash
+# (quote-escaped) -- the password never lands in any command line, log, or
+# argv. Best-effort: a failure logs a warning (the MCP server then refuses
+# its tool calls at boot -- fail-closed, no silent unscoped run).
+if [ -n "${DATABASE_SUPERUSER_URL:-}" ] && [ -n "${DB_READONLY_PASSWORD:-}" ]; then
+    echo "[entrypoint] provisioning scoped read-only role (owner)..."
+    _sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+    {
+        printf "\\set role '%s'\n" "$(_sql_escape "${DB_READONLY_USER:-scarletai_readonly}")"
+        printf "\\set password '%s'\n" "$(_sql_escape "$DB_READONLY_PASSWORD")"
+        cat scripts/provision_readonly.sql
+    } | psql "${DATABASE_SUPERUSER_URL}" -v ON_ERROR_STOP=1 -f - \
+        && echo "[entrypoint] read-only role ready" \
+        || echo "[entrypoint] WARNING: read-only role provisioning failed -- the MCP server will refuse its tool calls (fail-closed)" >&2
+else
+    echo "[entrypoint] DB_READONLY_PASSWORD not set -- MCP scoped role not provisioned (the MCP server refuses tools without it)."
+fi
+
 # --- 3. Replay the dead-letter queue (P1-E, best-effort, non-fatal) ---
 # Failed write batches from a prior run are persisted to
 # data/dead_letter/*.jsonl by src/db/writer.py. Replay them now so

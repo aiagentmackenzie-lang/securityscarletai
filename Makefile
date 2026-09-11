@@ -17,15 +17,15 @@ install: ## Install Python dependencies via Poetry
 
 GIT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 
-build: ## Build api+dashboard images STAMPED with the current git sha (always fresh — kills stale-image drift)
-	GIT_SHA=$(GIT_SHA) docker compose build api dashboard
+build: ## Build api+dashboard+mcp images STAMPED with the current git sha (always fresh -- kills stale-image drift)
+	GIT_SHA=$(GIT_SHA) docker compose build api dashboard mcp
 
 prod: ## Guarded local-prod boot: posture check -> sha-stamped build -> prod overlay (see docs/PRODUCTION.md)
 	@if ! grep -qE '^(PASSWORD_PEPPER|DATABASE_SUPERUSER_URL)=..' .env 2>/dev/null; then \
 		echo "prod: .env lacks the local-prod markers (PASSWORD_PEPPER / DATABASE_SUPERUSER_URL) -- this is not a prod host."; exit 1; fi
 	@if grep -qE '^DEMO_SEED_ENABLED=true' .env 2>/dev/null; then \
 		echo "DEMO_SEED_ENABLED=true in .env -- refusing to boot PROD with the demo seed flag (one mode per volume)."; exit 1; fi
-	GIT_SHA=$(GIT_SHA) docker compose -f docker-compose.yml -f docker-compose.local-prod.yml build api dashboard
+	GIT_SHA=$(GIT_SHA) docker compose -f docker-compose.yml -f docker-compose.local-prod.yml build api dashboard mcp
 	GIT_SHA=$(GIT_SHA) docker compose -f docker-compose.yml -f docker-compose.local-prod.yml up -d
 	@echo "Prod stack up (build $(GIT_SHA)). Posture verified by the entrypoint (fail-closed)."
 
