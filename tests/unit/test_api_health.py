@@ -52,20 +52,23 @@ class TestHealthCheck:
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
         with patch("src.api.health.get_pool", return_value=mock_pool):
-            with patch("httpx.AsyncClient") as mock_client_cls:
-                mock_response = MagicMock()
-                mock_response.status_code = 200
-                mock_client = AsyncMock()
-                mock_client.get = AsyncMock(return_value=mock_response)
-                mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-                mock_client.__aexit__ = AsyncMock(return_value=None)
-                mock_client_cls.return_value = mock_client
-
+            with patch(
+                "src.api.health._cached_ollama_check",
+                new_callable=AsyncMock,
+                return_value=(True, "mistral:7b", None),
+            ):
                 response = client.get("/api/v1/health")
                 assert response.status_code == 200
                 data = response.json()
                 assert "status" in data
                 assert "checks" in data
+                # Pin the overall value: all services ok -> healthy. This is
+                # the regression test for the 2026-09-11 finding where the
+                # informational build sha in checks made status permanently
+                # degraded.
+                assert data["status"] == "healthy"
+                assert data["checks"]["api"] == "ok"
+                assert data["checks"]["database"] == "ok"
 
     def test_health_returns_checks_dict(self, client):
         """Health check should always include checks dict."""

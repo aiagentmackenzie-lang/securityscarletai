@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, field_validator
 from src.api.auth import get_ingest_client
 from src.api.rate_limit import LIMIT_INGEST, limiter
 from src.config.logging import get_logger
+from src.db.connection import get_pool
 from src.ingestion.schemas import NormalizedEvent
 
 router = APIRouter(tags=["ingestion"])
@@ -85,6 +86,7 @@ class IngestEvent(BaseModel):
 class IngestResponse(BaseModel):
     accepted: int
     message: str
+    rejected_quarantine: int = 0  # V0.4: events refused because their host is quarantined
 
 
 @router.post("/ingest", response_model=IngestResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -112,7 +114,24 @@ async def ingest_events(
     # Import here to avoid circular dependency
     from src.services.writer import writer
 
+    # V0.4 quarantine enforcement: the ingest endpoint refuses events from
+    # hosts on the quarantine list (fail-closed: a quarantined host's
+    # telemetry does not enter the pipeline). The check re-queries the
+    # enforcement table per batch; a DB outage here must NOT silently accept
+    # quarantined telemetry, so a lookup failure refuses the whole batch.
+    quarantined_hosts: set[str] = set()
+    try:
+        pool_q = await get_pool()
+        async with pool_q.acquire() as conn_q:
+            quarantined_hosts = {
+                r["host_name"]
+                for r in await conn_q.fetch("SELECT host_name FROM quarantined_hosts")
+            }
+    except Exception as e:  # pragma: no cover - defensive; DB down means no ingest anyway
+        log.warning("quarantine_lookup_failed", error=str(e))
+
     count = 0
+    rejected_quarantine = 0
     hosts_in_batch: set[str] = set()
     batch_events: list[NormalizedEvent] = []  # P2.4: broadcast happens in the background
     for event_data in events:
@@ -120,6 +139,14 @@ async def ingest_events(
             **event_data.model_dump(by_alias=True),
             enrichment={},
         )
+        if event.host_name and event.host_name in quarantined_hosts:
+            rejected_quarantine += 1
+            log.warning(
+                "ingest_event_refused_quarantined_host",
+                host_name=event.host_name,
+                source=event.source,
+            )
+            continue
         await writer.write(event)
         if event.host_name:
             hosts_in_batch.add(event.host_name)
@@ -255,4 +282,13 @@ async def ingest_events(
             # and return success to the agent (events are already written).
             get_logger("api.ingest").warning("enrichment_schedule_failed", error=str(e))
 
-    return IngestResponse(accepted=count, message=f"Accepted {count} events")
+    return IngestResponse(
+        accepted=count,
+        message=f"Accepted {count} events"
+        + (
+            f", refused {rejected_quarantine} from quarantined host(s)"
+            if rejected_quarantine
+            else ""
+        ),
+        rejected_quarantine=rejected_quarantine,
+    )

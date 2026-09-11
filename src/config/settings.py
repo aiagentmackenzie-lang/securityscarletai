@@ -164,6 +164,16 @@ class Settings(BaseSettings):
     auth_events_log_path: str = "data/osquery/auth_events.log"
     auth_shipper_checkpoint_path: str = "data/auth_shipper_checkpoint"
 
+    # --- Response authority (V0.4 "Trusted Loop") ---
+    # Bounded response actions: the policy file decides allow /
+    # approval_required / never per action type and fails closed (missing
+    # or unparseable file = never for everything). The osquery fleet
+    # endpoint (if configured) enables the isolate_host_fleet executor;
+    # standalone osqueryd deployments run without it (that executor then
+    # refuses, fail-closed, with an honest reason).
+    response_policy_path: str = "config/response_policy.yaml"
+    osquery_fleet_url: str = ""
+
     # --- Threat Intel ---
     # When False, the threat-intel refresh scheduler is NOT started and no
     # external feed calls are made (URLhaus/AbuseIPDB/OTX). IOC enrichment

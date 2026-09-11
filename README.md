@@ -2,7 +2,7 @@
 
 **AI-Native SIEM for macOS** — Real-time log ingestion, Sigma-based detection, ML-powered alert triage, and LLM-driven investigation assistance.
 
-> **Status (verified 2026-09-11, V0.3 Trusted Engine):** CI green on `main` · 1750 unit tests passing (mocked DB) · **27 integration tests PASSING against live Postgres (2026-09-11)** · 87% coverage (CI-enforced ≥80%) · 100 Sigma rules (vocabulary-verified by CI gate) · 8 correlation rules (ALL live-fire verified 2026-09-11 — every chain fires + persists on real telemetry) · identity/auth telemetry (macOS unified-log sshd shipper, closed auth vocabulary) · evidence-driven detection-coverage map (`GET /detection/coverage`: armed vs dormant rules; 86/108 armed on real telemetry) · scheduler hardened against pool deadlock (live-fire finding; bounded queries + async LLM enrichment) · admin user-management API + Prometheus `/metrics` · OWASP LLM Top-10 red-team regression suite (41 probes — verified by collection) · **runs as a real local-production SIEM**: real osqueryd host telemetry → Sigma → alerts, loopback-only publishing, authenticated Redis, DB-enforced append-only audit trail (two-role deploy), verified backups + restore test, edge-triggered watchdog (see docs/PRODUCTION.md) · CI dependency/image scanning **ENFORCING since 2026-09-10** (image scan HIGH/CRITICAL at zero findings; dependency audit gates with the 2 documented P4 risk-accepts ignored with rationale, expire 2026-12-01). Counts are hand-verified against the code; no auto-updating badge.
+> **Status (verified 2026-09-11, V0.4 Trusted Loop):** CI green on `main` · 1851 unit tests passing (mocked DB) · **27 integration tests PASSING against live Postgres (2026-09-11)** · 86% coverage (CI-enforced ≥80%) · 100 Sigma rules (vocabulary-verified by CI gate) · 8 correlation rules (ALL live-fire verified 2026-09-11 — every chain fires + persists on real telemetry) · **durable case object**: append-only `case_events` timeline with closed event vocabulary, verdicts with mandatory rationale, governance gates (nobody resolves/closes an unadjudicated case) · **bounded response authority**: policy engine (allow / approval_required / never, fail-closed), HITL approval with four-eyes (requester cannot self-approve), post-action RE-QUERY verification (before/after proof, mode recorded), rollback notes, quarantine enforcement at the ingest endpoint — 6 action types, 3 live-verified on this deployment (`disable_siem_user`, `quarantine_host`, `notify_slack`), 3 capability-gated fail-closed (`pf_block_ip`, `disable_macos_user`, `isolate_host_fleet`) · **governed decision records** (`GET /decisions`: AI triage, correlation, verdicts, response actions, policy refusals in one read-only surface) · **purple-loop validation** (`scripts/purple_loop.py`: live-fire → per-run coverage score; 2026-09-11 run: 8/8 chains, 20 alerts, 18 rules, 13 ATT&CK techniques) · identity/auth telemetry (macOS unified-log sshd shipper, closed auth vocabulary) · evidence-driven detection-coverage map (`GET /detection/coverage`: armed vs dormant rules; 86/108 armed on real telemetry) · admin user-management API + Prometheus `/metrics` · OWASP LLM Top-10 red-team regression suite (41 probes — verified by collection) · **runs as a real local-production SIEM**: real osqueryd host telemetry → Sigma → alerts, loopback-only publishing, authenticated Redis, DB-enforced append-only audit trail (two-role deploy), verified backups + restore test, edge-triggered watchdog (see docs/PRODUCTION.md) · CI dependency/image scanning **ENFORCING since 2026-09-10** (image scan HIGH/CRITICAL at zero findings; dependency audit gates with the 2 documented P4 risk-accepts ignored with rationale, expire 2026-12-01). Counts are hand-verified against the code; no auto-updating badge.
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow)]()
@@ -383,6 +383,15 @@ Key endpoints (all under `/api/v1`):
 | `/auth/me` | GET | Current user info |
 | `/auth/change-password` | POST | Change password (invalidates all sessions) |
 | `/cases` | GET/POST | Case management CRUD |
+| `/cases/{id}/verdict` | POST | Record an adjudication verdict (rationale mandatory) |
+| `/cases/{id}/timeline` | GET | The durable case timeline (append-only events) |
+| `/cases/{id}/summary` | GET | Case rollup (verdicts, event counts, adjudicated flag) |
+| `/response/actions` | GET/POST | Bounded response actions (policy gate on request) |
+| `/response/actions/{id}/approve` | POST | HITL approval (admin; four-eyes: requester cannot self-approve) + execute + verify |
+| `/response/actions/{id}/reject` | POST | Reject a requested action (reason recorded) |
+| `/response/actions/{id}/execute` | POST | Execute an approved action + outcome verification |
+| `/decisions` | GET | Governed decision-record view (read-only) |
+| `/detection/coverage` | GET | Evidence-driven coverage map (armed/dormant per rule) |
 | `/rules` | GET | List Sigma detection rules |
 
 ---
@@ -469,6 +478,46 @@ only care about config presence.
 
 ---
 
+## The Trusted Loop (V0.4)
+
+The case is the operating unit, response is bounded, and every action is
+verified by re-querying the source system. Outcome verification is the
+clearest dividing line in the AI-SOC market — almost nobody proves the
+state actually changed. This deployment proves it, end to end, and the
+proof is recorded:
+
+1. **Durable case object.** A case is the operating unit: an append-only
+   `case_events` timeline (closed event vocabulary, CHECK-enforced) holds
+   the evidence links, verdicts, notes, status transitions, and response
+   actions. A verdict requires a rationale (the rationale IS the decision
+   record), and nobody can resolve or close an unadjudicated case.
+2. **Bounded response authority.** `config/response_policy.yaml` decides
+   per action type: `allow` (executes immediately, still recorded +
+   verified), `approval_required` (HITL: a different admin must approve —
+   the requester cannot self-approve), or `never`. Anything unknown,
+   unparseable, or over its blast-radius limit is refused — fail-closed,
+   never guessed. Every approval carries a rollback note.
+3. **Verified outcomes.** After execution the executor RE-QUERIES the
+   source system and records before/after state with its mode. Live-
+   verified on this deployment: `disable_siem_user` (re-query + login
+   refusal proof), `quarantine_host` (re-query + the ingest endpoint
+   refuses that host's telemetry — enforcement observable), and
+   `notify_slack` (webhook delivery receipt). Capability-gated, fail-
+   closed when the privilege/infrastructure is absent: `pf_block_ip`
+   (root), `disable_macos_user` (root), `isolate_host_fleet` (fleet
+   endpoint). An unverifiable action is never reported as verified, and
+   it is never simulated.
+4. **Governed decision records.** `GET /decisions` assembles every
+   AI triage decision, correlation match, human verdict, response action
+   (with its approval trail and verification proof), and policy refusal
+   into one chronological, read-only surface — the artifact a governed-
+   autonomy buyer (EU AI Act Art. 14, NIST AI RMF GOVERN) asks for.
+5. **Purple-loop validation.** `python -m scripts.purple_loop` fires the
+   8-chain correlation matrix through the real pipes, waits for
+   detection, and scores the run against the coverage map (chains fired,
+   rules fired, ATT&CK technique hit rate over ARMED techniques). The
+   2026-09-11 live-fire report is committed under `runs/`.
+
 ## Dashboard
 
 A Streamlit dashboard is included in the repo (`dashboard/`) and
@@ -534,10 +583,10 @@ access from the dashboard.
 ## Testing
 
 ```bash
-# Run the full unit suite (1750 tests, mocked DB, ~30s)
+# Run the full unit suite (1851 tests, mocked DB, ~30s)
 poetry run pytest tests/unit/ -q --no-cov
 
-# With coverage report (gate: 80%; currently 87%)
+# With coverage report (gate: 80%; currently 86%)
 poetry run pytest tests/unit/ --cov=src --cov-report=term-missing -q
 
 # Integration tests (require a live PostgreSQL with the schema applied)
@@ -778,7 +827,7 @@ securityscarletai/
 │   ├── analyze_alerts.py         # Ad-hoc alert analysis helper
 │   ├── validate_config.py        # Validate .env / settings
 │   └── backup.sh                 # Reference pg_dump backup script (pgpass-based)
-├── tests/                   # 1750 unit tests + 27 integration tests (pass live — 2026-09-11)
+├── tests/                   # 1851 unit tests + 27 integration tests (pass live — 2026-09-11)
 ├── docs/                    # PRODUCTION.md, TESTING-ROADMAP.md, DEMO.md, RULES.md, AI.md,
 │                            # DEPLOYMENT.md, AIR-GAPPED.md, ATTACK-SCENARIOS.md, CHANGELOG.md,
 │                            # EVOLUTION_ROADMAP_2026-09.md, dependency-vuln-triage-2026-09-03.md

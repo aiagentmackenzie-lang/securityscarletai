@@ -1,5 +1,44 @@
 # CHANGELOG
 
+## V0.4 "Trusted Loop" (2026-09-11, feat/v0.4-response-authority)
+
+**Governance + verification — outcome verification is the market's dividing line.**
+
+- Durable case object: `case_events` append-only timeline (closed event
+  vocabulary, CHECK-enforced enum); verdicts as first-class events with
+  mandatory rationale; timeline + summary endpoints; governance gates
+  (resolve/close rejected without an adjudicated verdict).
+- Bounded response authority: `response_actions` table + closed action
+  and status vocabularies; `config/response_policy.yaml` (versioned,
+  fail-closed) with allow / approval_required / never per action,
+  blast-radius max_per_day, requires_case, rollback notes; pure policy
+  engine (src/response/policy.py).
+- HITL approval with four-eyes: requester cannot self-approve (enforced
+  live, 403); approval, execution, and verification ride the audit
+  chain; rejection requires a reason (a decision record too).
+- Verified outcomes: 6 executors (src/response/executors.py) with
+  plan/execute/verify. Live-verified: disable_siem_user (re-query +
+  login-refusal proof), quarantine_host (re-query + ingest enforcement),
+  notify_slack (delivery receipt). Capability-gated fail-closed:
+  pf_block_ip, disable_macos_user, isolate_host_fleet — honest refusals,
+  never simulated, unverifiable never reported verified.
+- Quarantine enforcement: the ingest endpoint refuses events from hosts
+  on the quarantine list (rejected_quarantine in the response).
+- Governed decision records: GET /decisions (read-only) assembles ai_triage,
+  correlation, verdict, response_action, and policy_refusal decisions.
+- Purple-loop validation: scripts/purple_loop.py (preflight /health sha
+  gate, coverage before/after, per-chain fired table, ATT&CK technique
+  hit rate over armed techniques). Live run 2026-09-11: 8/8 chains,
+  20 alerts, 18 distinct rules, 13 techniques (hit rate 0.371 over
+  armed techniques); report committed under runs/.
+- Live-boot findings fixed (the posture guard and /health had never
+  actually booted): posture-check false positive (unawaited probe +
+  nonexistent table), /health permanently degraded (build sha counted
+  as a failed check), and two JSONB-as-string crashes (response-action
+  execution, decisions view).
+- Tests: 1768 -> 1851 unit (+83); integration 27; coverage 86% (6712
+  stmts, L3 measured).
+
 ## V0.3 "Trusted Engine" (2026-09-11, feat/v0.3-trusted-engine)
 
 **Detection truth — the phase's rule: detections that fire on reality.**

@@ -266,3 +266,27 @@ was.
    candidate boot gate once any deploy pipeline wants it (exits 0 in the
    local-prod posture; the app role must be explicit or via the exported
    `$DB_USER`).
+## 5. Response authority + verified outcomes (V0.4, 2026-09-11)
+
+The production posture carries BOUNDED response actions. The rules:
+
+- **Policy file is law.** `config/response_policy.yaml` maps every action
+  type to allow / approval_required / never with blast-radius limits
+  (max_per_day) and a requires_case rule. Missing file, unknown action,
+  malformed entry, or max_per_day=0 -> NEVER (fail-closed). Edit the file
+  to change authority — never the code paths.
+- **HITL is non-negotiable.** approval_required actions sit in
+  `requested` until an admin approves. The approver cannot be the
+  requester (four-eyes, enforced 403 live). Approve = execute + verify;
+  `POST /response/actions/{id}/execute` separates the moments when wanted.
+- **Verification is a re-query of the source system**, recorded in the
+  action's evidence with its mode. Unverified is never reported as
+  verified; capability-absent executors (pf/pwpolicy root, osquery fleet)
+  refuse with an honest reason instead of simulating.
+- **Enforcement point for quarantine_host**: the ingest endpoint refuses
+  events from quarantined hosts (batch response carries
+  rejected_quarantine). Rollback = delete the row (the action's
+  rollback_note documents it).
+- **Live-fire protocol** (executed 2026-09-11): dedicated lf-* principals,
+  requester/admin token pairs, behavioral proofs (login 200 -> 401 ->
+  rollback -> 200), capability refusals recorded. Reports under runs/.

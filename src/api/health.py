@@ -104,9 +104,15 @@ async def health_check():
         "error": ollama_error,
     }
 
+    # Build traceability is informational: the sha proves WHICH image is
+    # running, it is not a pass/fail health signal. Excluding it from the
+    # overall derivation is the fix for the 2026-09-11 live-boot finding
+    # (adding the sha to `checks` made all(v == "ok") permanently false and
+    # /health permanently degraded).
+    pass_fail_checks = {k: v for k, v in checks.items() if k != "build"}
     overall = (
         "healthy"
-        if all(v in ("ok",) for v in checks.values()) and ollama_status_value == "healthy"
+        if all(v in ("ok",) for v in pass_fail_checks.values()) and ollama_status_value == "healthy"
         else "degraded"
     )
     return {
