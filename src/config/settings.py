@@ -174,6 +174,23 @@ class Settings(BaseSettings):
     response_policy_path: str = "config/response_policy.yaml"
     osquery_fleet_url: str = ""
 
+    # --- Agentic investigation (V0.4/5 "Agentic SOC") ---
+    # Read-only investigation agent. The agent runs the NL->SQL stack and
+    # PROPOSES a verdict draft; it has no write tools and every run ends with
+    # hitl_state='required' until a human decides (fail-closed).
+    # AGENT_ENABLED=false turns the endpoints off entirely (423 -- the
+    # operator's kill switch; the MCP server inherits the same setting).
+    agent_enabled: bool = True
+    # Hard cap of LLM-planned steps per run (queries + correlate + verdict).
+    # Bounded everything: a hostile objective cannot spin an endless loop.
+    agent_max_steps: int = Field(default=6, ge=1, le=8)
+    # Whole-run wall-clock budget (LLM calls dominate; nl2sql queries are
+    # bounded separately at 5s + the EXPLAIN cost gate).
+    agent_run_timeout_seconds: int = Field(default=120, ge=30, le=600)
+    # Max NL queries the planner may propose per run (each is fully
+    # re-validated; this bounds LLM round-trips, not trust).
+    agent_plan_max_queries: int = Field(default=3, ge=1, le=6)
+
     # --- Threat Intel ---
     # When False, the threat-intel refresh scheduler is NOT started and no
     # external feed calls are made (URLhaus/AbuseIPDB/OTX). IOC enrichment

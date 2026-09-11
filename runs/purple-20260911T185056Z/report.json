@@ -1,0 +1,108 @@
+{
+  "chains_total": 8,
+  "chains_fired": 8,
+  "chain_score": 1.0,
+  "alerts_fired": 0,
+  "distinct_rules_fired": 0,
+  "rules_fired": [],
+  "techniques_hit": [],
+  "techniques_hit_armed": [],
+  "armed_techniques_total": 35,
+  "technique_hit_rate_armed": 0.0,
+  "armed_techniques_not_hit_by_this_run": [
+    "T1003",
+    "T1021",
+    "T1027",
+    "T1036",
+    "T1041",
+    "T1047",
+    "T1048",
+    "T1053",
+    "T1055",
+    "T1059",
+    "T1070",
+    "T1071",
+    "T1074",
+    "T1078",
+    "T1090",
+    "T1098",
+    "T1110",
+    "T1176",
+    "T1190",
+    "T1218",
+    "T1486",
+    "T1505",
+    "T1543",
+    "T1546",
+    "T1547",
+    "T1548",
+    "T1550",
+    "T1552",
+    "T1553",
+    "T1555",
+    "T1560",
+    "T1562",
+    "T1564",
+    "T1567",
+    "T1606"
+  ],
+  "coverage_summary": {
+    "total_rules": 108,
+    "armed": 86,
+    "dormant": 22,
+    "lookback_hours": 168,
+    "as_of": "2026-09-11T18:50:56.241656+00:00"
+  },
+  "run_window_start": "2026-09-11T18:46:32.762070+00:00",
+  "chains_detail": [
+    [
+      "live-matrix-ai_verdict_block_sustained",
+      true
+    ],
+    [
+      "live-matrix-brute_force_success",
+      true
+    ],
+    [
+      "live-matrix-credential_theft_exfil",
+      true
+    ],
+    [
+      "live-matrix-data_exfiltration",
+      true
+    ],
+    [
+      "live-matrix-defense_evasion_cleanup",
+      true
+    ],
+    [
+      "live-matrix-payload_callback",
+      true
+    ],
+    [
+      "live-matrix-persistence_activated",
+      true
+    ],
+    [
+      "live-matrix-privilege_escalation_chain",
+      true
+    ]
+  ],
+  "chain_matches_persisted": 27,
+  "match_hosts": [
+    "live-matrix-ai_verdict_block_sustained",
+    "live-matrix-brute_force_success",
+    "live-matrix-credential_theft_exfil",
+    "live-matrix-data_exfiltration",
+    "live-matrix-defense_evasion_cleanup",
+    "live-matrix-payload_callback",
+    "live-matrix-persistence_activated",
+    "live-matrix-privilege_escalation_chain"
+  ],
+  "mode": "matrix",
+  "coverage_before": {
+    "armed": 86,
+    "total_rules": 108
+  },
+  "alerts": []
+}

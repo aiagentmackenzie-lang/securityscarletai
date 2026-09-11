@@ -504,3 +504,54 @@ CREATE TABLE IF NOT EXISTS quarantined_hosts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_quarantined_hosts_at ON quarantined_hosts (quarantined_at DESC);
+
+
+-- ============================================================
+-- AGENT INVESTIGATIONS (V0.4/5 "Agentic SOC") -- durable record of every
+-- read-only agentic investigation run.
+--
+-- Trust boundary: the agent has NO write tools. It reads (NL->SQL SELECT
+-- allowlist + parameterized correlation reads) and PROPOSES; it never
+-- mutates SIEM state. The SYSTEM writes this run record (and the audit
+-- chain rows for every step); the AI verdict is always a DRAFT and the
+-- run is born with hitl_state='required' -- only a human (POST
+-- /agent/runs/{id}/hitl) moves it to confirmed/rejected. Committing a
+-- verdict to a case stays the existing human-only case-verdict path.
+--
+-- Tamper story: this row is the convenience object; the audit chain
+-- (audit_log, DB-enforced append-only in the two-role posture) is the
+-- source of truth for what the agent actually did and decided.
+-- ============================================================
+DO $$ BEGIN
+    CREATE TYPE agent_run_status AS ENUM (
+        'running', 'completed', 'failed', 'refused'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+CREATE TABLE IF NOT EXISTS agent_investigations (
+    id             BIGSERIAL PRIMARY KEY,
+    objective      TEXT NOT NULL,
+    alert_id       INTEGER REFERENCES alerts(id) ON DELETE SET NULL,
+    status         agent_run_status NOT NULL DEFAULT 'running',
+    actor          TEXT NOT NULL,               -- 'ai:<model>' (executor)
+    requested_by   TEXT NOT NULL,               -- human analyst or 'mcp:<client>'
+    plan           JSONB NOT NULL DEFAULT '{}'::jsonb,
+    steps          JSONB NOT NULL DEFAULT '[]'::jsonb,
+    verdict_draft  JSONB,                       -- draft only; never a committed verdict
+    hitl_state     TEXT NOT NULL DEFAULT 'not_applicable'
+                   CHECK (hitl_state IN ('required', 'confirmed', 'rejected', 'not_applicable')),
+    hitl_actor     TEXT,
+    hitl_note      TEXT,
+    error          TEXT,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_runs_status ON agent_investigations (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_alert ON agent_investigations (alert_id) WHERE alert_id IS NOT NULL;
+
+-- Controlled-mutation convention: after the executor finalizes a run
+-- (status/plan/steps/verdict_draft written once), only hitl_state/hitl_actor/
+-- hitl_note/updated_at may change, and only via the HITL endpoint; every
+-- transition writes an audit row. Not DB-enforced for this table -- the
+-- audit chain is the tamper-evident record (see table header).

@@ -207,6 +207,42 @@ def _hosts_with_alerts(alerts: list[dict]) -> dict[str, bool]:
     return {chain: chain in hosts for chain in CHAIN_HOSTS}
 
 
+def _merge_chain_hosts(alert_hosts: set[str], match_hosts: set[str]) -> dict[str, bool]:
+    """Pure: chain fired = an alert OR a persisted correlation match for the
+    chain's matrix host inside the run window (see _fetch_chain_matches)."""
+    fired = alert_hosts | match_hosts
+    return {chain: chain in fired for chain in CHAIN_HOSTS}
+
+
+async def _fetch_chain_matches(window_start: datetime) -> list[dict]:
+    """Correlation matches for the matrix hosts persisted inside the run
+    window. The docstring contract is "chains fired (correlation matches or
+    alerts per chain host)" -- alert-only scoring breaks on the two
+    documented interleave behaviors: the post-ingest correlation batch can
+    race the shipper's last batch (match lands one pass later), and the
+    alert-dedup window suppresses repeat Sigma alerts on matrix re-runs.
+    Persisted matches are the tamper-evident chain-fired evidence; alerts
+    remain the per-rule detail. Found live 2026-09-11 (V0.4/5 regression:
+    7/8 by alerts, 8/8 by persisted matches -- the race, not a pipeline
+    regression)."""
+    from src.db.connection import get_pool
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, correlation_rule, severity, created_at,
+                   match_data->>'host_name' AS host_name
+            FROM correlation_matches
+            WHERE created_at >= $1::timestamptz
+              AND match_data->>'host_name' LIKE 'live-matrix-%'
+            ORDER BY created_at ASC
+            """,
+            window_start,
+        )
+    return [dict(r) for r in rows]
+
+
 def _write_report(runs_dir: Path, score: dict, fired_alerts: list[dict]) -> Path:
     runs_dir.mkdir(parents=True, exist_ok=True)
     (runs_dir / "report.json").write_text(
@@ -286,7 +322,10 @@ async def run(mode: str, api: str, wait_seconds: int, fail_below: float, runs_di
         f"{coverage_after['summary']['total_rules']} rules"
     )
 
-    chains = _hosts_with_alerts(fired)
+    chain_matches = await _fetch_chain_matches(window_start)
+    alert_hosts = {a["host_name"] for a in fired}
+    match_hosts = {m["host_name"] for m in chain_matches if m.get("host_name")}
+    chains = _merge_chain_hosts(alert_hosts, match_hosts)
     score = compute_run_score(
         chains=chains,
         fired_alerts=fired,
@@ -294,6 +333,8 @@ async def run(mode: str, api: str, wait_seconds: int, fail_below: float, runs_di
         run_window_start=window_start,
     )
     score["chains_detail"] = sorted(chains.items())
+    score["chain_matches_persisted"] = len(chain_matches)
+    score["match_hosts"] = sorted(match_hosts)
     score["mode"] = mode
     score["coverage_before"] = {
         "armed": coverage_before["summary"]["armed"],

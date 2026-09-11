@@ -1,0 +1,208 @@
+{
+  "chains_total": 8,
+  "chains_fired": 7,
+  "chain_score": 0.875,
+  "alerts_fired": 9,
+  "distinct_rules_fired": 9,
+  "rules_fired": [
+    "Download and Execute Pattern",
+    "Reverse Shell Pattern Detected",
+    "Script Interpreter from Unexpected Location",
+    "ai_verdict_block_sustained",
+    "brute_force_success",
+    "credential_theft_exfil",
+    "data_exfiltration",
+    "persistence_activated",
+    "privilege_escalation_chain"
+  ],
+  "techniques_hit": [
+    "T1048",
+    "T1059",
+    "T1110",
+    "T1190",
+    "T1547",
+    "T1548",
+    "T1552"
+  ],
+  "techniques_hit_armed": [
+    "T1048",
+    "T1059",
+    "T1110",
+    "T1190",
+    "T1547",
+    "T1548",
+    "T1552"
+  ],
+  "armed_techniques_total": 35,
+  "technique_hit_rate_armed": 0.2,
+  "armed_techniques_not_hit_by_this_run": [
+    "T1003",
+    "T1021",
+    "T1027",
+    "T1036",
+    "T1041",
+    "T1047",
+    "T1053",
+    "T1055",
+    "T1070",
+    "T1071",
+    "T1074",
+    "T1078",
+    "T1090",
+    "T1098",
+    "T1176",
+    "T1218",
+    "T1486",
+    "T1505",
+    "T1543",
+    "T1546",
+    "T1550",
+    "T1553",
+    "T1555",
+    "T1560",
+    "T1562",
+    "T1564",
+    "T1567",
+    "T1606"
+  ],
+  "coverage_summary": {
+    "total_rules": 108,
+    "armed": 86,
+    "dormant": 22,
+    "lookback_hours": 168,
+    "as_of": "2026-09-11T18:43:40.225133+00:00"
+  },
+  "run_window_start": "2026-09-11T18:39:46.789978+00:00",
+  "chains_detail": [
+    [
+      "live-matrix-ai_verdict_block_sustained",
+      true
+    ],
+    [
+      "live-matrix-brute_force_success",
+      true
+    ],
+    [
+      "live-matrix-credential_theft_exfil",
+      true
+    ],
+    [
+      "live-matrix-data_exfiltration",
+      true
+    ],
+    [
+      "live-matrix-defense_evasion_cleanup",
+      true
+    ],
+    [
+      "live-matrix-payload_callback",
+      false
+    ],
+    [
+      "live-matrix-persistence_activated",
+      true
+    ],
+    [
+      "live-matrix-privilege_escalation_chain",
+      true
+    ]
+  ],
+  "mode": "matrix",
+  "coverage_before": {
+    "armed": 72,
+    "total_rules": 108
+  },
+  "alerts": [
+    {
+      "id": 275,
+      "host_name": "live-matrix-defense_evasion_cleanup",
+      "rule_name": "Download and Execute Pattern",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1059"
+      ],
+      "time": "2026-09-11 18:42:48.824126+00:00"
+    },
+    {
+      "id": 276,
+      "host_name": "live-matrix-defense_evasion_cleanup",
+      "rule_name": "Script Interpreter from Unexpected Location",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1059"
+      ],
+      "time": "2026-09-11 18:42:48.849591+00:00"
+    },
+    {
+      "id": 277,
+      "host_name": "live-matrix-defense_evasion_cleanup",
+      "rule_name": "Reverse Shell Pattern Detected",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1059"
+      ],
+      "time": "2026-09-11 18:42:48.852402+00:00"
+    },
+    {
+      "id": 278,
+      "host_name": "live-matrix-brute_force_success",
+      "rule_name": "brute_force_success",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1110"
+      ],
+      "time": "2026-09-11 18:43:07.291021+00:00"
+    },
+    {
+      "id": 279,
+      "host_name": "live-matrix-persistence_activated",
+      "rule_name": "persistence_activated",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1547"
+      ],
+      "time": "2026-09-11 18:43:07.291852+00:00"
+    },
+    {
+      "id": 281,
+      "host_name": "live-matrix-data_exfiltration",
+      "rule_name": "data_exfiltration",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1048"
+      ],
+      "time": "2026-09-11 18:43:07.293803+00:00"
+    },
+    {
+      "id": 282,
+      "host_name": "live-matrix-privilege_escalation_chain",
+      "rule_name": "privilege_escalation_chain",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1548"
+      ],
+      "time": "2026-09-11 18:43:07.294339+00:00"
+    },
+    {
+      "id": 283,
+      "host_name": "live-matrix-credential_theft_exfil",
+      "rule_name": "credential_theft_exfil",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1552",
+        "T1048"
+      ],
+      "time": "2026-09-11 18:43:07.295032+00:00"
+    },
+    {
+      "id": 284,
+      "host_name": "live-matrix-ai_verdict_block_sustained",
+      "rule_name": "ai_verdict_block_sustained",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1190"
+      ],
+      "time": "2026-09-11 18:43:07.295514+00:00"
+    }
+  ]
+}

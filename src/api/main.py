@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
+from src.api.agents import router as agents_router
 from src.api.ai import router as ai_router
 from src.api.alerts import router as alerts_router
 from src.api.audit import router as audit_router
@@ -288,6 +289,7 @@ app.include_router(correlation_router, prefix="/api/v1")
 app.include_router(threat_intel_router, prefix="/api/v1")
 app.include_router(websocket_router, prefix="/api/v1")
 app.include_router(ai_router, prefix="/api/v1")
+app.include_router(agents_router, prefix="/api/v1")
 app.include_router(audit_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(hunt_router, prefix="/api/v1")
