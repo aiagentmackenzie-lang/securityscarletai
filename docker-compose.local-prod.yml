@@ -58,6 +58,24 @@ services:
           memory: 1g
           cpus: "1.5"
 
+  mcp:
+    # Loopback-only publish: the MCP server serves the analyst's agents on
+    # this host only. Same hardened container posture as the API.
+    ports: !override
+      - "127.0.0.1:8002:8002"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      REDIS_URL: "redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}@redis:6379/0"
+      DOCS_ENABLED: "false"
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+
   dashboard:
     # Remove the dev live-reload source mount — bake the dashboard image.
     volumes: !reset []
