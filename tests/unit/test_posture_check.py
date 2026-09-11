@@ -12,15 +12,25 @@ from scripts.posture_check import (
 
 
 class FakeConn:
-    """Minimal asyncpg-conn stand-in for the demo-seed volume probe."""
+    """Minimal asyncpg-conn stand-in for the demo-seed volume probe.
+
+    fetchval is async (the probe awaits it) and returns the live-demo-user
+    verdict. has_demo_user=True models the demo seed leaving an ACTIVE
+    demo_analyst; has_demo_user=False covers both a clean volume and the
+    standing prod volume's DEACTIVATED legacy demo row (is_active=false).
+    """
 
     def __init__(self, has_demo_user: bool):
         self.has_demo_user = has_demo_user
         self.called = False
 
-    def fetchval(self, query, *args):
+    async def fetchval(self, query, *args):
         self.called = True
-        assert "demo_analyst" in query
+        # The corrected probe targets the real siem_users table and checks
+        # is_active (the Sep 4 cutover retired the demo user; a deactivated
+        # row is not a live demo volume).
+        assert "siem_users" in query
+        assert "is_active" in query
         return 1 if self.has_demo_user else None
 
 
@@ -64,30 +74,46 @@ class TestDemoFlagInProd:
 
 
 class TestDemoSeededVolume:
-    def test_contaminated_volume_refused(self):
-        problem = check_demo_seeded_volume(FakeConn(has_demo_user=True))
+    @pytest.mark.asyncio
+    async def test_live_demo_user_refused(self):
+        problem = await check_demo_seeded_volume(FakeConn(has_demo_user=True))
         assert isinstance(problem, Problem)
         assert problem.check == "demo-seeded-volume-in-prod"
-        assert "down -v" in problem.detail
+        assert "demo_analyst" in problem.detail
 
-    def test_clean_volume_passes(self):
-        assert check_demo_seeded_volume(FakeConn(has_demo_user=False)) is None
+    @pytest.mark.asyncio
+    async def test_deactivated_legacy_demo_user_passes(self):
+        """The standing prod volume: demo_analyst row exists but was
+        consciously deactivated at the Sep 4 cutover -- not a live demo."""
+        assert await check_demo_seeded_volume(FakeConn(has_demo_user=False)) is None
+
+    @pytest.mark.asyncio
+    async def test_probe_targets_siem_users(self):
+        """Regression for the live-boot finding (2026-09-11): the original
+        check queried a nonexistent 'users' table and did not await the
+        coroutine -- a truthy coroutine object flagged EVERY prod boot."""
+        conn = FakeConn(has_demo_user=False)
+        await check_demo_seeded_volume(conn)
+        assert conn.called
 
 
 class TestRunChecks:
-    def test_dev_posture_runs_env_checks_only(self):
-        assert run_checks({}) == []
+    @pytest.mark.asyncio
+    async def test_dev_posture_runs_env_checks_only(self):
+        assert await run_checks({}) == []
 
-    def test_prod_posture_checks_env_and_volume(self):
-        problems = run_checks(
+    @pytest.mark.asyncio
+    async def test_prod_posture_checks_env_and_volume(self):
+        problems = await run_checks(
             {"PASSWORD_PEPPER": "x" * 32, "DEMO_SEED_ENABLED": "true"},
             conn=FakeConn(has_demo_user=False),
         )
         assert len(problems) == 1
         assert problems[0].check == "demo-flag-in-prod"
 
-    def test_prod_on_demo_seeded_volume_is_flagged(self):
-        problems = run_checks(
+    @pytest.mark.asyncio
+    async def test_prod_on_demo_seeded_volume_is_flagged(self):
+        problems = await run_checks(
             {"PASSWORD_PEPPER": "x" * 32},
             conn=FakeConn(has_demo_user=True),
         )

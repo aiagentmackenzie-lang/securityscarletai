@@ -78,28 +78,34 @@ def check_demo_flag_in_prod(env: dict) -> Optional[Problem]:
     return None
 
 
-def check_demo_seeded_volume(conn) -> Optional[Problem]:
-    """Refuse a PROD boot on a volume the demo seed has contaminated.
+async def check_demo_seeded_volume(conn) -> Optional[Problem]:
+    """Refuse a PROD boot on a volume the demo seed has left live.
 
-    demo_analyst exists ONLY when the demo seed ran on this volume. A prod
-    posture on such a volume is a mode violation; the documented recovery
-    is down -v + re-bootstrap (destroys data — Raphael approves).
+    The demo seed's signature is an ACTIVE demo_analyst with the
+    documented demo credential (siem_users). The Sep 4 prod cutover
+    DEACTIVATED the legacy demo user on the standing prod volume, so a
+    deactivated row is not a live demo volume -- it is a consciously
+    retired account. Checking is_active avoids a permanent false
+    positive on the canonical prod deployment.
     """
-    present = conn.fetchval("SELECT 1 FROM users WHERE username = 'demo_analyst' LIMIT 1")
+    present = await conn.fetchval(
+        "SELECT 1 FROM siem_users WHERE username = 'demo_analyst' AND is_active LIMIT 1"
+    )
     if present:
         return Problem(
             check="demo-seeded-volume-in-prod",
             detail=(
-                "Volume contains the demo seed (user demo_analyst) but the "
-                "boot is PROD posture. Mode violation: down -v + "
-                "re-bootstrap required (destroys data — explicit approval "
-                "per docs/PRODUCTION.md). Refusing to start."
+                "Volume has a LIVE demo_analyst account but the boot is "
+                "PROD posture. Mode violation: deactivate the demo user "
+                "(or down -v + re-bootstrap for full removal; destroys "
+                "data, explicit approval per docs/PRODUCTION.md). "
+                "Refusing to start."
             ),
         )
     return None
 
 
-def run_checks(env: dict, conn=None) -> list[Problem]:
+async def run_checks(env: dict, conn=None) -> list[Problem]:
     """Run the environment-level checks; volume check only when a conn is given."""
     problems: list[Problem] = []
     posture = detect_posture(env)
@@ -111,7 +117,7 @@ def run_checks(env: dict, conn=None) -> list[Problem]:
     if demo_flag:
         problems.append(demo_flag)
     if posture == "prod" and conn is not None:
-        seeded = check_demo_seeded_volume(conn)
+        seeded = await check_demo_seeded_volume(conn)
         if seeded:
             problems.append(seeded)
     return problems
@@ -123,10 +129,10 @@ def main() -> int:  # pragma: no cover — thin CLI wrapper over run_checks
 
     async def _run() -> list[Problem]:
         if detect_posture(os.environ) != "prod":
-            return run_checks(os.environ)
+            return await run_checks(os.environ)
         pool = await get_pool()
         async with pool.acquire() as conn:
-            return run_checks(os.environ, conn)
+            return await run_checks(os.environ, conn)
 
     problems = asyncio.run(_run())
     if problems:
