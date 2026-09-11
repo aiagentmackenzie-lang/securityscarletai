@@ -63,8 +63,11 @@ CORRELATION_RULES = {
         "confidence_base": 70,
     },
     "data_exfiltration": {
-        "title": "Large Read → Large Network Transfer",
-        "description": "Large file reads followed by large outbound network transfers",
+        "title": "Large Outbound Transfer / Connection Burst",
+        "description": (
+            "Large byte volume OR a connection burst to a single external IP "
+            "within the window (staging/beacon pattern)"
+        ),
         "severity": "high",
         "mitre_tactics": ["TA0010"],
         "mitre_techniques": ["T1048"],
@@ -72,7 +75,10 @@ CORRELATION_RULES = {
     },
     "privilege_escalation_chain": {
         "title": "Privilege Escalation → Root Process",
-        "description": "Sudo or privilege escalation followed by a new process running as root",
+        "description": (
+            "sudo/su/doas execution followed by an interactive or "
+            "user-writable-path process running as root (uid 0)"
+        ),
         "severity": "critical",
         "mitre_tactics": ["TA0004"],
         "mitre_techniques": ["T1548"],
@@ -81,16 +87,20 @@ CORRELATION_RULES = {
     "credential_theft_exfil": {
         "title": "Credential Access → External Connection",
         "description": (
-            "Access to sensitive credential files followed by outbound network connection"
+            "Access to SSH credential files (file telemetry or non-ssh "
+            "process cmdline) followed by outbound network connection"
         ),
         "severity": "critical",
         "mitre_tactics": ["TA0006", "TA0010"],
-        "mitre_techniques": ["T1555", "T1048"],
+        "mitre_techniques": ["T1552", "T1048"],
         "confidence_base": 80,
     },
     "defense_evasion_cleanup": {
         "title": "Suspicious Activity → Log Deletion",
-        "description": "High-severity process execution followed by log file deletion",
+        "description": (
+            "High/critical alert on the host followed by a log file deletion "
+            "attempt (rm on log paths)"
+        ),
         "severity": "high",
         "mitre_tactics": ["TA0005"],
         "mitre_techniques": ["T1070"],
@@ -131,6 +141,13 @@ async def detect_brute_force_then_success(
 ) -> List[Dict[str, Any]]:
     """Detect: N failed logins followed by success from same source.
 
+    Vocabulary (P1.2b): auth failures/successes arrive via the ingest
+    convention — event_category='authentication', event_action='auth_failed'
+    /'auth_success' (auth shipper, or any real auth source via POST /ingest).
+    The osquery parser NEVER fakes these: utmpx logged_in_users rows are
+    session state (mapped to 'auth_success' on open), with no failed-login
+    semantics. Telemetry contract documented in src/ingestion/schemas.py.
+
     SQL: window function counts preceding failures per (host, IP) and
     flags successful logins that exceed the threshold. All dynamic
     values are parameterized. Column names are hardcoded.
@@ -143,7 +160,7 @@ async def detect_brute_force_then_success(
             event_action,
             time,
             user_name,
-            COUNT(*) FILTER (WHERE event_action LIKE $2)
+            COUNT(*) FILTER (WHERE event_action = $2)
                 OVER (
                     PARTITION BY host_name, source_ip
                     ORDER BY time
@@ -151,6 +168,7 @@ async def detect_brute_force_then_success(
                 ) AS failed_count
         FROM logs
         WHERE event_category = 'authentication'
+          AND event_action IN ('auth_failed', 'auth_success')
           AND time > $1::timestamptz - INTERVAL '1 hour' * $4
           AND time <= $1::timestamptz
     )
@@ -161,7 +179,7 @@ async def detect_brute_force_then_success(
         time AS success_time,
         failed_count
     FROM login_sequence
-    WHERE event_action LIKE $5
+    WHERE event_action = $5
       AND failed_count >= $6
     ORDER BY time DESC
     """
@@ -169,10 +187,10 @@ async def detect_brute_force_then_success(
     rows = await conn.fetch(
         sql,
         as_of,  # $1 — point-in-time upper bound
-        "%failed%",  # $2 — failed action pattern
+        "auth_failed",  # $2 — exact vocabulary token
         time_window_minutes,  # $3 — window minutes
         lookback_hours,  # $4 — lookback hours
-        "%success%",  # $5 — success action pattern
+        "auth_success",  # $5 — exact success token
         failed_threshold,  # $6 — threshold
     )
     results = []
@@ -337,10 +355,20 @@ async def detect_data_exfiltration(
     conn,
     as_of: datetime,
     threshold_bytes: int = 100_000_000,  # 100 MB
+    connection_threshold: int = 50,  # burst path: connections to ONE external IP
     time_window_hours: int = 1,
     lookback_hours: int = 24,
 ) -> List[Dict[str, Any]]:
-    """Detect: Large outbound transfer (data exfiltration)."""
+    """Detect: Large outbound transfer / connection burst to external IP.
+
+    P1.2b fix: the volume path (enrichment bytes_sent) only exists for
+    ingesters that measure bytes (API/NeuralGuard feeds) — real osquery
+    telemetry carries NO byte counts, so the chain was dead on host data.
+    Added: the connection-burst path — many outbound connections from one
+    host to a single external IP within the window (beaconing/exfil staging
+    over snapshot-differential socket telemetry). Either signal fires the
+    chain; the match reports which. Both are parameterized thresholds.
+    """
     sql = """
     WITH outbound_transfers AS (
         SELECT
@@ -348,7 +376,29 @@ async def detect_data_exfiltration(
             destination_ip,
             COUNT(*) AS connection_count,
             SUM(COALESCE((enrichment->>'bytes_sent')::bigint, 0)) AS total_bytes,
-            MAX(time) AS last_transfer
+            MAX(time) AS last_transfer,
+            'volume' AS signal_type
+        FROM logs
+        WHERE event_category = 'network'
+          AND event_type = 'connection'
+          AND destination_ip IS NOT NULL
+          AND NOT destination_ip <<= $2::inet
+          AND NOT destination_ip <<= $3::inet
+          AND NOT destination_ip <<= $4::inet
+          AND (enrichment->>'bytes_sent') IS NOT NULL
+          AND time > $1::timestamptz - INTERVAL '1 hour' * $5
+          AND time <= $1::timestamptz
+        GROUP BY host_name, destination_ip
+        HAVING SUM(COALESCE((enrichment->>'bytes_sent')::bigint, 0)) > $6
+    ),
+    connection_bursts AS (
+        SELECT
+            host_name,
+            destination_ip,
+            COUNT(*) AS connection_count,
+            0::bigint AS total_bytes,
+            MAX(time) AS last_transfer,
+            'connection_burst' AS signal_type
         FROM logs
         WHERE event_category = 'network'
           AND event_type = 'connection'
@@ -359,16 +409,12 @@ async def detect_data_exfiltration(
           AND time > $1::timestamptz - INTERVAL '1 hour' * $5
           AND time <= $1::timestamptz
         GROUP BY host_name, destination_ip
-        HAVING SUM(COALESCE((enrichment->>'bytes_sent')::bigint, 0)) > $6
+        HAVING COUNT(*) >= $7
     )
-    SELECT
-        host_name,
-        destination_ip,
-        connection_count,
-        total_bytes,
-        last_transfer
-    FROM outbound_transfers
-    ORDER BY total_bytes DESC
+    SELECT * FROM outbound_transfers
+    UNION ALL
+    SELECT * FROM connection_bursts
+    ORDER BY total_bytes DESC, connection_count DESC
     """
 
     rows = await conn.fetch(
@@ -379,6 +425,7 @@ async def detect_data_exfiltration(
         "172.16.0.0/12",  # $4 — RFC1918 range 3
         lookback_hours,  # $5
         threshold_bytes,  # $6
+        connection_threshold,  # $7
     )
     results = []
     for row in rows:
@@ -389,8 +436,18 @@ async def detect_data_exfiltration(
         d["title"] = CORRELATION_RULES["data_exfiltration"]["title"]
         d["mitre_tactics"] = CORRELATION_RULES["data_exfiltration"]["mitre_tactics"]
         d["mitre_techniques"] = CORRELATION_RULES["data_exfiltration"]["mitre_techniques"]
-        # Higher volume = higher confidence
-        extra = min(int((d.get("total_bytes", 0) - threshold_bytes) / threshold_bytes * 10), 25)
+        # Confidence: volume path scales with bytes over threshold; burst
+        # path scales with connection count over threshold. Both capped.
+        if d.get("signal_type") == "volume":
+            extra = min(
+                int((d.get("total_bytes", 0) - threshold_bytes) / threshold_bytes * 10),
+                25,
+            )
+        else:
+            extra = min(
+                max(int((d.get("connection_count", 0) - connection_threshold) / 2), 0),
+                25,
+            )
         d["confidence"] = min(
             cast(int, CORRELATION_RULES["data_exfiltration"]["confidence_base"]) + extra, 100
         )
@@ -404,17 +461,39 @@ async def detect_privilege_escalation_chain(
     time_window_minutes: int = 10,
     lookback_hours: int = 24,
 ) -> List[Dict[str, Any]]:
-    """Detect: Privilege escalation → New process as root."""
+    """Detect: Privilege escalation → New process as root.
+
+    P1.2b fixes (chain was dead on real data):
+    - Trigger: sudo/su/doas EXECUTIONS are process events (process_start on
+      name IN sudo/su/doas) — not authentication rows (the old filter
+      matched nothing: logged_in_users rows carry no process_name). The
+      authentication-category alternative stays for API-ingest producers
+      that ship explicit privilege-escalation events.
+    - Root check: user_name IN ('root','0') — the POSIX uid-0 convention.
+      osquery process rows carry uid, and the parser ships uid as
+      user_name only when no username column exists; '0' IS root on macOS
+      and Linux. Documented convention, not a guess.
+    """
     sql = """
     WITH privilege_events AS (
         SELECT
             host_name,
             user_name,
-            process_name,
+            process_name AS escalation_method,
             time AS priv_time
         FROM logs
-        WHERE event_category = 'authentication'
-          AND process_name = 'sudo'
+        WHERE (
+                (
+                    event_category = 'process'
+                    AND event_type = 'start'
+                    AND process_name IN ('sudo', 'su', 'doas')
+                )
+                OR
+                (
+                    event_category = 'authentication'
+                    AND process_name IN ('sudo', 'su', 'doas')
+                )
+              )
           AND time > $1::timestamptz - INTERVAL '1 hour' * $2
           AND time <= $1::timestamptz
     ),
@@ -423,10 +502,27 @@ async def detect_privilege_escalation_chain(
             host_name,
             process_name AS root_process,
             process_cmdline,
+            process_path,
             time AS root_time
         FROM logs
         WHERE event_category = 'process'
-          AND user_name = 'root'
+          AND event_type = 'start'
+          AND user_name IN ('root', '0')
+          -- Production FP control: a root follow-up is only chain-worthy
+          -- when it is INTERACTIVE or running from a user-writable path.
+          -- Root daemons/launchd respawns fire constantly on any host; they
+          -- are noise, not escalation evidence. (Parent-pid linkage is the
+          -- documented next upgrade — requires a logs.parent_pid column.)
+          AND (
+                process_name IN (
+                    'bash', 'sh', 'zsh', 'python', 'python3', 'perl', 'ruby',
+                    'nc', 'ncat', 'socat', 'curl', 'wget'
+                )
+                OR process_path LIKE '/tmp/%'
+                OR process_path LIKE '/var/tmp/%'
+                OR process_path LIKE '/Users/%'
+                OR process_cmdline ILIKE '% -i%'
+              )
           AND time > $1::timestamptz - INTERVAL '1 hour' * $2
           AND time <= $1::timestamptz
     )
@@ -472,19 +568,50 @@ async def detect_credential_theft_exfil(
     time_window_minutes: int = 15,
     lookback_hours: int = 24,
 ) -> List[Dict[str, Any]]:
-    """Detect: SSH credential access → Outbound connection."""
+    """Detect: SSH credential access → Outbound connection.
+
+    P1.2b signal-source decision (documented): the file-telemetry path
+    (event_category='file' AND file_path like .ssh) is PRIMARY but needs
+    FIM (EndpointSecurity validation pending — see EVOLUTION_ROADMAP item 3).
+    The cmdline path arms the chain TODAY on real telemetry: any process
+    OTHER than the interactive ssh client (whose .ssh references are
+    implicit key/config use, not access events) whose command line touches
+    .ssh paths or private-key filenames — cat/less/scp/rsync/base64-style
+    readers, or a binary path living under .ssh. T1552.004 (Private Keys).
+    """
     sql = """
     WITH cred_access AS (
         SELECT
             host_name,
             user_name,
-            process_name,
-            file_path,
+            COALESCE(process_name, 'file_telemetry') AS access_process,
+            COALESCE(file_path, process_cmdline) AS access_target,
             time AS access_time
         FROM logs
-        WHERE event_category = 'file'
-          AND file_path LIKE $2
-          AND time > $1::timestamptz - INTERVAL '1 hour' * $3
+        WHERE (
+                -- Real file telemetry (FIM): any .ssh file event
+                (
+                    event_category = 'file'
+                    AND file_path LIKE '%.ssh%'
+                )
+                OR
+                (
+                    -- Cmdline path (arms the chain pre-FIM): non-ssh
+                    -- processes touching .ssh paths / private-key names.
+                    event_category = 'process'
+                    AND event_type = 'start'
+                    AND (
+                        process_cmdline LIKE '%.ssh/%'
+                        OR process_cmdline LIKE '%.ssh %'
+                        OR process_cmdline LIKE '%id_rsa%'
+                        OR process_cmdline LIKE '%id_ed25519%'
+                        OR process_cmdline LIKE '%id_ecdsa%'
+                        OR process_path LIKE '%.ssh%'
+                    )
+                    AND process_name IS DISTINCT FROM 'ssh'
+                )
+              )
+          AND time > $1::timestamptz - INTERVAL '1 hour' * $2
           AND time <= $1::timestamptz
     ),
     outbound_connections AS (
@@ -497,16 +624,17 @@ async def detect_credential_theft_exfil(
         WHERE event_category = 'network'
           AND event_type = 'connection'
           AND destination_ip IS NOT NULL
+          AND NOT destination_ip <<= $3::inet
           AND NOT destination_ip <<= $4::inet
           AND NOT destination_ip <<= $5::inet
-          AND NOT destination_ip <<= $6::inet
-          AND time > $1::timestamptz - INTERVAL '1 hour' * $3
+          AND time > $1::timestamptz - INTERVAL '1 hour' * $2
           AND time <= $1::timestamptz
     )
     SELECT
         c.host_name,
         c.user_name,
-        c.file_path,
+        c.access_process,
+        c.access_target,
         c.access_time,
         o.destination_ip,
         o.conn_time
@@ -514,19 +642,18 @@ async def detect_credential_theft_exfil(
     JOIN outbound_connections o
         ON c.host_name = o.host_name
         AND o.conn_time > c.access_time
-        AND o.conn_time < c.access_time + INTERVAL '1 minute' * $7
+        AND o.conn_time < c.access_time + INTERVAL '1 minute' * $6
     ORDER BY c.access_time DESC
     """
 
     rows = await conn.fetch(
         sql,
-        as_of,  # $1
-        "%.ssh%",  # $2
-        lookback_hours,  # $3
-        "10.0.0.0/8",  # $4
-        "192.168.0.0/16",  # $5
-        "172.16.0.0/12",  # $6
-        time_window_minutes,  # $7
+        as_of,  # $1 — point-in-time upper bound
+        lookback_hours,  # $2
+        "10.0.0.0/8",  # $3
+        "192.168.0.0/16",  # $4
+        "172.16.0.0/12",  # $5
+        time_window_minutes,  # $6
     )
     results = []
     for row in rows:
@@ -611,47 +738,58 @@ async def detect_defense_evasion_cleanup(
     time_window_minutes: int = 30,
     lookback_hours: int = 24,
 ) -> List[Dict[str, Any]]:
-    """Detect: High-severity process execution → Log file deletion."""
+    """Detect: High-severity activity → Log file deletion.
+
+    P1.2b fix: the old trigger filtered logs.severity='high' — but the
+    osquery pipeline never populates log severity (severity is assigned by
+    DETECTION, not ingestion), so the trigger was dead on real data. The
+    honest signal for "high-severity activity" is a fired alert: the
+    detection layer has already judged something on this host severe.
+    Trigger = high/critical ALERT on the host within the lookback, followed
+    by a log-deletion attempt (rm + log path) on the same host. T1070.
+    """
     sql = """
-    WITH suspicious_procs AS (
+    WITH suspicious_activity AS (
         SELECT
             host_name,
-            user_name,
-            process_name,
-            process_cmdline,
-            time AS proc_time
-        FROM logs
-        WHERE event_category = 'process'
-          AND event_type = 'start'
-          AND severity = 'high'
+            rule_name AS alert_rule,
+            severity AS alert_severity,
+            time AS alert_time
+        FROM alerts
+        WHERE severity IN ('high', 'critical')
           AND time > $1::timestamptz - INTERVAL '1 hour' * $2
           AND time <= $1::timestamptz
     ),
     log_deletions AS (
         SELECT
             host_name,
+            process_name,
             process_cmdline AS deletion_cmd,
             time AS deletion_time
         FROM logs
         WHERE event_category = 'process'
-          AND process_name = 'rm'
+          AND event_type = 'start'
+          AND (
+                process_name = 'rm'
+                OR process_cmdline ILIKE 'rm %'
+              )
           AND process_cmdline ILIKE $3
           AND time > $1::timestamptz - INTERVAL '1 hour' * $2
           AND time <= $1::timestamptz
     )
     SELECT
         s.host_name,
-        s.user_name,
-        s.process_name AS suspicious_process,
-        s.proc_time,
+        s.alert_rule AS suspicious_rule,
+        s.alert_severity,
+        s.alert_time,
         l.deletion_cmd,
         l.deletion_time
-    FROM suspicious_procs s
+    FROM suspicious_activity s
     JOIN log_deletions l
         ON s.host_name = l.host_name
-        AND l.deletion_time > s.proc_time
-        AND l.deletion_time < s.proc_time + INTERVAL '1 minute' * $4
-    ORDER BY s.proc_time DESC
+        AND l.deletion_time > s.alert_time
+        AND l.deletion_time < s.alert_time + INTERVAL '1 minute' * $4
+    ORDER BY s.alert_time DESC
     """
 
     rows = await conn.fetch(

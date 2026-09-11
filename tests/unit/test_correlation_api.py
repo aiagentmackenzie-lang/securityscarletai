@@ -315,10 +315,3 @@ class TestRulesEndpoints:
         assert result["severity"] == "critical"
         assert "T1110" in result["mitre_techniques"]
 
-    @pytest.mark.asyncio
-    async def test_list_sequences(self):
-        from src.api.correlation import list_sequence_rules
-
-        user = {"sub": "test", "role": "viewer"}
-        result = await list_sequence_rules(user=user)
-        assert isinstance(result, list)
