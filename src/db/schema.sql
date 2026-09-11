@@ -386,3 +386,41 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs ("user");
 CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs (timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_method_path ON audit_logs (method, path);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_status ON audit_logs (status_code) WHERE status_code >= 400;
+
+
+-- ============================================================
+-- CASE EVENTS — the durable case timeline (V0.4 "Trusted Loop")
+-- Append-only: the API exposes INSERT + SELECT only. Every case state
+-- change (evidence, verdicts, notes, status transitions, and later
+-- response actions) is a typed event with an actor, so a case answers
+-- "what happened, who decided it, on what evidence" at any point.
+-- event_type is a CLOSED vocabulary (CHECK-enforced), mirroring the
+-- closed event_action vocabulary at ingestion: producers map into it,
+-- never fake tokens. action_id is nullable until Phase B adds the
+-- response_actions table (no FK here to keep this phase independent).
+-- ============================================================
+DO $$ BEGIN
+    CREATE TYPE case_event_type AS ENUM (
+        'created', 'evidence_linked', 'evidence_unlinked', 'verdict', 'note',
+        'status_change', 'action_requested', 'action_approved',
+        'action_rejected', 'action_executed', 'action_failed',
+        'action_verified', 'closed'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+CREATE TABLE IF NOT EXISTS case_events (
+    id          BIGSERIAL PRIMARY KEY,
+    case_id     INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+    event_type  case_event_type NOT NULL,
+    actor       TEXT NOT NULL,               -- username, 'system', or 'ai:<model>'
+    actor_kind  TEXT NOT NULL DEFAULT 'human'
+                CHECK (actor_kind IN ('human', 'system', 'ai')),
+    payload     JSONB NOT NULL DEFAULT '{}'::jsonb,
+    alert_id    INTEGER REFERENCES alerts(id) ON DELETE SET NULL,
+    action_id   INTEGER,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_case_events_case ON case_events (case_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_case_events_type ON case_events (event_type);
+CREATE INDEX IF NOT EXISTS idx_case_events_alert ON case_events (alert_id) WHERE alert_id IS NOT NULL;
