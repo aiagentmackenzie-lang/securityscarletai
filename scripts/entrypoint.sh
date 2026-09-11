@@ -126,6 +126,20 @@ else
 fi
 
 # ───────────────────────────────────────────────────────────────
+# 2b. Posture / mode-isolation check (V0.3 build hygiene) — fail-closed.
+#     Refuses to boot PROD with the demo seed flag on, or PROD on a
+#     demo-seeded volume. One mode per volume; violations STOP here.
+# ───────────────────────────────────────────────────────────────
+if ! python -m scripts.posture_check; then
+    echo "[entrypoint] FATAL: posture check failed — refusing to start (see message above)." >&2
+    exit 1
+fi
+
+# Which build is running? Baked as an OCI label + env at build time
+# (make build passes GIT_SHA) — the "stale image" ambiguity killer.
+echo "[entrypoint] build: ${GIT_SHA:-unknown} (docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' <container> shows the same)"
+
+# ───────────────────────────────────────────────────────────────
 # 3. Seed demo data if alerts table is empty
 # ───────────────────────────────────────────────────────────────
 if [ "${DEMO_SEED_ENABLED:-false}" = "true" ]; then
