@@ -555,3 +555,30 @@ CREATE INDEX IF NOT EXISTS idx_agent_runs_alert ON agent_investigations (alert_i
 -- hitl_note/updated_at may change, and only via the HITL endpoint; every
 -- transition writes an audit row. Not DB-enforced for this table -- the
 -- audit chain is the tamper-evident record (see table header).
+
+-- ============================================================
+-- FLEET ENROLLMENTS (V0.5a "Fleet & Scale") -- per-host ingest identity.
+--
+-- Trust model: each enrolled host holds ONE bearer token. The token maps
+-- to exactly one host_name, and the ingest endpoint ENFORCES that every
+-- event a fleet token delivers declares THAT host_name -- a stolen fleet
+-- token cannot spoof another host (the classic fleet-ingest spoof).
+-- Plaintext tokens are never stored: sha256(token) at rest; the plaintext
+-- is returned ONCE in the enrollment response. Revocation is immediate
+-- (resolved per ingest call) and lands in the audit chain; this row is
+-- the convenience object, the audit chain the tamper-evident record.
+-- Re-enrollment of an existing host = token rotation (hash replaced,
+-- audited) so operators can rotate a suspected token without a 409 dance.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS fleet_enrollments (
+    host_name    TEXT PRIMARY KEY,
+    token_hash   TEXT NOT NULL,             -- sha256 hex of the bearer token
+    enrolled_by  TEXT NOT NULL,             -- admin username that enrolled
+    enrolled_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen_at TIMESTAMPTZ,               -- fleet-token ingest activity
+    revoked_at   TIMESTAMPTZ,               -- set = token dead immediately
+    notes        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_fleet_enrollments_last_seen
+    ON fleet_enrollments (last_seen_at DESC);
