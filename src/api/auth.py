@@ -268,17 +268,80 @@ async def get_current_user(
     )
 
 
+# Fleet-token last_seen write throttle: one UPDATE per host per window,
+# not one per ingest batch (a busy fleet would otherwise write-amplify).
+_FLEET_LAST_SEEN_WINDOW_S = 60.0
+_fleet_last_seen: dict[str, float] = {}
+
+
+async def _resolve_fleet_token(token: str) -> Optional[dict[str, Any]]:
+    """Resolve a fleet-enrollment bearer token (V0.5a "Fleet & Scale").
+
+    Returns the identity dict for a LIVE (enrolled, unrevoked) fleet token:
+      {"sub": "fleet:<host>", "username": "fleet:<host>",
+       "role": "ingest", "kind": "fleet", "fleet_host": host}
+
+    The token is sha256-hashed and looked up against fleet_enrollments.
+    Revoked (revoked_at set) or unknown tokens return None -> the caller
+    raises 401. last_seen_at is throttled to one UPDATE per window.
+    """
+    import hashlib
+    import time as _time
+
+    from src.db.connection import get_pool
+
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    try:
+        pool = await get_pool()
+        row = await pool.fetchrow(
+            """
+            SELECT host_name FROM fleet_enrollments
+             WHERE token_hash = $1 AND revoked_at IS NULL
+            """,
+            token_hash,
+        )
+    except Exception:  # noqa: BLE001 -- fail-closed: a fleet lookup outage
+        return None  # must not widen ingest access
+    if row is None:
+        return None
+    host = row["host_name"]
+
+    now = _time.monotonic()
+    last = _fleet_last_seen.get(host, 0.0)
+    if now - last >= _FLEET_LAST_SEEN_WINDOW_S:
+        _fleet_last_seen[host] = now
+        try:
+            await pool.execute(
+                "UPDATE fleet_enrollments SET last_seen_at = NOW() WHERE host_name = $1",
+                host,
+            )
+        except Exception as e:  # telemetry, never blocks ingest
+            log.debug("fleet_last_seen_update_failed", host=host, error=str(e))
+
+    return {
+        "sub": f"fleet:{host}",
+        "username": f"fleet:{host}",
+        "role": "ingest",  # NOT a viewer role: fleet tokens are ingest-only
+        "kind": "fleet",
+        "fleet_host": host,
+    }
+
+
 async def get_ingest_client(
     credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
 ) -> dict:
     """Ingest-scoped auth (P2.6) — used ONLY by the ingest router.
 
     Same contract as get_current_user, PLUS the optional scoped
-    INGEST_BEARER_TOKEN is honored (as viewer-class). Every OTHER endpoint
-    resolves auth via get_current_user, which rejects the scoped token —
-    so its blast radius is the ingest pipe, not the SIEM.
+    INGEST_BEARER_TOKEN is honored (as viewer-class), PLUS (V0.5a) fleet
+    enrollment tokens. Fleet identities carry kind="fleet" + fleet_host;
+    the ingest router enforces that their events declare that exact host.
+    Every OTHER endpoint resolves auth via get_current_user, which rejects
+    both scoped and fleet tokens — so their blast radius is the ingest
+    pipe, not the SIEM.
 
-    When INGEST_BEARER_TOKEN is unset, behavior is identical to pre-P2.6.
+    When INGEST_BEARER_TOKEN is unset and no enrollment matches, behavior
+    is identical to pre-P2.6.
     """
     token = credentials.credentials
 
@@ -291,6 +354,10 @@ async def get_ingest_client(
     if identity is not None:
         # admin bearer OR the scoped ingest client — both may ingest
         return identity
+
+    fleet_identity = await _resolve_fleet_token(token)
+    if fleet_identity is not None:
+        return fleet_identity
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

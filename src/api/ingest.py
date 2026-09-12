@@ -16,6 +16,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
 
+from src.api.audit import log_audit_action
 from src.api.auth import get_ingest_client
 from src.api.rate_limit import LIMIT_INGEST, limiter
 from src.config.logging import get_logger
@@ -104,12 +105,44 @@ async def ingest_events(
 
     Requires: Bearer token in Authorization header.
     Rate limited to LIMIT_INGEST (100/minute by IP).
+
+    V0.5a fleet binding: a fleet-enrollment token may ONLY deliver events
+    for its own enrolled host_name (identity.kind == "fleet" carries
+    fleet_host). Any other host in the batch refuses the WHOLE batch with
+    403 — fail-closed, and the refusal is audited (spoof attempt).
     """
     if len(events) > 1000:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="Maximum 1000 events per batch",
         )
+
+    # V0.5a: fleet tokens are host-bound. Enforced per batch, fail-closed.
+    # (Shape-safe: the dependency yields a dict identity through FastAPI;
+    # direct-call tests may pass a raw token string.)
+    fleet_host: str | None = None
+    if isinstance(_token, dict) and _token.get("kind") == "fleet":
+        fleet_host = _token.get("fleet_host")
+        rogue = sorted({e.host_name for e in events if e.host_name != fleet_host})
+        if rogue:
+            try:
+                await log_audit_action(
+                    actor=_token.get("username") or "fleet:unknown",
+                    action="fleet.host_spoof_refused",
+                    target_type="fleet_enrollment",
+                    new_values={"fleet_host": fleet_host, "claimed_hosts": rogue},
+                )
+            except Exception as e:  # audit outage must not block the refusal
+                log.warning("fleet_spoof_audit_write_failed", error=str(e))
+            log.warning(
+                "ingest_fleet_host_binding_violation",
+                fleet_host=fleet_host,
+                claimed_hosts=rogue,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(f"fleet token may only ingest events for host '{fleet_host}'"),
+            )
 
     # Import here to avoid circular dependency
     from src.services.writer import writer
