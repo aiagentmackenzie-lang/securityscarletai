@@ -644,9 +644,15 @@ BEGIN
     -- BRIN is superseded by chunk exclusion pruning.
     DROP INDEX IF EXISTS idx_logs_time_brin;
 
-    -- Policies (both idempotent via if_not_exists):
-    PERFORM add_compression_policy('logs', INTERVAL '7 days',
-        segmentby => 'host_name', orderby => 'time DESC', if_not_exists => true);
+    -- Compression (TimescaleDB 2.30 columnstore API: segmentby/orderby live
+    -- on the table reloptions, the policy only schedules it), then policies
+    -- (both idempotent via if_not_exists):
+    ALTER TABLE logs SET (
+        timescaledb.compress = true,
+        timescaledb.segmentby = 'host_name',
+        timescaledb.orderby = 'time DESC'
+    );
+    PERFORM add_compression_policy('logs', INTERVAL '7 days', if_not_exists => true);
     PERFORM add_retention_policy('logs', INTERVAL '30 days', if_not_exists => true);
 END
 $tsdb$;
