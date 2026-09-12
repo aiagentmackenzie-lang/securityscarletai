@@ -29,6 +29,77 @@ def test_parse_process_event():
     assert event.process_pid == 1234
 
 
+# ------------------------------------------------------------------------
+# es_process_events (macOS EndpointSecurity native process telemetry)
+# ------------------------------------------------------------------------
+
+
+def _es_line(event_type, **extra):
+    columns = {
+        "pid": "4242",
+        "parent": "1",
+        "path": "/bin/zsh",
+        "cmdline": "/bin/zsh -c id",
+        "cwd": "/tmp",
+        "uid": "501",
+        "username": "raphael",
+        "signing_id": "com.apple.zsh",
+        "platform_binary": "1",
+        "event_type": event_type,
+        "time": "1774267200",
+    }
+    columns.update(extra)
+    return json.dumps(
+        {
+            "name": "es_process_events",
+            "hostIdentifier": "test-mac.local",
+            "calendarTime": "Mon Mar 21 12:00:00 2026 UTC",
+            "unixTime": 1774267200,
+            "columns": columns,
+            "action": "added",
+        }
+    )
+
+
+def test_es_process_exec_maps_to_process_start():
+    event = parse_osquery_line(_es_line("exec"))
+    assert event is not None
+    assert event.event_category == "process"
+    assert event.event_type == "start"
+    assert event.event_action == "process_start"
+    assert event.process_pid == 4242
+    assert event.process_path == "/bin/zsh"
+    assert event.process_cmdline == "/bin/zsh -c id"
+    assert event.user_name == "raphael"
+    # ES evidence columns are NOT mapped into the closed NormalizedEvent
+    # fields -- they ride in raw_data (chain of custody), unpadded schema.
+    assert event.raw_data["columns"]["signing_id"] == "com.apple.zsh"
+
+
+def test_es_process_exit_maps_to_process_end():
+    event = parse_osquery_line(_es_line("exit", exit_code="0"))
+    assert event is not None
+    assert event.event_type == "end"
+    assert event.event_action == "process_end"
+
+
+def test_es_process_fork_is_fail_closed_unmapped():
+    # A fork row carries the PARENT's pid (child in child_pid) -- mapping it
+    # to process_start would misattribute. Honest: no token, raw preserved.
+    event = parse_osquery_line(_es_line("fork", child_pid="4243"))
+    assert event is not None
+    assert event.event_action is None
+    assert event.raw_data["columns"]["event_type"] == "fork"
+    assert event.raw_data["columns"]["child_pid"] == "4243"
+
+
+def test_es_process_snapshot_is_neutral_info():
+    event = parse_osquery_line(_es_line("exec").replace('"added"', '"snapshot"'))
+    assert event is not None
+    assert event.event_action is None
+    assert event.event_type == "info"
+
+
 def test_parse_invalid_json():
     event = parse_osquery_line("not json at all{{{")
     assert event is None

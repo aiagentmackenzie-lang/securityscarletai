@@ -82,6 +82,13 @@ class NormalizedEvent(BaseModel):
 OSQUERY_ECS_MAP: dict[str, dict[str, str]] = {
     "processes": {"event_category": "process", "event_type": "start"},
     "process_events": {"event_category": "process", "event_type": "start"},
+    # macOS EndpointSecurity native process events (osquery 5.11+). On
+    # macOS 10.15+ the plain `process_events` table is OpenBSM-backed and
+    # EMPTY -- real per-execution telemetry lives here. Event-precise (vs
+    # the 60s `processes` differential): catches processes that live and
+    # die inside one schedule interval. ES-specific evidence columns
+    # (cwd, signing_id, team_id, cdhash, platform_binary) ride in raw_data.
+    "es_process_events": {"event_category": "process", "event_type": "start"},
     "listening_ports": {"event_category": "network", "event_type": "connection"},
     "open_sockets": {"event_category": "network", "event_type": "connection"},
     "logged_in_users": {"event_category": "authentication", "event_type": "start"},
@@ -171,6 +178,20 @@ def derive_event_action(table_name: str, action: str, columns: dict) -> Optional
     if action == "added":
         if table_name in ("processes", "process_events"):
             return EVENT_ACTION_PROCESS_START
+        if table_name == "es_process_events":
+            # EndpointSecurity rows carry the real event kind in the
+            # columns: exec / exit / fork. Map only what the closed
+            # vocabulary can represent HONESTLY: exec = a process started,
+            # exit = a process ended. A fork row carries the PARENT's pid
+            # (the child is in child_pid) -- attributing a process_start
+            # to the parent's pid would misattribute, so fork stays
+            # unmapped (None; the raw row survives in raw_data).
+            es_event = (columns.get("event_type") or "").lower()
+            if es_event == "exec":
+                return EVENT_ACTION_PROCESS_START
+            if es_event == "exit":
+                return EVENT_ACTION_PROCESS_END
+            return None
         if table_name == "listening_ports":
             return EVENT_ACTION_NETWORK_LISTEN
         if table_name == "open_sockets":
