@@ -48,6 +48,13 @@ docker-compose.override.yml
 
 # Orchestrator B4: not referenced by any Dockerfile COPY — keep the build
 # context lean.
+
+# Runtime data (telemetry results log, osquery db, checkpoints, backups).
+# NEVER part of the build context: no Dockerfile COPY references it, and the
+# root osqueryd daemon writes root-owned files here (0600 pidfile) that the
+# context check cannot read — build fails closed without this exclusion.
+data/
+
 docs/
 .agent-briefs/
 models/
