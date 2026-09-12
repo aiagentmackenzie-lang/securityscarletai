@@ -27,6 +27,13 @@ Usage:
 Run it under launchd/systemd (templates in deploy/).
 """
 
+# Annotations are strings under the future import below, so the modern
+# signatures (tuple[int, int | None]) stay compatible with the system
+# python3 on older fleet hosts (macOS ships 3.9; the shipper targets 3.8+).
+# Live-fire finding 2026-09-12: a launchd agent died on this exact TypeError
+# at import time without it.
+from __future__ import annotations
+
 import argparse
 import json
 import os
