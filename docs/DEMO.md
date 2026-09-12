@@ -53,6 +53,20 @@ openssl rand -hex 32      # → API_BEARER_TOKEN
 echo 'DEMO_SEED_ENABLED=true' >> .env
 ```
 
+> **Demo on a machine whose `.env` carries prod leftovers (2026-09-12
+> finding):** if `ENABLE_INGESTION_SHIPPER=true` is set (the standing
+> local-production value) and the host `data/osquery/` dir is mounted, the
+> demo API's FileShipper will ingest REAL host telemetry into the demo
+> volume. Force `ENABLE_INGESTION_SHIPPER=false` on demo boots (the demo
+> script passes it as an env var; the compose default is off). The
+> mode-isolation posture guard flags PASSWORD_PEPPER / DATABASE_SUPERUSER_URL
+> but does NOT flag the shipper — treat that flag as a prod marker yourself.
+> The shipper also advances the SHARED `data/shipper_checkpoint` while it
+> runs: a demo boot consumes the standing deployment's unshipped backlog into
+> the throwaway demo volume, and the raw results log is the only durable
+> copy. For screenshots on a demo-prod shared machine, purge real rows
+> (host-name keyed) from the demo volume before capturing.
+
 For live AI pages you also need host Ollama with **`mistral:7b`** installed
 (`ollama list | grep mistral:7b`) — §2 checks it.
 
