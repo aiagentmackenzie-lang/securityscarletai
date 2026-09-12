@@ -1,5 +1,41 @@
 # CHANGELOG
 
+## V0.5c "TimescaleDB" (2026-09-12, feat/v0.5c-timescale)
+
+**Logs become a TimescaleDB hypertable: chunk pruning, compression, and
+chunk-granular retention replace the BRIN index and the logs sweep.**
+
+- docker-compose: postgres:17-alpine -> timescale/timescaledb:2.30.0-pg17
+  (pinned) with shared_preload_libraries=timescaledb. Same PG 17 major, so
+  the standing volume boots unchanged under the new engine.
+- src/db/schema.sql gains an idempotent, guarded upgrade block ($tsdb$): a
+  NO-OP on vanilla PostgreSQL (CI's plain postgres service and dev volumes
+  untouched; verified 27/27 integration on a vanilla throwaway), and on the
+  Timescale engine it (1) creates the extension, (2) restructures the logs
+  PK (id) -> (time, id) -- hypertable unique constraints must contain the
+  partition key; the identity column and every writer are unchanged,
+  (3) converts logs to a 1-day-chunk hypertable (migrate_data => true),
+  (4) drops the BRIN index (superseded by chunk exclusion), (5) softens the
+  correlation_matches -> logs FK into a plain index (regular tables cannot
+  reference a hypertable), (6) enables compression (segmentby host_name,
+  orderby time DESC) with a 7-day compress-after policy and a 30-day
+  drop_chunks retention policy.
+- TimescaleDB 2.30 API note: add_compression_policy no longer accepts
+  segmentby/orderby -- compression config lives on the table reloptions,
+  the policy only schedules it (live-boot finding; the first apply rolled
+  back loudly at that point, as designed).
+- Standing-volume migration executed 2026-09-12 (HITL): verified backup gate
+  first (37 MB dump, 18 tables, restore-listable), schema re-applied as the
+  owner on a db-only boot, 433,819 logs preserved EXACTLY (zero data loss,
+  verified pre/post), 9 chunks created, the oldest chunk compressed by the
+  policy on its own schedule. Full posture re-verified after the swap
+  (build sha, loopback-only, docs 404, Redis NOAUTH, audit two-role strict
+  pass) and real telemetry flowed through the same writer into the
+  hypertable. Rollback path: the verified backup + vanilla postgres:17
+  (docs/PRODUCTION.md section 7).
+
+## V0.5a+b "Fleet Enrollment + Fleet Shipper" (2026-09-11, feat/v0.5a-fleet-enrollment; live-fire verified 2026-09-12)
+
 ## V0.4/5 "Agentic SOC" (2026-09-11, feat/v0.4.5-*)
 
 **The governed agentic SOC — read-only agents inside the guardrails, the

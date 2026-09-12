@@ -388,3 +388,46 @@ true/false matrix through the real pipe. Synthetic matrix rows carry
 | MCP 401 on every call | `MCP_BEARER_TOKEN` unset or wrong — the server refuses all calls rather than serving open (by design). |
 | `mcp.tool_denied` with `unknown_tool` | A client called something outside the closed 3-tool surface — expected behavior; check the actor in the audit chain. |
 | Agent runs failing with "LLM unavailable" | Ollama down or model unloaded — the run refuses honestly instead of returning a canned verdict (by design). |
+
+## 7. TimescaleDB (V0.5c, shipped 2026-09-12)
+
+`logs` is a TimescaleDB hypertable (1-day chunks). The engine image is
+pinned `timescale/timescaledb:2.30.0-pg17`; the schema's `$tsdb$` block is
+idempotent and a NO-OP on vanilla PostgreSQL (CI + dev volumes), so the
+same schema applies identically on both engines.
+
+What runs where now:
+
+- **Chunk pruning**: time-range scans prune by chunk (BRIN index dropped).
+- **Compression**: chunks older than 7 days, segmentby host_name, orderby
+  time DESC. Config lives on the table reloptions (TimescaleDB 2.30
+  columnstore API); `add_compression_policy` only schedules it.
+- **Retention**: `drop_chunks` drops chunks older than 30 days. The in-app
+  retention job still owns alerts/correlation/ai_usage and remains a
+  fallback sweep for logs (both paths are idempotent in effect).
+
+Standing-volume conversion runbook (executed 2026-09-12):
+
+1. **VERIFIED BACKUP FIRST**: `bash scripts/backup_local.sh` (dump ->
+   pg_restore verify -> restore test into throwaway Postgres).
+2. **Pre-counts**: `SELECT count(*)` per table (logs / alerts /
+   correlation_matches) — the zero-data-loss gate for step 5.
+3. `docker compose -f docker-compose.yml -f docker-compose.local-prod.yml
+   down` (volumes kept), then `up -d postgres` — db-only boot on the new
+   engine; verify healthy before anything else.
+4. **Apply the schema as the OWNER**: `docker cp src/db/schema.sql
+   scarletai-db:/tmp/schema.sql` then `docker exec scarletai-db psql -U
+   scarletai -d scarletai -v ON_ERROR_STOP=1 -f /tmp/schema.sql`. A failed
+   DO block rolls back in full (loud failure is the design; no catch-all).
+5. **Verify**: hypertable exists, chunk count matches days of data, row
+   counts IDENTICAL to pre-counts, both policies present in
+   `timescaledb_information.jobs`, `compression_enabled = true`.
+6. `make prod` — rebuilds the api image so it carries the new schema.sql
+   (build sha re-verified in /health), then the full posture battery + a
+   pipeline check (logs growing through the same writer).
+
+**Rollback**: restore the verified backup into a fresh vanilla
+`postgres:17-alpine` volume and point compose at the old image. NEVER boot
+a timescale-converted volume with the vanilla image: the extension's
+objects live in the database catalog and the vanilla binary cannot serve
+them.
