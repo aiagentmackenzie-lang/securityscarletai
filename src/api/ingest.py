@@ -42,6 +42,28 @@ _correlation_inflight_lock = asyncio.Lock()
 _post_process_tasks: set["asyncio.Task[None]"] = set()
 
 
+async def _trigger_correlation_coalesced() -> None:
+    """F-10: cap concurrency AND coalesce -- while one run is in flight, new
+    batches skip (each run covers the full lookback). Module-level so both
+    ingest entrypoints (POST /ingest and POST /ingest/osquery, V0.5b) put
+    their events on identical correlation footing."""
+    from src.detection.correlation import run_all_correlations
+
+    global _correlation_inflight
+    async with _correlation_semaphore:
+        if _correlation_inflight:
+            log.debug("correlation_run_coalesced_skip")
+            return
+        async with _correlation_inflight_lock:
+            if _correlation_inflight:
+                return
+            _correlation_inflight = True
+            try:
+                await run_all_correlations(persist=True)
+            finally:
+                _correlation_inflight = False
+
+
 class IngestEvent(BaseModel):
     """Schema for HTTP-ingested events. Stricter than internal events."""
 
@@ -267,23 +289,9 @@ async def ingest_events(
                     log.warning("ingest_enrichment_loop_failed", error=str(e))
 
             async def _run_correlation_coalesced():
-                """F-10: cap concurrency AND coalesce — while one run is in
-                flight, new batches skip (each run covers the full lookback)."""
-                from src.detection.correlation import run_all_correlations
-
-                global _correlation_inflight
-                async with _correlation_semaphore:
-                    if _correlation_inflight:
-                        log.debug("correlation_run_coalesced_skip")
-                        return
-                    async with _correlation_inflight_lock:
-                        if _correlation_inflight:
-                            return
-                        _correlation_inflight = True
-                        try:
-                            await run_all_correlations(persist=True)
-                        finally:
-                            _correlation_inflight = False
+                """Coalescing lives in the module-level
+                _trigger_correlation_coalesced (shared with /ingest/osquery)."""
+                await _trigger_correlation_coalesced()
 
             async def _post_process():
                 try:
@@ -324,4 +332,156 @@ async def ingest_events(
             else ""
         ),
         rejected_quarantine=rejected_quarantine,
+    )
+
+
+# ───────────────────────────────────────────────────────────────
+# V0.5b "Fleet & Scale" — raw osquery fleet ingest
+#
+# Remote fleet shippers tail their host's osquery results log and POST the
+# RAW differential lines here. Parsing stays server-side through the SAME
+# parse_osquery_line the local FileShipper uses — the ECS mapping and the
+# closed event vocabulary live in exactly ONE place, and fleet shippers
+# stay dumb (tail, batch, checkpoint, POST). Auth: get_ingest_client —
+# admin JWT, the scoped ingest token, or a V0.5a fleet token. Fleet tokens
+# are HOST-BOUND exactly like POST /ingest: a line whose hostIdentifier is
+# not the token's enrolled host refuses the WHOLE batch (fail-closed,
+# audited).
+#
+# Detection parity with the local shipper path: parsed events go through
+# the same LogWriter batch and trigger the same coalesced correlation run.
+# No enrichment writeback (identical to the local shipper contract).
+# ───────────────────────────────────────────────────────────────
+
+
+class OsqueryIngestRequest(BaseModel):
+    """Raw osquery differential result lines, one JSON object per line."""
+
+    lines: list[str] = Field(max_length=2000)
+
+
+class OsqueryIngestResponse(BaseModel):
+    accepted: int
+    rejected_parse: int
+    rejected_quarantine: int
+    message: str
+
+
+@router.post(
+    "/ingest/osquery",
+    response_model=OsqueryIngestResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+@limiter.limit(LIMIT_INGEST)
+async def ingest_osquery_lines(
+    request: Request,
+    response: Response,
+    payload: OsqueryIngestRequest,
+    _token: Annotated[dict, Depends(get_ingest_client)],
+):
+    """Ingest RAW osquery result-log lines from a fleet shipper.
+
+    Server-side parsing keeps one ECS-mapping truth. Quarantine enforcement
+    is fail-closed per batch (lookup outage refuses everything). Fleet
+    host binding: every parsed line's hostIdentifier must match the
+    token's enrolled host.
+    """
+    from src.ingestion.parser import parse_osquery_line
+    from src.services.writer import writer
+
+    if not payload.lines:
+        return OsqueryIngestResponse(
+            accepted=0, rejected_parse=0, rejected_quarantine=0, message="no lines"
+        )
+
+    # Parse first — binding checks the PARSED host identity (never trust a
+    # self-declared field the parser didn't validate).
+    parsed: list[NormalizedEvent] = []
+    rejected_parse = 0
+    for line in payload.lines:
+        event = parse_osquery_line(line)
+        if event is None:
+            rejected_parse += 1
+        else:
+            parsed.append(event)
+
+    # V0.5a host binding (same contract as POST /ingest), fail-closed.
+    fleet_host: str | None = None
+    if isinstance(_token, dict) and _token.get("kind") == "fleet":
+        fleet_host = _token.get("fleet_host")
+        rogue = sorted({e.host_name for e in parsed if e.host_name != fleet_host})
+        if rogue:
+            try:
+                await log_audit_action(
+                    actor=_token.get("username") or "fleet:unknown",
+                    action="fleet.host_spoof_refused",
+                    target_type="fleet_enrollment",
+                    new_values={
+                        "fleet_host": fleet_host,
+                        "claimed_hosts": rogue,
+                        "endpoint": "/ingest/osquery",
+                    },
+                )
+            except Exception as e:  # audit outage must not block the refusal
+                log.warning("fleet_spoof_audit_write_failed", error=str(e))
+            log.warning(
+                "ingest_osquery_host_binding_violation",
+                fleet_host=fleet_host,
+                claimed_hosts=rogue,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"fleet token may only ingest events for host '{fleet_host}'",
+            )
+
+    # Quarantine enforcement, fail-closed on lookup outage (same contract
+    # as POST /ingest: a DB outage here must NOT silently accept telemetry).
+    quarantined_hosts: set[str] = set()
+    try:
+        pool_q = await get_pool()
+        async with pool_q.acquire() as conn_q:
+            quarantined_hosts = {
+                r["host_name"]
+                for r in await conn_q.fetch("SELECT host_name FROM quarantined_hosts")
+            }
+    except Exception as e:  # pragma: no cover - defensive
+        log.warning("quarantine_lookup_failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="quarantine enforcement unavailable; batch refused",
+        ) from e
+
+    accepted = 0
+    rejected_quarantine = 0
+    for event in parsed:
+        if event.host_name and event.host_name in quarantined_hosts:
+            rejected_quarantine += 1
+            log.warning(
+                "ingest_osquery_event_refused_quarantined_host",
+                host_name=event.host_name,
+                source=event.source,
+            )
+            continue
+        await writer.write(event)
+        accepted += 1
+
+    if accepted:
+        # Same detection footing as the local shipper / POST /ingest.
+        task = asyncio.create_task(_trigger_correlation_coalesced())
+        _post_process_tasks.add(task)
+        task.add_done_callback(_post_process_tasks.discard)
+
+    return OsqueryIngestResponse(
+        accepted=accepted,
+        rejected_parse=rejected_parse,
+        rejected_quarantine=rejected_quarantine,
+        message=(
+            f"Accepted {accepted} osquery events"
+            + (f", {rejected_parse} unparseable" if rejected_parse else "")
+            + (
+                f", refused {rejected_quarantine} from quarantined host(s)"
+                if rejected_quarantine
+                else ""
+            )
+        ),
     )

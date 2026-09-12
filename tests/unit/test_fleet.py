@@ -347,3 +347,195 @@ class TestFleetHostBinding:
             )
         assert r.status_code == 403
         write_mock.assert_not_called()
+
+
+# ───────────────────────────────────────────────────────────────
+# /ingest/osquery — raw osquery lines from fleet shippers (V0.5b)
+# ───────────────────────────────────────────────────────────────
+
+
+def _osquery_app(fleet_host: str | None) -> TestClient:
+    """The ingest app with BOTH ingest routes and a fleet (or admin) identity."""
+    from src.api.auth import get_ingest_client
+    from src.api.ingest import router
+    from src.api.rate_limit import limiter, rate_limit_exceeded_handler
+
+    app = FastAPI()
+    app.include_router(router, prefix="/api/v1")
+    app.state.limiter = limiter
+    from slowapi.errors import RateLimitExceeded
+
+    app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+    if fleet_host:
+        app.dependency_overrides[get_ingest_client] = lambda: _fleet_identity(fleet_host)
+    else:
+        app.dependency_overrides[get_ingest_client] = lambda: {
+            "sub": "admin-x",
+            "username": "admin-x",
+            "role": "admin",
+        }
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def _raw_osquery_line(host: str = "Raphaels-Mac-mini.local") -> str:
+    return json.dumps(
+        {
+            "name": "processes",
+            "hostIdentifier": host,
+            "calendarTime": "Sat Sep 12 00:00:00 2026 UTC",
+            "unixTime": 1789171200,
+            "action": "added",
+            "columns": {
+                "pid": "4242",
+                "name": "curl",
+                "cmdline": "curl https://example.com",
+                "path": "/usr/bin/curl",
+            },
+        }
+    )
+
+
+def _ingest_mock_pool():
+    """Mock pool for the quarantine lookup (empty list = nothing quarantined)."""
+    pool = AsyncMock()
+    conn = AsyncMock()
+    conn.fetch.return_value = []
+    acquirer = MagicMock()
+    acquirer.__aenter__ = AsyncMock(return_value=conn)
+    acquirer.__aexit__ = AsyncMock(return_value=None)
+    pool.acquire = MagicMock(return_value=acquirer)
+    return pool, conn
+
+
+class TestIngestOsqueryEndpoint:
+    def test_parses_lines_and_accepts(self):
+        client = _osquery_app(fleet_host=None)
+        write_mock = AsyncMock()
+        pool, _ = _ingest_mock_pool()
+        with (
+            patch("src.api.ingest.get_pool", AsyncMock(return_value=pool)),
+            patch("src.services.writer.writer.write", write_mock),
+            patch("src.detection.correlation.run_all_correlations", AsyncMock()),
+            patch("src.api.websocket.broadcast_event", AsyncMock()),
+        ):
+            r = client.post(
+                "/api/v1/ingest/osquery",
+                json={"lines": [_raw_osquery_line(), _raw_osquery_line()]},
+                headers={"Authorization": "Bearer t"},
+            )
+        assert r.status_code == 202
+        body = r.json()
+        assert body["accepted"] == 2
+        assert body["rejected_parse"] == 0
+        assert write_mock.await_count == 2
+
+    def test_parse_failures_reported_not_fatal(self):
+        client = _osquery_app(fleet_host=None)
+        write_mock = AsyncMock()
+        pool, _ = _ingest_mock_pool()
+        with (
+            patch("src.api.ingest.get_pool", AsyncMock(return_value=pool)),
+            patch("src.services.writer.writer.write", write_mock),
+            patch("src.detection.correlation.run_all_correlations", AsyncMock()),
+            patch("src.api.websocket.broadcast_event", AsyncMock()),
+        ):
+            r = client.post(
+                "/api/v1/ingest/osquery",
+                json={"lines": [_raw_osquery_line(), "not json at all", "{}"]},
+                headers={"Authorization": "Bearer t"},
+            )
+        assert r.status_code == 202
+        body = r.json()
+        assert body["accepted"] == 1
+        assert body["rejected_parse"] == 2
+
+    def test_empty_lines_ok(self):
+        client = _osquery_app(fleet_host=None)
+        r = client.post(
+            "/api/v1/ingest/osquery",
+            json={"lines": []},
+            headers={"Authorization": "Bearer t"},
+        )
+        assert r.status_code == 202
+        assert r.json()["accepted"] == 0
+
+    def test_fleet_binding_enforced_on_parsed_identity(self):
+        """The binding checks the PARSED hostIdentifier, not any claimed field."""
+        client = _osquery_app(fleet_host="s1")
+        write_mock = AsyncMock()
+        with (
+            patch(
+                "src.db.connection.get_pool",
+                AsyncMock(side_effect=RuntimeError("no db")),
+            ),
+            patch("src.api.ingest.log_audit_action", AsyncMock(return_value=1)),
+            patch("src.services.writer.writer.write", write_mock),
+        ):
+            r = client.post(
+                "/api/v1/ingest/osquery",
+                json={"lines": [_raw_osquery_line("evil-host")]},
+                headers={"Authorization": "Bearer fleet-token"},
+            )
+        assert r.status_code == 403
+        write_mock.assert_not_called()
+
+    def test_fleet_correct_host_accepted(self):
+        client = _osquery_app(fleet_host="Raphaels-Mac-mini.local")
+        write_mock = AsyncMock()
+        pool, _ = _ingest_mock_pool()
+        with (
+            patch("src.api.ingest.get_pool", AsyncMock(return_value=pool)),
+            patch("src.services.writer.writer.write", write_mock),
+            patch("src.detection.correlation.run_all_correlations", AsyncMock()),
+            patch("src.api.websocket.broadcast_event", AsyncMock()),
+        ):
+            r = client.post(
+                "/api/v1/ingest/osquery",
+                json={"lines": [_raw_osquery_line()]},
+                headers={"Authorization": "Bearer fleet-token"},
+            )
+        assert r.status_code == 202
+        assert r.json()["accepted"] == 1
+
+    def test_quarantine_lookup_outage_refuses_whole_batch(self):
+        """Fail-closed: a DB outage must NOT silently accept telemetry."""
+        client = _osquery_app(fleet_host=None)
+        write_mock = AsyncMock()
+        with (
+            patch(
+                "src.api.ingest.get_pool",
+                AsyncMock(side_effect=RuntimeError("db down")),
+            ),
+            patch("src.services.writer.writer.write", write_mock),
+        ):
+            r = client.post(
+                "/api/v1/ingest/osquery",
+                json={"lines": [_raw_osquery_line()]},
+                headers={"Authorization": "Bearer t"},
+            )
+        assert r.status_code == 503
+        write_mock.assert_not_called()
+
+    def test_quarantined_host_refused(self):
+        client = _osquery_app(fleet_host=None)
+        write_mock = AsyncMock()
+        pool, conn = _ingest_mock_pool()
+        conn.fetch.return_value = [{"host_name": "bad-host"}]
+        with (
+            patch("src.api.ingest.get_pool", AsyncMock(return_value=pool)),
+            patch("src.services.writer.writer.write", write_mock),
+        ):
+            r = client.post(
+                "/api/v1/ingest/osquery",
+                json={
+                    "lines": [
+                        _raw_osquery_line("bad-host"),
+                        _raw_osquery_line("good-host"),
+                    ]
+                },
+                headers={"Authorization": "Bearer t"},
+            )
+        assert r.status_code == 202
+        body = r.json()
+        assert body["accepted"] == 1
+        assert body["rejected_quarantine"] == 1
