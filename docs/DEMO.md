@@ -1,13 +1,60 @@
-# SecurityScarletAI — Demo Builder Guide
+# SecurityScarletAI — Demo Guide
 
-The authoritative sequence for standing up a correct, good-looking demo of
-SecurityScarletAI: stack up → health gate → **demo-data freshness** →
-page-by-page live verification → serve → teardown. Follow it top to bottom;
-every command below was executed and verified against a real spin-up.
+This is the demo guide for [SecurityScarletAI](../README.md) — the complete
+picture of what the demo is, how to stand it up correctly, and how to keep it
+looking alive.
 
-**Who this is for:** anyone running the demo — operator, contributor, or
-agent. If a step here fails, see [Troubleshooting](#troubleshooting) before
-improvising; the gotchas listed there were all hit for real.
+## 0. What this demo is
+
+The demo is a **synthetic, client-safe incident** running on the real product:
+the same containers, the same API, the same dashboard a production deployment
+uses — seeded (opt-in) with a believable multi-stage attack story instead of
+real host telemetry.
+
+What the seed puts in the database (`scripts/seed_demo_data.py`):
+
+- **An attack narrative** with a recurring antagonist IP (203.0.113.50):
+  SSH brute force → successful login → reverse shell on `web-server-01` →
+  LaunchDaemon persistence → credential dumping → XProtect tampering → C2
+  beaconing → 2.3 GB exfiltration → log deletion. Alerts span critical/high/
+  medium severities so triage filtering has something to filter.
+- **3 open cases** with linked alerts and notes — SSH Brute Force Attack,
+  Reverse Shell on Web Server, Data Exfiltration Investigation — so the case
+  timeline and verdict flow have real work in them.
+- **Threat-intel hits, correlation matches, AI usage records, and ~40 logs**
+  spread over 48 h, so the Overview, Log Viewer, Threat Intel, and Rules
+  pages all have data in their default windows.
+
+What it proves: the UI, the API, the RBAC, the dashboard pages — the product
+as a viewer. What it does **not** prove is the detection pipeline; for that,
+run the [live-telemetry demo](#6-optional--live-telemetry-the-streaming-demo)
+(§6), which streams a real reverse-shell pattern through osquery → shipper →
+parser → Sigma → alert in ~70 s. Together, the two demos show the whole
+system: *what analysts see* and *how detections actually fire*.
+
+**Who this is for:** anyone standing up a demo — operator, contributor, or
+agent. Follow the sequence top to bottom; every command below was executed
+and verified against a real spin-up. If a step fails, see
+[Troubleshooting](#troubleshooting) before improvising; the gotchas listed
+there were all hit for real.
+
+## 0.5 One-time setup
+
+The app **fail-fasts on the `CHANGE_ME` placeholders** in `.env.example`
+(validators in `src/config/settings.py`), so generate real secrets and opt
+into the demo seed **before the first boot**:
+
+```bash
+cp .env.example .env
+openssl rand -base64 32   # → DB_PASSWORD
+openssl rand -hex 64      # → API_SECRET_KEY
+openssl rand -hex 32      # → API_BEARER_TOKEN
+# edit .env with those three, then:
+echo 'DEMO_SEED_ENABLED=true' >> .env
+```
+
+For live AI pages you also need host Ollama with **`mistral:7b`** installed
+(`ollama list | grep mistral:7b`) — §2 checks it.
 
 ---
 
@@ -109,7 +156,7 @@ TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
 | Log Viewer — 24 h window | `GET /api/v1/logs?limit=100&time_minutes=1440` | ~11 rows — the seed spreads logs uniformly over 48 h (`randint(1, 2880)` min), so ~half sit beyond 24 h by design (2026-09-04: corrected — "20 rows" was a stale expectation that never matched the seed shape). **0 rows ⇒ stale data, run `make demo-refresh`** |
 | Cases | `GET /api/v1/cases` | 3 cases |
 | Threat Intel | `GET /api/v1/threat-intel/stats` | `total_indicators: 15` |
-| Rules | `GET /api/v1/rules` | 100 Sigma rules |
+| Rules | `GET /api/v1/rules` | 104 Sigma rules |
 | **Suppressions** | `GET /api/v1/alerts/suppressions` | **200 `[]`** — a 422 here is the route-shadowing regression (`/{alert_id}` swallowing the literal path); fixed in repo history: `fix/suppressions-route-shadowing` |
 | AI status | `GET /api/v1/ai/status` | `mistral:7b` ready |
 

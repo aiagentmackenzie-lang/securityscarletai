@@ -208,6 +208,13 @@ class TestHitlGate:
         with (
             patch("src.api.agents.get_pool", AsyncMock(return_value=pool)),
             patch("src.agents.investigator.get_pool", AsyncMock(return_value=pool)),
+            # The HITL confirm path also writes the append-only audit chain via
+            # log_audit_action (imported into src.api.agents from src.api.audit,
+            # which binds get_pool at import time). Without this patch the call
+            # reaches whatever src.api.audit.get_pool was bound to at first
+            # import -- import-order-dependent, so it only fails in some run
+            # orders (LRN-20260911-004 class). Patch the audit seam explicitly.
+            patch("src.api.audit.get_pool", AsyncMock(return_value=pool)),
         ):
             result = await hitl_decision(7, body, _user())
 
