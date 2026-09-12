@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## Correlation sweep (2026-09-12, feat/es-process-events)
+
+**Closes a real detection gap found by the productized purple-loop
+feedback on its very first run.**
+
+- Gap: correlations triggered ONLY per ingest batch. A batch that raced an
+  in-flight run was coalesced away -- and if ingest then went quiet, the
+  late-landing pair was never correlated (no alert, no persisted match,
+  forever). Verified live: the payload_callback pair sat in the DB, found
+  by the detector SQL run manually, yet the detector logged matches=0 at
+  its last pass.
+- Fix: the coalescing state moves to src.detection.correlation
+  (trigger_correlation_coalesced) as the single shared entrypoint; the
+  scheduler gains a periodic correlation_sweep job (default 60s,
+  settings-driven) under the SAME inflight guard; the 15-min INSERT dedup
+  makes sweeps cheap and idempotent.
+- Proven live: re-run scored 8/8 chains (the feedback artifact empty),
+  with the progression table now carrying the full real history: 8 runs,
+  6 from Sep 11, 2 from Sep 12, the 7/8 gap and the fix both visible in
+  the series.
+
 ## es_process_events parser mapping (2026-09-12, feat/es-process-events)
 
 **macOS EndpointSecurity native process events are now first-class SIEM

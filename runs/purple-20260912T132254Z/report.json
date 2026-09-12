@@ -1,0 +1,207 @@
+{
+  "chains_total": 8,
+  "chains_fired": 8,
+  "chain_score": 1.0,
+  "alerts_fired": 2,
+  "distinct_rules_fired": 2,
+  "rules_fired": [
+    "defense_evasion_cleanup",
+    "payload_callback"
+  ],
+  "techniques_hit": [
+    "T1059",
+    "T1070",
+    "T1071"
+  ],
+  "techniques_hit_armed": [
+    "T1059",
+    "T1070",
+    "T1071"
+  ],
+  "armed_techniques_total": 37,
+  "technique_hit_rate_armed": 0.081,
+  "armed_techniques_not_hit_by_this_run": [
+    "T1003",
+    "T1021",
+    "T1027",
+    "T1036",
+    "T1041",
+    "T1047",
+    "T1048",
+    "T1053",
+    "T1055",
+    "T1074",
+    "T1078",
+    "T1090",
+    "T1098",
+    "T1110",
+    "T1176",
+    "T1190",
+    "T1213",
+    "T1218",
+    "T1486",
+    "T1505",
+    "T1543",
+    "T1546",
+    "T1547",
+    "T1548",
+    "T1550",
+    "T1552",
+    "T1553",
+    "T1555",
+    "T1560",
+    "T1562",
+    "T1564",
+    "T1567",
+    "T1574",
+    "T1606"
+  ],
+  "coverage_summary": {
+    "total_rules": 112,
+    "armed": 92,
+    "dormant": 20,
+    "lookback_hours": 168,
+    "as_of": "2026-09-12T13:22:54.241563+00:00"
+  },
+  "run_window_start": "2026-09-12T13:19:00.844912+00:00",
+  "chains_detail": [
+    [
+      "live-matrix-ai_verdict_block_sustained",
+      true
+    ],
+    [
+      "live-matrix-brute_force_success",
+      true
+    ],
+    [
+      "live-matrix-credential_theft_exfil",
+      true
+    ],
+    [
+      "live-matrix-data_exfiltration",
+      true
+    ],
+    [
+      "live-matrix-defense_evasion_cleanup",
+      true
+    ],
+    [
+      "live-matrix-payload_callback",
+      true
+    ],
+    [
+      "live-matrix-persistence_activated",
+      true
+    ],
+    [
+      "live-matrix-privilege_escalation_chain",
+      true
+    ]
+  ],
+  "chain_matches_persisted": 12,
+  "match_hosts": [
+    "live-matrix-ai_verdict_block_sustained",
+    "live-matrix-brute_force_success",
+    "live-matrix-credential_theft_exfil",
+    "live-matrix-data_exfiltration",
+    "live-matrix-defense_evasion_cleanup",
+    "live-matrix-payload_callback",
+    "live-matrix-persistence_activated",
+    "live-matrix-privilege_escalation_chain"
+  ],
+  "mode": "matrix",
+  "coverage_before": {
+    "armed": 92,
+    "total_rules": 112
+  },
+  "feedback": [],
+  "progression": [
+    {
+      "run": "purple-20260911T152518Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.371
+    },
+    {
+      "run": "purple-20260911T184340Z",
+      "chains_fired": 7,
+      "chains_total": 8,
+      "chain_score": 0.875,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.2
+    },
+    {
+      "run": "purple-20260911T184744Z",
+      "chains_fired": 2,
+      "chains_total": 8,
+      "chain_score": 0.25,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.086
+    },
+    {
+      "run": "purple-20260911T185056Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.0
+    },
+    {
+      "run": "purple-20260911T191054Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.257
+    },
+    {
+      "run": "purple-20260911T193228Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 90,
+      "technique_hit_rate_armed": 0.306
+    },
+    {
+      "run": "purple-20260912T131438Z",
+      "chains_fired": 7,
+      "chains_total": 8,
+      "chain_score": 0.875,
+      "armed_rules": 92,
+      "technique_hit_rate_armed": 0.189
+    },
+    {
+      "run": "(this run)",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 92,
+      "technique_hit_rate_armed": 0.081
+    }
+  ],
+  "alerts": [
+    {
+      "id": 483,
+      "host_name": "live-matrix-payload_callback",
+      "rule_name": "payload_callback",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1059",
+        "T1071"
+      ],
+      "time": "2026-09-12 13:21:57.173567+00:00"
+    },
+    {
+      "id": 484,
+      "host_name": "live-matrix-defense_evasion_cleanup",
+      "rule_name": "defense_evasion_cleanup",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1070"
+      ],
+      "time": "2026-09-12 13:21:57.463812+00:00"
+    }
+  ]
+}
