@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>KeepAlive</key>
+	<true/>
+	<key>Label</key>
+	<string>com.scarletai.fim-scratch</string>
+	<key>Nice</key>
+	<integer>10</integer>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Library/osquery/osquery.app/Contents/MacOS/osqueryd</string>
+		<string>--config_path=/Users/agentmackenzie/Development/Security Apps/securityscarletai/config/osquery-fim.conf</string>
+		<string>--logger_path=/Users/agentmackenzie/Development/Security Apps/securityscarletai/data/osquery-scratch</string>
+		<string>--database_path=/Users/agentmackenzie/Development/Security Apps/securityscarletai/data/osquery-scratch/osquery.db</string>
+		<string>--pidfile=/Users/agentmackenzie/Development/Security Apps/securityscarletai/data/osquery-scratch/osqueryd.pid</string>
+		<string>--logger_plugin=filesystem</string>
+		<string>--logger_mode=0644</string>
+		<string>--extensions_socket=/Users/agentmackenzie/Development/Security Apps/securityscarletai/data/osquery-scratch/osquery.em</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>/Users/agentmackenzie/Development/Security Apps/securityscarletai/data/osquery-scratch/launchd.err.log</string>
+	<key>StandardOutPath</key>
+	<string>/Users/agentmackenzie/Development/Security Apps/securityscarletai/data/osquery-scratch/launchd.out.log</string>
+</dict>
+</plist>

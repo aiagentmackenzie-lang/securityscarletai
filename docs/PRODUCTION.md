@@ -81,17 +81,46 @@ host):
   `results.log` from the second schedule tick onward (~2 min with the 60s
   queries). An empty results log immediately after boot is not a failure.
 
-### 1.3 Full Disk Access (TCC)
+### 1.3 FIM: root LaunchDaemon + EndpointSecurity (validated 2026-09-11)
 
-`startup_items` reads the Background Task Management directory and returns
-empty (with a TCC warning) until osqueryd has Full Disk Access. Grant it via
-System Settings → Privacy & Security → Full Disk Access → add
-`~/Applications/osquery/osquery.app/Contents/MacOS/osqueryd` (or the app
-bundle). Everything else in the schedule works without it. FIM (`file_events`)
-is currently DISABLED in the conf: osquery's macOS FIM runs on EndpointSecurity
-(the official build carries the entitlement) but needs its own FDA grant +
-validation pass before being trusted — treat it as a follow-up, not a
-given.
+FIM (`file_events`) is ENABLED in `config/osquery.conf` and live-verified.
+Validated facts (scratch pass, osquery 5.23.1, 2026-09-11):
+
+- EndpointSecurity (process + FIM events) requires osqueryd running as
+  **root** -> osqueryd deploys as a **root LaunchDaemon**
+  (`/Library/LaunchDaemons/com.scarletai.osqueryd`), replacing the old
+  user-space LaunchAgent. The binary must live in a root-owned path
+  (`/Library/osquery/osquery.app`) — a root process refuses to execute a
+  binary under a user-writable path (`[Ref #1382] unsafe permissions`).
+- Config keys: watched paths go under top-level `file_paths` /
+  `exclude_paths`; the required flags are `disable_events=false`,
+  `disable_endpointsecurity=false`, `disable_endpointsecurity_fim=false`,
+  `enable_file_events=true` (all default to the disabled state).
+- Root context bypasses user TCC: no Full Disk Access grant is needed for
+  the daemon (`startup_items` and ES read the BTM store directly).
+- `es_process_events` (evented process telemetry) is NOT ingested yet —
+  the parser maps `process_events`, which is OpenBSM-backed and empty on
+  macOS 10.15+. Process telemetry comes from the `processes` differential
+  (60s). Parser mapping for `es_process_events` is a backlog item.
+
+Daemon install (Raphael-run, sudo):
+
+```bash
+cd "<repo>"
+sudo cp deploy/com.scarletai.osqueryd.daemon.plist /Library/LaunchDaemons/
+sudo chown root:wheel /Library/LaunchDaemons/com.scarletai.osqueryd.daemon.plist
+sudo chmod 644 /Library/LaunchDaemons/com.scarletai.osqueryd.daemon.plist
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.scarletai.osqueryd.daemon.plist
+```
+
+Scratch-validation procedure (repeatable): deploy
+`deploy/com.scarletai.fim-scratch.daemon.plist` (isolated config + logger
+paths), touch watched files, confirm `file_events` rows in
+`data/osquery-scratch/osqueryd.results.log`, bootout + remove the plist.
+
+NOTE: `launchctl bootout` of LaunchAgents does not stick — macOS Background
+Task Management re-registers plists that remain in `~/Library/LaunchAgents`
+(managed LWCR). To retire an agent permanently, move its plist aside.
 
 ### 1.4 Verify the pipe end-to-end
 
