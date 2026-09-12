@@ -1,7 +1,13 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    image: timescale/timescaledb:2.30.0-pg17
+    # V0.5c: TimescaleDB hypertables for logs (was postgres:17-alpine). Same
+    # PG 17 major, so the standing volume boots unchanged; timescaledb must
+    # be preloaded before CREATE EXTENSION (schema.sql's $tsdb$ block is a
+    # no-op without it). Vanilla postgres:17 remains a supported downgrade
+    # path via backup-restore (docs/PRODUCTION.md TimescaleDB section).
     # (platform pin removed — F-26: it forced arm64 and broke x86 hosts.)
+    command: ["postgres", "-c", "shared_preload_libraries=timescaledb"]
     container_name: scarletai-db
     environment:
       POSTGRES_USER: scarletai
