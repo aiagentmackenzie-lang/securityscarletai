@@ -47,6 +47,11 @@
       "interval": 3600,
       "description": "SSH keys - monitors for unauthorized key creation"
     },
+    "es_process_events": {
+      "query": "SELECT pid, parent, path, cmdline, cwd, uid, gid, username, signing_id, team_id, platform_binary, exit_code, child_pid, event_type, time FROM es_process_events;",
+      "interval": 60,
+      "description": "MACOS-ONLY (EndpointSecurity; Linux hosts: delete this query). Event-precise process telemetry; catches sub-interval processes. Needs the ES flags (disable_endpointsecurity=false) from docs/PRODUCTION.md 1.3"
+    },
     "file_events": {
       "query": "SELECT target_path, action, transaction_id, inode, uid, gid, mode, size, atime, mtime, ctime, md5, sha1, sha256, time FROM file_events;",
       "interval": 60,

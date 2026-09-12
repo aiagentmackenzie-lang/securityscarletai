@@ -18,6 +18,7 @@ Event-driven trigger (wired in src/api/ingest.py, 2026-06-02):
   This file documents the contract; the wiring lives in the API layer.
 """
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, cast
@@ -27,6 +28,48 @@ from src.db.connection import get_pool
 from src.detection.alerts import create_alert
 
 log = get_logger("detection.correlation")
+
+
+# ───────────────────────────────────────────────────────────────
+# Coalesced correlation trigger (F-10) -- the SINGLE shared entrypoint for
+# every correlation run: the ingest path (both endpoints) AND the
+# scheduler's periodic sweep. While one run is in flight, new requests
+# skip: each run covers the full lookback, and the next sweep catches
+# late-landing pairs.
+#
+# The state lives here (not in src/api/ingest.py) so the scheduler sweep
+# shares the SAME inflight guard as the ingest path. Without the sweep,
+# a batch that raced an in-flight run was coalesced away -- and if ingest
+# then went quiet, the pair never got a correlation pass (found live
+# 2026-09-12: the purple loop's payload_callback pair landed exactly in
+# that gap; the productized feedback artifact named it).
+# ───────────────────────────────────────────────────────────────
+
+CORRELATION_MAX_CONCURRENT = 2
+_correlation_semaphore = asyncio.Semaphore(CORRELATION_MAX_CONCURRENT)
+_correlation_inflight = False
+_correlation_inflight_lock = asyncio.Lock()
+
+
+async def trigger_correlation_coalesced() -> None:
+    """Run all correlations (persist=True) under the shared cap + coalescing.
+
+    Used by both ingest entrypoints and the scheduler's periodic sweep. The
+    15-min INSERT dedup makes repeat sweeps cheap and idempotent.
+    """
+    global _correlation_inflight
+    async with _correlation_semaphore:
+        if _correlation_inflight:
+            log.debug("correlation_run_coalesced_skip")
+            return
+        async with _correlation_inflight_lock:
+            if _correlation_inflight:
+                return
+            _correlation_inflight = True
+            try:
+                await run_all_correlations(persist=True)
+            finally:
+                _correlation_inflight = False
 
 
 # ───────────────────────────────────────────────────────────────
@@ -985,6 +1028,16 @@ async def run_all_correlations(
                     # with the same rule + trigger event + payload within the
                     # dedup window updates nothing (matching create_alert's
                     # dedup semantics).
+                    # 2026-09-12: the dedup window now COVERS the detectors'
+                    # 24h lookback. At 15 minutes the same finding
+                    # re-persisted every 15 min for as long as its source
+                    # events stayed in the lookback (live: 1,048 copies of
+                    # the real host's credential_theft_exfil findings in 71
+                    # minutes -- each new 15-min window added a fresh copy
+                    # of every existing finding). A finding is one finding:
+                    # identical payloads persist once per lookback lifetime;
+                    # genuinely new events produce new payloads and persist
+                    # normally.
                     match_data_json = _serialize_match_data(match)
                     trigger_id = match.get("trigger_event_id")
                     dupe = await conn.fetchval(
@@ -994,7 +1047,7 @@ async def run_all_correlations(
                           AND ($2::int IS NULL OR trigger_event_id = $2)
                           AND (match_data - 'correlation_id') = $3::jsonb
                           AND created_at
-                                > $4::timestamptz - INTERVAL '15 minutes'
+                                > $4::timestamptz - INTERVAL '24 hours'
                         LIMIT 1
                         """,
                         match["correlation_rule"],

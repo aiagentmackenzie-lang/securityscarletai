@@ -98,10 +98,15 @@ Validated facts (scratch pass, osquery 5.23.1, 2026-09-11):
   `enable_file_events=true` (all default to the disabled state).
 - Root context bypasses user TCC: no Full Disk Access grant is needed for
   the daemon (`startup_items` and ES read the BTM store directly).
-- `es_process_events` (evented process telemetry) is NOT ingested yet —
-  the parser maps `process_events`, which is OpenBSM-backed and empty on
-  macOS 10.15+. Process telemetry comes from the `processes` differential
-  (60s). Parser mapping for `es_process_events` is a backlog item.
+- `es_process_events` (evented process telemetry) IS ingested (2026-09-12):
+  the parser maps it per the closed vocabulary (exec -> process_start,
+  exit -> process_end, fork -> unmapped fail-closed; raw preserved), and
+  the schedule query collects event-precise exec/exit/fork rows. Value:
+  processes that live and die inside one 60s `processes`-differential
+  window are now visible, and codesigning evidence (signing_id, team_id,
+  platform_binary, cwd) rides in raw_data for investigations. The plain
+  `process_events` table stays out of the schedule (OpenBSM-backed and
+  empty on macOS 10.15+).
 
 Daemon install (Raphael-run, sudo):
 

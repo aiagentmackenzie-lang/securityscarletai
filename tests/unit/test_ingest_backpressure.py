@@ -1,7 +1,7 @@
 """Phase-5 runtime-resilience tests (F-03 / F-10 / F-16 / F-17 / F-18 / F-20).
 
 - F-03: reverse DNS runs OFF the event loop (bounded thread pool).
-- F-10: correlation runs capped + coalesced + INSERT-dedup (15-min window).
+- F-10: correlation runs capped + coalesced + INSERT-dedup (24h window, covering the lookback).
 - F-16: WS broadcasts honor per-connection filters; client registry capped.
 - F-17: fire-and-forget tasks kept referenced (module-level registry).
 - F-20: a missing sigma selection parses as FALSE (fail-safe), never TRUE.
@@ -191,7 +191,7 @@ class TestCorrelationBounds:
 
     @pytest.mark.asyncio
     async def test_correlation_dedupe_skips_insert(self):
-        """A duplicate (rule, trigger, payload) inside the 15-min window is
+        """A duplicate (rule, trigger, payload) inside the 24h dedup window is
         not persisted twice — this was unbounded per batch before F-10."""
         from src.detection import correlation as corr
 
@@ -280,3 +280,106 @@ class TestCorrelationBounds:
 
         assert result["persisted"] == 1
         conn.execute.assert_awaited_once()
+
+
+class TestSharedCoalescingTrigger:
+    """The coalescing state moved to src.detection.correlation so the
+    scheduler's sweep shares the SAME inflight guard as the ingest path."""
+
+    @pytest.mark.asyncio
+    async def test_ingest_and_sweep_share_one_semaphore(self):
+        from src.api import ingest
+        from src.detection import correlation as corr
+
+        assert ingest._correlation_semaphore is corr._correlation_semaphore
+        assert ingest.CORRELATION_MAX_CONCURRENT == corr.CORRELATION_MAX_CONCURRENT
+
+    @pytest.mark.asyncio
+    async def test_second_call_while_inflight_is_coalesced(self):
+        """A request arriving during an in-flight run skips (the shared
+        trigger's core contract, now also exercised by the sweep)."""
+        from src.detection import correlation as corr
+
+        started = asyncio.Event()
+        release = asyncio.Event()
+        runs: list[int] = []
+
+        async def fake_run_all(persist=False):
+            runs.append(1)
+            started.set()
+            await release.wait()
+
+        with (
+            patch.object(corr, "run_all_correlations", fake_run_all),
+            patch.object(corr, "get_pool", AsyncMock()),
+        ):
+            first = asyncio.create_task(corr.trigger_correlation_coalesced())
+            await asyncio.wait_for(started.wait(), timeout=2)
+            second = asyncio.create_task(corr.trigger_correlation_coalesced())
+            await asyncio.sleep(0.05)
+            release.set()
+            await asyncio.wait_for(asyncio.gather(first, second), timeout=5)
+
+        assert len(runs) == 1  # the second call was coalesced away
+        assert corr._correlation_inflight is False  # state resets after the run
+
+
+class TestDedupWindowCoversLookback:
+    """2026-09-12 live finding: at a 15-min dedup window the SAME finding
+    re-persisted every 15 min while its source events stayed in the 24h
+    lookback (1,048 copies of the real host's credential_theft_exfil
+    findings in 71 minutes). A finding is one finding per lookback
+    lifetime."""
+
+    @pytest.mark.asyncio
+    async def test_identical_finding_from_20_min_ago_is_still_deduped(self):
+        from src.detection import correlation as corr
+
+        conn = AsyncMock()
+        conn.fetch = AsyncMock(return_value=[])
+        # The dupe probe now finds the 20-minute-old copy (the old 15-min
+        # window would have let it through and re-persisted).
+        conn.fetchval = AsyncMock(return_value=1)
+        acquirer = MagicMock()
+        acquirer.__aenter__ = AsyncMock(return_value=conn)
+        acquirer.__aexit__ = AsyncMock(return_value=None)
+        pool = MagicMock()
+        pool.acquire = MagicMock(return_value=acquirer)
+
+        match = {
+            "correlation_rule": "credential_theft_exfil",
+            "severity": "high",
+            "host_name": "h",
+            "title": "t",
+            "trigger_event_id": None,
+            "mitre_tactics": [],
+            "mitre_techniques": [],
+        }
+        persisted: list = []
+
+        async def fake_execute(q, *a):
+            persisted.append(1)
+            return "INSERT 0 1"
+
+        conn.execute = fake_execute
+
+        async def no_matches(*args, **kwargs):
+            return []
+
+        with (
+            patch.object(corr, "get_pool", AsyncMock(return_value=pool)),
+            patch.object(corr, "detect_credential_theft_exfil", AsyncMock(return_value=[match])),
+            patch.object(corr, "detect_brute_force_then_success", no_matches),
+            patch.object(corr, "detect_persistence_activated", no_matches),
+            patch.object(corr, "detect_data_exfiltration", no_matches),
+            patch.object(corr, "detect_privilege_escalation_chain", no_matches),
+            patch.object(corr, "detect_defense_evasion_cleanup", no_matches),
+            patch.object(corr, "detect_ai_verdict_block_sustained", no_matches),
+            patch.object(corr, "create_alert", AsyncMock()),
+        ):
+            result = await corr.run_all_correlations(persist=True)
+
+        assert result["persisted"] == 0  # the 20-min-old identical finding was deduped
+        assert persisted == []
+        # and the dedup query really uses the 24h window:
+        assert "'24 hours'" in conn.fetchval.call_args[0][0]

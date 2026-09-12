@@ -22,6 +22,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from src.config.logging import get_logger
+from src.config.settings import settings
 from src.db.connection import get_pool
 from src.detection.alerts import create_alert
 from src.detection.sigma import sigma_to_sql
@@ -190,6 +191,25 @@ async def schedule_rules() -> None:
         replace_existing=True,
     )
     log.info("scheduled_auto_train_check", interval_hours=1)
+
+    # Periodic correlation sweep (F-10 follow-up, found live 2026-09-12):
+    # correlations previously triggered ONLY per ingest batch -- a batch that
+    # raced an in-flight run was coalesced away, and if ingest then went
+    # quiet, the late-landing pair was never correlated (no alert, no
+    # persisted match, forever). The sweep re-runs the correlation set on a
+    # fixed cadence under the SHARED coalescing guard; the 15-min INSERT
+    # dedup makes repeat sweeps cheap and idempotent. No src.api import at
+    # module load: correlation.py is detection-layer, no cycle.
+    from src.detection.correlation import trigger_correlation_coalesced
+
+    sweep_seconds = settings.correlation_sweep_interval_seconds
+    scheduler.add_job(
+        trigger_correlation_coalesced,
+        trigger=IntervalTrigger(seconds=sweep_seconds),
+        id="correlation_sweep",
+        replace_existing=True,
+    )
+    log.info("scheduled_correlation_sweep", interval_seconds=sweep_seconds)
 
     # Idempotent start: reload_rules() (called after rule CRUD) re-enters
     # schedule_rules; scheduler.start() raises SchedulerAlreadyRunningError if

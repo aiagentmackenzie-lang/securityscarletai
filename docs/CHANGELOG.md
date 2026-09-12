@@ -1,5 +1,55 @@
 # CHANGELOG
 
+## Correlation sweep (2026-09-12, feat/es-process-events)
+
+**Closes a real detection gap found by the productized purple-loop
+feedback on its very first run.**
+
+- Gap: correlations triggered ONLY per ingest batch. A batch that raced an
+  in-flight run was coalesced away -- and if ingest then went quiet, the
+  late-landing pair was never correlated (no alert, no persisted match,
+  forever). Verified live: the payload_callback pair sat in the DB, found
+  by the detector SQL run manually, yet the detector logged matches=0 at
+  its last pass.
+- Fix: the coalescing state moves to src.detection.correlation
+  (trigger_correlation_coalesced) as the single shared entrypoint; the
+  scheduler gains a periodic correlation_sweep job (default 60s,
+  settings-driven) under the SAME inflight guard; the 15-min INSERT dedup
+  makes sweeps cheap and idempotent.
+- Proven live: re-run scored 8/8 chains (the feedback artifact empty),
+  with the progression table now carrying the full real history: 8 runs,
+  6 from Sep 11, 2 from Sep 12, the 7/8 gap and the fix both visible in
+  the series.
+
+## es_process_events parser mapping (2026-09-12, feat/es-process-events)
+
+**macOS EndpointSecurity native process events are now first-class SIEM
+telemetry.**
+
+- On macOS 10.15+ the plain `process_events` table is OpenBSM-backed and
+  EMPTY -- the FIM session removed it from the schedule as a dead query and
+  left the `es_process_events` parser mapping as a backlog item. This
+  closes that backlog.
+- Parser: `es_process_events` maps into the closed vocabulary (exec ->
+  process_start, exit -> process_end) with the event_type flipped to end
+  for exit rows; fork rows stay UNMAPPED on purpose (a fork row carries
+  the parent's pid -- attributing a process_start to it would
+  misattribute; the raw row survives in raw_data). Snapshot shapes stay
+  neutral.
+- Value: event-precise process telemetry (vs the 60s `processes`
+  differential) -- processes that live and die inside one schedule window
+  were invisible and are now caught. Codesigning evidence (signing_id,
+  team_id, platform_binary, cwd) rides in raw_data for investigations and
+  future signed-binary-abuse rules.
+- Honest note: no dormant rule waits on this vocabulary (all 112 rules
+  evaluate on existing tokens), so the armed count is unchanged (86/112);
+  this is detection DEPTH + future-rule enablement, not an armed-count
+  bump.
+- Schedule entries: config/osquery.conf (macOS deployment, live) +
+  deploy/fleet/osqueryd.conf.example (commented macOS-only for Linux fleet
+  hosts). 4 new unit tests (exec/exit/fail-closed fork/snapshot), 1967
+  total, all green.
+
 ## V0.5d "Small-Fleet Deployment" (2026-09-12, feat/v0.5c-timescale)
 
 **The agent side of the fleet: a fail-closed bootstrap kit that turns one

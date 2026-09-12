@@ -75,6 +75,13 @@ def parse_osquery_line(raw_line: str) -> Optional[NormalizedEvent]:
         # _EXIT_TABLES: a FIM differential 'removed' row means the event
         # aged out of osquery's differential cache -- NOT a file exit.
         event_type = "end"
+    elif table_name == "es_process_events":
+        # EndpointSecurity exit rows arrive as 'added' events whose columns
+        # carry event_type=exit (derived above into event_action).
+        if (columns.get("event_type") or "").lower() == "exit":
+            event_type = "end"
+        elif osquery_action not in ("added", "removed"):
+            event_type = "info"
     elif osquery_action not in ("added", "removed"):
         # Snapshot dumps / unknown shapes are plain observations -- neutral
         # ECS event_type, no fabricated start/end semantics.

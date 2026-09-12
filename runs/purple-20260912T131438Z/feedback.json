@@ -1,0 +1,9 @@
+{
+  "failed_chains": [
+    {
+      "chain": "live-matrix-payload_callback",
+      "correlation_rule": "payload_callback",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    }
+  ]
+}
