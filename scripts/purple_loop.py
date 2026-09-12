@@ -117,11 +117,35 @@ def render_report_md(score: dict) -> str:
         f"{score['coverage_summary'].get('total_rules', '?')} total rules "
         f"(lookback {score['coverage_summary'].get('lookback_hours', '?')}h)",
         "",
-        "## Chains",
-        "",
-        "| Chain | Fired |",
-        "|:--|:--|",
     ]
+    progression = score.get("progression") or []
+    if len(progression) > 1:
+        lines += [
+            "## Detection-gain progression (committed run history)",
+            "",
+            "Every row is a real committed purple-loop run -- the compounding",
+            "coverage story as the detection engineering landed, not a",
+            "projection.",
+            "",
+            "| Run | Chains | Score | Rules armed | Armed hit rate |",
+            "|:--|:--|:--|:--|:--|",
+        ]
+        for entry in progression:
+            lines.append(
+                f"| {entry['run']} | {entry['chains_fired']}/{entry['chains_total']} "
+                f"| {entry['chain_score']} | {entry['armed_rules']} "
+                f"| {entry['technique_hit_rate_armed']} |"
+            )
+        lines.append("")
+    elif len(progression) == 1:
+        lines += [
+            "## Detection-gain progression",
+            "",
+            "This is the first committed run -- subsequent runs append here,",
+            "showing coverage compounding as detection engineering lands.",
+            "",
+        ]
+    lines += ["## Chains", "", "| Chain | Fired |", "|:--|:--|"]
     for chain, ok in score["chains_detail"]:
         lines.append(f"| {chain} | {'YES' if ok else 'NO'} |")
     lines += [
@@ -141,7 +165,86 @@ def render_report_md(score: dict) -> str:
     lines += [f"- {t}" for t in score["armed_techniques_not_hit_by_this_run"]] or [
         "- (none: full armed coverage hit)"
     ]
+    feedback = score.get("feedback") or []
+    if feedback:
+        lines += [
+            "",
+            "## Detection-engineering feedback (chains that did NOT fire)",
+            "",
+            "Actionable, not aspirational: each item names the chain, the",
+            "correlation rule behind it, and where to look. Fix, re-run, and",
+            "the progression table above gains a row.",
+            "",
+        ]
+        for item in feedback:
+            lines.append(
+                f"- **{item['chain']}**: inspect rule `{item['correlation_rule']}` "
+                f"-- {item['hint']}"
+            )
     return "\n".join(lines) + "\n"
+
+
+def build_feedback(chains: dict[str, bool]) -> list[dict]:
+    """Pure: actionable per-failed-chain feedback for detection engineering.
+
+    Chain host names are live-matrix-<rule_name> by construction (the
+    generator keys scenarios that way), so the failing step's first
+    inspection point is the correlation rule of the same name. Honest
+    scope: this names WHERE to look, not what the fix is.
+    """
+    feedback = []
+    for chain, ok in sorted(chains.items()):
+        if ok:
+            continue
+        rule = chain.replace("live-matrix-", "", 1)
+        feedback.append(
+            {
+                "chain": chain,
+                "correlation_rule": rule,
+                "hint": (
+                    "chain produced no alert and no persisted match in the "
+                    "run window -- inspect the chain's detector SQL and the "
+                    "generator scenario for that host, fix, then re-run"
+                ),
+            }
+        )
+    return feedback
+
+
+def load_progression(runs_dir: Path) -> list[dict]:
+    """Pure: read the committed run history into the progression series.
+
+    Only real committed report.json files feed the progression table -- the
+    compounding story is derived from evidence, never projected. Reports
+    missing the score keys are skipped (defensive against format drift).
+    """
+    entries: list[dict] = []
+    if not runs_dir.is_dir():
+        return entries
+    for run_dir in sorted(runs_dir.glob("purple-*")):
+        report_path = run_dir / "report.json"
+        if not report_path.is_file():
+            continue
+        try:
+            data = json.loads(report_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        if "chain_score" not in data:
+            continue
+        summary = data.get("coverage_summary") or {}
+        entries.append(
+            {
+                "run": run_dir.name,
+                "chains_fired": data.get("chains_fired", 0),
+                "chains_total": data.get("chains_total", 0),
+                "chain_score": data.get("chain_score", 0.0),
+                "armed_rules": summary.get(
+                    "armed", data.get("coverage_before", {}).get("armed", 0)
+                ),
+                "technique_hit_rate_armed": data.get("technique_hit_rate_armed", 0.0),
+            }
+        )
+    return entries
 
 
 # ───────────────────────────────────────────────────────────────
@@ -250,6 +353,12 @@ def _write_report(runs_dir: Path, score: dict, fired_alerts: list[dict]) -> Path
     )
     md_path = runs_dir / "report.md"
     md_path.write_text(render_report_md(score))
+    # The detection-engineering feedback as its own machine-readable
+    # artifact: failed chains -> the correlation rule to inspect. Empty
+    # list = nothing to fix (all chains fired).
+    (runs_dir / "feedback.json").write_text(
+        json.dumps({"failed_chains": score.get("feedback", [])}, indent=2)
+    )
     return md_path
 
 
@@ -340,6 +449,23 @@ async def run(mode: str, api: str, wait_seconds: int, fail_below: float, runs_di
         "armed": coverage_before["summary"]["armed"],
         "total_rules": coverage_before["summary"]["total_rules"],
     }
+
+    # Productization (V0.5d+ feedback + compounding): actionable per-failed-
+    # chain items + the run-to-run progression from committed history. The
+    # current run is appended last so its own report shows the full series.
+    score["feedback"] = build_feedback(chains)
+    progression = load_progression(runs_dir)
+    progression.append(
+        {
+            "run": "(this run)",
+            "chains_fired": score["chains_fired"],
+            "chains_total": score["chains_total"],
+            "chain_score": score["chain_score"],
+            "armed_rules": score["coverage_summary"].get("armed", 0),
+            "technique_hit_rate_armed": score["technique_hit_rate_armed"],
+        }
+    )
+    score["progression"] = progression
 
     stamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     md_path = _write_report(runs_dir / f"purple-{stamp}", score, fired)
