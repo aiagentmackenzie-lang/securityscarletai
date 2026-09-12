@@ -1028,6 +1028,16 @@ async def run_all_correlations(
                     # with the same rule + trigger event + payload within the
                     # dedup window updates nothing (matching create_alert's
                     # dedup semantics).
+                    # 2026-09-12: the dedup window now COVERS the detectors'
+                    # 24h lookback. At 15 minutes the same finding
+                    # re-persisted every 15 min for as long as its source
+                    # events stayed in the lookback (live: 1,048 copies of
+                    # the real host's credential_theft_exfil findings in 71
+                    # minutes -- each new 15-min window added a fresh copy
+                    # of every existing finding). A finding is one finding:
+                    # identical payloads persist once per lookback lifetime;
+                    # genuinely new events produce new payloads and persist
+                    # normally.
                     match_data_json = _serialize_match_data(match)
                     trigger_id = match.get("trigger_event_id")
                     dupe = await conn.fetchval(
@@ -1037,7 +1047,7 @@ async def run_all_correlations(
                           AND ($2::int IS NULL OR trigger_event_id = $2)
                           AND (match_data - 'correlation_id') = $3::jsonb
                           AND created_at
-                                > $4::timestamptz - INTERVAL '15 minutes'
+                                > $4::timestamptz - INTERVAL '24 hours'
                         LIMIT 1
                         """,
                         match["correlation_rule"],
