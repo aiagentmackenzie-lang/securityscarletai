@@ -348,9 +348,18 @@ securityscarletai/
 
 ## Screenshots
 
-_Not yet captured._ Bring up [demo mode](docs/DEMO.md), log in as
-`demo_analyst`, and snapshot the views worth showing: alerts grid, AI triage
-explanation, MITRE heatmap, case timeline.
+Captured in [demo mode](docs/DEMO.md) on synthetic seed data — the exact
+dashboard a fresh demo boot serves:
+
+| Alerts triage queue | Live log viewer |
+|---|---|
+| ![Alerts](docs/screenshots/alerts.png) | ![Live Logs](docs/screenshots/live-logs.png) |
+| **AI triage explanation** (LLM-generated, labeled unverified) | **Case management** |
+| ![AI Triage Explanation](docs/screenshots/ai-triage-explanation.png) | ![Cases](docs/screenshots/cases.png) |
+| **MITRE ATT&CK hunting** | **AI chat (NL hunting)** |
+| ![Hunting MITRE](docs/screenshots/hunting-mitre.png) | ![AI Chat](docs/screenshots/ai-chat.png) |
+| **Detection rules (104)** | **Overview** |
+| ![Rules](docs/screenshots/rules.png) | ![Overview](docs/screenshots/overview.png) |
 
 ## License
 
