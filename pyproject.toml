@@ -1,6 +1,6 @@
 [project]
 name = "securityscarletai"
-version = "0.2.0"  # synced with the v0.2.0 git tag (was stale 0.1.0)
+version = "0.5.0"  # V0.5 line delivered (fleet enrollment/shipping, TimescaleDB store, small-fleet kit); tags still stop at v0.2.0 — tag at release time
 description = ""
 authors = [
     {name = "SecurityScarletAI Contributors"}
