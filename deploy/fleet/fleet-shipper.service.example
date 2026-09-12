@@ -1,0 +1,34 @@
+[Unit]
+Description=SecurityScarletAI fleet shipper (osquery results -> SIEM)
+Documentation=https://github.com/aiagentmackenzie-lang/securityscarletai
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Least privilege: run as the dedicated shipper user created by
+# bootstrap_fleet_host.sh. The user needs READ access to the osquery
+# results log (the bootstrap sets the group + read bit on the log path).
+User=scarletai-shipper
+Group=scarletai-shipper
+# The fleet token lives in a root-only env file (0600), never inside this
+# unit file (unit files are world-readable by default).
+EnvironmentFile=/etc/scarletai/fleet.env
+ExecStart=/usr/bin/python3 /usr/local/lib/scarletai/fleet_shipper.py \
+  --url REPLACE_WITH_SIEM_URL/api/v1/ingest/osquery \
+  --log-path REPLACE_WITH_RESULTS_LOG \
+  --checkpoint /var/lib/scarletai-fleet/shipper_checkpoint.json \
+  --batch-max-lines 500
+Restart=on-failure
+RestartSec=5s
+# 401/403 are FATAL in the shipper (revoked/rotated token cannot retry to
+# health): systemd restarts on ordinary failures, and a persistent auth
+# failure stays down until an operator re-enrolls -- by design, fail-closed.
+# Log hygiene: the shipper never logs the token.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/scarletai-fleet
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

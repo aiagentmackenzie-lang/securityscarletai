@@ -596,6 +596,59 @@ retention (30-day) supersede the BRIN index and this job's logs sweep -- the
 job still owns alerts/correlation/ai_usage retention and remains a fallback
 sweep for logs. Runbook: docs/PRODUCTION.md section 7.
 
+## Small-fleet deployment (V0.5d — SHIPPED 2026-09-12)
+
+From one SIEM node to a small fleet of agent hosts. The SIEM node keeps its
+existing deployment paths (this document for a single node, the internet
+prod overlay + `deploy/Caddyfile` for TLS); what V0.5d adds is the AGENT
+side, in `deploy/fleet/`:
+
+| File | Role |
+|---|---|
+| `deploy/fleet/bootstrap_fleet_host.sh` | One-host installer (Linux systemd / macOS launchd). Idempotent, fail-closed: unhealthy SIEM or rejected token -> nothing installed. Verifies the fleet token with a ZERO-WRITE probe (a malformed line the server refuses to parse) before touching the disk. |
+| `deploy/fleet/osqueryd.conf.example` | Agent osquery config, derived 1:1 from `config/osquery.conf` (same query names -> the same parser mapping). |
+| `deploy/fleet/fleet-shipper.service.example` | systemd unit; token via root-only env file, never in the unit. |
+| `deploy/fleet/com.scarletai.fleet-shipper.launchagent.plist.example` | launchd plist; token inside the plist, chmod 0600 (launchd has no env-file). |
+| `deploy/fleet/README.md` | Kit overview, quickstart, guarantees, honest scope notes. |
+
+### Deployment flow
+
+1. **SIEM node**: deploy with the internet overlay (Caddy TLS). Loopback-only
+   local-prod is for a single host -- a fleet needs network reach, and the
+   fleet token is a bearer credential: https is the default posture (the
+   shipper accepts http only with an explicit lab flag, loudly).
+2. **Enroll** each host: `POST /api/v1/fleet/enroll` (admin). The plaintext
+   token is shown ONCE. The enrolled `host_name` MUST match the agent's
+   osquery host identifier (`host_identifier: hostname` -> the machine's
+   hostname). This is the binding golden rule: the server checks the PARSED
+   events' host against the token, so a mismatch means refused batches, not
+   misattributed telemetry.
+3. **Bootstrap** each agent host with the kit (command in
+   `deploy/fleet/README.md`). The installer is idempotent: re-running it is
+   the token-rotation path.
+4. **Verify**: `GET /api/v1/fleet/hosts` -> per-host `last_seen_at` updating
+   within ~2 min of the first osquery differential. That field is the fleet
+   liveness signal (it updates on authenticated ingest attempts, so a
+   refused-batch token still shows -- a revoked one goes stale).
+
+### Ops
+
+- **Rotate** a suspected token: re-enroll the host (rotation replaces the
+  hash, audited) + re-run the bootstrap on the host with the new token.
+- **Revoke** a host: `POST /api/v1/fleet/revoke` -- immediate; the shipper
+  exits FATAL on the next delivery and stays down (a dead credential is
+  never retried to health).
+- **Sizing**: ingest is rate-limited to 100/min per source IP
+  (`settings.ingest_rate_limit`); behind Caddy each shipper counts by its
+  real IP (F-07 forwarded headers). Default shipper cadence (5 s idle
+  flush, 500-line batches) sits far below that.
+- **Retention at fleet scale**: logs retention/compression are
+  chunk-granular (TimescaleDB, section 7 above) -- the logs table absorbs
+  fleet volume without changing the ops story.
+- **Audit**: enrollment, rotation, revocation, and every spoof refusal land
+  in the append-only audit chain (`fleet.enroll`, `fleet.rotate`,
+  `fleet.revoke`, `fleet.host_spoof_refused`).
+
 ### Health Response Shape
 
 ```json

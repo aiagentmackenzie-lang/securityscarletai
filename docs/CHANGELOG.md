@@ -1,5 +1,36 @@
 # CHANGELOG
 
+## V0.5d "Small-Fleet Deployment" (2026-09-12, feat/v0.5c-timescale)
+
+**The agent side of the fleet: a fail-closed bootstrap kit that turns one
+machine into an agent host, and the runbook that ties it to the SIEM node.**
+
+- deploy/fleet/bootstrap_fleet_host.sh: idempotent one-host installer
+  (Linux systemd / macOS launchd). Fail-closed everywhere: SIEM unhealthy ->
+  nothing installed; token rejected (401/403) -> nothing installed;
+  osqueryd missing -> exact install commands, exit 2. The token is verified
+  with a ZERO-WRITE probe (a malformed line the server refuses to parse,
+  rejected_parse) so proving auth never persists telemetry. Token hygiene:
+  never echoed, never on argv, never in logs (env file 0600 on Linux, 0600
+  plist on macOS -- launchd has no env-file mechanism; documented).
+- deploy/fleet/osqueryd.conf.example: agent-host osquery config derived 1:1
+  from config/osquery.conf (same query names -> the same server-side parser
+  mapping), platform-specific queries documented for per-OS pruning.
+- deploy/fleet/fleet-shipper.service.example + launchd plist example:
+  service templates with least-privilege notes (dedicated system user,
+  ProtectSystem=strict, ReadWritePaths for the checkpoint only).
+- deploy/fleet/README.md + DEPLOYMENT.md "Small-fleet deployment": the
+  flow (enroll -> bootstrap -> verify via last_seen), ops runbook (rotation
+  = re-enroll + re-bootstrap, revocation immediate, sizing vs the 100/min
+  per-IP ingest limit behind Caddy with F-07 real-IP forwarding, audit
+  events), TLS posture (https default; the internet overlay fronts the
+  SIEM node), and honest scope notes (osqueryd binary install left to the
+  operator; remote auth-failure telemetry is a future item, stated as such).
+- No new compose file by design: the fleet SIEM node = the existing
+  internet prod overlay; V0.5d is the agent kit + the runbook connecting
+  the shipped V0.5a/b enrollment + raw-line ingest to it. Group C
+  complete.
+
 ## V0.5c "TimescaleDB" (2026-09-12, feat/v0.5c-timescale)
 
 **Logs become a TimescaleDB hypertable: chunk pruning, compression, and
