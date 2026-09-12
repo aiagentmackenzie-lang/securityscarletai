@@ -21,6 +21,11 @@ from src.api.auth import get_ingest_client
 from src.api.rate_limit import LIMIT_INGEST, limiter
 from src.config.logging import get_logger
 from src.db.connection import get_pool
+from src.detection.correlation import (  # noqa: F401
+    CORRELATION_MAX_CONCURRENT,
+    _correlation_semaphore,
+    trigger_correlation_coalesced,
+)
 from src.ingestion.schemas import NormalizedEvent
 
 router = APIRouter(tags=["ingestion"])
@@ -30,38 +35,23 @@ log = get_logger("api.ingest")
 # run_all_correlations hits the DB with 7 heavy window/JOIN queries per
 # batch, fire-and-forget, with NO cap: an ingest burst collapses the pool.
 # - Semaphore: at most CORRELATION_MAX_CONCURRENT runs at once.
-# - Coalescing: while a run is in flight, new batches skip their own run —
+# - Coalescing: while a run is in flight, new batches skip their own run --
 #   every run scans the whole lookback anyway, so queued duplicates only
 #   pile up queries and rows.
 # F-17: module-level references keep the fire-and-forget tasks GC-alive
 # (an unreferenced task can be garbage-collected mid-flight by CPython).
-CORRELATION_MAX_CONCURRENT = 2
-_correlation_semaphore = asyncio.Semaphore(CORRELATION_MAX_CONCURRENT)
-_correlation_inflight = False
-_correlation_inflight_lock = asyncio.Lock()
+# The coalescing state lives in src.detection.correlation (imported above) so
+# the scheduler's periodic sweep shares the SAME inflight guard as the
+# established ingest-path names.
+
 _post_process_tasks: set["asyncio.Task[None]"] = set()
 
 
 async def _trigger_correlation_coalesced() -> None:
-    """F-10: cap concurrency AND coalesce -- while one run is in flight, new
-    batches skip (each run covers the full lookback). Module-level so both
-    ingest entrypoints (POST /ingest and POST /ingest/osquery, V0.5b) put
-    their events on identical correlation footing."""
-    from src.detection.correlation import run_all_correlations
-
-    global _correlation_inflight
-    async with _correlation_semaphore:
-        if _correlation_inflight:
-            log.debug("correlation_run_coalesced_skip")
-            return
-        async with _correlation_inflight_lock:
-            if _correlation_inflight:
-                return
-            _correlation_inflight = True
-            try:
-                await run_all_correlations(persist=True)
-            finally:
-                _correlation_inflight = False
+    """Ingest-path name for the shared trigger (kept for callers + tests):
+    while one run is in flight, new batches skip -- the scheduler sweep
+    covers the rest (see trigger_correlation_coalesced)."""
+    await trigger_correlation_coalesced()
 
 
 class IngestEvent(BaseModel):

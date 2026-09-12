@@ -280,3 +280,45 @@ class TestCorrelationBounds:
 
         assert result["persisted"] == 1
         conn.execute.assert_awaited_once()
+
+
+class TestSharedCoalescingTrigger:
+    """The coalescing state moved to src.detection.correlation so the
+    scheduler's sweep shares the SAME inflight guard as the ingest path."""
+
+    @pytest.mark.asyncio
+    async def test_ingest_and_sweep_share_one_semaphore(self):
+        from src.api import ingest
+        from src.detection import correlation as corr
+
+        assert ingest._correlation_semaphore is corr._correlation_semaphore
+        assert ingest.CORRELATION_MAX_CONCURRENT == corr.CORRELATION_MAX_CONCURRENT
+
+    @pytest.mark.asyncio
+    async def test_second_call_while_inflight_is_coalesced(self):
+        """A request arriving during an in-flight run skips (the shared
+        trigger's core contract, now also exercised by the sweep)."""
+        from src.detection import correlation as corr
+
+        started = asyncio.Event()
+        release = asyncio.Event()
+        runs: list[int] = []
+
+        async def fake_run_all(persist=False):
+            runs.append(1)
+            started.set()
+            await release.wait()
+
+        with (
+            patch.object(corr, "run_all_correlations", fake_run_all),
+            patch.object(corr, "get_pool", AsyncMock()),
+        ):
+            first = asyncio.create_task(corr.trigger_correlation_coalesced())
+            await asyncio.wait_for(started.wait(), timeout=2)
+            second = asyncio.create_task(corr.trigger_correlation_coalesced())
+            await asyncio.sleep(0.05)
+            release.set()
+            await asyncio.wait_for(asyncio.gather(first, second), timeout=5)
+
+        assert len(runs) == 1  # the second call was coalesced away
+        assert corr._correlation_inflight is False  # state resets after the run

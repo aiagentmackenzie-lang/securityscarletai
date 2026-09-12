@@ -18,6 +18,7 @@ Event-driven trigger (wired in src/api/ingest.py, 2026-06-02):
   This file documents the contract; the wiring lives in the API layer.
 """
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, cast
@@ -27,6 +28,48 @@ from src.db.connection import get_pool
 from src.detection.alerts import create_alert
 
 log = get_logger("detection.correlation")
+
+
+# ───────────────────────────────────────────────────────────────
+# Coalesced correlation trigger (F-10) -- the SINGLE shared entrypoint for
+# every correlation run: the ingest path (both endpoints) AND the
+# scheduler's periodic sweep. While one run is in flight, new requests
+# skip: each run covers the full lookback, and the next sweep catches
+# late-landing pairs.
+#
+# The state lives here (not in src/api/ingest.py) so the scheduler sweep
+# shares the SAME inflight guard as the ingest path. Without the sweep,
+# a batch that raced an in-flight run was coalesced away -- and if ingest
+# then went quiet, the pair never got a correlation pass (found live
+# 2026-09-12: the purple loop's payload_callback pair landed exactly in
+# that gap; the productized feedback artifact named it).
+# ───────────────────────────────────────────────────────────────
+
+CORRELATION_MAX_CONCURRENT = 2
+_correlation_semaphore = asyncio.Semaphore(CORRELATION_MAX_CONCURRENT)
+_correlation_inflight = False
+_correlation_inflight_lock = asyncio.Lock()
+
+
+async def trigger_correlation_coalesced() -> None:
+    """Run all correlations (persist=True) under the shared cap + coalescing.
+
+    Used by both ingest entrypoints and the scheduler's periodic sweep. The
+    15-min INSERT dedup makes repeat sweeps cheap and idempotent.
+    """
+    global _correlation_inflight
+    async with _correlation_semaphore:
+        if _correlation_inflight:
+            log.debug("correlation_run_coalesced_skip")
+            return
+        async with _correlation_inflight_lock:
+            if _correlation_inflight:
+                return
+            _correlation_inflight = True
+            try:
+                await run_all_correlations(persist=True)
+            finally:
+                _correlation_inflight = False
 
 
 # ───────────────────────────────────────────────────────────────

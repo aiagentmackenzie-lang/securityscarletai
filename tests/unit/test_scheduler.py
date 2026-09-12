@@ -176,11 +176,41 @@ class TestScheduleRules:
         with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
             with patch("src.detection.scheduler.scheduler", mock_scheduler):
                 result = await schedule_rules()
-                # 2 rule jobs + 1 auto_train_check job (P2-25)
-                assert mock_scheduler.add_job.call_count == 3
+                # 2 rule jobs + auto_train_check + correlation_sweep (P2-25 + F-10 sweep)
+                assert mock_scheduler.add_job.call_count == 4
                 # the auto_train_check job is registered with a stable id
                 job_ids = [c.kwargs.get("id") for c in mock_scheduler.add_job.call_args_list]
                 assert "auto_train_check" in job_ids
+
+    @pytest.mark.asyncio
+    async def test_correlation_sweep_job_registered(self):
+        """The periodic correlation sweep (F-10 follow-up) must be scheduled:
+        batch-triggered runs alone leave late-landing pairs uncorrelated once
+        ingest goes quiet (found live 2026-09-12 via the purple-loop
+        feedback artifact)."""
+        mock_pool = AsyncMock()
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(return_value=[])
+
+        acquirer = MagicMock()
+        acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
+        acquirer.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = MagicMock(return_value=acquirer)
+
+        mock_scheduler = MagicMock()
+
+        with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
+            with patch("src.detection.scheduler.scheduler", mock_scheduler):
+                await schedule_rules()
+        job_ids = [c.kwargs.get("id") for c in mock_scheduler.add_job.call_args_list]
+        assert "correlation_sweep" in job_ids
+        # the sweep carries the settings-driven interval (default 60s)
+        sweep_call = next(
+            c
+            for c in mock_scheduler.add_job.call_args_list
+            if c.kwargs.get("id") == "correlation_sweep"
+        )
+        assert sweep_call.args[0].__name__ == "trigger_correlation_coalesced"
 
     @pytest.mark.asyncio
     async def test_schedule_empty_rules(self):
@@ -199,10 +229,10 @@ class TestScheduleRules:
         with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
             with patch("src.detection.scheduler.scheduler", mock_scheduler):
                 await schedule_rules()
-                # No rules, but the auto_train_check maintenance job is still scheduled (P2-25)
-                assert mock_scheduler.add_job.call_count == 1
+                # No rules, but the maintenance jobs still schedule (P2-25 + F-10 sweep)
+                assert mock_scheduler.add_job.call_count == 2
                 job_ids = [c.kwargs.get("id") for c in mock_scheduler.add_job.call_args_list]
-                assert job_ids == ["auto_train_check"]
+                assert job_ids == ["auto_train_check", "correlation_sweep"]
 
 
 class TestStopScheduler:
