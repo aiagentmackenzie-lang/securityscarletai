@@ -588,10 +588,13 @@ for that table (result sentinel `-2`) rather than crash. In that case, run a
 separate superuser-owned cron job to prune `audit_logs` past
 `AUDIT_RETENTION_DAYS`. The job reports the outcome honestly in its log.
 
-**Scale upgrade:** for very high ingest, switch to TimescaleDB hypertables
-(`logs`, `siem_health`) and use a `drop_chunks` retention policy instead of
-this job — see the note in `src/db/schema.sql`. TimescaleDB compression then
-supersedes the BRIN index too.
+**Scale upgrade — SHIPPED 2026-09-12 (V0.5c):** `logs` is a TimescaleDB
+hypertable (docker-compose pins `timescale/timescaledb:2.30.0-pg17`;
+schema.sql's guarded `$tsdb$` block converts it and is a no-op on vanilla
+PostgreSQL). Compression (7-day, segmentby host_name) + drop_chunks
+retention (30-day) supersede the BRIN index and this job's logs sweep -- the
+job still owns alerts/correlation/ai_usage retention and remains a fallback
+sweep for logs. Runbook: docs/PRODUCTION.md section 7.
 
 ### Health Response Shape
 

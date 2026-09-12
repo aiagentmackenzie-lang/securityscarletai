@@ -582,3 +582,77 @@ CREATE TABLE IF NOT EXISTS fleet_enrollments (
 
 CREATE INDEX IF NOT EXISTS idx_fleet_enrollments_last_seen
     ON fleet_enrollments (last_seen_at DESC);
+
+-- ============================================================
+-- TIMESCALEDB (V0.5c "Fleet & Scale") -- idempotent upgrade block
+-- ============================================================
+-- No-op on vanilla PostgreSQL (the extension is not available there, so CI's
+-- plain postgres service and dev volumes are untouched). When the timescaledb
+-- library IS preloaded (docker-compose sets shared_preload_libraries), this
+-- block, applied by the OWNER:
+--   1. creates the extension,
+--   2. converts logs into a 1-day-chunk hypertable (migrate_data => true
+--      absorbs the standing volume's existing rows),
+--   3. replaces the primary key with (time, id) -- a hypertable's unique
+--      constraints must contain the partition key. The identity column keeps
+--      generating ids; INSERTs never specify id, so no writer change,
+--   4. drops the BRIN index (superseded by chunk exclusion pruning),
+--   5. drops the correlation_matches -> logs FK (regular tables cannot
+--      reference a hypertable) and replaces it with a plain index,
+--   6. adds compression (chunks older than 7 days, segmented per host) and
+--      retention (30-day logs window) policies -- they supersede the BRIN
+--      index and the retention job's logs sweep (the job still owns
+--      alerts/correlation/ai_usage retention and stays as a fallback).
+-- Failures here are LOUD on purpose (no catch-all handler): schema apply
+-- runs under ON_ERROR_STOP=1, so a real upgrade failure must stop the boot.
+DO $tsdb$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb') THEN
+        RAISE NOTICE 'timescaledb not available -- skipping hypertable upgrade (vanilla PostgreSQL)';
+        RETURN;
+    END IF;
+    CREATE EXTENSION IF NOT EXISTS timescaledb;
+
+    -- FKs from regular tables to hypertables are unsupported: drop BEFORE
+    -- conversion, replace with a plain index (soft reference).
+    IF EXISTS (SELECT 1 FROM pg_constraint
+               WHERE conname = 'correlation_matches_trigger_event_id_fkey') THEN
+        ALTER TABLE correlation_matches
+            DROP CONSTRAINT correlation_matches_trigger_event_id_fkey;
+    END IF;
+    CREATE INDEX IF NOT EXISTS idx_corr_matches_trigger
+        ON correlation_matches (trigger_event_id);
+
+    -- PK restructure: (id) -> (time, id)
+    IF EXISTS (SELECT 1 FROM pg_constraint
+               WHERE conname = 'logs_pkey' AND conrelid = 'logs'::regclass) THEN
+        ALTER TABLE logs DROP CONSTRAINT logs_pkey;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conname = 'logs_time_id_pkey') THEN
+        ALTER TABLE logs ADD CONSTRAINT logs_time_id_pkey PRIMARY KEY (time, id);
+    END IF;
+
+    -- Convert (migrate_data => true rewrites existing rows into chunks;
+    -- on an empty fresh-volume table this is instant; idempotent re-runs
+    -- no-op via if_not_exists => true).
+    PERFORM create_hypertable('logs', 'time',
+        chunk_time_interval => INTERVAL '1 day',
+        migrate_data => true,
+        if_not_exists => true);
+
+    -- BRIN is superseded by chunk exclusion pruning.
+    DROP INDEX IF EXISTS idx_logs_time_brin;
+
+    -- Compression (TimescaleDB 2.30 columnstore API: segmentby/orderby live
+    -- on the table reloptions, the policy only schedules it), then policies
+    -- (both idempotent via if_not_exists):
+    ALTER TABLE logs SET (
+        timescaledb.compress = true,
+        timescaledb.segmentby = 'host_name',
+        timescaledb.orderby = 'time DESC'
+    );
+    PERFORM add_compression_policy('logs', INTERVAL '7 days', if_not_exists => true);
+    PERFORM add_retention_policy('logs', INTERVAL '30 days', if_not_exists => true);
+END
+$tsdb$;
