@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      SecurityScarletAI fleet shipper (macOS agent host, user-domain agent).
+
+      SECURITY NOTE: launchd has no EnvironmentFile equivalent, so the fleet
+      token lives in this plist's EnvironmentVariables. chmod 600 the plist
+      (bootstrap does) -- a world-readable plist is a token disclosure.
+      Alternative hardening: keep the plist out of the token business and
+      run the shipper under a wrapper that sources a 0600 env file.
+    -->
+    <key>Label</key>
+    <string>com.scarletai.fleet-shipper</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>REPLACE_WITH_INSTALL_DIR/fleet_shipper.py</string>
+        <string>--url</string>
+        <string>REPLACE_WITH_SIEM_URL/api/v1/ingest/osquery</string>
+        <string>--log-path</string>
+        <string>REPLACE_WITH_RESULTS_LOG</string>
+        <string>--checkpoint</string>
+        <string>REPLACE_WITH_DATA_DIR/fleet_shipper_checkpoint.json</string>
+        <string>--batch-max-lines</string>
+        <string>500</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>SCARLETAI_FLEET_TOKEN</key>
+        <string>REPLACE_WITH_FLEET_TOKEN</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>REPLACE_WITH_DATA_DIR/fleet-shipper.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>REPLACE_WITH_DATA_DIR/fleet-shipper.err.log</string>
+</dict>
+</plist>
