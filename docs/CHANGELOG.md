@@ -1,5 +1,38 @@
 # CHANGELOG
 
+## V0.6c model currency — benchmarked, default retained (2026-09-13, feat/v0.6c-model-benchmark)
+
+**The local LLM is now selected by a measured, reproducible benchmark on
+the SIEM's own validation loop — and the incumbent wins it.**
+
+- Harness: scripts/model_benchmark.py — the purple-loop task set (verdict
+  drafts via the investigator's exact VERDICT_SYSTEM_PROMPT + triage
+  explanations via the versioned prompt renderer) across candidate local
+  SLMs through the REAL client path (query_llm with settings.ollama_model
+  swapped; ai_usage persistence skipped so the standing volume stays
+  clean). Scoring: verdict agreement vs a known-answer corpus, closed-
+  contract validity, explanation grounding, production-SLA compliance
+  (30s ollama_timeout), latency, size; artifacts committed under runs/.
+- Result (4 candidates, 2 runs/case, docs/MODEL_BENCHMARK.md): mistral:7b
+  wins the deployable-quality composite (0.85; agreement 0.75, contract
+  validity 1.00, explanation grounding 1.00, prod-SLA 1.00). phi4-mini
+  ties on agreement but breaks the JSON contract (0.25) — not deployable
+  for the verdict task without prompt hardening. qwen3.5:2b/9b (with
+  think=false) reach 0.55/0.70. DEFAULT RETAINED: mistral:7b (no silent
+  swap; the reviewed decision carries the scorecard).
+- LIVE FINDING (production-integration, not benchmark-only):
+  thinking-capable models (Qwen3.5-family) return their reasoning in
+  Ollama's separate `thinking` field and leave `response` EMPTY until the
+  thinking budget is exhausted — every SIEM JSON contract receives
+  nothing. Fix: query_llm gains an opt-in think parameter (None = model
+  default; False = disable the thinking phase so contracts get the full
+  budget); unit-tested (TestThinkParameter).
+- Honest scope: screening benchmark (N=8 verdict + 4 explanation calls per
+  candidate), hand-built known-answer corpus (the purple-loop shapes);
+  disqualifies contract/SLA breakers, does not statistically prove
+  superiority. Re-benchmark triggers documented (phi4-mini prompt
+  hardening, incumbent generations, timeout regressions).
+
 ## V0.6a cross-platform fleet + auth sources (2026-09-14, feat/v0.6a-cross-platform)
 
 **The SIEM stops being a macOS product. The brute-force chain now has a

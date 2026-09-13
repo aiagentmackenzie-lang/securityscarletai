@@ -1,0 +1,434 @@
+[
+  {
+    "model": "mistral:7b",
+    "size_gb": 4.37,
+    "load_s": 14.5,
+    "verdict_agreement": 0.75,
+    "contract_validity": 1,
+    "explanation_ok": 1,
+    "latency_verdict_ms": 20479,
+    "latency_explanation_ms": 19592,
+    "quality": 0.85,
+    "quality_per_gb": 0.195,
+    "verdict_runs": [
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 23410
+      },
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 23354
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 22549
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 21362
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": "benign",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 20024
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": "benign",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 16367
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": "needs_review",
+        "agree": false,
+        "contract_ok": true,
+        "latency_ms": 18788
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": "needs_review",
+        "agree": false,
+        "contract_ok": true,
+        "latency_ms": 17979
+      }
+    ],
+    "explanation_runs": [
+      {
+        "case": "reverse_shell_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 20095
+      },
+      {
+        "case": "reverse_shell_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 19280
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 21320
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 17671
+      }
+    ]
+  },
+  {
+    "model": "phi4-mini",
+    "size_gb": 2.49,
+    "load_s": 1.9,
+    "verdict_agreement": 0.75,
+    "contract_validity": 0.25,
+    "explanation_ok": 0.5,
+    "latency_verdict_ms": 10269,
+    "latency_explanation_ms": 8130,
+    "quality": 0.6,
+    "quality_per_gb": 0.241,
+    "verdict_runs": [
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": false,
+        "latency_ms": 12490
+      },
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": false,
+        "latency_ms": 10451
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": false,
+        "latency_ms": 13354
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": false,
+        "latency_ms": 10960
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": "benign",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 6629
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": "benign",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 8335
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": "true_positive",
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 10534
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": "true_positive",
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 9402
+      }
+    ],
+    "explanation_runs": [
+      {
+        "case": "reverse_shell_alert",
+        "source": "ollama",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 9553
+      },
+      {
+        "case": "reverse_shell_alert",
+        "source": "ollama",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 10016
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 6290
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 6662
+      }
+    ]
+  },
+  {
+    "model": "qwen3.5:2b",
+    "size_gb": 6.59,
+    "load_s": 2.2,
+    "verdict_agreement": 0,
+    "contract_validity": 0,
+    "explanation_ok": 0,
+    "latency_verdict_ms": 0,
+    "latency_explanation_ms": 0,
+    "quality": 0.0,
+    "quality_per_gb": 0.0,
+    "verdict_runs": [
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0
+      }
+    ],
+    "explanation_runs": [
+      {
+        "case": "reverse_shell_alert",
+        "source": "error",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "reverse_shell_alert",
+        "source": "error",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "error",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "error",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 0
+      }
+    ]
+  },
+  {
+    "model": "qwen3.5:9b",
+    "size_gb": 6.59,
+    "load_s": 4.8,
+    "verdict_agreement": 0,
+    "contract_validity": 0,
+    "explanation_ok": 0,
+    "latency_verdict_ms": 0,
+    "latency_explanation_ms": 0,
+    "quality": 0.0,
+    "quality_per_gb": 0.0,
+    "verdict_runs": [
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0
+      }
+    ],
+    "explanation_runs": [
+      {
+        "case": "reverse_shell_alert",
+        "source": "error",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "reverse_shell_alert",
+        "source": "error",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "error",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 0
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "error",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 0
+      }
+    ]
+  }
+]

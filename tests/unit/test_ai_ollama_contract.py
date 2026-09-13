@@ -311,3 +311,48 @@ class TestIsOllamaAvailable:
             mock_client_cls.return_value = mock_client
 
             assert await is_ollama_available() is False
+
+
+class TestThinkParameter:
+    """V0.6c: reasoning-mode control for thinking-capable models.
+
+    Live finding 2026-09-13: a Qwen3.5-family model spends its token budget
+    on the separate `thinking` phase and returns response="" — the JSON
+    contracts get nothing. `think=False` disables the phase. The param is
+    opt-in (None = model default) so existing callers are untouched.
+    """
+
+    def _mock_client(self):
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {"response": '{"verdict": "benign"}'}
+        response.raise_for_status = MagicMock()
+        client = AsyncMock()
+        client.post = AsyncMock(return_value=response)
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        return client
+
+    @pytest.mark.asyncio
+    async def test_think_false_reaches_payload(self):
+        client = self._mock_client()
+        with patch("src.ai.ollama_client.httpx.AsyncClient", return_value=client):
+            await query_llm("test prompt", think=False)
+        payload = client.post.call_args.kwargs["json"]
+        assert payload["think"] is False
+
+    @pytest.mark.asyncio
+    async def test_default_omits_think_key(self):
+        client = self._mock_client()
+        with patch("src.ai.ollama_client.httpx.AsyncClient", return_value=client):
+            await query_llm("test prompt")
+        payload = client.post.call_args.kwargs["json"]
+        assert "think" not in payload  # model default preserved
+
+    @pytest.mark.asyncio
+    async def test_think_false_result_unaffected(self):
+        client = self._mock_client()
+        with patch("src.ai.ollama_client.httpx.AsyncClient", return_value=client):
+            result = await query_llm("test prompt", think=False)
+        assert result.ok is True
+        assert result.source == "ollama"

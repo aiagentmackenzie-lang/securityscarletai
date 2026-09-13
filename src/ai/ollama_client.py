@@ -106,6 +106,7 @@ async def query_llm(
     max_tokens: int = 1024,
     prompt_version: Optional[str] = None,
     fallback_text: Optional[str] = None,
+    think: Optional[bool] = None,
 ) -> LLMResult:
     """Query the local Ollama LLM. NEVER returns a bare string.
 
@@ -121,6 +122,13 @@ async def query_llm(
         prompt_version: Optional version tag for cost tracking
         fallback_text: Text to serve if Ollama is down. If None, an
             error result is returned.
+        think: Optional reasoning-mode control for thinking-capable
+            models (Qwen3.5-family et al). None = model default; False =
+            disable the separate `thinking` phase so the JSON contracts
+            get their full token budget (a thinking model that exhausts
+            its budget reasoning returns an EMPTY response -- observed
+            live 2026-09-13). Ollama < 0.9 rejects the field -- callers
+            pass it only for models that need it.
 
     Returns:
         LLMResult — never None, never raises.
@@ -128,18 +136,21 @@ async def query_llm(
     start = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=settings.ollama_timeout) as client:
+            payload: dict[str, Any] = {
+                "model": settings.ollama_model,
+                "prompt": prompt,
+                "system": system_prompt,
+                "stream": False,
+                "options": {
+                    "temperature": temperature,
+                    "num_predict": max_tokens,
+                },
+            }
+            if think is not None:
+                payload["think"] = think
             response = await client.post(
                 f"{settings.ollama_base_url}/api/generate",
-                json={
-                    "model": settings.ollama_model,
-                    "prompt": prompt,
-                    "system": system_prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": temperature,
-                        "num_predict": max_tokens,
-                    },
-                },
+                json=payload,
             )
             response.raise_for_status()
             data = response.json()

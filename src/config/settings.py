@@ -92,7 +92,11 @@ class Settings(BaseSettings):
     # --- Ollama ---
     ollama_base_url: str = "http://localhost:11434"
     # Default is the model actually installed in the reference deploy
-    # (`mistral:7b`, verified 2026-08-26). Override per deployment.
+    # (`mistral:7b`). RE-BENCHMARKED 2026-09-13 (V0.6c, docs/MODEL_BENCHMARK.md):
+    # kept — wins the deployable-quality composite 0.85 vs best challenger 0.70,
+    # prod-SLA 1.00, contract validity 1.00 (phi4-mini ties on agreement but
+    # breaks the JSON contract 75% of the time; qwen3.5 needs think=false —
+    # query_llm supports it). Re-benchmark triggers listed in the doc.
     ollama_model: str = "mistral:7b"
     ollama_timeout: int = 30
 
