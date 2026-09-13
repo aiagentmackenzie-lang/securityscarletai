@@ -44,13 +44,13 @@ Most security dashboards show you charts. This one shows you **receipts**:
   sha256-at-rest tokens, host-bound identity (a stolen token cannot spoof
   another host), and a fail-closed agent install kit.
 
-| | Verified state (2026-09-12 — counts hand-checked against the code, no auto-updating badge) |
+| | Verified state (2026-09-14 — counts hand-checked against the code, no auto-updating badge) |
 |---|---|
-| Tests | **1,980 unit** (mocked DB) + **27 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **86%** |
+| Tests | **2,007 unit** (mocked DB) + **27 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **86%** |
 | Detections | **104 Sigma rules** (vocabulary-gated in CI) · **8/8 correlation chains live-fire verified** |
 | Agentic | Read-only investigator · SIEM **MCP server** (3 tools over a scoped read-only DB role) · AI-usage detection domain |
 | Response | 6 action types — 3 live-verified on the reference deployment, 3 capability-gated fail-closed |
-| Pipeline | Real osqueryd telemetry → Sigma alerts in production since 2026-09-04 · FIM file telemetry · fleet ingest · TimescaleDB store |
+| Pipeline | Real osqueryd telemetry → Sigma alerts in production since 2026-09-04 · FIM file telemetry · fleet ingest (macOS/Linux/Windows agents; Windows auth via Security eventid 4624/4625) · TimescaleDB store |
 
 ---
 

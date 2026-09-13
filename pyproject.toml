@@ -1,6 +1,6 @@
 [project]
 name = "securityscarletai"
-version = "0.5.0"  # V0.5 line delivered (fleet enrollment/shipping, TimescaleDB store, small-fleet kit); tags still stop at v0.2.0 — tag at release time
+version = "0.6.0"  # V0.6a cross-platform fleet (Windows/Linux agent kit + auth on all three); tags still stop at v0.2.0 — tag at release time
 description = ""
 authors = [
     {name = "SecurityScarletAI Contributors"}
