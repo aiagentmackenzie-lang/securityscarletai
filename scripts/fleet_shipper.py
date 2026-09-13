@@ -9,8 +9,9 @@ vocabulary live server-side, so this script carries zero SIEM logic.
 Auth: a per-host fleet enrollment token (admin enrolls via POST
 /api/v1/fleet/enroll; the plaintext is shown ONCE). The token is HOST-BOUND
 server-side: only events for the enrolled host pass. The token is read
-from --token or the SCARLETAI_FLEET_TOKEN environment variable and is
-NEVER logged.
+from --token-file (the kit default -- argv is visible to other local users,
+so it must never carry the token), --token, or the SCARLETAI_FLEET_TOKEN
+environment variable, and is NEVER logged.
 
 Delivery semantics (honest, documented): the checkpoint advances ONLY on a
 2xx response, so SIEM outages re-send unacked batches — at-least-once
@@ -230,6 +231,12 @@ def main() -> None:
     p.add_argument(
         "--token", default="", help="fleet enrollment token (or env SCARLETAI_FLEET_TOKEN)"
     )
+    p.add_argument(
+        "--token-file",
+        default="",
+        help="file holding the fleet token (preferred over --token: argv is "
+        "visible to other local users via the process listing)",
+    )
     p.add_argument("--log-path", required=True, help="osquery results log to tail")
     p.add_argument("--checkpoint", default="/var/tmp/scarletai_fleet_shipper_checkpoint.json")
     p.add_argument("--batch-max-lines", type=int, default=500)
@@ -239,8 +246,17 @@ def main() -> None:
         args.batch_max_lines = 2000
 
     token = args.token or os.environ.get("SCARLETAI_FLEET_TOKEN", "")
+    if not token and args.token_file:
+        try:
+            token = Path(args.token_file).read_text(encoding="utf-8").strip()
+        except OSError as e:
+            print(f"fleet_shipper: token file unreadable ({args.token_file}): {e}", file=sys.stderr)
+            sys.exit(2)
     if not token:
-        print("fleet_shipper: no token (--token or SCARLETAI_FLEET_TOKEN)", file=sys.stderr)
+        print(
+            "fleet_shipper: no token (--token-file preferred, or --token or SCARLETAI_FLEET_TOKEN)",
+            file=sys.stderr,
+        )
         sys.exit(2)
     try:
         Shipper(args, token).run()

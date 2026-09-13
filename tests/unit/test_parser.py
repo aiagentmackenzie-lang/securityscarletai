@@ -245,3 +245,265 @@ def test_file_event_target_path_mapped():
     assert event is not None
     assert event.event_category == "file"
     assert event.file_path == "/Users/admin/Library/LaunchAgents/com.apple.update.plist"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# V0.6a -- Windows fleet tables (cross-platform fleet)
+# Every mapping below was verified against osquery source 2026-09-14 before
+# implementation (see docs/internal/V0.6A_SPEC.md §0).
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _win_line(table: str, columns: dict, action: str = "added") -> str:
+    return json.dumps(
+        {
+            "name": table,
+            "hostIdentifier": "win-fleet-01",
+            "calendarTime": "Mon Sep 14 12:00:00 2026 UTC",
+            "unixTime": 1774267200,
+            "columns": columns,
+            "action": action,
+        }
+    )
+
+
+class TestWindowsEventsAuth:
+    """windows_events eventid 4624/4625 -> the closed auth vocabulary (D1).
+
+    This is what arms the brute-force chain on Windows telemetry with ZERO
+    rule changes: the Sigma threshold + brute_force_to_success correlation
+    key on event_category='authentication' + auth_failed/auth_success.
+    """
+
+    def test_4625_maps_to_auth_failed_with_xml_payload(self):
+        # Security channel data payloads arrive as XML text -- the classic
+        # failed-logon shape, user + IP inside Data elements.
+        data = (
+            "<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'>"
+            "<EventData>"
+            "<Data Name='TargetUserName'>administrator</Data>"
+            "<Data Name='IpAddress'>203.0.113.50</Data>"
+            "<Data Name='WorkstationName'>ATTACKBOX</Data>"
+            "</EventData></Event>"
+        )
+        event = parse_osquery_line(
+            _win_line("windows_events", {"eventid": "4625", "data": data, "source": "Security"})
+        )
+        assert event is not None
+        assert event.event_category == "authentication"
+        assert event.event_action == "auth_failed"
+        assert event.user_name == "administrator"
+        assert event.source_ip == "203.0.113.50"
+        assert event.raw_data["columns"]["data"] == data  # chain of custody
+
+    def test_4624_maps_to_auth_success_with_json_payload(self):
+        # Some providers serialize `data` as JSON -- the JSON hunt path.
+        data = json.dumps(
+            {"EventData": {"TargetUserName": "svc-backup", "IpAddress": "198.51.100.7"}}
+        )
+        event = parse_osquery_line(
+            _win_line("windows_events", {"eventid": "4624", "data": data})
+        )
+        assert event is not None
+        assert event.event_action == "auth_success"
+        assert event.user_name == "svc-backup"
+        assert event.source_ip == "198.51.100.7"
+
+    def test_other_eventids_fail_closed_unmapped(self):
+        # 4720 (user created) etc. stay UNMAPPED: adding auth-adjacent tokens
+        # is a reviewed per-token decision (V0.6b), not a silent widening.
+        event = parse_osquery_line(
+            _win_line("windows_events", {"eventid": "4720", "data": "<x/>"})
+        )
+        assert event is not None  # row still ingests
+        assert event.event_category == "authentication"
+        assert event.event_action is None  # no fabricated token
+        assert event.raw_data["columns"]["eventid"] == "4720"
+
+    def test_unparseable_payload_keeps_token_from_eventid(self):
+        # eventid is the ground truth; a malformed `data` payload must not
+        # lose the auth token -- only the enrichment (user/IP) degrades.
+        event = parse_osquery_line(
+            _win_line("windows_events", {"eventid": "4625", "data": "<<<not-json-not-xml<<<"})
+        )
+        assert event is not None
+        assert event.event_action == "auth_failed"
+        assert event.user_name is None
+        assert event.source_ip is None
+
+    def test_loopback_and_sentinel_ips_dropped(self):
+        # Local/loopback logons carry no remote-attacker context: 4624 with
+        # IpAddress '-' (local) or ::1 ships source_ip=None.
+        for bogus in ("-", "::1", "127.0.0.1", ""):
+            data = json.dumps({"EventData": {"TargetUserName": "raph", "IpAddress": bogus}})
+            event = parse_osquery_line(
+                _win_line("windows_events", {"eventid": "4624", "data": data})
+            )
+            assert event.source_ip is None, bogus
+            assert event.user_name == "raph"  # identity context survives
+
+    def test_non_integer_eventid_fail_closed(self):
+        event = parse_osquery_line(
+            _win_line("windows_events", {"eventid": "not-a-number", "data": "{}"})
+        )
+        assert event is not None
+        assert event.event_action is None
+
+
+class TestProcessEtwEvents:
+    """process_etw_events: ProcessStart/ProcessStop -> process vocabulary.
+
+    The table has NO `name` column (verified) -- process_name comes from
+    basename(path), on both separators.
+    """
+
+    def test_process_start_maps_and_derives_name_from_windows_path(self):
+        event = parse_osquery_line(
+            _win_line(
+                "process_etw_events",
+                {
+                    "type": "ProcessStart",
+                    "pid": "4242",
+                    "ppid": "800",
+                    "path": "C:\\Windows\\System32\\cmd.exe",
+                    "cmdline": "cmd.exe /c whoami",
+                    "username": "raph",
+                    "token_elevation_type": "Full",
+                },
+            )
+        )
+        assert event is not None
+        assert event.event_category == "process"
+        assert event.event_action == "process_start"
+        assert event.event_type == "start"
+        assert event.process_name == "cmd.exe"
+        assert event.process_pid == 4242
+        assert event.process_cmdline == "cmd.exe /c whoami"
+
+    def test_process_stop_flips_event_type_to_end(self):
+        event = parse_osquery_line(
+            _win_line(
+                "process_etw_events",
+                {"type": "ProcessStop", "pid": "4242", "path": "C:\\x\\tool.exe", "exit_code": "0"},
+            )
+        )
+        assert event is not None
+        assert event.event_action == "process_end"
+        assert event.event_type == "end"
+
+    def test_unknown_etw_type_fail_closed(self):
+        event = parse_osquery_line(
+            _win_line("process_etw_events", {"type": "SomethingElse", "pid": "1"})
+        )
+        assert event is not None
+        assert event.event_action is None
+
+    def test_posix_style_path_basename_fallback(self):
+        # Defensive cross-platform fallback (a Windows host running a POSIX-
+        # style path tool) -- basename still derives.
+        event = parse_osquery_line(
+            _win_line("process_etw_events", {"type": "ProcessStart", "path": "/usr/bin/python3"})
+        )
+        assert event is not None
+        assert event.process_name == "python3"
+
+
+class TestPowerShellEvents:
+    def test_script_text_maps_to_command_observed_and_cmdline(self):
+        event = parse_osquery_line(
+            _win_line(
+                "powershell_events",
+                {
+                    "script_text": "Invoke-Mimikatz -DumpCreds",
+                    "script_name": "obfuscated.ps1",
+                    "script_path": "C:\\Users\\raph\\AppData\\Temp\\obfuscated.ps1",
+                    "script_block_id": "{abcd-1234}",
+                },
+            )
+        )
+        assert event is not None
+        assert event.event_category == "process"
+        assert event.event_action == "command_observed"
+        assert event.process_cmdline == "Invoke-Mimikatz -DumpCreds"
+        assert event.process_path == "C:\\Users\\raph\\AppData\\Temp\\obfuscated.ps1"
+
+
+class TestNtfsJournalEvents:
+    def test_action_maps_through_file_token_vocabulary(self):
+        cases = {
+            "Created": "file_created",
+            "Deleted": "file_deleted",
+            "Overwritten": "file_modified",
+            "": "file_event",
+        }
+        for action, expected in cases.items():
+            event = parse_osquery_line(
+                _win_line(
+                    "ntfs_journal_events",
+                    {"action": action, "path": "C:\\Windows\\Temp\\drop.exe", "category": "tmp_staging"},
+                )
+            )
+            assert event is not None
+            assert event.event_category == "file"
+            assert event.event_action == expected, action
+            assert event.file_path == "C:\\Windows\\Temp\\drop.exe"
+
+
+class TestWindowsStateTables:
+    """scheduled_tasks / services / registry -> config observations."""
+
+    def test_scheduled_tasks_maps_to_config_observed(self):
+        event = parse_osquery_line(
+            _win_line(
+                "scheduled_tasks",
+                {
+                    "name": "MicrosoftWindowsUpdate",
+                    "action": "C:\\Users\\raph\\AppData\\update.exe",
+                    "path": "\\Microsoft\\Windows\\UPDATE\\",
+                    "enabled": "1",
+                    "hidden": "1",
+                    "state": "Ready",
+                },
+            )
+        )
+        assert event is not None
+        assert event.event_category == "configuration"
+        assert event.event_action == "config_observed"
+        assert event.raw_data["columns"]["hidden"] == "1"
+
+    def test_services_maps_to_config_observed(self):
+        event = parse_osquery_line(
+            _win_line(
+                "services",
+                {
+                    "name": "ScarletAgent",
+                    "display_name": "Scarlet Agent Service",
+                    "status": "RUNNING",
+                    "start_type": "AUTO_START",
+                    "path": "C:\\Windows\\System32\\svchost.exe -k netsvcs",
+                },
+            )
+        )
+        assert event is not None
+        assert event.event_category == "configuration"
+        assert event.event_action == "config_observed"
+
+    def test_registry_maps_to_config_observed(self):
+        event = parse_osquery_line(
+            _win_line(
+                "registry",
+                {
+                    "key": "HKEY_USERS\\S-1-5-21-x\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                    "path": "HKEY_USERS\\S-1-5-21-x\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\OneDrive",
+                    "name": "OneDrive",
+                    "type": "REG_SZ",
+                    "data": "C:\\Users\\raph\\AppData\\OneDrive.exe",
+                    "mtime": "1774267200",
+                },
+            )
+        )
+        assert event is not None
+        assert event.event_category == "configuration"
+        assert event.event_action == "config_observed"
+        # registry `path` is NOT a file path -- file context must stay NULL.
+        assert event.file_path is None

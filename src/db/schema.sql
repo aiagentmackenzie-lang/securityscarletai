@@ -580,6 +580,12 @@ CREATE TABLE IF NOT EXISTS fleet_enrollments (
     notes        TEXT
 );
 
+-- V0.6a cross-platform fleet: the host's OS family, captured at enrollment
+-- (darwin|linux|windows|unknown). Fleet inventory truth + the deploy kit's
+-- osquery-config selection input; the server never pushes configs.
+-- Idempotent for standing volumes: pre-V0.6a rows carry NULL = unknown.
+ALTER TABLE fleet_enrollments ADD COLUMN IF NOT EXISTS platform TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_fleet_enrollments_last_seen
     ON fleet_enrollments (last_seen_at DESC);
 

@@ -1,0 +1,96 @@
+{
+  "options": {
+    "schedule_splay_percent": "10",
+    "worker_threads": "2",
+    "host_identifier": "hostname",
+    "disable_events": "false",
+    "verbose": "false",
+    "enable_process_etw_events": "true",
+    "enable_windows_events_publisher": "true",
+    "enable_windows_events_subscriber": "true",
+    "windows_event_channels": "Security",
+    "enable_powershell_events_subscriber": "true",
+    "enable_ntfs_event_publisher": "true"
+  },
+  "schedule": {
+    "processes": {
+      "query": "SELECT pid, name, path, cmdline, uid, gid, parent, start_time, resident_size FROM processes;",
+      "interval": 60,
+      "description": "All running processes - differential mode detects new process launches (cross-platform)"
+    },
+    "listening_ports": {
+      "query": "SELECT lp.pid, lp.port, lp.protocol, lp.address, p.name, p.path FROM listening_ports lp JOIN processes p ON lp.pid = p.pid WHERE lp.address != '127.0.0.1';",
+      "interval": 120,
+      "description": "Network listeners excluding localhost - detects backdoors and C2 beacons"
+    },
+    "logged_in_users": {
+      "query": "SELECT type, user, host, time, pid FROM logged_in_users;",
+      "interval": 60,
+      "description": "Active sessions (WTS-backed on Windows) - session state; auth events stream from windows_events (Security channel, 4624/4625)"
+    },
+    "open_sockets": {
+      "query": "SELECT pid, remote_address, remote_port, local_address, local_port, protocol FROM process_open_sockets WHERE remote_address != '' AND remote_address != '::' AND remote_address != '0.0.0.0';",
+      "interval": 60,
+      "description": "Active network connections - critical for C2 and exfil detection"
+    },
+    "startup_items": {
+      "query": "SELECT name, path, source, status, username FROM startup_items;",
+      "interval": 300,
+      "description": "Registry Run keys + Startup folder entries - persistence detection"
+    },
+    "scheduled_tasks": {
+      "query": "SELECT name, action, path, enabled, state, hidden, last_run_time, next_run_time FROM scheduled_tasks;",
+      "interval": 300,
+      "description": "Task Scheduler entries - persistence mechanism detection (hidden+enabled tasks are the classic hiding spot)"
+    },
+    "services": {
+      "query": "SELECT name, display_name, status, start_type, pid, path, user_account FROM services;",
+      "interval": 300,
+      "description": "Windows services - service-based persistence and privilege escalation (NOTE: the osquery table is `services`, not windows_services)"
+    },
+    "registry": {
+      "query": "SELECT path, key, name, type, data, mtime FROM registry WHERE key LIKE 'HKEY_USERS\\%\\Software\\Microsoft\\Windows\\CurrentVersion\\Run%%' OR key LIKE 'HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Run%%';",
+      "interval": 300,
+      "description": "Run/RunOnce key values (HKLM + per-user hives; osquery cannot read HKEY_CURRENT_USER) - differential mode detects new persistence entries"
+    },
+    "process_etw_events": {
+      "query": "SELECT time, datetime, type, pid, ppid, path, cmdline, username, session_id, exit_code, token_elevation_type, mandatory_label FROM process_etw_events;",
+      "interval": 60,
+      "description": "Windows process execution events (ETW, event-precise) - type column carries ProcessStart/ProcessStop; catches sub-60s processes the processes-differential never sees; no `name` column (parser derives basename(path))"
+    },
+    "windows_events": {
+      "query": "SELECT time, datetime, source, provider_name, computer_name, eventid, task, level, keywords, data FROM windows_events;",
+      "interval": 60,
+      "description": "Windows event log (Security channel via windows_event_channels option) - eventid 4624/4625 = logon success/failure, derived server-side into the auth_failed/auth_success vocabulary that arms the brute-force chain; user/IP extracted best-effort from the `data` payload"
+    },
+    "powershell_events": {
+      "query": "SELECT time, datetime, script_block_id, script_block_count, script_text, script_name, script_path FROM powershell_events;",
+      "interval": 60,
+      "description": "PowerShell script blocks (requires script block logging enabled on the host; Group Policy: Windows Components > Administrative Templates > PowerShell > Turn on PowerShell Script Block Logging) - script_text maps to process_cmdline"
+    },
+    "ntfs_journal_events": {
+      "query": "SELECT time, path, action, category, old_path, drive_letter, file_attributes, record_timestamp FROM ntfs_journal_events;",
+      "interval": 60,
+      "description": "FIM via the NTFS USN journal for watched path sets (Windows FIM backend; file_events is NOT scheduled on Windows) - see file_paths below"
+    }
+  },
+  "file_paths": {
+    "tmp_staging": [
+      "C:\\Windows\\Temp\\%%",
+      "C:\\Users\\%\\AppData\\Local\\Temp\\%%"
+    ],
+    "startup_persistence": [
+      "C:\\Users\\%\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\%%",
+      "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\%%"
+    ],
+    "staging_dirs": [
+      "C:\\Users\\%\\AppData\\Roaming\\%%",
+      "C:\\Users\\Public\\%%"
+    ]
+  },
+  "exclude_paths": {
+    "tmp_staging": [
+      "C:\\Windows\\Temp\\osquery%"
+    ]
+  }
+}

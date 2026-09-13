@@ -16,8 +16,10 @@ osquery result log format (one JSON object per line):
 """
 
 import json
+import re
 import socket
 from datetime import datetime, timezone
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Optional
 
 from src.config.logging import get_logger
@@ -30,6 +32,15 @@ log = get_logger("ingestion.parser")
 _EXIT_TABLES = frozenset(
     {"processes", "process_events", "logged_in_users", "open_sockets", "listening_ports"}
 )
+
+# windows_events `data` payload extraction bounds (V0.6a). The payload
+# serialization varies by provider (JSON-ish for some, XML text for the
+# Security channel), so extraction is best-effort over BOTH shapes and
+# fail-closed: nothing found -> NULL, the raw payload ALWAYS survives in
+# raw_data (chain of custody). 16 KB cap bounds pathological payloads.
+_WE_DATA_SCAN_LIMIT = 16 * 1024
+_WE_USER_KEYS = ("targetusername", "subjectusername")
+_WE_IP_KEYS = ("ipaddress", "sourceip")
 
 
 def parse_osquery_line(raw_line: str) -> Optional[NormalizedEvent]:
@@ -82,10 +93,35 @@ def parse_osquery_line(raw_line: str) -> Optional[NormalizedEvent]:
             event_type = "end"
         elif osquery_action not in ("added", "removed"):
             event_type = "info"
+    elif table_name == "process_etw_events":
+        # Windows ETW stop rows arrive as 'added' events whose columns
+        # carry type=ProcessStop (derived above into event_action).
+        if (columns.get("type") or "").strip().lower() == "processstop":
+            event_type = "end"
+        elif osquery_action not in ("added", "removed"):
+            event_type = "info"
     elif osquery_action not in ("added", "removed"):
         # Snapshot dumps / unknown shapes are plain observations -- neutral
         # ECS event_type, no fabricated start/end semantics.
         event_type = "info"
+
+    # ── Table-specific enrichment (fail-closed; raw always preserved) ──
+    user_name = columns.get("user") or columns.get("username") or columns.get("uid")
+    source_ip = _safe_ip(columns.get("local_address") or columns.get("address"))
+    process_name = columns.get("name")
+
+    if table_name == "windows_events":
+        # The auth context (user, source IP) lives INSIDE the `data`
+        # payload, not in columns -- extract best-effort (V0.6a, D2).
+        we_user, we_ip = _windows_event_context(columns.get("data"))
+        if we_user and not user_name:
+            user_name = we_user
+        if we_ip and not source_ip:
+            source_ip = _safe_ip(we_ip)
+    elif table_name == "process_etw_events" and not process_name:
+        # ETW rows carry NO `name` column -- the executable basename IS the
+        # process name shape the process rules expect.
+        process_name = _basename_any_platform(columns.get("path"))
 
     return NormalizedEvent(
         **{
@@ -95,12 +131,14 @@ def parse_osquery_line(raw_line: str) -> Optional[NormalizedEvent]:
             "event_type": event_type,
             "event_action": event_action,
             "source": f"osquery:{table_name}",
-            "user_name": columns.get("user") or columns.get("username") or columns.get("uid"),
-            "process_name": columns.get("name"),
+            "user_name": user_name,
+            "process_name": process_name,
             "process_pid": _safe_int(columns.get("pid")),
-            "process_cmdline": columns.get("cmdline"),
-            "process_path": columns.get("path"),
-            "source_ip": _safe_ip(columns.get("local_address") or columns.get("address")),
+            "process_cmdline": columns.get("cmdline") or columns.get("script_text"),
+            # powershell_events carries the script location as `script_path`
+            # (no `path` column) -- it IS the executing-file path shape.
+            "process_path": columns.get("path") or columns.get("script_path"),
+            "source_ip": source_ip,
             "destination_ip": _safe_ip(columns.get("remote_address")),
             "destination_port": _safe_int(columns.get("remote_port") or columns.get("port")),
             "file_path": (columns.get("path") or columns.get("target_path"))
@@ -110,6 +148,94 @@ def parse_osquery_line(raw_line: str) -> Optional[NormalizedEvent]:
             "raw_data": data,
         }
     )
+
+
+def _windows_event_context(data_raw: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """Best-effort (TargetUserName, IpAddress) extraction from a windows_events
+    `data` payload (V0.6a spec D2).
+
+    The serialization varies by provider: JSON-ish objects for some, XML
+    text for the Security channel (<Data Name='TargetUserName'>x</Data>).
+    Strategy: bounded JSON parse with a recursive key hunt first, then
+    bounded regex over the raw text. NOTHING found -> (None, None) -- a
+    failed extraction never fabricates identity context; the raw payload
+    survives in raw_data for chain of custody.
+    """
+    if not data_raw:
+        return None, None
+    scan = data_raw[:_WE_DATA_SCAN_LIMIT]
+
+    # Shape 1: JSON payload -- recursive, case-insensitive key hunt.
+    try:
+        payload = json.loads(scan)
+    except (json.JSONDecodeError, ValueError):
+        payload = None
+    if isinstance(payload, dict):
+        user = _json_hunt(payload, _WE_USER_KEYS)
+        ip = _json_hunt(payload, _WE_IP_KEYS)
+        if user or ip:
+            return _clean_context(user), _clean_context(ip)
+
+    # Shape 2: XML/text fallback -- two bounded regexes per field, one for
+    # the XML attribute form, one for the JSON key form.
+    user = (
+        _regex_first(scan, r"(?:TargetUserName|SubjectUserName)['\"]?\s*>\s*([^<\s<]{1,64})")
+        or _regex_first(scan, r"(?:TargetUserName|SubjectUserName)\"?'?\s*[:=]\s*\"([^\"]{1,64})\"")
+    )
+    ip = (
+        _regex_first(scan, r"(?:IpAddress|IpAddressString|SourceIp)['\"]?\s*>\s*([^<\s<]{1,45})")
+        or _regex_first(
+            scan, r"(?:IpAddress|IpAddressString|SourceIp)\"?'?\s*[:=]\s*\"([^\"]{1,45})\""
+        )
+    )
+    return _clean_context(user), _clean_context(ip)
+
+
+def _json_hunt(node: object, keys: tuple[str, ...], depth: int = 0) -> Optional[str]:
+    """Depth-bounded recursive search for the first matching key's value."""
+    if depth > 6:
+        return None
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if isinstance(k, str) and k.lower() in keys and isinstance(v, str):
+                return v
+        for v in node.values():
+            found = _json_hunt(v, keys, depth + 1)
+            if found:
+                return found
+    elif isinstance(node, list):
+        for v in node:
+            found = _json_hunt(v, keys, depth + 1)
+            if found:
+                return found
+    return None
+
+
+def _regex_first(text: str, pattern: str) -> Optional[str]:
+    m = re.search(pattern, text)
+    return m.group(1) if m else None
+
+
+def _clean_context(val: Optional[str]) -> Optional[str]:
+    """Normalize an extracted context value; sentinels ('-', '-') -> None."""
+    if not val:
+        return None
+    v = val.strip()
+    if not v or v in {"-", "::1"} or v.startswith("127."):
+        return None
+    return v[:64]
+
+
+def _basename_any_platform(path: Optional[str]) -> Optional[str]:
+    """Basename of a POSIX or Windows path -- ETW rows have no `name` column,
+    and the fleet is cross-platform, so both separators are handled."""
+    if not path:
+        return None
+    return (
+        PureWindowsPath(path).name
+        or PurePosixPath(path).name
+        or None
+    ) or None
 
 
 def _safe_ip(val: Optional[str]) -> Optional[str]:

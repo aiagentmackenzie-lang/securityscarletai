@@ -85,7 +85,14 @@ esac
 log "target: OS=$OS SIEM=$SIEM_URL"
 [ -f "$KIT_DIR/fleet_shipper.py" ] || KIT_DIR="$(cd "$KIT_DIR/../.." && pwd)"
 [ -f "$KIT_DIR/scripts/fleet_shipper.py" ] || fail "fleet_shipper.py not found in the kit (looked in $KIT_DIR/scripts/)"
-[ -f "$KIT_DIR/deploy/fleet/osqueryd.conf.example" ] || fail "osqueryd.conf.example not found next to this script (kit layout broken)"
+# V0.6a platform-gated configs: each platform installs ONLY the tables that
+# exist there (kills the empty-table waste of the old single generic config).
+if [ "$OS" = "mac" ]; then
+    CONF_EXAMPLE="osqueryd.conf.darwin.example"
+else
+    CONF_EXAMPLE="osqueryd.conf.linux.example"
+fi
+[ -f "$KIT_DIR/deploy/fleet/$CONF_EXAMPLE" ] || fail "$CONF_EXAMPLE not found next to this script (kit layout broken)"
 
 # -------------------------------------------------------------- preflight
 command -v python3 >/dev/null 2>&1 || fail "python3 is required by the shipper (stdlib-only; no venv needed). Install python3 first."
@@ -170,7 +177,7 @@ install_linux() {
     cp "$KIT_DIR/scripts/fleet_shipper.py" "$INSTALL_DIR/fleet_shipper.py"
     chmod 0755 "$INSTALL_DIR/fleet_shipper.py" "$INSTALL_DIR" "$DATA_DIR"
     chown -R scarletai-shipper:scarletai-shipper "$INSTALL_DIR" "$DATA_DIR"
-    cp "$KIT_DIR/deploy/fleet/osqueryd.conf.example" "$CONF_PATH"
+    cp "$KIT_DIR/deploy/fleet/$CONF_EXAMPLE" "$CONF_PATH"
     chmod 0644 "$CONF_PATH"
     # Env file: the token NEVER appears in the unit file or on the command line.
     { echo "SCARLETAI_FLEET_TOKEN=$TOKEN"; } > /etc/scarletai/fleet.env
@@ -205,7 +212,7 @@ install_mac() {
     PLIST_DIR="$HOME/Library/LaunchAgents"
     mkdir -p "$INSTALL_DIR" "$DATA_DIR" "$PLIST_DIR" "$(dirname "$RESULTS_LOG")" "$(dirname "$CONF_PATH")"
     cp "$KIT_DIR/scripts/fleet_shipper.py" "$INSTALL_DIR/fleet_shipper.py"
-    cp "$KIT_DIR/deploy/fleet/osqueryd.conf.example" "$CONF_PATH"
+    cp "$KIT_DIR/deploy/fleet/$CONF_EXAMPLE" "$CONF_PATH"
     # launchd has no EnvironmentFile: the token goes into the plist, which
     # MUST be 0600 (world-readable plist = token disclosure).
     sed -e "s|REPLACE_WITH_INSTALL_DIR|$INSTALL_DIR|g" \
