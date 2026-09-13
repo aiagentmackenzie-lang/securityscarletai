@@ -1,0 +1,47 @@
+# SecurityScarletAI -- Linux auth shipper systemd unit (V0.6a).
+#
+# Ships sshd auth events (journalctl / auth.log) to the SIEM in the auth
+# vocabulary contract. Installed by hand or a config-management tool;
+# pairs with scarletai-auth-shipper.timer (every 5 min).
+#
+# Install:
+#   sudo cp scarletai-auth-shipper.service.example /etc/systemd/system/scarletai-auth-shipper.service
+#   sudo cp scarletai-auth-shipper.timer.example  /etc/systemd/system/scarletai-auth-shipper.timer
+#   sudo sed -i 's|REPLACE_WITH_REPO|/opt/securityscarletai|' /etc/systemd/system/scarletai-auth-shipper.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now scarletai-auth-shipper.timer
+#
+# Read access requirements (fail-closed: the unit fails loudly without them):
+#   journalctl mode: the service user needs journal read access
+#     (add to the systemd-journal group: usermod -aG systemd-journal scarletai-auth)
+#   --use-authlog mode: read access to /var/log/auth.log (adm group).
+#
+# The service runs the shipper ONCE per trigger (--once); the timer drives
+# the cadence. Watermark checkpoint makes overlapping runs overlap-proof.
+
+[Unit]
+Description=SecurityScarletAI auth log shipper (sshd events -> SIEM)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=scarletai-auth
+Group=scarletai-auth
+# Auth events land in the same NDJSON file the local FileShipper tails; the
+# scarletai-shipper user (fleet kit) needs read access to that path.
+ExecStart=/usr/bin/python3 REPLACE_WITH_REPO/scripts/auth_log_shipper.py \
+  --backend linux \
+  --once \
+  --last-minutes 5 \
+  --host REPLACE_WITH_HOSTNAME \
+  --output REPLACE_WITH_DATA_DIR/auth_events.log \
+  --state REPLACE_WITH_DATA_DIR/auth_shipper_state
+# Fail loudly on unreadable journal/auth.log (no fake rows, no silent gaps).
+# Exit 1 = source unreadable; the timer re-triggers in 5 min by design.
+Restart=no
+# No token here: this unit only WRITES the local NDJSON file the fleet
+# shipper ships. The fleet token stays exclusively in the fleet-shipper unit.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=REPLACE_WITH_DATA_DIR

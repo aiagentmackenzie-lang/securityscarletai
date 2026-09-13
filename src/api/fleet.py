@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.api.audit import log_audit_action
 from src.api.auth import require_role
@@ -41,15 +41,38 @@ router = APIRouter(tags=["fleet"], prefix="/fleet")
 # ───────────────────────────────────────────────────────────────
 
 
+# V0.6a cross-platform fleet: the host's OS family. Fleet inventory truth +
+# the deploy kit's osquery-config selection input; the server does NOT push
+# configs (osqueryd is configured host-side). 'unknown' = legacy/pre-V0.6a
+# rows or an operator who skipped the field.
+VALID_PLATFORMS = frozenset({"darwin", "linux", "windows", "unknown"})
+
+
 class EnrollRequest(BaseModel):
     host_name: str = Field(min_length=1, max_length=253)
     notes: Optional[str] = Field(None, max_length=500)
+    platform: Optional[str] = Field("unknown")
+
+    @field_validator("platform")
+    @classmethod
+    def _platform_in_vocabulary(cls, v: Optional[str]) -> str:
+        """Closed vocabulary — an unvalidated platform string would poison the
+        fleet inventory the kit relies on. Fail-closed (422), never coerced."""
+        if v is None:
+            return "unknown"
+        v = v.strip().lower()
+        if v not in VALID_PLATFORMS:
+            raise ValueError(
+                f"platform must be one of {sorted(VALID_PLATFORMS)}, got {v!r}"
+            )
+        return v
 
 
 class EnrollResponse(BaseModel):
     host_name: str
     token: str  # plaintext, shown ONCE
     rotated: bool  # True if this enrollment replaced an existing token
+    platform: str = "unknown"
 
 
 class FleetHost(BaseModel):
@@ -60,6 +83,7 @@ class FleetHost(BaseModel):
     last_seen_at: Optional[datetime] = None
     revoked_at: Optional[datetime] = None
     notes: Optional[str] = None
+    platform: Optional[str] = "unknown"
 
 
 class RevokeRequest(BaseModel):
@@ -100,6 +124,7 @@ async def enroll_host(
     if not host:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "host_name is empty")
 
+    platform = body.platform or "unknown"
     token = secrets.token_urlsafe(32)
     token_hash = _hash_token(token)
     actor = admin.get("username") or admin.get("sub") or "unknown"
@@ -112,23 +137,27 @@ async def enroll_host(
                 """
                 UPDATE fleet_enrollments
                    SET token_hash = $2, enrolled_by = $3,
-                       enrolled_at = NOW(), revoked_at = NULL
+                       enrolled_at = NOW(), revoked_at = NULL,
+                       platform = $4, notes = $5
                  WHERE host_name = $1
                 """,
                 host,
                 token_hash,
                 actor,
+                platform,
+                body.notes,
             )
         else:
             await conn.execute(
                 """
-                INSERT INTO fleet_enrollments (host_name, token_hash, enrolled_by, notes)
-                VALUES ($1, $2, $3, $4)
+                INSERT INTO fleet_enrollments (host_name, token_hash, enrolled_by, notes, platform)
+                VALUES ($1, $2, $3, $4, $5)
                 """,
                 host,
                 token_hash,
                 actor,
                 body.notes,
+                platform,
             )
 
     rotated = bool(existing)
@@ -136,15 +165,16 @@ async def enroll_host(
         actor=actor,
         action="fleet.rotate" if rotated else "fleet.enroll",
         target_type="fleet_enrollment",
-        new_values={"host_name": host},
+        new_values={"host_name": host, "platform": platform},
     )
     log.info(
         "fleet_enrolled" if not rotated else "fleet_rotated",
         host=host,
         actor=actor,
+        platform=platform,
     )
     # NOTE: the plaintext token NEVER enters audit or logs — response only.
-    return EnrollResponse(host_name=host, token=token, rotated=rotated)
+    return EnrollResponse(host_name=host, token=token, rotated=rotated, platform=platform)
 
 
 @router.get("/hosts", response_model=list[FleetHost])
@@ -154,7 +184,8 @@ async def list_hosts(admin: dict = Depends(require_role("admin"))):
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT host_name, enrolled_at, last_seen_at, revoked_at, notes
+            SELECT host_name, enrolled_at, last_seen_at, revoked_at, notes,
+                   COALESCE(platform, 'unknown') AS platform
               FROM fleet_enrollments
           ORDER BY enrolled_at DESC
             """

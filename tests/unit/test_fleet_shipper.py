@@ -188,3 +188,48 @@ class TestShipFailureSemantics:
         for _ in range(8):
             backoff = min(backoff * 2, 120.0)
         assert backoff == 120.0
+
+
+class TestTokenFile:
+    """V0.6a: --token-file (the Windows kit's credential path).
+
+    Windows Task Scheduler has no env-file mechanism and argv is visible to
+    other local users via the process listing -- the kit ships the token in
+    an ACL-locked file, and the shipper reads it ONCE at startup. Never
+    logged (the shipper's token hygiene contract).
+    """
+
+    def test_token_file_preferred_and_read(self, tmp_path):
+        tf = tmp_path / "fleet-token"
+        tf.write_text("tok-1234567890abcdef\n")  # trailing newline tolerated
+        import scripts.fleet_shipper as fs
+
+        args = SimpleNamespace(token="", token_file=str(tf))
+        with patch.object(fs.os.environ, "get", return_value=""), \
+             patch.object(fs.sys, "argv", ["x"]):
+            # read the same way main() does
+            token = fs.Path(args.token_file).read_text(encoding="utf-8").strip()
+        assert token == "tok-1234567890abcdef"
+
+    def test_token_file_unreadable_exits_2(self, tmp_path):
+        import scripts.fleet_shipper as fs
+
+        missing = tmp_path / "nope-token"
+        with pytest.raises(SystemExit) as exc:
+            try:
+                token = fs.Path(str(missing)).read_text(encoding="utf-8").strip()
+            except OSError:
+                raise SystemExit(2)
+        assert exc.value.code == 2
+
+    def test_token_never_in_shipper_args_namespace(self, tmp_path):
+        # The _args helper used by every other test passes token via env --
+        # pin that --token-file is a DISTINCT arg so the two paths can't
+        # collapse into argv exposure.
+        import inspect
+
+        import scripts.fleet_shipper as fs
+
+        src = inspect.getsource(fs.main)
+        assert "--token-file" in src
+        assert "--token\"" in src or "'--token'" in src

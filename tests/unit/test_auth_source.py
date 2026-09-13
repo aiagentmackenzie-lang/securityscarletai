@@ -194,3 +194,67 @@ class TestWatermarkDedup:
         lines = open(out).read().strip().splitlines()
         actions = [json.loads(ln)["event_action"] for ln in lines]
         assert actions == ["auth_failed"] * 3 + ["auth_success"]
+
+
+class TestLinuxAuthBackend:
+    """V0.6a: the Linux transport (journalctl primary, auth.log fallback).
+
+    sshd message formats are IDENTICAL across platforms, so parse_sshd_message
+    is shared verbatim -- these tests pin the transport normalization only:
+    journal JSON -> the same dict shape the darwin backend produces, and the
+    syslog-file fallback's parsing + anchoring.
+    """
+
+    def test_journal_timestamp_and_message_extracted(self):
+        from scripts.auth_log_shipper import extract_ts
+
+        entry = {
+            "__REALTIME_TIMESTAMP": "1774267200000000",  # microseconds (str)
+            "MESSAGE": "Failed password for admin from 203.0.113.50 port 41002 ssh2",
+            "_HOSTNAME": "web-01",
+        }
+        result = parse_sshd_message(entry["MESSAGE"])
+        assert result == ("failed", "admin", "203.0.113.50")
+        ts = extract_ts(entry)
+        assert ts.timestamp() == 1774267200.0
+
+    def test_journal_bad_timestamp_falls_back_to_now(self):
+        from datetime import timezone
+
+        from scripts.auth_log_shipper import extract_ts
+
+        ts = extract_ts({"__REALTIME_TIMESTAMP": "garbage"})
+        assert ts.tzinfo == timezone.utc  # still UTC-aware, never crashes
+
+    def test_authlog_syslog_lines_normalized(self, tmp_path):
+        from scripts.auth_log_shipper import read_auth_events_linux_authlog
+
+        log = tmp_path / "auth.log"
+        log.write_text(
+            "Sep 14 12:00:01 web-01 sshd[1234]: Failed password for invalid user admin"
+            " from 203.0.113.50 port 41002 ssh2\n"
+            "Sep 14 12:00:05 web-01 sshd[1234]: Accepted publickey for raphael"
+            " from 198.51.100.7 port 41003 ssh2\n"
+            "Sep 14 12:00:06 web-01 systemd[1]: Starting Daily apt upgrade...\n",
+            encoding="utf-8",
+        )
+        events = read_auth_events_linux_authlog(str(log))
+        assert len(events) == 2  # systemd noise dropped
+        assert "Failed password for invalid user admin" in events[0]["eventMessage"]
+        assert events[0]["timestamp"].endswith("+00:00")
+        outcomes = [parse_sshd_message(e["eventMessage"])[0] for e in events]
+        assert outcomes == ["failed", "success"]
+
+    def test_authlog_unreadable_fails_closed(self, tmp_path):
+        from scripts.auth_log_shipper import read_auth_events_linux_authlog
+
+        with pytest.raises(RuntimeError):
+            read_auth_events_linux_authlog(str(tmp_path / "missing.log"))
+
+    def test_shared_pattern_corpus_unchanged(self):
+        # Pin the corpus: the brute-force chain depends on these shapes
+        # surviving the backend refactor byte-for-byte.
+        assert parse_sshd_message("Failed password for invalid user X from 1.2.3.4 port 1 ssh2") == ("failed", "X", "1.2.3.4")
+        assert parse_sshd_message("Invalid user X from 1.2.3.4 port 1 ssh2") == ("failed", "X", "1.2.3.4")
+        assert parse_sshd_message("Accepted publickey for X from 1.2.3.4 port 1 ssh2") == ("success", "X", "1.2.3.4")
+        assert parse_sshd_message("systemd[1]: Started Session 42 of user raph.") is None

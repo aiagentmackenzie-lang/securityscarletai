@@ -605,10 +605,12 @@ side, in `deploy/fleet/`:
 
 | File | Role |
 |---|---|
-| `deploy/fleet/bootstrap_fleet_host.sh` | One-host installer (Linux systemd / macOS launchd). Idempotent, fail-closed: unhealthy SIEM or rejected token -> nothing installed. Verifies the fleet token with a ZERO-WRITE probe (a malformed line the server refuses to parse) before touching the disk. |
-| `deploy/fleet/osqueryd.conf.example` | Agent osquery config, derived 1:1 from `config/osquery.conf` (same query names -> the same parser mapping). |
+| `deploy/fleet/bootstrap_fleet_host.sh` | One-host installer (Linux systemd / macOS launchd). Idempotent, fail-closed: unhealthy SIEM or rejected token -> nothing installed. Verifies the fleet token with a ZERO-WRITE probe (a malformed line the server refuses to parse) before touching the disk. V0.6a: installs the PLATFORM-EXACT osquery config (darwin/linux templates). |
+| `deploy/fleet/bootstrap_fleet_host.ps1` | Windows installer (V0.6a). Same fail-closed contract: health gate + zero-write token probe BEFORE touching the disk, config JSON validated after install, distinct exit codes (1/2/3/4/5). Installs the shipper as a SYSTEM scheduled task (restart-on-failure, no time limit) and ACL-locks the token file (SYSTEM + Administrators). osqueryd itself comes from the official MSI (the script prints the command if missing). |
+| `deploy/fleet/osqueryd.conf.darwin.example` / `.linux.example` / `.windows.example` | Per-platform agent configs (V0.6a), each derived 1:1 from its `config/osquery.{conf,linux.conf,windows.conf}` -- every schedule contains only tables verified to exist on that platform (no empty-table waste). The Windows template carries the exact evented-table flags (`enable_windows_events_publisher` + `_subscriber`, `enable_process_etw_events`, `enable_powershell_events_subscriber`, `enable_ntfs_event_publisher`), and its query names are identical to the darwin/linux ones they overlap, so the parser mapping is one truth. |
 | `deploy/fleet/fleet-shipper.service.example` | systemd unit; token via root-only env file, never in the unit. |
 | `deploy/fleet/com.scarletai.fleet-shipper.launchagent.plist.example` | launchd plist; token inside the plist, chmod 0600 (launchd has no env-file). |
+| `deploy/fleet/scarletai-auth-shipper.service.example` + `.timer.example` | Linux auth shipper (V0.6a): sshd events from journald (or `/var/log/auth.log`) into the auth-vocabulary contract, 5-min timer, watermark dedup. Windows needs NO auth shipper -- `windows_events` 4624/4625 is parsed server-side. |
 | `deploy/fleet/README.md` | Kit overview, quickstart, guarantees, honest scope notes. |
 
 ### Deployment flow
@@ -617,9 +619,11 @@ side, in `deploy/fleet/`:
    local-prod is for a single host -- a fleet needs network reach, and the
    fleet token is a bearer credential: https is the default posture (the
    shipper accepts http only with an explicit lab flag, loudly).
-2. **Enroll** each host: `POST /api/v1/fleet/enroll` (admin). The plaintext
-   token is shown ONCE. The enrolled `host_name` MUST match the agent's
-   osquery host identifier (`host_identifier: hostname` -> the machine's
+2. **Enroll** each host: `POST /api/v1/fleet/enroll` (admin), passing
+   `-Platform` (`darwin` | `linux` | `windows`; V0.6a fleet inventory -- the
+   body field is `platform`, closed vocabulary, default `unknown`). The
+   plaintext token is shown ONCE. The enrolled `host_name` MUST match the
+   agent's osquery host identifier (`host_identifier: hostname` -> the machine's
    hostname). This is the binding golden rule: the server checks the PARSED
    events' host against the token, so a mismatch means refused batches, not
    misattributed telemetry.

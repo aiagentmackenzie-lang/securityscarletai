@@ -28,6 +28,7 @@ from fastapi import FastAPI
 from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
 from jose import JWTError
+from pydantic import ValidationError
 
 os.environ.setdefault("DB_PASSWORD", "test_password_long_enough")
 os.environ.setdefault("API_SECRET_KEY", "x" * 64)
@@ -127,6 +128,60 @@ class TestFleetEnrollment:
         assert resp.rotated is True
         # the UPDATE path fired, not the INSERT
         assert "UPDATE fleet_enrollments" in conn.execute.call_args.args[0]
+
+
+class TestFleetPlatform:
+    """V0.6a cross-platform fleet: enrollment records the host's OS family.
+
+    Closed vocabulary (darwin|linux|windows|unknown) -- an unvalidated
+    platform string would poison the fleet inventory the deploy kit relies
+    on. Fail-closed (ValidationError), never coerced.
+    """
+
+    @pytest.mark.asyncio
+    async def test_enroll_records_platform(self):
+        from src.api.fleet import EnrollRequest, enroll_host
+
+        pool, conn = _mock_pool()
+        conn.fetchval.return_value = None
+        with (
+            patch("src.api.fleet.get_pool", AsyncMock(return_value=pool)),
+            patch("src.api.fleet.log_audit_action", AsyncMock(return_value=1)),
+        ):
+            resp = await enroll_host(
+                EnrollRequest(host_name="win-fleet-01", platform="windows"), ADMIN
+            )
+        assert resp.platform == "windows"
+        flat = " ".join(str(a) for a in conn.execute.call_args.args)
+        assert "windows" in flat
+
+    @pytest.mark.asyncio
+    async def test_enroll_defaults_to_unknown(self):
+        from src.api.fleet import EnrollRequest, enroll_host
+
+        pool, conn = _mock_pool()
+        conn.fetchval.return_value = None
+        with (
+            patch("src.api.fleet.get_pool", AsyncMock(return_value=pool)),
+            patch("src.api.fleet.log_audit_action", AsyncMock(return_value=1)),
+        ):
+            resp = await enroll_host(EnrollRequest(host_name="legacy-host"), ADMIN)
+        assert resp.platform == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_invalid_platform_fails_closed(self):
+        from src.api.fleet import EnrollRequest
+
+        with pytest.raises(ValidationError):
+            EnrollRequest(host_name="s1", platform="solaris")
+
+    @pytest.mark.asyncio
+    async def test_platform_normalized_and_vocabulary_closed(self):
+        from src.api.fleet import VALID_PLATFORMS, EnrollRequest
+
+        req = EnrollRequest(host_name="s1", platform=" Linux ")
+        assert req.platform == "linux"  # case/space normalized
+        assert VALID_PLATFORMS == frozenset({"darwin", "linux", "windows", "unknown"})
 
     @pytest.mark.asyncio
     async def test_enroll_sanitizes_hostname(self):

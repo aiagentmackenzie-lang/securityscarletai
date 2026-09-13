@@ -79,6 +79,13 @@ class NormalizedEvent(BaseModel):
 # browser_plugins was REMOVED from the schedule entirely (2026-09-04): the
 # table is empty/deprecated on modern macOS (verified live against osquery
 # 5.23.1) and only added scheduler noise.
+#
+# V0.6a cross-platform fleet: Windows tables below were verified against
+# osquery source (specs + implementation) 2026-09-14 before mapping. The
+# Windows services table is `services` (NOT windows_services -- a name the
+# planning research got wrong; corrected here). All new tables follow the
+# ONE-ECS-TRUTH rule; unknown eventids/actions map to None (fail-closed),
+# raw rows always survive in raw_data.
 OSQUERY_ECS_MAP: dict[str, dict[str, str]] = {
     "processes": {"event_category": "process", "event_type": "start"},
     "process_events": {"event_category": "process", "event_type": "start"},
@@ -99,6 +106,30 @@ OSQUERY_ECS_MAP: dict[str, dict[str, str]] = {
     "launchd_entries": {"event_category": "configuration", "event_type": "info"},
     "user_ssh_keys": {"event_category": "configuration", "event_type": "info"},
     "sip_config": {"event_category": "configuration", "event_type": "info"},
+    # ── V0.6a Windows fleet tables (verified vs osquery source) ─────────
+    # windows_events: Windows Security event log via the evented subscriber.
+    # Eventid 4624/4625 carry REAL auth ground truth, so the parser derives
+    # auth_success/auth_failed from them (see derive_event_action) -- this
+    # is what arms the brute-force chain on Windows. user/IP are best-effort
+    # extracted from the `data` payload by the parser (fail-closed). Other
+    # eventids (4720 account created, 4724 reset, ...) stay UNMAPPED for
+    # V0.6b to add with their own tokens + rules.
+    "windows_events": {"event_category": "authentication", "event_type": "start"},
+    # process_etw_events: Windows process execution (ETW). `type` column
+    # carries ProcessStart/ProcessStop (see derive_event_action). NO `name`
+    # column in this table -- the parser falls back to basename(path) for
+    # process_name.
+    "process_etw_events": {"event_category": "process", "event_type": "start"},
+    # powershell_events: script blocks (script block logging prerequisite).
+    # script_text IS the executed command shape -> process_cmdline.
+    "powershell_events": {"event_category": "process", "event_type": "info"},
+    # ntfs_journal_events: Windows FIM (USN journal). Action column maps
+    # through the same file-token mapping as file_events; path -> file_path.
+    "ntfs_journal_events": {"event_category": "file", "event_type": "change"},
+    # State/persistence surfaces (differential config observations).
+    "scheduled_tasks": {"event_category": "configuration", "event_type": "info"},
+    "services": {"event_category": "configuration", "event_type": "info"},
+    "registry": {"event_category": "configuration", "event_type": "info"},
 }
 
 
@@ -141,7 +172,12 @@ EVENT_ACTION_COMMAND_OBSERVED = "command_observed"
 
 # Tokens produced by external ingesters via POST /ingest (the ingest
 # convention). Not produced by the parser; listed here as the contract.
-EVENT_ACTION_AUTH_FAILED = "auth_failed"  # auth shipper / any real auth source
+# V0.6a note: windows_events eventid 4624/4625 is the one parser path that
+# NOW emits auth tokens -- a Windows Security eventid is real auth ground
+# truth (the original no-auth-from-parser rule was written for utmpx rows,
+# which can only carry session state). Auth_shipper remains the source for
+# macOS/Linux.
+EVENT_ACTION_AUTH_FAILED = "auth_failed"  # auth shipper / windows_events 4625
 EVENT_ACTION_VERDICT_BLOCK = "verdict_block"  # NeuralGuard AI-firewall verdicts
 
 # AI-usage domain (V0.4/5 "Agentic SOC", item 3): the SIEM watches its own
@@ -192,6 +228,42 @@ def derive_event_action(table_name: str, action: str, columns: dict) -> Optional
             if es_event == "exit":
                 return EVENT_ACTION_PROCESS_END
             return None
+        if table_name == "process_etw_events":
+            # Windows ETW process events (V0.6a): columns.type carries the
+            # event kind -- ProcessStart / ProcessStop. Anything else is
+            # UNMAPPED fail-closed (raw preserved).
+            etw_event = (columns.get("type") or "").strip().lower()
+            if etw_event == "processstart":
+                return EVENT_ACTION_PROCESS_START
+            if etw_event == "processstop":
+                return EVENT_ACTION_PROCESS_END
+            return None
+        if table_name == "windows_events":
+            # Windows Security eventids with CLOSED-VOCABULARY auth
+            # semantics (V0.6a): 4624 = successful logon, 4625 = failed
+            # logon. Everything else (4720 user created, 4724 password
+            # reset attempt, 4672 special logon, ...) stays unmapped --
+            # adding tokens is a reviewed per-token decision (V0.6b), not
+            # a silent widening.
+            event_id = columns.get("eventid")
+            if event_id is None:
+                return None
+            try:
+                eid = int(event_id)
+            except (TypeError, ValueError):
+                return None
+            if eid == 4624:
+                return EVENT_ACTION_AUTH_SUCCESS
+            if eid == 4625:
+                return EVENT_ACTION_AUTH_FAILED
+            return None
+        if table_name == "powershell_events":
+            return EVENT_ACTION_COMMAND_OBSERVED
+        if table_name == "ntfs_journal_events":
+            # Same token mapping as file_events -- the USN journal action
+            # vocabulary differs per build, substring matching keeps the
+            # closed token set stable (V0.6a).
+            return _file_action_token(columns.get("action", ""))
         if table_name == "listening_ports":
             return EVENT_ACTION_NETWORK_LISTEN
         if table_name == "open_sockets":
@@ -208,6 +280,9 @@ def derive_event_action(table_name: str, action: str, columns: dict) -> Optional
             "launchd_entries",
             "user_ssh_keys",
             "sip_config",
+            "scheduled_tasks",
+            "services",
+            "registry",
         ):
             return EVENT_ACTION_CONFIG_OBSERVED
     return None

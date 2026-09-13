@@ -1,0 +1,16 @@
+# SecurityScarletAI -- Linux auth shipper timer (V0.6a).
+# 5-minute cadence, same as the macOS launchd auth-shipper interval.
+# Persistent=true: catch-up after downtime (the watermark dedup keeps the
+# catch-up overlap-proof).
+
+[Unit]
+Description=Run scarletai-auth-shipper every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=scarletai-auth-shipper.service
+
+[Install]
+WantedBy=timers.target

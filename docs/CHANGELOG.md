@@ -1,5 +1,62 @@
 # CHANGELOG
 
+## V0.6a cross-platform fleet + auth sources (2026-09-14, feat/v0.6a-cross-platform)
+
+**The SIEM stops being a macOS product. The brute-force chain now has a
+real auth telemetry source on every platform.**
+
+- Windows auth (closes the G1 Windows half): osquery `windows_events`
+  (Security channel, eventid 4624/4625) is parsed server-side into the
+  closed auth vocabulary (`auth_success` / `auth_failed`) -- arming the
+  ENTIRE existing brute-force chain (Sigma threshold +
+  brute_force_to_success correlation) on Windows with zero rule changes.
+  user/IP are extracted best-effort from the `data` payload (JSON hunt
+  first, XML-text regex fallback, 16 KB scan bound, fail-closed: nothing
+  found -> NULL, raw always preserved). Other eventids (4720 user created,
+  4724 reset, ...) stay UNMAPPED -- adding tokens is a reviewed per-token
+  decision for V0.6b, not a silent widening.
+- Windows telemetry surfaces mapped (closes the G2 parser half):
+  `process_etw_events` (ProcessStart/ProcessStop -> process vocabulary;
+  event_type flips to end on stop; NO `name` column so process_name comes
+  from basename(path) on both separators), `powershell_events`
+  (script_text -> command_observed + process_cmdline, script_path ->
+  process_path), `ntfs_journal_events` (USN actions -> the file-token
+  vocabulary), `scheduled_tasks` / `services` / `registry` ->
+  config_observed. Every table/column/flag verified against osquery source
+  2026-09-14 before mapping -- including the catch that the Windows
+  services table is named `services`, NOT `windows_services` (a name the
+  planning research got wrong; corrected everywhere).
+- Per-platform agent configs: `config/osquery.linux.conf` +
+  `config/osquery.windows.conf` schedule ONLY tables verified for that
+  platform (kills the empty-table waste of the single generic config;
+  Linux drops the 3 macOS-only tables, Windows gains 12 entries incl. the
+  evented Security/ETW/PowerShell/USN streams with their exact required
+  flags). Kit templates derived 1:1 (`osqueryd.conf.darwin/linux/windows.example`);
+  the bash bootstrap installs the platform-exact template.
+- Fleet platform inventory: `fleet_enrollments.platform`
+  (darwin|linux|windows|unknown, closed vocabulary, fail-closed 422 on
+  garbage; legacy rows = unknown). Enroll request/response + /fleet/hosts
+  + audit rows carry it. The server does NOT push configs -- the field is
+  the kit's selection input.
+- Windows agent kit: `deploy/fleet/bootstrap_fleet_host.ps1` (fail-closed
+  mirrors the bash installer: https-only default, health gate, ZERO-WRITE
+  token probe before touching the disk, config JSON validated after
+  install, distinct exit codes; osqueryd via the official MSI, shipper as
+  a SYSTEM scheduled task with restart-on-failure, no execution-time
+  limit, token in an ACL-locked file). `scripts/fleet_shipper.py` gains
+  `--token-file` (Task Scheduler has no env-file mechanism and argv is
+  visible to other local users -- the file is the credential path).
+- Linux auth shipper: `scripts/auth_log_shipper.py` gains `--backend
+  darwin|linux` (auto-detected). sshd message formats are identical
+  across platforms so the pattern corpus is shared verbatim; only the
+  transport differs (journalctl JSON primary, /var/log/auth.log fallback
+  for non-journald hosts). systemd unit + timer examples in the kit.
+  Windows needs NO auth shipper -- windows_events IS the source.
+- Honest scope: 27 new unit tests (2,007 total, from 1,980). The Windows
+  kit + config ship behind tests; the FIRST WINDOWS LIVE-FIRE needs a real
+  Windows host/VM (explicit pending item). Linux live-fire (container
+  test host) executable locally.
+
 ## Correlation sweep (2026-09-12, feat/es-process-events)
 
 **Closes a real detection gap found by the productized purple-loop
