@@ -178,15 +178,13 @@ def _windows_event_context(data_raw: Optional[str]) -> tuple[Optional[str], Opti
 
     # Shape 2: XML/text fallback -- two bounded regexes per field, one for
     # the XML attribute form, one for the JSON key form.
-    user = (
-        _regex_first(scan, r"(?:TargetUserName|SubjectUserName)['\"]?\s*>\s*([^<\s<]{1,64})")
-        or _regex_first(scan, r"(?:TargetUserName|SubjectUserName)\"?'?\s*[:=]\s*\"([^\"]{1,64})\"")
-    )
-    ip = (
-        _regex_first(scan, r"(?:IpAddress|IpAddressString|SourceIp)['\"]?\s*>\s*([^<\s<]{1,45})")
-        or _regex_first(
-            scan, r"(?:IpAddress|IpAddressString|SourceIp)\"?'?\s*[:=]\s*\"([^\"]{1,45})\""
-        )
+    user = _regex_first(
+        scan, r"(?:TargetUserName|SubjectUserName)['\"]?\s*>\s*([^<\s<]{1,64})"
+    ) or _regex_first(scan, r"(?:TargetUserName|SubjectUserName)\"?'?\s*[:=]\s*\"([^\"]{1,64})\"")
+    ip = _regex_first(
+        scan, r"(?:IpAddress|IpAddressString|SourceIp)['\"]?\s*>\s*([^<\s<]{1,45})"
+    ) or _regex_first(
+        scan, r"(?:IpAddress|IpAddressString|SourceIp)\"?'?\s*[:=]\s*\"([^\"]{1,45})\""
     )
     return _clean_context(user), _clean_context(ip)
 
@@ -231,11 +229,7 @@ def _basename_any_platform(path: Optional[str]) -> Optional[str]:
     and the fleet is cross-platform, so both separators are handled."""
     if not path:
         return None
-    return (
-        PureWindowsPath(path).name
-        or PurePosixPath(path).name
-        or None
-    ) or None
+    return (PureWindowsPath(path).name or PurePosixPath(path).name or None) or None
 
 
 def _safe_ip(val: Optional[str]) -> Optional[str]:

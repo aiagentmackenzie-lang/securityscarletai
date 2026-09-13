@@ -301,9 +301,7 @@ class TestWindowsEventsAuth:
         data = json.dumps(
             {"EventData": {"TargetUserName": "svc-backup", "IpAddress": "198.51.100.7"}}
         )
-        event = parse_osquery_line(
-            _win_line("windows_events", {"eventid": "4624", "data": data})
-        )
+        event = parse_osquery_line(_win_line("windows_events", {"eventid": "4624", "data": data}))
         assert event is not None
         assert event.event_action == "auth_success"
         assert event.user_name == "svc-backup"
@@ -312,9 +310,7 @@ class TestWindowsEventsAuth:
     def test_other_eventids_fail_closed_unmapped(self):
         # 4720 (user created) etc. stay UNMAPPED: adding auth-adjacent tokens
         # is a reviewed per-token decision (V0.6b), not a silent widening.
-        event = parse_osquery_line(
-            _win_line("windows_events", {"eventid": "4720", "data": "<x/>"})
-        )
+        event = parse_osquery_line(_win_line("windows_events", {"eventid": "4720", "data": "<x/>"}))
         assert event is not None  # row still ingests
         assert event.event_category == "authentication"
         assert event.event_action is None  # no fabricated token
@@ -440,7 +436,11 @@ class TestNtfsJournalEvents:
             event = parse_osquery_line(
                 _win_line(
                     "ntfs_journal_events",
-                    {"action": action, "path": "C:\\Windows\\Temp\\drop.exe", "category": "tmp_staging"},
+                    {
+                        "action": action,
+                        "path": "C:\\Windows\\Temp\\drop.exe",
+                        "category": "tmp_staging",
+                    },
                 )
             )
             assert event is not None

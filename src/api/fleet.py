@@ -62,9 +62,7 @@ class EnrollRequest(BaseModel):
             return "unknown"
         v = v.strip().lower()
         if v not in VALID_PLATFORMS:
-            raise ValueError(
-                f"platform must be one of {sorted(VALID_PLATFORMS)}, got {v!r}"
-            )
+            raise ValueError(f"platform must be one of {sorted(VALID_PLATFORMS)}, got {v!r}")
         return v
 
 

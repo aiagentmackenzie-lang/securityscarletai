@@ -254,7 +254,17 @@ class TestLinuxAuthBackend:
     def test_shared_pattern_corpus_unchanged(self):
         # Pin the corpus: the brute-force chain depends on these shapes
         # surviving the backend refactor byte-for-byte.
-        assert parse_sshd_message("Failed password for invalid user X from 1.2.3.4 port 1 ssh2") == ("failed", "X", "1.2.3.4")
-        assert parse_sshd_message("Invalid user X from 1.2.3.4 port 1 ssh2") == ("failed", "X", "1.2.3.4")
-        assert parse_sshd_message("Accepted publickey for X from 1.2.3.4 port 1 ssh2") == ("success", "X", "1.2.3.4")
+        assert parse_sshd_message(
+            "Failed password for invalid user X from 1.2.3.4 port 1 ssh2"
+        ) == ("failed", "X", "1.2.3.4")
+        assert parse_sshd_message("Invalid user X from 1.2.3.4 port 1 ssh2") == (
+            "failed",
+            "X",
+            "1.2.3.4",
+        )
+        assert parse_sshd_message("Accepted publickey for X from 1.2.3.4 port 1 ssh2") == (
+            "success",
+            "X",
+            "1.2.3.4",
+        )
         assert parse_sshd_message("systemd[1]: Started Session 42 of user raph.") is None

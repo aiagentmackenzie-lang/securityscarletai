@@ -64,7 +64,17 @@ LABEL org.opencontainers.image.revision=${GIT_SHA} \
 # Sep-2 certification (build + `import ok`) could not see it. psql is a
 # RUNTIME requirement, not build tooling. Bookworm ships the PG15 client;
 # it speaks the wire protocol to a PG17 server fine (DDL is server-side).
+#
+# OS base hygiene (2026-09-13, trivy gate): the gate (HIGH,CRITICAL,
+# ignore-unfixed) surfaced newly-disclosed CVEs in the slim base's OS
+# packages that Debian has ALREADY FIXED in point releases (gzip
+# CVE-2026-41992, pcre2 CVE-2026-86145/89161, sqlite3 CVE-2026-11822/11824
+# among them) — the pinned base-image snapshot simply predates them.
+# `apt-get -y upgrade` pulls the point releases, so the fixes land instead
+# of the findings getting ignored into .trivyignore. Runs in the same layer
+# as the psql install (one update pass).
 RUN apt-get update \
+    && apt-get -y upgrade \
     && apt-get install -y --no-install-recommends postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
