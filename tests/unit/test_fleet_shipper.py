@@ -205,8 +205,10 @@ class TestTokenFile:
         import scripts.fleet_shipper as fs
 
         args = SimpleNamespace(token="", token_file=str(tf))
-        with patch.object(fs.os.environ, "get", return_value=""), \
-             patch.object(fs.sys, "argv", ["x"]):
+        with (
+            patch.object(fs.os.environ, "get", return_value=""),
+            patch.object(fs.sys, "argv", ["x"]),
+        ):
             # read the same way main() does
             token = fs.Path(args.token_file).read_text(encoding="utf-8").strip()
         assert token == "tok-1234567890abcdef"
@@ -232,4 +234,4 @@ class TestTokenFile:
 
         src = inspect.getsource(fs.main)
         assert "--token-file" in src
-        assert "--token\"" in src or "'--token'" in src
+        assert '--token"' in src or "'--token'" in src
