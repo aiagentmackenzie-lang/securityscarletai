@@ -19,6 +19,7 @@ from src.api.audit import router as audit_router
 from src.api.auth_login import router as auth_login_router
 from src.api.cases import router as cases_router
 from src.api.chat import router as chat_router
+from src.api.compliance import router as compliance_router
 from src.api.correlation import router as correlation_router
 from src.api.decisions import router as decisions_router
 from src.api.detection import router as detection_router
@@ -303,6 +304,7 @@ app.include_router(logs_router, prefix="/api/v1")
 app.include_router(detection_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(fleet_router, prefix="/api/v1")
+app.include_router(compliance_router, prefix="/api/v1")
 app.include_router(metrics_router, prefix="/api/v1")
 
 # Add middleware for request validation and audit logging

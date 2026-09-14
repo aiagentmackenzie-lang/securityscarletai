@@ -1,5 +1,42 @@
 # CHANGELOG
 
+## V0.7 compliance & reporting, UK CS&R spec (2026-09-14, feat/v0.7-compliance-reporting)
+
+**Group E delivered: the budget-justifying surface for the RMSP
+mid-market wedge -- the roadmap's final unshipped group.**
+
+- Incident evidence pack (`GET /compliance/incidents/{alert_id}/evidence-pack`,
+  analyst+, export audited): the full chain -- alert -> correlation match
+  (resolved via the embedded correlation_id) -> case + case_events
+  timeline (verdicts with mandatory rationale) -> response actions with
+  the four-eyes approval + verification trail -> quarantine state ->
+  audit-chain receipts -- serialized as a regulator-consumable document
+  designed against the UK CS&R 24h/72h cadence (due dates computed from
+  the detection timestamp, with the honest note that the duty-holder's
+  awareness clock may differ). Every section names its source tables.
+- Standing reports: `GET /compliance/reports/coverage` (evidence-driven
+  ATT&CK map), `GET /compliance/reports/posture` (alert counts + MTTR +
+  scorecard summary).
+- Framework mapping view (`GET /compliance/frameworks`):
+  config/compliance_mappings.yaml -- versioned, SURFACE-BASED (UK CS&R
+  Bill, CAF v4.0 incl. AI governance, NIS2/DORA, SOC2/ISO views),
+  fail-closed (missing/unparseable = 503, never fabricated coverage;
+  controls without a surface are dropped by the parser).
+- Retention policy AS EVIDENCE (`GET /compliance/retention-policy`):
+  per-table configured windows (truth, including 0 = keep forever) +
+  fail-closed TimescaleDB policy probe (vanilla PG reports the honest
+  absence). Closes G7's policy half; cold-storage mechanics stay the
+  documented V0.8+ remainder.
+- Posture-gap fix (found live 2026-09-12, documented in DEMO.md):
+  posture_check refuses a DEMO boot carrying ENABLE_INGESTION_SHIPPER=true
+  -- the standing prod value rode along on the Sep 12 demo boot and the
+  demo volume ingested 4,239 REAL host rows. Demo provenance is now
+  enforced synthetic-only.
+- docs/COMPLIANCE.md: the runbook (the 24/72h workflow, the standing
+  reports, framework notes, retention-as-evidence, honest not-list).
+- Router: /compliance wired (5 endpoints). Tests: 2,038 -> 2,051 unit.
+- Version 0.7.0.
+
 ## V0.7b detection-engineering loop (2026-09-14, feat/v0.7b-detection-loop)
 
 **Detections governed like software: owned, measured, retired — the

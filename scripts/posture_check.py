@@ -18,6 +18,10 @@ Checks (each returns a Problem or None):
   2. A PROD boot on a volume already seeded by the demo (demo_analyst
      user present) is a mode violation — refuse; the volume needs a
      documented down -v + re-bootstrap (HITL).
+  3. (V0.7, found live 2026-09-12) A DEMO boot must NOT carry
+     ENABLE_INGESTION_SHIPPER=true — the standing prod .env value rides
+     along and the demo volume ingests REAL host telemetry (4,239 real
+     rows leaked into a demo volume before this check existed).
 
 Exit codes: 0 = pass, 1 = violation (caller must STOP).
 """
@@ -105,17 +109,44 @@ async def check_demo_seeded_volume(conn) -> Optional[Problem]:
     return None
 
 
+def check_shipper_in_demo(env: dict) -> Optional[Problem]:
+    """DEMO posture with ENABLE_INGESTION_SHIPPER=true must refuse to boot.
+
+    Found live 2026-09-12: the standing prod .env value rode along on a
+    demo boot and the demo's FileShipper ingested 4,239 REAL host rows
+    into a synthetic-data volume (purged, but the gap was real). Demo
+    provenance = synthetic-only telemetry; the real-telemetry shipper
+    must never run in the demo posture.
+    """
+    if _truthy(env.get("DEMO_SEED_ENABLED")) and _truthy(env.get("ENABLE_INGESTION_SHIPPER")):
+        return Problem(
+            check="shipper-in-demo",
+            detail=(
+                "ENABLE_INGESTION_SHIPPER=true is set alongside "
+                "DEMO_SEED_ENABLED=true. The demo volume must be synthetic-"
+                "only (the Sep 12 demo boot ingested 4,239 real host rows "
+                "this way). Unset ENABLE_INGESTION_SHIPPER for the demo "
+                "posture — refusing to start a demo that ingests real "
+                "telemetry."
+            ),
+        )
+    return None
+
+
 async def run_checks(env: dict, conn=None) -> list[Problem]:
     """Run the environment-level checks; volume check only when a conn is given."""
     problems: list[Problem] = []
     posture = detect_posture(env)
     log.info("posture_detected", posture=posture)
-    # The conflict check runs REGARDLESS of the classified posture: the demo
-    # flag + prod markers together is an ambiguous environment and must fail
-    # loudly (the flag would ride along on a prod boot).
+    # The conflict checks run REGARDLESS of the classified posture: an
+    # ambiguous environment (demo flag + prod markers, or demo flag +
+    # real-telemetry shipper) must fail loudly rather than pick a mode.
     demo_flag = check_demo_flag_in_prod(env)
     if demo_flag:
         problems.append(demo_flag)
+    shipper = check_shipper_in_demo(env)
+    if shipper:
+        problems.append(shipper)
     if posture == "prod" and conn is not None:
         seeded = await check_demo_seeded_volume(conn)
         if seeded:

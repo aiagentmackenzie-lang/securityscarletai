@@ -1,0 +1,88 @@
+# SecurityScarletAI -- Compliance Framework Mappings (V0.7)
+#
+# Maps SIEM PRODUCT SURFACES to regulatory-framework control views.
+# Deliberately surface-based, NOT aspirational: every entry points at the
+# endpoint/table/mechanism that EVIDENCES the control in this deployment.
+# Loaded by src/compliance/frameworks.py. FAIL-CLOSED by design:
+#   - a missing, unreadable, or unparseable file yields NO mappings
+#     (the API returns 503 -- a broken mapping must not fabricate coverage)
+#   - entries without a "surface" field are dropped
+#
+# UK Cyber Security & Resilience Bill (HL Bill 32, Royal Assent expected
+# 2026): 24h initial notification / 72h full report for in-scope incidents;
+# ~1,000-1,200 regulated managed service providers newly in scope; NCSC
+# CAF v4.0 expectations (incl. AI governance + threat hunting) are the
+# assessment frame. The evidence-pack endpoint is designed for that
+# reporting cadence.
+
+compliance_frameworks:
+  version: 1
+
+  frameworks:
+    uk_csr_bill:
+      name: "UK Cyber Security & Resilience Bill"
+      description: "Incident-reporting duties for in-scope entities (24h initial notification, 72h full report); the SIEM supplies the evidence and the timeline."
+      controls:
+        - id: "incident-notification"
+          requirement: "Notify the regulator within the initial-notification window after becoming aware of a reportable incident"
+          surface: "GET /api/v1/compliance/incidents/{alert_id}/evidence-pack"
+          evidence: "alert + correlation + case + verdict + action chain with audit receipts"
+        - id: "incident-timeline"
+          requirement: "Report the incident timeline (detection, containment, recovery) in the 72h report"
+          surface: "case_events timeline + alerts.created_at/resolved_at"
+        - id: "containment-provenance"
+          requirement: "Evidence of containment measures and who authorised them"
+          surface: "response_actions (four-eyes approval trail, verification re-query evidence)"
+        - id: "audit-integrity"
+          requirement: "Logs and audit trails tamper-evident and retained"
+          surface: "audit_log / audit_logs (two-role append-only posture; scripts/check_audit_grants --strict)"
+
+    caf_v4:
+      name: "NCSC Cyber Assessment Framework v4.0"
+      description: "Objective C (protecting against cyber attack) and Objective D (minimising the impact of incidents) views."
+      controls:
+        - id: "CAF-C-monitoring"
+          objective: "C"
+          principle: "C3 - Monitoring"
+          requirement: "Security-relevant events are collected, correlated, and alerted on"
+          surface: "Sigma scheduler + 10 correlation chains; GET /api/v1/detection/coverage (evidence-driven armed/dormant map)"
+        - id: "CAF-C-response"
+          objective: "C"
+          principle: "C6 - Response and recovery planning"
+          requirement: "Response actions are bounded, approved, executed, and verified"
+          surface: "config/response_policy.yaml + src/response (policy engine, four-eyes, verification re-query)"
+        - id: "CAF-D-detection"
+          objective: "D"
+          principle: "D1 - Security monitoring"
+          requirement: "Continuous detection coverage is measured and evidenced, not asserted"
+          surface: "GET /api/v1/detection/coverage (armed vs dormant with itemized reasons); purple-loop reports under runs/"
+        - id: "CAF-D-ai-governance"
+          objective: "D"
+          principle: "CAF v4.0 AI governance expectations"
+          requirement: "AI-assisted decisions are governed, attributable, and reviewable"
+          surface: "agent_investigations (HITL state) + GET /api/v1/decisions + OWASP ASI mapping (docs/AI_USAGE_DETECTIONS.md)"
+
+    nis2:
+      name: "NIS2 (EU) / DORA-aligned views"
+      description: "Operational-resilience-aligned views for EU-regulated deployments."
+      controls:
+        - id: "NIS2-incident-handling"
+          requirement: "Incident handling process with early warning and reporting"
+          surface: "evidence-pack endpoint + reporting cadence block (designed against the UK 24h/72h cadence; adaptable)"
+        - id: "DORA-logging"
+          requirement: "Complete, tamper-proof logging of events"
+          surface: "logs (TimescaleDB hypertable, compression + retention policies) + append-only audit chain"
+
+    soc2_iso:
+      name: "SOC 2 / ISO 27001 / NIST CSF mapping (configured overlays)"
+      description: "The generic control views the audit chain already evidences."
+      controls:
+        - id: "CC7.2-logging-monitoring"
+          requirement: "Monitoring of infrastructure and software is implemented"
+          surface: "Sigma scheduler + coverage map + health watchdog"
+        - id: "CC7.3-incident-response"
+          requirement: "Incidents are evaluated, triaged, and responded to within defined authority"
+          surface: "alert triage + HITL verdicts + response authority"
+        - id: "A.12.4-logging"
+          requirement: "Event logs are produced, protected, and analysed"
+          surface: "retention policies (GET /api/v1/compliance/retention-policy) + audit immutability checks"
