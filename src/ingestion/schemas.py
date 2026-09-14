@@ -103,12 +103,13 @@ OSQUERY_ECS_MAP: dict[str, dict[str, str]] = {
     # Scheduled in DIFFERENTIAL mode: osquery emits an 'added' row only for an
     # account that APPEARED since the previous interval -- that differential
     # row IS the macOS account-created ground truth, deriving the same
-    # account_created token windows_events 4720 emits. Honest caveats, both
-    # documented in the schedule + rule text:
-    #   - the FIRST run after an osquery (re)start re-emits the whole
-    #     baseline as added rows (osquery differential semantics) -- a burst
-    #     of account_created rows for EXISTING accounts; alert dedup (15
-    #     min, per rule+host) collapses each burst to one alert per host.
+    # account_created token windows_events 4720 emits. Honest behavior notes
+    # (validated live on this daemon, 2026-09-14):
+    #   - the FIRST run after an osquery (re)start stores the baseline ONLY
+    #     ("Storing initial results for new scheduled query", err log) --
+    #     NO rows are emitted and there is NO restart burst. A stable
+    #     account set emits NOTHING; the rule fires only when an account
+    #     actually appears on the host. Low-noise by design.
     #   - 'removed' rows (account deleted) carry NO token: the closed
     #     vocabulary has no account_deleted token and widening it is a
     #     reviewed decision, not a silent one. Raw rows survive in raw_data.

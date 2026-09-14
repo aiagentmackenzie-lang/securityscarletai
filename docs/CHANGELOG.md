@@ -28,11 +28,14 @@ along the way.**
   since the last interval = the T1136 shape; Windows 4720 keeps its own
   path -- the two rules are keyed apart by the `source` column so one
   event cannot fire both). New rule `macos_local_account_created.yml`
-  (113 total). Honest caveats documented: the first run after an osquery
-  restart re-emits the baseline as added rows (alert dedup collapses it
-  per host); deleted accounts ('removed' rows) carry no token (raw
-  preserved); logged_in_users stays session-state only (a login is not an
-  account creation).
+  (113 total). Honest behavior notes, corrected after live validation on
+  the reference daemon: the first schedule tick after an osquery restart
+  stores the baseline SILENTLY ("Storing initial results for new
+  scheduled query: users" in the err log) -- there is NO restart burst,
+  and a stable account set emits nothing (the rule fires only when an
+  account actually appears). Deleted accounts ('removed' rows) carry no
+  token (raw preserved); logged_in_users stays session-state only (a
+  login is not an account creation).
 - BUG FOUND: purple_loop.CHAIN_HOSTS still listed 8 chains while the
   matrix generator emits 10 -- the V0.6b chains (clickfix_dropper_execution,
   ai_process_egress) were fired but never scored. Fixed (10 scored hosts,
