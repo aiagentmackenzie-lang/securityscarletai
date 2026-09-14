@@ -25,11 +25,11 @@ class TestCorrelationRules:
     """Test correlation rule definitions and metadata."""
 
     def test_list_correlation_rules(self):
-        """list_correlation_rules should return all 8 rules."""
+        """list_correlation_rules should return all 10 rules."""
         from src.detection.correlation import list_correlation_rules
 
         rules = list_correlation_rules()
-        assert len(rules) == 8
+        assert len(rules) == 10
         for rule in rules:
             assert "name" in rule
             assert "title" in rule
@@ -54,8 +54,10 @@ class TestCorrelationRules:
         """Every rule in CORRELATION_RULES should have a matching async detection function."""
         from src.detection.correlation import (
             CORRELATION_RULES,
+            detect_ai_process_egress,
             detect_ai_verdict_block_sustained,
             detect_brute_force_then_success,
+            detect_clickfix_dropper_execution,
             detect_credential_theft_exfil,
             detect_data_exfiltration,
             detect_defense_evasion_cleanup,
@@ -73,6 +75,8 @@ class TestCorrelationRules:
             "credential_theft_exfil": detect_credential_theft_exfil,
             "defense_evasion_cleanup": detect_defense_evasion_cleanup,
             "ai_verdict_block_sustained": detect_ai_verdict_block_sustained,
+            "clickfix_dropper_execution": detect_clickfix_dropper_execution,
+            "ai_process_egress": detect_ai_process_egress,
         }
         for rule_name in CORRELATION_RULES:
             assert rule_name in func_map, f"Rule {rule_name} has no detection function"
@@ -180,7 +184,10 @@ class TestCorrelationDetection:
         acquirer.__aexit__ = AsyncMock(return_value=None)
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
-        with patch("src.detection.correlation.get_pool", return_value=mock_pool):
+        with patch(
+            "src.detection.correlation.get_pool",
+            new=AsyncMock(return_value=mock_pool),
+        ):
             result = await get_host_sessions("server01")
             assert isinstance(result, list)
 
@@ -223,7 +230,7 @@ class TestAuditLogFunction:
         acquirer.__aexit__ = AsyncMock(return_value=None)
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
-        with patch("src.api.audit.get_pool", return_value=mock_pool):
+        with patch("src.api.audit.get_pool", new=AsyncMock(return_value=mock_pool)):
             result = await log_audit_action(
                 actor="admin",
                 action="rule.create",
@@ -251,7 +258,7 @@ class TestAuditLogFunction:
         acquirer.__aexit__ = AsyncMock(return_value=None)
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
-        with patch("src.api.audit.get_pool", return_value=mock_pool):
+        with patch("src.api.audit.get_pool", new=AsyncMock(return_value=mock_pool)):
             result = await log_audit_action(
                 actor="system",
                 action="alert.auto_resolve",
@@ -270,7 +277,7 @@ class TestAuditLogFunction:
         acquirer.__aexit__ = AsyncMock(return_value=None)
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
-        with patch("src.api.audit.get_pool", return_value=mock_pool):
+        with patch("src.api.audit.get_pool", new=AsyncMock(return_value=mock_pool)):
             # P2-23: audit never raises — it logs and returns None on DB failure.
             result = await log_audit_action(
                 actor="admin",

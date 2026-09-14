@@ -1,0 +1,76 @@
+title: ClickFix Windows Interpreter with Remote Payload
+id: ff87a79e-1e6d-480c-9f0a-5d7ac14d6079
+status: stable
+description: >
+    Detects the Windows ClickFix / paste-and-run shapes: mshta executing a
+    remote .hta, rundll32 with URL/OpenURL or javascript: payloads, and
+    PowerShell invoked with hidden-window + encoded/download strings (the
+    user-pasted one-liner pattern). Fires on process_etw_events (ETW exec
+    rows carry the real process_name) and powershell_events (script_text
+    maps to process_cmdline). FileFix TypedPaths registry shapes are NOT
+    expressible here (registry rows carry no Sigma-reachable column;
+    raw_data is not selectable) -- honest scope documented in the V0.6b
+    spec. File-drop-to-execution chain: clickfix_dropper_execution.
+author: SecurityScarletAI
+date: 2026/09/14
+logsource:
+    category: process
+detection:
+    selection_mshta_url:
+        event_type:
+            - start
+            - info
+        process_name:
+            - mshta.exe
+            - mshta
+        process_cmdline|contains:
+            - http://
+            - https://
+            - .hta
+    selection_rundll32_url:
+        event_type:
+            - start
+            - info
+        process_name:
+            - rundll32.exe
+            - rundll32
+        process_cmdline|contains:
+            - javascript
+            - url.dll
+            - http://
+            - https://
+    selection_powershell_hidden_enc:
+        event_type:
+            - start
+            - info
+        process_name:
+            - powershell.exe
+            - powershell
+            - pwsh
+        process_cmdline|contains:
+            - -w hidden
+            - -whidden
+            - -win hidden
+            - -enc
+            - -EncodedCommand
+            - '-e JAB'
+    selection_cmd_http_exe:
+        event_type:
+            - start
+            - info
+        process_name:
+            - cmd.exe
+            - cmd
+        process_cmdline|contains:
+            - curl http
+            - curl https
+            - certutil -urlcache
+            - bitsadmin /transfer
+    condition: selection_mshta_url or selection_rundll32_url or selection_powershell_hidden_enc or selection_cmd_http_exe
+level: high
+tags:
+    - attack.execution
+    - attack.initial_access
+    - attack.ta0001
+    - attack.ta0002
+    - attack.t1204.004

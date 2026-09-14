@@ -169,6 +169,7 @@ EVENT_ACTION_FILE_OPENED = "file_opened"
 EVENT_ACTION_FILE_EVENT = "file_event"  # FIM action not in the mapping
 EVENT_ACTION_CONFIG_OBSERVED = "config_observed"
 EVENT_ACTION_COMMAND_OBSERVED = "command_observed"
+EVENT_ACTION_ACCOUNT_CREATED = "account_created"  # windows_events 4720 (V0.6b)
 
 # Tokens produced by external ingesters via POST /ingest (the ingest
 # convention). Not produced by the parser; listed here as the contract.
@@ -256,6 +257,13 @@ def derive_event_action(table_name: str, action: str, columns: dict) -> Optional
                 return EVENT_ACTION_AUTH_SUCCESS
             if eid == 4625:
                 return EVENT_ACTION_AUTH_FAILED
+            if eid == 4720:
+                # V0.6b per-token decision (the reviewed widening the V0.6a
+                # comment promised): 4720 = "A user account was created".
+                # This is the account-management ground truth that arms the
+                # T1136 rule on Windows. Rogue-account creation is a top
+                # ransomware persistence/chokepoint technique.
+                return EVENT_ACTION_ACCOUNT_CREATED
             return None
         if table_name == "powershell_events":
             return EVENT_ACTION_COMMAND_OBSERVED

@@ -33,7 +33,7 @@ import yaml
 
 from src.config.logging import get_logger
 from src.db.connection import get_pool
-from src.detection.correlation import CORRELATION_RULES
+from src.detection.correlation import AI_PROCESS_NAMES, CORRELATION_RULES
 
 log = get_logger("detection.coverage")
 
@@ -130,6 +130,18 @@ CORRELATION_REQUIREMENTS: dict[str, dict[str, Any]] = {
     "ai_verdict_block_sustained": {
         "all": [("intrusion_detection", "verdict_block")],
         "note": "needs NeuralGuard (or equivalent AI-firewall) events via POST /ingest",
+    },
+    # V0.6b 2026 detection pack: the two new chains. Both arm on vocabulary
+    # the parser already emits -- no new telemetry required (file + process
+    # for ClickFix; process + network for the AI-CLI egress chain).
+    "clickfix_dropper_execution": {
+        "all": [("file", None), ("process", "process_start")],
+        "note": "file telemetry needs FIM/ntfs journal on the host (payload drop half)",
+    },
+    "ai_process_egress": {
+        "all": [("process", "process_start"), ("network", "network_connection")],
+        "process_names": AI_PROCESS_NAMES,
+        "note": "arms when an AI CLI tool is observed starting on any host",
     },
 }
 

@@ -1,0 +1,41 @@
+title: Cloudflared Tunnel Process
+id: 5f67f076-23f0-4971-9292-60fa8229631a
+status: stable
+description: >
+    Detects the cloudflared tunnel client executing on a host (T1572,
+    protocol tunneling): a documented 2026 exfiltration/C2 chokepoint where
+    attackers proxy traffic through Cloudflare tunnels to blend with
+    legitimate egress. Tuning: on hosts where cloudflared is sanctioned,
+    use suppression rules keyed on host -- do not edit the rule.
+author: SecurityScarletAI
+date: 2026/09/14
+logsource:
+    category: process
+detection:
+    selection_cloudflared_proc:
+        event_type: start
+        process_name:
+            - cloudflared
+            - cloudflared.exe
+    selection_cloudflared_cmdline:
+        event_type: start
+        process_name:
+            - sh
+            - bash
+            - zsh
+            - cmd
+            - cmd.exe
+            - powershell
+            - powershell.exe
+            - pwsh
+        process_cmdline|contains:
+            - cloudflared tunnel
+            - cloudflared service
+    condition: selection_cloudflared_proc or selection_cloudflared_cmdline
+level: high
+tags:
+    - attack.command_and_control
+    - attack.exfiltration
+    - attack.ta0010
+    - attack.ta0011
+    - attack.t1572

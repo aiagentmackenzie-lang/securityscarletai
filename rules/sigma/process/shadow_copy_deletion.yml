@@ -1,0 +1,58 @@
+title: Shadow Copy Deletion (Recovery Inhibition)
+id: 31e9587a-a453-473d-8f18-d4a182e10a36
+status: stable
+description: >
+    Detects the ransomware recovery-inhibition chokepoint: deletion of
+    volume shadow copies or backups via vssadmin, wbadmin, or diskshadow
+    (T1490). Fires on Windows process telemetry (process_etw_events and
+    the processes differential). Part of the 2026 converged-ransomware
+    detection pack: single-host SMB encryption and identity compromise are
+    the other halves (SMB connections: existing SMB rules + the
+    data_exfiltration burst path).
+author: SecurityScarletAI
+date: 2026/09/14
+logsource:
+    category: process
+detection:
+    selection_vssadmin_delete:
+        event_type:
+            - start
+            - info
+        process_name:
+            - vssadmin.exe
+            - vssadmin
+        process_cmdline|contains:
+            - delete shadows
+            - Delete Shadows
+    selection_vssadmin_resize:
+        event_type:
+            - start
+            - info
+        process_name:
+            - vssadmin.exe
+            - vssadmin
+        process_cmdline|contains: resize shadowstorage
+    selection_wbadmin_delete:
+        event_type:
+            - start
+            - info
+        process_name:
+            - wbadmin.exe
+            - wbadmin
+        process_cmdline|contains:
+            - delete catalog
+            - delete backup
+    selection_diskshadow_delete:
+        event_type:
+            - start
+            - info
+        process_name:
+            - diskshadow.exe
+            - diskshadow
+        process_cmdline|contains: delete shadows
+    condition: selection_vssadmin_delete or selection_vssadmin_resize or selection_wbadmin_delete or selection_diskshadow_delete
+level: critical
+tags:
+    - attack.impact
+    - attack.ta0040
+    - attack.t1490

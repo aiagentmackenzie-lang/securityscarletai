@@ -300,6 +300,69 @@ def _matrix_scenarios(auth_path: str) -> dict[str, list[str]]:
         [_line_defense_host()],
     )
 
+    # 9. clickfix_dropper_execution (V0.6b): payload dropped in /tmp (file
+    #    telemetry) then an interpreter exec whose cmdline carries the
+    #    dropped path (the double-clicked .command shape: /bin/zsh is the
+    #    path, the cmdline references /tmp/...).
+    scenarios["clickfix_dropper_execution"] = (
+        "OSQUERY",
+        [
+            _osquery_line(
+                "file_events",
+                "live-matrix-clickfix_dropper_execution",
+                {"target_path": "/tmp/cf-payload.command", "action": "CREATED"},
+                unix_time=t(-90),
+            ),
+            _osquery_line(
+                "es_process_events",
+                "live-matrix-clickfix_dropper_execution",
+                {
+                    "event_type": "exec",
+                    "pid": "6601",
+                    "path": "/bin/zsh",
+                    "cmdline": "/bin/zsh /tmp/cf-payload.command",
+                    "uid": "501",
+                    "username": "demo",
+                },
+                unix_time=t(-60),
+            ),
+        ],
+    )
+
+    # 10. ai_process_egress (V0.6b): an AI CLI tool starts, then the host
+    #     makes an external (TEST-NET) outbound connection.
+    scenarios["ai_process_egress"] = (
+        "OSQUERY",
+        [
+            _osquery_line(
+                "es_process_events",
+                "live-matrix-ai_process_egress",
+                {
+                    "event_type": "exec",
+                    "pid": "6701",
+                    "path": "/usr/local/bin/claude",
+                    "cmdline": "claude --dangerously-skip-permissions",
+                    "uid": "501",
+                    "username": "demo",
+                },
+                unix_time=t(-90),
+            ),
+            _osquery_line(
+                "open_sockets",
+                "live-matrix-ai_process_egress",
+                {
+                    "pid": "6701",
+                    "remote_address": EXFIL_IP,
+                    "remote_port": "443",
+                    "local_address": "192.168.1.50",
+                    "local_port": "51300",
+                    "protocol": "6",
+                },
+                unix_time=t(-60),
+            ),
+        ],
+    )
+
     return scenarios
 
 

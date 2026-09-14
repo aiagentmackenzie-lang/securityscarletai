@@ -1,0 +1,62 @@
+title: ClickFix Paste and Run (macOS)
+id: 4b266d19-c369-4cd2-85c9-466bb2e0e99c
+status: stable
+description: >
+    Detects the ClickFix / paste-and-run initial-access pattern on macOS:
+    Script Editor or osascript invoked with an applescript:// deep link,
+    osascript scripted curl+exec combos, curl piped to a shell, or
+    quarantine-attribute removal on any target (the user talked into
+    bypassing Gatekeeper before running the payload). ClickFix was the
+    #1 initial-access delivery technique in 2026 incident telemetry
+    (T1204.004). Windows half: clickfix_windows.yml; file-drop-to-execution:
+    clickfix_dropper_execution correlation. NOTE: the legacy Sigma parser
+    supports exactly ONE field modifier (contains/endswith/startswith/re)
+    and splits conditions on OR first -- every selection here is
+    self-contained, single-modifier, and the condition is pure OR.
+author: SecurityScarletAI
+date: 2026/09/14
+logsource:
+    category: process
+detection:
+    selection_applescript_link:
+        event_type: start
+        process_cmdline|contains: applescript://
+    selection_osascript_curl:
+        event_type: start
+        process_name: osascript
+        process_cmdline|contains:
+            - do shell script
+            - curl
+    selection_curl_pipe_sh:
+        event_type: start
+        process_name:
+            - sh
+            - bash
+            - zsh
+        process_cmdline|contains:
+            - '| sh'
+            - '|sh'
+            - '| bash'
+            - '|bash'
+    selection_curl_download_tmp:
+        event_type: start
+        process_name:
+            - sh
+            - bash
+            - zsh
+        process_cmdline|contains:
+            - curl -o /tmp/
+            - curl -o /var/tmp/
+            - curl --output /tmp/
+    selection_quarantine_strip:
+        event_type: start
+        process_name: xattr
+        process_cmdline|contains: com.apple.quarantine
+    condition: selection_applescript_link or selection_osascript_curl or selection_curl_pipe_sh or selection_curl_download_tmp or selection_quarantine_strip
+level: high
+tags:
+    - attack.execution
+    - attack.initial_access
+    - attack.ta0001
+    - attack.ta0002
+    - attack.t1204.004
