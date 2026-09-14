@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## V0.7b detection-engineering loop (2026-09-14, feat/v0.7b-detection-loop)
+
+**Detections governed like software: owned, measured, retired — the
+industry maturity bar, met and used as the anti-AI-washing receipt.**
+
+- `src/detection/scorecard.py`: per-rule lifecycle metrics computed
+  READ-ONLY from existing tables in one grouped query per alert kind:
+  fire counts (window + lifetime), last-fired, age, dispositions (window
+  + lifetime) with the DOCUMENTED precedence (alert_labels > alert
+  status false_positive > case verdict via case_events.alert_id),
+  FP ratio, and the honest matcher-hits-vs-alerts distinction
+  (rules.match_count is MATCHER ROW HITS across runs, never conflated
+  with alerts). Covers BOTH kinds: Sigma rules + correlation chains.
+- Retirement report: never_fired (age >= 30d, zero fires AND zero
+  matcher hits), stale (no fires inside the window), all_false_positive
+  (>= 5 dispositions, 100% FP). ADVICE ONLY — no auto-tuning, no
+  auto-retirement (least-agency doctrine; retirement is the operator's
+  audited PATCH /rules/{id}).
+- `GET /api/v1/detection/scorecard?window_hours=720` (auth'd, read-only,
+  consistent with the coverage endpoint; stable ordering,
+  snapshot-regression-tested).
+- Tests: 2,028 -> 2,038 unit (10 scorecard tests: shape, kinds, ordering
+  stability, precedence param binding, retirement reasons, endpoint).
+
 ## V0.6b 2026 behavioral detection pack (2026-09-14, feat/v0.6b-detection-pack)
 
 **Detections aimed at the techniques that actually topped 2026 incident
