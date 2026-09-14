@@ -380,6 +380,13 @@ async def run(mode: str, api: str, wait_seconds: int, fail_below: float, runs_di
 
     from src.detection.coverage import compute_coverage
 
+    # The per-run stamp: set HERE (before the matrix branch) so nothing
+    # downstream can shadow it -- an init after the matrix call would
+    # clobber the stamp and score the run against empty-stem hosts (live
+    # 2026-09-14: exactly that bug scored 0/10 while the DB held 10/10
+    # stamped matches).
+    run_stamp = datetime.now(tz=timezone.utc).strftime("%H%M%S")
+
     window_start = datetime.now(tz=timezone.utc) - timedelta(minutes=2)
 
     print("Coverage snapshot BEFORE...")
@@ -398,11 +405,9 @@ async def run(mode: str, api: str, wait_seconds: int, fail_below: float, runs_di
             return 1
         results_path = str(REPO_ROOT / "data" / "osquery" / "osqueryd.results.log")
         auth_path = str(REPO_ROOT / "data" / "osquery" / "auth_events.log")
-        # Per-run stamp -> run-unique matrix hosts (fresh alert + match
-        # dedup slots; see _merge_chain_hosts and the generator's
-        # _run_host). One stamp per invocation, minute-precision is enough
-        # -- the operator runs one purple loop at a time.
-        run_stamp = datetime.now(tz=timezone.utc).strftime("%H%M%S")
+        # Run-unique matrix hosts (fresh alert + match dedup slots; see
+        # _merge_chain_hosts and the generator's _run_host). The stamp is
+        # generated once per run, before this branch.
         print("Firing the 10-chain correlation matrix through the real pipes...")
         rc = run_matrix(results_path, auth_path, api, token, run_stamp=run_stamp)
         if rc != 0:
@@ -422,7 +427,6 @@ async def run(mode: str, api: str, wait_seconds: int, fail_below: float, runs_di
     # polls (~60s >= one full sweep cycle) before the loop scores.
     print(f"Waiting for detection (up to {wait_seconds}s, polling every 10s)...")
     fired: list[dict] = []
-    run_stamp = ""
     chain_matches: list[dict] = []
     stable_polls = 0
     deadline = time.time() + wait_seconds
@@ -438,7 +442,7 @@ async def run(mode: str, api: str, wait_seconds: int, fail_below: float, runs_di
         chain_matches = current_matches
         if stable_polls >= 6:
             break
-    print(f"Observed {len(fired)} alerts on live-matrix-% hosts")
+    print(f"Observed {len(fired)} alerts + {len(chain_matches)} persisted matches")
 
     print("Coverage snapshot AFTER...")
     coverage_after = await compute_coverage()
