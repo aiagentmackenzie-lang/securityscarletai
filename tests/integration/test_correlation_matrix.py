@@ -26,8 +26,10 @@ pytestmark = pytest.mark.integration
 from src.db.connection import close_pool, get_pool  # noqa: E402
 from src.detection.correlation import (  # noqa: E402
     CORRELATION_RULES,
+    detect_ai_process_egress,
     detect_ai_verdict_block_sustained,
     detect_brute_force_then_success,
+    detect_clickfix_dropper_execution,
     detect_credential_theft_exfil,
     detect_data_exfiltration,
     detect_defense_evasion_cleanup,
@@ -597,6 +599,170 @@ class TestAiVerdictBlockSustained:
         assert len(matches) == 0
 
 
+class TestClickfixDropperExecution:
+    """V0.6b chain: payload drop in user-writable path -> interpreter exec."""
+
+    async def test_true_fires(self, matrix_db):
+        # The double-clicked .command shape: /bin/zsh executes, the cmdline
+        # references the dropped path (the interpreter path is NOT
+        # user-writable -- the cmdline-match path is what catches it).
+        base = NOW - timedelta(minutes=5)
+        rows = [
+            _row(
+                base,
+                "file",
+                "change",
+                "file_created",
+                file_path="/tmp/cf-payload.command",
+            ),
+            _row(
+                base + timedelta(minutes=1),
+                "process",
+                "start",
+                "process_start",
+                process_name="zsh",
+                process_path="/bin/zsh",
+                process_cmdline="/bin/zsh /tmp/cf-payload.command",
+            ),
+        ]
+        async with matrix_db.acquire() as conn:
+            await _insert(conn, rows)
+            matches = await detect_clickfix_dropper_execution(conn, NOW)
+        assert len(matches) >= 1
+
+    async def test_false_non_interpreter_after_drop(self, matrix_db):
+        """A drop followed by a NON-interpreter tool (textutil) is silent."""
+        base = NOW - timedelta(minutes=5)
+        rows = [
+            _row(
+                base,
+                "file",
+                "change",
+                "file_created",
+                file_path="/tmp/notes.txt",
+            ),
+            _row(
+                base + timedelta(minutes=1),
+                "process",
+                "start",
+                "process_start",
+                process_name="textutil",
+                process_path="/usr/bin/textutil",
+                process_cmdline="textutil -convert txt /tmp/notes.txt",
+            ),
+        ]
+        async with matrix_db.acquire() as conn:
+            await _insert(conn, rows)
+            matches = await detect_clickfix_dropper_execution(conn, NOW)
+        assert len(matches) == 0
+
+    async def test_false_exec_before_drop(self, matrix_db):
+        """Time order matters: the interpreter must FOLLOW the drop."""
+        base = NOW - timedelta(minutes=5)
+        rows = [
+            _row(
+                base,
+                "process",
+                "start",
+                "process_start",
+                process_name="bash",
+                process_path="/bin/bash",
+                process_cmdline="/bin/bash /tmp/earlier.sh",
+            ),
+            _row(
+                base + timedelta(minutes=2),
+                "file",
+                "change",
+                "file_created",
+                file_path="/tmp/earlier.sh",
+            ),
+        ]
+        async with matrix_db.acquire() as conn:
+            await _insert(conn, rows)
+            matches = await detect_clickfix_dropper_execution(conn, NOW)
+        assert len(matches) == 0
+
+
+class TestAiProcessEgress:
+    """V0.6b chain: AI CLI start -> outbound EXTERNAL connection."""
+
+    async def test_true_fires(self, matrix_db):
+        base = NOW - timedelta(minutes=5)
+        rows = [
+            _row(
+                base,
+                "process",
+                "start",
+                "process_start",
+                process_name="claude",
+                process_cmdline="claude --dangerously-skip-permissions",
+            ),
+            _row(
+                base + timedelta(minutes=1),
+                "network",
+                "connection",
+                "network_connection",
+                destination_ip=EXTERNAL_IP,
+                destination_port=443,
+            ),
+        ]
+        async with matrix_db.acquire() as conn:
+            await _insert(conn, rows)
+            matches = await detect_ai_process_egress(conn, NOW)
+        assert len(matches) >= 1
+
+    async def test_false_internal_egress_silent(self, matrix_db):
+        """RFC1918-only egress after an AI start is filtered (external-only)."""
+        base = NOW - timedelta(minutes=5)
+        rows = [
+            _row(
+                base,
+                "process",
+                "start",
+                "process_start",
+                process_name="codex",
+                process_cmdline="codex exec",
+            ),
+            _row(
+                base + timedelta(minutes=1),
+                "network",
+                "connection",
+                "network_connection",
+                destination_ip="192.168.1.10",
+                destination_port=443,
+            ),
+        ]
+        async with matrix_db.acquire() as conn:
+            await _insert(conn, rows)
+            matches = await detect_ai_process_egress(conn, NOW)
+        assert len(matches) == 0
+
+    async def test_false_non_ai_process(self, matrix_db):
+        base = NOW - timedelta(minutes=5)
+        rows = [
+            _row(
+                base,
+                "process",
+                "start",
+                "process_start",
+                process_name="textutil",
+                process_path="/usr/bin/textutil",
+            ),
+            _row(
+                base + timedelta(minutes=1),
+                "network",
+                "connection",
+                "network_connection",
+                destination_ip=EXTERNAL_IP,
+                destination_port=443,
+            ),
+        ]
+        async with matrix_db.acquire() as conn:
+            await _insert(conn, rows)
+            matches = await detect_ai_process_egress(conn, NOW)
+        assert len(matches) == 0
+
+
 class TestMatrixCompleteness:
     def test_every_correlation_chain_is_covered_by_a_test_class(self):
         """Adding a chain without a matrix class fails CI."""
@@ -609,6 +775,8 @@ class TestMatrixCompleteness:
             "credential_theft_exfil",
             "defense_evasion_cleanup",
             "ai_verdict_block_sustained",
+            "clickfix_dropper_execution",
+            "ai_process_egress",
         }
         assert covered == set(CORRELATION_RULES), (
             f"matrix out of sync with CORRELATION_RULES: {covered ^ set(CORRELATION_RULES)}"
