@@ -46,7 +46,7 @@ Most security dashboards show you charts. This one shows you **receipts**:
 
 | | Verified state (2026-09-14 — counts hand-checked against the code, no auto-updating badge) |
 |---|---|
-| Tests | **2,028 unit** (mocked DB) + **27 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **86%** |
+| Tests | **2,051 unit** (mocked DB) + **27 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **86%** |
 | Detections | **112 Sigma rules** (vocabulary-gated in CI) · **10 correlation chains** (8/8 live-fire verified; 2 V0.6b chains armed, live-fire pending the final stage) |
 | Agentic | Read-only investigator · SIEM **MCP server** (3 tools over a scoped read-only DB role) · AI-usage detection domain |
 | Response | 6 action types — 3 live-verified on the reference deployment, 3 capability-gated fail-closed |
@@ -234,6 +234,7 @@ serve a 404 there by design).
 |---|---|
 | Ingest | `POST /ingest` (≤1,000 events/batch, 100 req/min/IP) · `POST /ingest/osquery` (raw lines) · fleet `enroll` / `hosts` / `revoke` |
 | Detection | `GET /rules` (112) · `GET /correlation/rules` · `POST /correlation/run` · `GET /correlation/matches` · `GET /detection/coverage` · `GET /detection/scorecard` |
+| Compliance | `GET /compliance/incidents/{id}/evidence-pack` (UK CS&R 24/72h) · `GET /compliance/reports/coverage` · `GET /compliance/reports/posture` · `GET /compliance/frameworks` · `GET /compliance/retention-policy` |
 | AI | `GET /ai/status` · `POST /ai/train` · `POST /ai/triage/{id}` · `POST /ai/explain/{id}` · `GET /ai/ueba/{user}` · `POST /query` (NL→SQL) · `POST /ai/chat` |
 | Agentic | `POST /agent/investigate` · `GET /agent/runs/{id}` · `POST /agent/runs/{id}/hitl` |
 | Cases & response | `/cases` CRUD · `POST /cases/{id}/verdict` · `GET /cases/{id}/timeline` · `/response/actions` + `approve`/`reject`/`execute` · `GET /decisions` |
