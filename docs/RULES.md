@@ -1,14 +1,14 @@
 # Detection Rules Reference
 
-SecurityScarletAI ships with **112 Sigma rules** and **10 event-driven correlation rules**, covering authentication, process, network, file, macOS, cloud, AI-firewall, and AI-CLI/2026-technique attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL by the legacy `SigmaParser` + custom PostgreSQL backend in `src/detection/sigma.py`. (A pySigma-backed `PostgreSQLBackend` is retained as a unit-tested module but is off the production detection path — see P0-01/P0-04.)
+SecurityScarletAI ships with **113 Sigma rules** and **10 event-driven correlation rules**, covering authentication, process, network, file, macOS, cloud, AI-firewall, and AI-CLI/2026-technique attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL by the legacy `SigmaParser` + custom PostgreSQL backend in `src/detection/sigma.py`. (A pySigma-backed `PostgreSQLBackend` is retained as a unit-tested module but is off the production detection path — see P0-01/P0-04.)
 
 ---
 
-## Sigma Rule Catalog (112 total)
+## Sigma Rule Catalog (113 total)
 
-112 rules distributed across 7 categories. Each rule is a YAML file under `rules/sigma/<category>/`. Generated from the rule frontmatter — regenerate rather than hand-editing.
+113 rules distributed across 7 categories. Each rule is a YAML file under `rules/sigma/<category>/`. Generated from the rule frontmatter — regenerate rather than hand-editing.
 
-### Authentication (15 rules)
+### Authentication (16 rules)
 
 | # | Rule Name | Severity | MITRE Tactic | MITRE Technique | Description |
 |---|-----------|----------|--------------|-----------------|-------------|
@@ -27,6 +27,7 @@ SecurityScarletAI ships with **112 Sigma rules** and **10 event-driven correlati
 | 13 | SSH Brute Force Detected | Medium | Credential Access (TA0006) | T1110 | Detects multiple failed SSH login attempts from the same source IP, indicating a brute force attack |
 | 14 | SSH Successful Login After Multiple Failures | Medium | Credential Access (TA0006) | T1110 | Detects repeated failed SSH logins from a single source — a brute-force indicator. NOTE (P1-04): the origin... |
 | 15 | Windows Local Account Created | Medium | Persistence (TA0003) | T1136 | Detects local account creation via Windows Security 4720 (parsed into the account_created vocabulary; V0.6b) — rogue accounts are a top ransomware persistence/chokepoint technique |
+| 16 | macOS Local Account Created (users differential) | Medium | Persistence (TA0003) | T1136 | Detects local account creation via the osquery users differential (parser derives account_created; V0.7 delta) — the macOS half of rogue-account creation, keyed to source osquery:users |
 
 ### Process (41 rules)
 
