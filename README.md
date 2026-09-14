@@ -96,10 +96,9 @@ Most security dashboards show you charts. This one shows you **receipts**:
   real telemetry (2026-09-11); the 2 V0.6b chains are CI-armed and
   live-fire-verified at the next purple-loop pass
 - Evidence-driven coverage map (`GET /detection/coverage`): which rules are
-  **armed** by real telemetry vs **dormant** (with itemized reasons) — 86/112
-  armed on the reference deployment at the V0.7 snapshot (2026-09-14;
-  the macOS users-differential rule added after is pending its measured
-  purple-loop pass)
+  **armed** by real telemetry vs **dormant** (with itemized reasons) — 102/123
+  armed on the reference deployment (measured 2026-09-14 purple-loop pass;
+  113 Sigma rules + 10 correlation chains)
 - EndpointSecurity process telemetry (`exec`/`exit`, codesigning evidence) and
   FIM file events (LaunchAgents/LaunchDaemons, `.ssh`, `/tmp`, `/var/log`,
   sha256-hashed) via a root LaunchDaemon
