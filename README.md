@@ -233,7 +233,7 @@ serve a 404 there by design).
 | Area | Highlights |
 |---|---|
 | Ingest | `POST /ingest` (≤1,000 events/batch, 100 req/min/IP) · `POST /ingest/osquery` (raw lines) · fleet `enroll` / `hosts` / `revoke` |
-| Detection | `GET /rules` (104) · `GET /correlation/rules` · `POST /correlation/run` · `GET /correlation/matches` · `GET /detection/coverage` |
+| Detection | `GET /rules` (112) · `GET /correlation/rules` · `POST /correlation/run` · `GET /correlation/matches` · `GET /detection/coverage` · `GET /detection/scorecard` |
 | AI | `GET /ai/status` · `POST /ai/train` · `POST /ai/triage/{id}` · `POST /ai/explain/{id}` · `GET /ai/ueba/{user}` · `POST /query` (NL→SQL) · `POST /ai/chat` |
 | Agentic | `POST /agent/investigate` · `GET /agent/runs/{id}` · `POST /agent/runs/{id}/hitl` |
 | Cases & response | `/cases` CRUD · `POST /cases/{id}/verdict` · `GET /cases/{id}/timeline` · `/response/actions` + `approve`/`reject`/`execute` · `GET /decisions` |

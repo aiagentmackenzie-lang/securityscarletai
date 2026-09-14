@@ -311,3 +311,7 @@ Unit tests under `tests/unit/test_sigma.py` exercise the compiler across all 100
 - **Alert creation**: Matching rows are inserted into the `alerts` table via `create_alert()`.
 - **Suppression**: Per-rule suppression rules in the `alert_suppressions` table allow tuning false-positive rates without modifying rule YAML.
 - **Tuning**: When a rule generates too many false positives, either (a) add a suppression rule, (b) tighten the detection condition, or (c) retrain the triage model (see [docs/AI.md](AI.md)) to better rank its output.
+- **Measurement** (V0.7b): `GET /detection/scorecard` returns per-rule lifecycle metrics — fire counts (window + lifetime), last-fired, age, dispositions (with documented precedence: `alert_labels` > alert status `false_positive` > case verdict events), FP ratio, and the matcher-hits-vs-alerts distinction (`rules.match_count` is MATCHER ROW HITS, not alerts).
+- **Retirement** (V0.7b): the scorecard's `retirement_advice` flags candidates (`never_fired`, `stale`, `all_false_positive`) — ADVICE ONLY. Retiring a rule is a HITL decision: disable via `PATCH /rules/{id}` (audited); the report never acts.
+
+Scorecard metrics are computed read-only from existing tables (`alerts`, `alert_labels`, `case_events`, `rules`) in one grouped query per alert kind — no per-rule scans. Ordering is stable (kind, window-fires desc, name) and snapshot-regression-tested.
