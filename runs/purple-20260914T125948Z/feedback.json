@@ -1,0 +1,54 @@
+{
+  "failed_chains": [
+    {
+      "chain": "live-matrix-ai_process_egress",
+      "correlation_rule": "ai_process_egress",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "live-matrix-ai_verdict_block_sustained",
+      "correlation_rule": "ai_verdict_block_sustained",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "live-matrix-brute_force_success",
+      "correlation_rule": "brute_force_success",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "live-matrix-clickfix_dropper_execution",
+      "correlation_rule": "clickfix_dropper_execution",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "live-matrix-credential_theft_exfil",
+      "correlation_rule": "credential_theft_exfil",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "live-matrix-data_exfiltration",
+      "correlation_rule": "data_exfiltration",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "live-matrix-defense_evasion_cleanup",
+      "correlation_rule": "defense_evasion_cleanup",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "live-matrix-payload_callback",
+      "correlation_rule": "payload_callback",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "live-matrix-persistence_activated",
+      "correlation_rule": "persistence_activated",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "live-matrix-privilege_escalation_chain",
+      "correlation_rule": "privilege_escalation_chain",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    }
+  ]
+}

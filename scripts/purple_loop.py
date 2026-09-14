@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import cast
 
 from src.config.logging import get_logger
+from src.detection.correlation import CORRELATION_RULES
 
 log = get_logger("scripts.purple_loop")
 
@@ -187,16 +188,17 @@ def render_report_md(score: dict) -> str:
 def build_feedback(chains: dict[str, bool]) -> list[dict]:
     """Pure: actionable per-failed-chain feedback for detection engineering.
 
-    Chain host names are live-matrix-<rule_name> by construction (the
-    generator keys scenarios that way), so the failing step's first
-    inspection point is the correlation rule of the same name. Honest
-    scope: this names WHERE to look, not what the fix is.
+    The chains dict is keyed by CORRELATION RULE NAME (the run-unique
+    host stems from it by construction -- the generator keys scenarios per
+    chain with a per-run stamp), so the failing step's first inspection
+    point is the correlation rule of the same name. Honest scope: this
+    names WHERE to look, not what the fix is.
     """
     feedback = []
     for chain, ok in sorted(chains.items()):
         if ok:
             continue
-        rule = chain.replace("live-matrix-", "", 1)
+        rule = chain
         feedback.append(
             {
                 "chain": chain,
@@ -251,22 +253,10 @@ def load_progression(runs_dir: Path) -> list[dict]:
 # Live-fire plumbing
 # ───────────────────────────────────────────────────────────────
 
-CHAIN_HOSTS = [
-    "live-matrix-brute_force_success",
-    "live-matrix-persistence_activated",
-    "live-matrix-privilege_escalation_chain",
-    "live-matrix-credential_theft_exfil",
-    "live-matrix-data_exfiltration",
-    "live-matrix-payload_callback",
-    "live-matrix-defense_evasion_cleanup",
-    "live-matrix-ai_verdict_block_sustained",
-    # V0.6b chains (the 2026 detection pack). Found during the V0.7 delta
-    # session: these were emitted by the matrix but MISSING here, so the
-    # loop scored 8 chains while the generator fired 10 -- the report
-    # under-counted the coverage story.
-    "live-matrix-clickfix_dropper_execution",
-    "live-matrix-ai_process_egress",
-]
+# Derived from the correlation registry -- NEVER a hand-maintained list
+# (the drift that under-scored the V0.6b chains). These are the CANONICAL
+# no-stamp host names: unit tests + the base of the run-unique hosts.
+CHAIN_HOSTS = [f"live-matrix-{name}" for name in CORRELATION_RULES]
 
 
 async def _health(api: str) -> dict:
@@ -311,16 +301,22 @@ async def _fetch_fired_alerts(window_start: datetime) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def _hosts_with_alerts(alerts: list[dict]) -> dict[str, bool]:
-    hosts = {a["host_name"] for a in alerts}
-    return {chain: chain in hosts for chain in CHAIN_HOSTS}
-
-
-def _merge_chain_hosts(alert_hosts: set[str], match_hosts: set[str]) -> dict[str, bool]:
+def _merge_chain_hosts(
+    expected_hosts: dict[str, str], alert_hosts: set[str], match_hosts: set[str]
+) -> dict[str, bool]:
     """Pure: chain fired = an alert OR a persisted correlation match for the
-    chain's matrix host inside the run window (see _fetch_chain_matches)."""
+    chain's RUN-UNIQUE host inside the run window (see _fetch_chain_matches).
+
+    expected_hosts maps the run's unique host names -> chain names. The
+    alert dedup (15 min, per rule+host) and the correlation-match INSERT
+    dedup key on host -- a purple re-run on the SAME hosts inside the
+    window would suppress every detection BY DESIGN (validated live
+    2026-09-14: the immediate re-run scored 0/10 while its rows sat
+    deduped in the DB). Per-run stamped hosts give each run fresh dedup
+    slots, so re-runs score honestly.
+    """
     fired = alert_hosts | match_hosts
-    return {chain: chain in fired for chain in CHAIN_HOSTS}
+    return {chain: host in fired for host, chain in expected_hosts.items()}
 
 
 async def _fetch_chain_matches(window_start: datetime) -> list[dict]:
@@ -402,8 +398,13 @@ async def run(mode: str, api: str, wait_seconds: int, fail_below: float, runs_di
             return 1
         results_path = str(REPO_ROOT / "data" / "osquery" / "osqueryd.results.log")
         auth_path = str(REPO_ROOT / "data" / "osquery" / "auth_events.log")
+        # Per-run stamp -> run-unique matrix hosts (fresh alert + match
+        # dedup slots; see _merge_chain_hosts and the generator's
+        # _run_host). One stamp per invocation, minute-precision is enough
+        # -- the operator runs one purple loop at a time.
+        run_stamp = datetime.now(tz=timezone.utc).strftime("%H%M%S")
         print("Firing the 10-chain correlation matrix through the real pipes...")
-        rc = run_matrix(results_path, auth_path, api, token)
+        rc = run_matrix(results_path, auth_path, api, token, run_stamp=run_stamp)
         if rc != 0:
             print(f"FAIL: matrix generation exited {rc}")
             return 1
@@ -422,6 +423,7 @@ async def run(mode: str, api: str, wait_seconds: int, fail_below: float, runs_di
     # polls is already the break.
     print(f"Waiting for detection (up to {wait_seconds}s, polling every 10s)...")
     fired: list[dict] = []
+    run_stamp = ""
     stable_polls = 0
     deadline = time.time() + wait_seconds
     while time.time() < deadline:
@@ -448,7 +450,12 @@ async def run(mode: str, api: str, wait_seconds: int, fail_below: float, runs_di
     chain_matches = await _fetch_chain_matches(window_start)
     alert_hosts = {a["host_name"] for a in fired}
     match_hosts = {m["host_name"] for m in chain_matches if m.get("host_name")}
-    chains = _merge_chain_hosts(alert_hosts, match_hosts)
+    # This run's expected hosts: run-unique (stamped) -- scored against the
+    # chain registry so a missing/wrong scenario can never pass silently.
+    from src.detection.correlation import CORRELATION_RULES
+
+    expected_hosts = {f"live-matrix-{chain}-{run_stamp}": chain for chain in CORRELATION_RULES}
+    chains = _merge_chain_hosts(expected_hosts, alert_hosts, match_hosts)
     score = compute_run_score(
         chains=chains,
         fired_alerts=fired,

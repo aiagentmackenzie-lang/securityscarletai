@@ -83,17 +83,14 @@ class TestComputeRunScore:
         assert score["technique_hit_rate_armed"] == 0.0
 
     def test_all_ten_chain_hosts_present_and_registry_complete(self):
-        # V0.7 delta fix: this was 8 while the generator emitted 10 -- the
-        # loop under-scored the V0.6b chains. Now the loop's scored hosts
-        # are pinned to the correlation registry: every chain in
-        # CORRELATION_RULES has its live-matrix host here, and vice versa.
+        # CHAIN_HOSTS is DERIVED from the correlation registry (never a
+        # hand-maintained list -- the drift that under-scored the V0.6b
+        # chains). This pins the derivation itself.
         from src.detection.correlation import CORRELATION_RULES
 
         assert len(CHAIN_HOSTS) == len(CORRELATION_RULES) == 10
+        assert CHAIN_HOSTS == [f"live-matrix-{name}" for name in CORRELATION_RULES]
         assert all(h.startswith("live-matrix-") for h in CHAIN_HOSTS)
-        assert {h.replace("live-matrix-", "", 1) for h in CHAIN_HOSTS} == set(CORRELATION_RULES), (
-            "purple-loop scored hosts out of sync with the chain registry"
-        )
 
 
 class TestRenderReportMd:
@@ -130,41 +127,50 @@ class TestRenderReportMd:
 
 
 class TestMergeChainHosts:
-    """V0.4/5: chains score from alerts OR persisted correlation matches."""
+    """V0.4/5: chains score from alerts OR persisted correlation matches.
+    V0.7 delta: the scorer takes the run's EXPECTED host map
+    (run-unique host -> chain) so a re-run's stale hosts can never satisfy
+    a fresh run's slots."""
 
     def test_match_only_chain_counts_as_fired(self):
         from scripts.purple_loop import _merge_chain_hosts
 
-        chains = _merge_chain_hosts(set(), {CHAIN_HOSTS[0]})
-        assert chains[CHAIN_HOSTS[0]] is True
-        assert chains[CHAIN_HOSTS[1]] is False
+        expected = {CHAIN_HOSTS[0]: "brute_force_success", CHAIN_HOSTS[1]: "payload_callback"}
+        chains = _merge_chain_hosts(expected, set(), {CHAIN_HOSTS[0]})
+        assert chains["brute_force_success"] is True
+        assert chains["payload_callback"] is False
 
     def test_alert_only_scoring_still_works(self):
         from scripts.purple_loop import _merge_chain_hosts
 
-        chains = _merge_chain_hosts({CHAIN_HOSTS[1]}, set())
-        assert chains[CHAIN_HOSTS[1]] is True
-        assert chains[CHAIN_HOSTS[0]] is False
+        expected = {CHAIN_HOSTS[0]: "brute_force_success", CHAIN_HOSTS[1]: "payload_callback"}
+        chains = _merge_chain_hosts(expected, {CHAIN_HOSTS[1]}, set())
+        assert chains["payload_callback"] is True
+        assert chains["brute_force_success"] is False
 
     def test_unknown_hosts_ignored(self):
         from scripts.purple_loop import _merge_chain_hosts
 
-        chains = _merge_chain_hosts({"unrelated-host"}, {"live-matrix-other"})
+        expected = {CHAIN_HOSTS[0]: "brute_force_success", CHAIN_HOSTS[1]: "payload_callback"}
+        chains = _merge_chain_hosts(expected, {"unrelated-host"}, {"live-matrix-other"})
         assert all(not fired for fired in chains.values())
 
 
 class TestBuildFeedback:
-    """V0.5d+ productization: actionable per-failed-chain feedback."""
+    """V0.5d+ productization: actionable per-failed-chain feedback.
+
+    V0.7 delta: chains are keyed by the correlation rule name (the
+    run-unique host stem by construction)."""
 
     def test_failed_chain_names_its_rule(self):
         from scripts.purple_loop import build_feedback
 
-        chains = {CHAIN_HOSTS[0]: False, CHAIN_HOSTS[1]: True}
+        chains = {"brute_force_success": False, "payload_callback": True}
         feedback = build_feedback(chains)
         assert len(feedback) == 1
         item = feedback[0]
-        assert item["chain"] == CHAIN_HOSTS[0]
-        assert item["correlation_rule"] == CHAIN_HOSTS[0].replace("live-matrix-", "", 1)
+        assert item["chain"] == "brute_force_success"
+        assert item["correlation_rule"] == "brute_force_success"
         assert item["hint"]
 
     def test_all_fired_means_empty_feedback(self):
