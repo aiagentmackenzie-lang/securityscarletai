@@ -3,7 +3,7 @@ the live pipeline, wait for detection, and score the run against the
 evidence-driven coverage map.
 
     python -m scripts.purple_loop --api http://127.0.0.1:8000 \
-        --runs-dir runs --wait 240
+        --wait 240
 
 What it does:
   1. Preflight: /health must answer and its build sha must match git HEAD
@@ -411,7 +411,15 @@ async def run(mode: str, api: str, wait_seconds: int, fail_below: float, runs_di
         print(f"FAIL: unknown mode '{mode}' (supported: matrix)")
         return 1
 
-    # Wait for detection (scheduler ticks every 60s) -- poll until stable
+    # Wait for detection (scheduler ticks every 60s) -- poll until stable.
+    # With alerts present, stability requires SIX consecutive stable polls
+    # (~60s): the periodic correlation sweep runs every 60s and can persist
+    # matches AFTER the alert count has flattened -- breaking at 2 polls
+    # (~20s) under-counted chains whose matches landed in the next sweep
+    # pass (live 2026-09-14: scored 7/10 while the DB verified 10/10 --
+    # every chain's match persisted minutes later; the purple report
+    # under-counted the coverage story). With no alerts at all, 6 stable
+    # polls is already the break.
     print(f"Waiting for detection (up to {wait_seconds}s, polling every 10s)...")
     fired: list[dict] = []
     stable_polls = 0
@@ -424,7 +432,7 @@ async def run(mode: str, api: str, wait_seconds: int, fail_below: float, runs_di
         else:
             stable_polls = 0
         fired = current
-        if stable_polls >= 2 and fired:
+        if stable_polls >= 6 and fired:
             break
         if stable_polls >= 6 and not fired:
             break
