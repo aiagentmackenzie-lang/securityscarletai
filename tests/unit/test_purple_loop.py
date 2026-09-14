@@ -82,9 +82,18 @@ class TestComputeRunScore:
         assert score["alerts_fired"] == 0
         assert score["technique_hit_rate_armed"] == 0.0
 
-    def test_all_eight_chain_hosts_present(self):
-        assert len(CHAIN_HOSTS) == 8
+    def test_all_ten_chain_hosts_present_and_registry_complete(self):
+        # V0.7 delta fix: this was 8 while the generator emitted 10 -- the
+        # loop under-scored the V0.6b chains. Now the loop's scored hosts
+        # are pinned to the correlation registry: every chain in
+        # CORRELATION_RULES has its live-matrix host here, and vice versa.
+        from src.detection.correlation import CORRELATION_RULES
+
+        assert len(CHAIN_HOSTS) == len(CORRELATION_RULES) == 10
         assert all(h.startswith("live-matrix-") for h in CHAIN_HOSTS)
+        assert {h.replace("live-matrix-", "", 1) for h in CHAIN_HOSTS} == set(CORRELATION_RULES), (
+            "purple-loop scored hosts out of sync with the chain registry"
+        )
 
 
 class TestRenderReportMd:
@@ -218,12 +227,17 @@ class TestLoadProgression:
 class TestReportProgressionAndFeedback:
     """The client-facing report carries the progression table + feedback."""
 
-    def _score(self, fired=8):
+    def _score(self, fired=None):
+        # fired defaults to ALL chains -- "full fire" must track the chain
+        # registry length, not a hardcoded count (the 8-vs-10 drift).
+        if fired is None:
+            fired = len(CHAIN_HOSTS)
+        total = len(CHAIN_HOSTS)
         return {
             "run_window_start": "2026-09-12T12:00:00+00:00",
             "chains_fired": fired,
-            "chains_total": 8,
-            "chain_score": round(fired / 8, 3),
+            "chains_total": total,
+            "chain_score": round(fired / total, 3),
             "alerts_fired": 10,
             "distinct_rules_fired": 9,
             "techniques_hit": ["T1059"],
@@ -268,5 +282,5 @@ class TestReportProgressionAndFeedback:
         assert "correlation rule" in md
 
     def test_full_fire_report_has_no_feedback_section(self):
-        md = render_report_md(self._score(fired=8))
+        md = render_report_md(self._score())
         assert "Detection-engineering feedback" not in md

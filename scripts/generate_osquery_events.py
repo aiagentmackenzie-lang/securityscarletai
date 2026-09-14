@@ -366,6 +366,61 @@ def _matrix_scenarios(auth_path: str) -> dict[str, list[str]]:
     return scenarios
 
 
+# V0.7 delta: the macOS users-differential Sigma rule (T1136) rides the
+# live matrix as a SIGMA FIXTURE -- not a correlation chain, so it is NOT
+# scored in the chain table; the purple loop scores it through its alert
+# (rules_fired + techniques_hit). One true shape (a users differential
+# 'added' row = the account_created token) + two same-host false shapes
+# that MUST stay silent: a 'removed' row (deleted-account semantics, no
+# token -- the closed vocabulary has no account_deleted) and a
+# logged_in_users session row (utmpx = auth_success, a login is not an
+# account creation). Expected live-fire result: exactly ONE alert on this
+# host, from macOS Local Account Created (users differential).
+SIGMA_FIXTURE_HOST = "live-matrix-sigma-users-diff"
+
+
+def _sigma_fixture_lines() -> list[str]:
+    now = int(time.time())
+    t = lambda offset: now + offset  # noqa: E731
+    return [
+        # TRUE shape: an account appeared since the last interval.
+        _osquery_line(
+            "users",
+            SIGMA_FIXTURE_HOST,
+            {
+                "uid": "502",
+                "username": "svc-backup",
+                "directory": "/Users/svc-backup",
+                "shell": "/bin/zsh",
+            },
+            action="added",
+            unix_time=t(-90),
+        ),
+        # FALSE shape 1: deleted-account differential row -> no token.
+        _osquery_line(
+            "users",
+            SIGMA_FIXTURE_HOST,
+            {
+                "uid": "503",
+                "username": "old-temp-user",
+                "directory": "/Users/old-temp-user",
+                "shell": "/bin/bash",
+            },
+            action="removed",
+            unix_time=t(-60),
+        ),
+        # FALSE shape 2: a login SESSION for the (previously created) rogue
+        # account is session state, not an account creation.
+        _osquery_line(
+            "logged_in_users",
+            SIGMA_FIXTURE_HOST,
+            {"type": "user", "user": "svc-backup", "host": "console", "time": "0", "pid": "999"},
+            action="added",
+            unix_time=t(-30),
+        ),
+    ]
+
+
 def _line_defense_host() -> str:
     return _osquery_line(
         "processes",
@@ -468,6 +523,17 @@ def run_matrix(results_path: str, auth_path: str, api: str, ingest_token: str) -
             with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
                 body = json.loads(resp.read())
             fired_summary.append(f"{chain}: {len(events)} verdict_block events POSTed -> {body}")
+
+    # Sigma fixture (V0.7 delta): the macOS users-differential rule through
+    # the real pipe -- 1 alert expected, the 2 false shapes silent.
+    with open(results_path, "a") as f:
+        fixture_lines = _sigma_fixture_lines()
+        for line in fixture_lines:
+            f.write(line + "\n")
+    fired_summary.append(
+        f"sigma fixture ({SIGMA_FIXTURE_HOST}): users-diff true shape + 2 silent false shapes"
+    )
+    time.sleep(1)
 
     # defense_evasion phase 2: the cleanup, now preceded by the fired alert.
     with open(results_path, "a") as f:

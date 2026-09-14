@@ -20,6 +20,7 @@ from src.api.audit import log_audit_action
 from src.api.auth import get_current_user, require_role
 from src.compliance.evidence import build_evidence_pack
 from src.compliance.frameworks import CONFIG_PATH, load_frameworks_file
+from src.compliance.outliers import compute_posture_outliers
 from src.compliance.retention import retention_policy_evidence
 from src.config.logging import get_logger
 from src.db.connection import get_pool
@@ -72,7 +73,12 @@ async def posture_report(
     window_hours: Annotated[int, Query(ge=1, le=24 * 30)] = 24,
     user: dict = Depends(get_current_user),
 ):
-    """Alert posture + MTTR + scorecard summary for the reporting window."""
+    """Alert posture + MTTR + scorecard summary + UEBA-ready outliers.
+
+    The outliers view (V0.7 delta) is per-window naive statistics computed
+    read-only from alerts/logs -- the shape V0.8 UEBA baselines supersede;
+    see src/compliance/outliers.py for the honest scope.
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         posture = dict(
@@ -100,11 +106,13 @@ async def posture_report(
     summary = (
         await compute_rule_scorecard(window_hours=window_hours, as_of=datetime.now(timezone.utc))
     )["summary"]
+    outliers = await compute_posture_outliers(window_hours, as_of=datetime.now(timezone.utc))
     return {
         "window_hours": window_hours,
         "alerts": posture,
         "mttr_seconds": float(mttr) if mttr is not None else None,
         "rule_scorecard_summary": summary,
+        "outliers": outliers,
     }
 
 

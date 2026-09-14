@@ -29,8 +29,12 @@ log = get_logger("ingestion.parser")
 
 # Tables whose differential 'removed' rows carry real exit semantics.
 # (file_events excluded -- see event_type note in parse_osquery_line.)
+# users: a removed row = an account disappeared from the host (state exit);
+# it carries NO token (no account_deleted token in the closed vocabulary --
+# widening is a reviewed decision, V0.7 delta) but the event_type flip to
+# 'end' is the honest state semantics.
 _EXIT_TABLES = frozenset(
-    {"processes", "process_events", "logged_in_users", "open_sockets", "listening_ports"}
+    {"processes", "process_events", "logged_in_users", "users", "open_sockets", "listening_ports"}
 )
 
 # windows_events `data` payload extraction bounds (V0.6a). The payload

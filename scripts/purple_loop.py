@@ -260,6 +260,12 @@ CHAIN_HOSTS = [
     "live-matrix-payload_callback",
     "live-matrix-defense_evasion_cleanup",
     "live-matrix-ai_verdict_block_sustained",
+    # V0.6b chains (the 2026 detection pack). Found during the V0.7 delta
+    # session: these were emitted by the matrix but MISSING here, so the
+    # loop scored 8 chains while the generator fired 10 -- the report
+    # under-counted the coverage story.
+    "live-matrix-clickfix_dropper_execution",
+    "live-matrix-ai_process_egress",
 ]
 
 
@@ -396,7 +402,7 @@ async def run(mode: str, api: str, wait_seconds: int, fail_below: float, runs_di
             return 1
         results_path = str(REPO_ROOT / "data" / "osquery" / "osqueryd.results.log")
         auth_path = str(REPO_ROOT / "data" / "osquery" / "auth_events.log")
-        print("Firing the 8-chain correlation matrix through the real pipes...")
+        print("Firing the 10-chain correlation matrix through the real pipes...")
         rc = run_matrix(results_path, auth_path, api, token)
         if rc != 0:
             print(f"FAIL: matrix generation exited {rc}")
