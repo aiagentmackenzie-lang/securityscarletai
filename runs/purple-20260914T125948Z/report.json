@@ -1,0 +1,248 @@
+{
+  "chains_total": 10,
+  "chains_fired": 0,
+  "chain_score": 0.0,
+  "alerts_fired": 0,
+  "distinct_rules_fired": 0,
+  "rules_fired": [],
+  "techniques_hit": [],
+  "techniques_hit_armed": [],
+  "armed_techniques_total": 42,
+  "technique_hit_rate_armed": 0.0,
+  "armed_techniques_not_hit_by_this_run": [
+    "T1003",
+    "T1021",
+    "T1027",
+    "T1036",
+    "T1041",
+    "T1047",
+    "T1048",
+    "T1053",
+    "T1055",
+    "T1059",
+    "T1070",
+    "T1071",
+    "T1074",
+    "T1078",
+    "T1090",
+    "T1098",
+    "T1110",
+    "T1136",
+    "T1176",
+    "T1190",
+    "T1204.004",
+    "T1213",
+    "T1218",
+    "T1219",
+    "T1486",
+    "T1490",
+    "T1505",
+    "T1543",
+    "T1546",
+    "T1547",
+    "T1548",
+    "T1550",
+    "T1552",
+    "T1553",
+    "T1555",
+    "T1560",
+    "T1562",
+    "T1564",
+    "T1567",
+    "T1572",
+    "T1574",
+    "T1606"
+  ],
+  "coverage_summary": {
+    "total_rules": 123,
+    "armed": 102,
+    "dormant": 21,
+    "lookback_hours": 168,
+    "as_of": "2026-09-14T12:59:47.889460+00:00"
+  },
+  "run_window_start": "2026-09-14T12:55:21.446192+00:00",
+  "chains_detail": [
+    [
+      "live-matrix-ai_process_egress",
+      false
+    ],
+    [
+      "live-matrix-ai_verdict_block_sustained",
+      false
+    ],
+    [
+      "live-matrix-brute_force_success",
+      false
+    ],
+    [
+      "live-matrix-clickfix_dropper_execution",
+      false
+    ],
+    [
+      "live-matrix-credential_theft_exfil",
+      false
+    ],
+    [
+      "live-matrix-data_exfiltration",
+      false
+    ],
+    [
+      "live-matrix-defense_evasion_cleanup",
+      false
+    ],
+    [
+      "live-matrix-payload_callback",
+      false
+    ],
+    [
+      "live-matrix-persistence_activated",
+      false
+    ],
+    [
+      "live-matrix-privilege_escalation_chain",
+      false
+    ]
+  ],
+  "chain_matches_persisted": 0,
+  "match_hosts": [],
+  "mode": "matrix",
+  "coverage_before": {
+    "armed": 102,
+    "total_rules": 123
+  },
+  "feedback": [
+    {
+      "chain": "live-matrix-ai_process_egress",
+      "correlation_rule": "ai_process_egress",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "live-matrix-ai_verdict_block_sustained",
+      "correlation_rule": "ai_verdict_block_sustained",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "live-matrix-brute_force_success",
+      "correlation_rule": "brute_force_success",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "live-matrix-clickfix_dropper_execution",
+      "correlation_rule": "clickfix_dropper_execution",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "live-matrix-credential_theft_exfil",
+      "correlation_rule": "credential_theft_exfil",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "live-matrix-data_exfiltration",
+      "correlation_rule": "data_exfiltration",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "live-matrix-defense_evasion_cleanup",
+      "correlation_rule": "defense_evasion_cleanup",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "live-matrix-payload_callback",
+      "correlation_rule": "payload_callback",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "live-matrix-persistence_activated",
+      "correlation_rule": "persistence_activated",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "live-matrix-privilege_escalation_chain",
+      "correlation_rule": "privilege_escalation_chain",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    }
+  ],
+  "progression": [
+    {
+      "run": "purple-20260911T152518Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.371
+    },
+    {
+      "run": "purple-20260911T184340Z",
+      "chains_fired": 7,
+      "chains_total": 8,
+      "chain_score": 0.875,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.2
+    },
+    {
+      "run": "purple-20260911T184744Z",
+      "chains_fired": 2,
+      "chains_total": 8,
+      "chain_score": 0.25,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.086
+    },
+    {
+      "run": "purple-20260911T185056Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.0
+    },
+    {
+      "run": "purple-20260911T191054Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.257
+    },
+    {
+      "run": "purple-20260911T193228Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 90,
+      "technique_hit_rate_armed": 0.306
+    },
+    {
+      "run": "purple-20260912T131438Z",
+      "chains_fired": 7,
+      "chains_total": 8,
+      "chain_score": 0.875,
+      "armed_rules": 92,
+      "technique_hit_rate_armed": 0.189
+    },
+    {
+      "run": "purple-20260912T132254Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 92,
+      "technique_hit_rate_armed": 0.081
+    },
+    {
+      "run": "purple-20260914T124904Z",
+      "chains_fired": 7,
+      "chains_total": 10,
+      "chain_score": 0.7,
+      "armed_rules": 102,
+      "technique_hit_rate_armed": 0.286
+    },
+    {
+      "run": "(this run)",
+      "chains_fired": 0,
+      "chains_total": 10,
+      "chain_score": 0.0,
+      "armed_rules": 102,
+      "technique_hit_rate_armed": 0.0
+    }
+  ],
+  "alerts": []
+}

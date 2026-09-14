@@ -27,6 +27,7 @@ from scripts.generate_osquery_events import (
     _matrix_scenarios,
     _sigma_fixture_lines,
 )
+from scripts.purple_loop import build_feedback
 from src.compliance.outliers import (
     MIN_AUTH_FAILURES_TOTAL,
     ROBUST_Z_THRESHOLD,
@@ -194,6 +195,57 @@ class TestPurpleLoopChainHosts:
         assert set(CHAIN_HOSTS) == emitted, (
             "purple loop scores hosts the generator never emits (or vice versa)"
         )
+
+
+class TestRunUniqueMatrixHosts:
+    """Re-runs inside the 15-minute dedup window must score honestly:
+    each run stamps its own hosts (fresh dedup slots), validated live
+    2026-09-14 when an immediate re-run scored 0/10 with every detection
+    deduped by design."""
+
+    def test_run_host_stamp(self):
+        from scripts.generate_osquery_events import _run_host
+
+        assert _run_host("clickfix_dropper_execution") == ("live-matrix-clickfix_dropper_execution")
+        assert _run_host("clickfix_dropper_execution", "130100Z") == (
+            "live-matrix-clickfix_dropper_execution-130100Z"
+        )
+
+    def test_stamped_scenarios_keep_the_registry_shape(self):
+        scenarios = _matrix_scenarios("/tmp/x.log", run_stamp="130100")
+        assert len(scenarios) == 10
+        # Every stamped scenario lands on a UNIQUE host carrying the stamp.
+        for chain in scenarios:
+            target, lines = scenarios[chain]
+            for line in lines:
+                host = json.loads(line).get("hostIdentifier") or json.loads(line).get("host_name")
+                assert host.endswith("-130100"), host
+
+    def test_stamped_scoring_by_expected_host(self):
+        from scripts.purple_loop import _merge_chain_hosts
+
+        expected = {
+            "live-matrix-payload_callback-130100": "payload_callback",
+            "live-matrix-clickfix_dropper_execution-130100": "clickfix_dropper_execution",
+        }
+        chains = _merge_chain_hosts(
+            expected,
+            alert_hosts={"live-matrix-payload_callback-130100"},
+            match_hosts={"live-matrix-clickfix_dropper_execution-130100"},
+        )
+        assert chains == {
+            "payload_callback": True,
+            "clickfix_dropper_execution": True,
+        }
+        # A stale (previous-run) host must NOT satisfy this run's slots.
+        chains = _merge_chain_hosts(
+            expected, alert_hosts={"live-matrix-payload_callback"}, match_hosts=set()
+        )
+        assert chains["payload_callback"] is False
+
+    def test_feedback_keys_are_chain_names(self):
+        feedback = build_feedback({"clickfix_dropper_execution": False})
+        assert feedback and feedback[0]["correlation_rule"] == "clickfix_dropper_execution"
 
 
 # ------------------------------------------------------------------------

@@ -19,7 +19,9 @@ V0.3 matrix mode (--matrix --path <results.log> --auth-path <auth_events.log>):
     shapes (osquery differential lines for process/socket/file tables, the
     auth-shipper NDJSON contract for authentication, POST /ingest for
     NeuralGuard verdicts). Each chain runs on its own hostname
-    (live-matrix-<chain>) so verification is unambiguous. Auth events are
+    (live-matrix-<chain>[-<run_stamp>], run-unique -- see _run_host) so
+    verification is unambiguous and re-runs never collide with the
+    15-minute dedup window of a previous run. Auth events are
     written by this script in the exact shipper format; NeuralGuard events
     are POSTed to /ingest (the documented sink convention).
 """
@@ -102,16 +104,32 @@ C2_IP = "203.0.113.66"
 AUTH_SRC_IP = "198.51.100.70"
 
 
-def _matrix_scenarios(auth_path: str) -> dict[str, list[str]]:
+def _run_host(chain: str, run_stamp: str = "") -> str:
+    """Run-unique matrix host: live-matrix-<chain>[-<run_stamp>].
+
+    The alert dedup (15 min per rule+host) and the correlation-match INSERT
+    dedup key on (rule, host) -- back-to-back purple re-runs on the SAME
+    host would suppress every detection inside the window BY DESIGN
+    (validated live 2026-09-14: the immediate re-run scored 0/10 while its
+    rows sat deduped in the DB). A per-run stamp gives each run fresh
+    dedup slots, so re-runs score honestly. With no stamp the classic
+    fixed host names are kept (unit tests + one-off generator use).
+    """
+    return f"live-matrix-{chain}" + (f"-{run_stamp}" if run_stamp else "")
+
+
+def _matrix_scenarios(auth_path: str, run_stamp: str = "") -> dict[str, list[str]]:
     """One event sequence per correlation chain, keyed by chain hostname.
 
     Times are relative to "now": the shipper ingests within ~1s per line,
     the ingest path runs correlations per batch, and the detectors look
     back 24h with per-chain windows -- sequences written seconds apart
-    satisfy every window.
+    satisfy every window. With run_stamp set, every chain lands on its own
+    run-unique host (see _run_host).
     """
     now = int(time.time())
     t = lambda offset: now + offset  # noqa: E731
+    host = lambda chain: _run_host(chain, run_stamp)  # noqa: E731
 
     scenarios: dict[str, list[str]] = {}
 
@@ -121,7 +139,7 @@ def _matrix_scenarios(auth_path: str) -> dict[str, list[str]]:
     for i in range(4):
         ev = build_auth_event(
             timestamp=datetime.fromtimestamp(t(-120 + i * 20), tz=timezone.utc),
-            host_name="live-matrix-brute_force_success",
+            host_name=host("brute_force_success"),
             outcome="failed",
             user_name="admin",
             source_ip=AUTH_SRC_IP,
@@ -130,7 +148,7 @@ def _matrix_scenarios(auth_path: str) -> dict[str, list[str]]:
         auth_lines.append(event_to_shipper_line(ev))
     ev = build_auth_event(
         timestamp=datetime.fromtimestamp(t(-30), tz=timezone.utc),
-        host_name="live-matrix-brute_force_success",
+        host_name=host("brute_force_success"),
         outcome="success",
         user_name="admin",
         source_ip=AUTH_SRC_IP,
@@ -147,13 +165,13 @@ def _matrix_scenarios(auth_path: str) -> dict[str, list[str]]:
         [
             _osquery_line(
                 "file_events",
-                "live-matrix-persistence_activated",
+                host("persistence_activated"),
                 {"target_path": plist, "action": "CREATED"},
                 unix_time=t(-90),
             ),
             _osquery_line(
                 "processes",
-                "live-matrix-persistence_activated",
+                host("persistence_activated"),
                 {
                     "pid": "6001",
                     "name": "launchctl",
@@ -174,7 +192,7 @@ def _matrix_scenarios(auth_path: str) -> dict[str, list[str]]:
         [
             _osquery_line(
                 "processes",
-                "live-matrix-privilege_escalation_chain",
+                host("privilege_escalation_chain"),
                 {
                     "pid": "6101",
                     "name": "sudo",
@@ -187,7 +205,7 @@ def _matrix_scenarios(auth_path: str) -> dict[str, list[str]]:
             ),
             _osquery_line(
                 "processes",
-                "live-matrix-privilege_escalation_chain",
+                host("privilege_escalation_chain"),
                 {
                     "pid": "6102",
                     "name": "python3",
@@ -207,7 +225,7 @@ def _matrix_scenarios(auth_path: str) -> dict[str, list[str]]:
         [
             _osquery_line(
                 "processes",
-                "live-matrix-credential_theft_exfil",
+                host("credential_theft_exfil"),
                 {
                     "pid": "6201",
                     "name": "cat",
@@ -220,7 +238,7 @@ def _matrix_scenarios(auth_path: str) -> dict[str, list[str]]:
             ),
             _osquery_line(
                 "open_sockets",
-                "live-matrix-credential_theft_exfil",
+                host("credential_theft_exfil"),
                 {
                     "pid": "6202",
                     "remote_address": EXFIL_IP,
@@ -239,7 +257,7 @@ def _matrix_scenarios(auth_path: str) -> dict[str, list[str]]:
     burst = [
         _osquery_line(
             "open_sockets",
-            "live-matrix-data_exfiltration",
+            host("data_exfiltration"),
             {
                 "pid": "6301",
                 "remote_address": EXFIL_IP,
@@ -264,7 +282,7 @@ def _matrix_scenarios(auth_path: str) -> dict[str, list[str]]:
         [
             _osquery_line(
                 "processes",
-                "live-matrix-payload_callback",
+                host("payload_callback"),
                 {
                     "pid": "6401",
                     "name": "implant",
@@ -277,7 +295,7 @@ def _matrix_scenarios(auth_path: str) -> dict[str, list[str]]:
             ),
             _osquery_line(
                 "open_sockets",
-                "live-matrix-payload_callback",
+                host("payload_callback"),
                 {
                     "pid": "6401",
                     "remote_address": C2_IP,
@@ -297,7 +315,7 @@ def _matrix_scenarios(auth_path: str) -> dict[str, list[str]]:
     #    out one tick, then emits the log-deletion attempt.
     scenarios["defense_evasion_cleanup"] = (
         "DEFENSE",
-        [_line_defense_host()],
+        [_line_defense_host(run_stamp)],
     )
 
     # 9. clickfix_dropper_execution (V0.6b): payload dropped in /tmp (file
@@ -309,13 +327,13 @@ def _matrix_scenarios(auth_path: str) -> dict[str, list[str]]:
         [
             _osquery_line(
                 "file_events",
-                "live-matrix-clickfix_dropper_execution",
+                host("clickfix_dropper_execution"),
                 {"target_path": "/tmp/cf-payload.command", "action": "CREATED"},
                 unix_time=t(-90),
             ),
             _osquery_line(
                 "es_process_events",
-                "live-matrix-clickfix_dropper_execution",
+                host("clickfix_dropper_execution"),
                 {
                     "event_type": "exec",
                     "pid": "6601",
@@ -336,7 +354,7 @@ def _matrix_scenarios(auth_path: str) -> dict[str, list[str]]:
         [
             _osquery_line(
                 "es_process_events",
-                "live-matrix-ai_process_egress",
+                host("ai_process_egress"),
                 {
                     "event_type": "exec",
                     "pid": "6701",
@@ -349,7 +367,7 @@ def _matrix_scenarios(auth_path: str) -> dict[str, list[str]]:
             ),
             _osquery_line(
                 "open_sockets",
-                "live-matrix-ai_process_egress",
+                host("ai_process_egress"),
                 {
                     "pid": "6701",
                     "remote_address": EXFIL_IP,
@@ -379,14 +397,15 @@ def _matrix_scenarios(auth_path: str) -> dict[str, list[str]]:
 SIGMA_FIXTURE_HOST = "live-matrix-sigma-users-diff"
 
 
-def _sigma_fixture_lines() -> list[str]:
+def _sigma_fixture_lines(run_stamp: str = "") -> list[str]:
     now = int(time.time())
     t = lambda offset: now + offset  # noqa: E731
+    fixture_host = _run_host("sigma-users-diff", run_stamp)
     return [
         # TRUE shape: an account appeared since the last interval.
         _osquery_line(
             "users",
-            SIGMA_FIXTURE_HOST,
+            fixture_host,
             {
                 "uid": "502",
                 "username": "svc-backup",
@@ -399,7 +418,7 @@ def _sigma_fixture_lines() -> list[str]:
         # FALSE shape 1: deleted-account differential row -> no token.
         _osquery_line(
             "users",
-            SIGMA_FIXTURE_HOST,
+            fixture_host,
             {
                 "uid": "503",
                 "username": "old-temp-user",
@@ -413,7 +432,7 @@ def _sigma_fixture_lines() -> list[str]:
         # account is session state, not an account creation.
         _osquery_line(
             "logged_in_users",
-            SIGMA_FIXTURE_HOST,
+            fixture_host,
             {"type": "user", "user": "svc-backup", "host": "console", "time": "0", "pid": "999"},
             action="added",
             unix_time=t(-30),
@@ -421,10 +440,10 @@ def _sigma_fixture_lines() -> list[str]:
     ]
 
 
-def _line_defense_host() -> str:
+def _line_defense_host(run_stamp: str = "") -> str:
     return _osquery_line(
         "processes",
-        "live-matrix-defense_evasion_cleanup",
+        _run_host("defense_evasion_cleanup", run_stamp),
         {
             "pid": "6501",
             "name": "bash",
@@ -436,10 +455,10 @@ def _line_defense_host() -> str:
     )
 
 
-def _line_defense_rm() -> str:
+def _line_defense_rm(run_stamp: str = "") -> str:
     return _osquery_line(
         "processes",
-        "live-matrix-defense_evasion_cleanup",
+        _run_host("defense_evasion_cleanup", run_stamp),
         {
             "pid": "6502",
             "name": "rm",
@@ -451,7 +470,9 @@ def _line_defense_rm() -> str:
     )
 
 
-def run_matrix(results_path: str, auth_path: str, api: str, ingest_token: str) -> int:
+def run_matrix(
+    results_path: str, auth_path: str, api: str, ingest_token: str, run_stamp: str = ""
+) -> int:
     """Append every chain's sequence through its real pipe.
 
     The defense_evasion sequence needs one scheduler tick between its two
@@ -462,7 +483,7 @@ def run_matrix(results_path: str, auth_path: str, api: str, ingest_token: str) -
     base.mkdir(parents=True, exist_ok=True)
 
     fired_summary: list[str] = []
-    scenarios = _matrix_scenarios(auth_path)
+    scenarios = _matrix_scenarios(auth_path, run_stamp)
 
     # defense_evasion phase 1: the reverse-shell line that will fire the
     # critical alert on the scheduler's next tick.
@@ -495,7 +516,7 @@ def run_matrix(results_path: str, auth_path: str, api: str, ingest_token: str) -
             events = [
                 {
                     "@timestamp": datetime.now(tz=timezone.utc).isoformat(),
-                    "host_name": "live-matrix-ai_verdict_block_sustained",
+                    "host_name": _run_host("ai_verdict_block_sustained", run_stamp),
                     "source": "neuralguard",
                     "event_category": "intrusion_detection",
                     "event_type": "info",
@@ -527,17 +548,18 @@ def run_matrix(results_path: str, auth_path: str, api: str, ingest_token: str) -
     # Sigma fixture (V0.7 delta): the macOS users-differential rule through
     # the real pipe -- 1 alert expected, the 2 false shapes silent.
     with open(results_path, "a") as f:
-        fixture_lines = _sigma_fixture_lines()
+        fixture_lines = _sigma_fixture_lines(run_stamp)
         for line in fixture_lines:
             f.write(line + "\n")
     fired_summary.append(
-        f"sigma fixture ({SIGMA_FIXTURE_HOST}): users-diff true shape + 2 silent false shapes"
+        f"sigma fixture ({_run_host('sigma-users-diff', run_stamp)}): "
+        "users-diff true shape + 2 silent false shapes"
     )
     time.sleep(1)
 
     # defense_evasion phase 2: the cleanup, now preceded by the fired alert.
     with open(results_path, "a") as f:
-        f.write(_line_defense_rm() + "\n")
+        f.write(_line_defense_rm(run_stamp) + "\n")
     fired_summary.append("defense_evasion_cleanup (phase 2): rm /var/log after the critical alert")
     time.sleep(2)
 
