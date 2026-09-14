@@ -1,0 +1,468 @@
+{
+  "chains_total": 10,
+  "chains_fired": 0,
+  "chain_score": 0.0,
+  "alerts_fired": 17,
+  "distinct_rules_fired": 15,
+  "rules_fired": [
+    "Data Exfiltration Volume",
+    "Download and Execute Pattern",
+    "Encoded Command Execution",
+    "Hidden File Creation in User Directories",
+    "LaunchAgent Persistence Created",
+    "Living-off-the-Land Binary Execution",
+    "Log File Deletion",
+    "Login from Unusual Geography",
+    "Outbound Connection to Rare/C2 Port",
+    "Privilege Escalation via Sudo",
+    "Renamed System Binary (Masquerading)",
+    "Reverse Shell Pattern Detected",
+    "Script Interpreter from Unexpected Location",
+    "Service Account Anomaly",
+    "macOS Local Account Created (users differential)"
+  ],
+  "techniques_hit": [
+    "T1027",
+    "T1036",
+    "T1048",
+    "T1059",
+    "T1070",
+    "T1071",
+    "T1078",
+    "T1136",
+    "T1218",
+    "T1547",
+    "T1548",
+    "T1564"
+  ],
+  "techniques_hit_armed": [
+    "T1027",
+    "T1036",
+    "T1048",
+    "T1059",
+    "T1070",
+    "T1071",
+    "T1078",
+    "T1136",
+    "T1218",
+    "T1547",
+    "T1548",
+    "T1564"
+  ],
+  "armed_techniques_total": 42,
+  "technique_hit_rate_armed": 0.286,
+  "armed_techniques_not_hit_by_this_run": [
+    "T1003",
+    "T1021",
+    "T1041",
+    "T1047",
+    "T1053",
+    "T1055",
+    "T1074",
+    "T1090",
+    "T1098",
+    "T1110",
+    "T1176",
+    "T1190",
+    "T1204.004",
+    "T1213",
+    "T1219",
+    "T1486",
+    "T1490",
+    "T1505",
+    "T1543",
+    "T1546",
+    "T1550",
+    "T1552",
+    "T1553",
+    "T1555",
+    "T1560",
+    "T1562",
+    "T1567",
+    "T1572",
+    "T1574",
+    "T1606"
+  ],
+  "coverage_summary": {
+    "total_rules": 123,
+    "armed": 102,
+    "dormant": 21,
+    "lookback_hours": 168,
+    "as_of": "2026-09-14T13:14:33.282737+00:00"
+  },
+  "run_window_start": "2026-09-14T13:09:26.725104+00:00",
+  "chains_detail": [
+    [
+      "ai_process_egress",
+      false
+    ],
+    [
+      "ai_verdict_block_sustained",
+      false
+    ],
+    [
+      "brute_force_success",
+      false
+    ],
+    [
+      "clickfix_dropper_execution",
+      false
+    ],
+    [
+      "credential_theft_exfil",
+      false
+    ],
+    [
+      "data_exfiltration",
+      false
+    ],
+    [
+      "defense_evasion_cleanup",
+      false
+    ],
+    [
+      "payload_callback",
+      false
+    ],
+    [
+      "persistence_activated",
+      false
+    ],
+    [
+      "privilege_escalation_chain",
+      false
+    ]
+  ],
+  "chain_matches_persisted": 11,
+  "match_hosts": [
+    "live-matrix-ai_process_egress-131127",
+    "live-matrix-ai_verdict_block_sustained-131127",
+    "live-matrix-brute_force_success-131127",
+    "live-matrix-clickfix_dropper_execution-131127",
+    "live-matrix-credential_theft_exfil-131127",
+    "live-matrix-data_exfiltration-131127",
+    "live-matrix-defense_evasion_cleanup-131127",
+    "live-matrix-payload_callback-131127",
+    "live-matrix-persistence_activated-131127",
+    "live-matrix-privilege_escalation_chain-131127"
+  ],
+  "mode": "matrix",
+  "coverage_before": {
+    "armed": 102,
+    "total_rules": 123
+  },
+  "feedback": [
+    {
+      "chain": "ai_process_egress",
+      "correlation_rule": "ai_process_egress",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "ai_verdict_block_sustained",
+      "correlation_rule": "ai_verdict_block_sustained",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "brute_force_success",
+      "correlation_rule": "brute_force_success",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "clickfix_dropper_execution",
+      "correlation_rule": "clickfix_dropper_execution",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "credential_theft_exfil",
+      "correlation_rule": "credential_theft_exfil",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "data_exfiltration",
+      "correlation_rule": "data_exfiltration",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "defense_evasion_cleanup",
+      "correlation_rule": "defense_evasion_cleanup",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "payload_callback",
+      "correlation_rule": "payload_callback",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "persistence_activated",
+      "correlation_rule": "persistence_activated",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    },
+    {
+      "chain": "privilege_escalation_chain",
+      "correlation_rule": "privilege_escalation_chain",
+      "hint": "chain produced no alert and no persisted match in the run window -- inspect the chain's detector SQL and the generator scenario for that host, fix, then re-run"
+    }
+  ],
+  "progression": [
+    {
+      "run": "purple-20260911T152518Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.371
+    },
+    {
+      "run": "purple-20260911T184340Z",
+      "chains_fired": 7,
+      "chains_total": 8,
+      "chain_score": 0.875,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.2
+    },
+    {
+      "run": "purple-20260911T184744Z",
+      "chains_fired": 2,
+      "chains_total": 8,
+      "chain_score": 0.25,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.086
+    },
+    {
+      "run": "purple-20260911T185056Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.0
+    },
+    {
+      "run": "purple-20260911T191054Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.257
+    },
+    {
+      "run": "purple-20260911T193228Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 90,
+      "technique_hit_rate_armed": 0.306
+    },
+    {
+      "run": "purple-20260912T131438Z",
+      "chains_fired": 7,
+      "chains_total": 8,
+      "chain_score": 0.875,
+      "armed_rules": 92,
+      "technique_hit_rate_armed": 0.189
+    },
+    {
+      "run": "purple-20260912T132254Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 92,
+      "technique_hit_rate_armed": 0.081
+    },
+    {
+      "run": "purple-20260914T124904Z",
+      "chains_fired": 7,
+      "chains_total": 10,
+      "chain_score": 0.7,
+      "armed_rules": 102,
+      "technique_hit_rate_armed": 0.286
+    },
+    {
+      "run": "purple-20260914T125948Z",
+      "chains_fired": 0,
+      "chains_total": 10,
+      "chain_score": 0.0,
+      "armed_rules": 102,
+      "technique_hit_rate_armed": 0.0
+    },
+    {
+      "run": "(this run)",
+      "chains_fired": 0,
+      "chains_total": 10,
+      "chain_score": 0.0,
+      "armed_rules": 102,
+      "technique_hit_rate_armed": 0.286
+    }
+  ],
+  "alerts": [
+    {
+      "id": 700,
+      "host_name": "live-matrix-defense_evasion_cleanup-131127",
+      "rule_name": "Reverse Shell Pattern Detected",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1059"
+      ],
+      "time": "2026-09-14 13:12:24.640770+00:00"
+    },
+    {
+      "id": 701,
+      "host_name": "live-matrix-defense_evasion_cleanup-131127",
+      "rule_name": "Download and Execute Pattern",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1059"
+      ],
+      "time": "2026-09-14 13:12:24.665565+00:00"
+    },
+    {
+      "id": 702,
+      "host_name": "live-matrix-defense_evasion_cleanup-131127",
+      "rule_name": "Script Interpreter from Unexpected Location",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1059"
+      ],
+      "time": "2026-09-14 13:12:24.722336+00:00"
+    },
+    {
+      "id": 703,
+      "host_name": "live-matrix-payload_callback-131127",
+      "rule_name": "Outbound Connection to Rare/C2 Port",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1071"
+      ],
+      "time": "2026-09-14 13:13:24.184679+00:00"
+    },
+    {
+      "id": 704,
+      "host_name": "live-matrix-defense_evasion_cleanup-131127",
+      "rule_name": "Log File Deletion",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1070"
+      ],
+      "time": "2026-09-14 13:13:24.444931+00:00"
+    },
+    {
+      "id": 705,
+      "host_name": "live-matrix-sigma-users-diff-131127",
+      "rule_name": "Service Account Anomaly",
+      "severity": "low",
+      "mitre_techniques": [
+        "T1078"
+      ],
+      "time": "2026-09-14 13:13:24.459258+00:00"
+    },
+    {
+      "id": 707,
+      "host_name": "live-matrix-privilege_escalation_chain-131127",
+      "rule_name": "Privilege Escalation via Sudo",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1548"
+      ],
+      "time": "2026-09-14 13:13:24.494848+00:00"
+    },
+    {
+      "id": 708,
+      "host_name": "live-matrix-sigma-users-diff-131127",
+      "rule_name": "macOS Local Account Created (users differential)",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1136"
+      ],
+      "time": "2026-09-14 13:13:24.505473+00:00"
+    },
+    {
+      "id": 709,
+      "host_name": "live-matrix-persistence_activated-131127",
+      "rule_name": "LaunchAgent Persistence Created",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1547"
+      ],
+      "time": "2026-09-14 13:13:24.505647+00:00"
+    },
+    {
+      "id": 711,
+      "host_name": "live-matrix-persistence_activated-131127",
+      "rule_name": "Living-off-the-Land Binary Execution",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1218"
+      ],
+      "time": "2026-09-14 13:13:24.507409+00:00"
+    },
+    {
+      "id": 710,
+      "host_name": "live-matrix-brute_force_success-131127",
+      "rule_name": "Login from Unusual Geography",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1078"
+      ],
+      "time": "2026-09-14 13:13:24.507695+00:00"
+    },
+    {
+      "id": 712,
+      "host_name": "live-matrix-privilege_escalation_chain-131127",
+      "rule_name": "Renamed System Binary (Masquerading)",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1036"
+      ],
+      "time": "2026-09-14 13:13:24.508746+00:00"
+    },
+    {
+      "id": 713,
+      "host_name": "live-matrix-persistence_activated-131127",
+      "rule_name": "Hidden File Creation in User Directories",
+      "severity": "low",
+      "mitre_techniques": [
+        "T1564"
+      ],
+      "time": "2026-09-14 13:13:24.518821+00:00"
+    },
+    {
+      "id": 714,
+      "host_name": "live-matrix-data_exfiltration-131127",
+      "rule_name": "Data Exfiltration Volume",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1048"
+      ],
+      "time": "2026-09-14 13:13:24.520432+00:00"
+    },
+    {
+      "id": 715,
+      "host_name": "live-matrix-payload_callback-131127",
+      "rule_name": "Renamed System Binary (Masquerading)",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1036"
+      ],
+      "time": "2026-09-14 13:13:24.522633+00:00"
+    },
+    {
+      "id": 716,
+      "host_name": "live-matrix-ai_process_egress-131127",
+      "rule_name": "Encoded Command Execution",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1027"
+      ],
+      "time": "2026-09-14 13:13:24.593566+00:00"
+    },
+    {
+      "id": 717,
+      "host_name": "live-matrix-privilege_escalation_chain-131127",
+      "rule_name": "Script Interpreter from Unexpected Location",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1059"
+      ],
+      "time": "2026-09-14 13:13:24.670895+00:00"
+    }
+  ]
+}
