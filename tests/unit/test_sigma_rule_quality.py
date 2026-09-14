@@ -49,6 +49,7 @@ KNOWN_TOKENS = {
     vocabulary.EVENT_ACTION_FILE_EVENT,
     vocabulary.EVENT_ACTION_CONFIG_OBSERVED,
     vocabulary.EVENT_ACTION_COMMAND_OBSERVED,
+    vocabulary.EVENT_ACTION_ACCOUNT_CREATED,  # windows_events 4720 (V0.6b)
     vocabulary.EVENT_ACTION_AUTH_FAILED,
     vocabulary.EVENT_ACTION_VERDICT_BLOCK,
     # AI-usage domain (V0.4/5 item 3)

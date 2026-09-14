@@ -1,0 +1,72 @@
+title: RMM Remote-Access Tool Execution
+id: 746abc0a-f98e-4691-9079-750bcfe93e98
+status: stable
+description: >
+    Detects execution of remote-monitoring-and-management (RMM) tools
+    commonly abused by attackers for hands-on-keyboard access (T1219):
+    ScreenConnect, AnyDesk, NetSupport, SimpleHelp, TeamViewer, RustDesk,
+    Ammyy, LogMeIn, UltraVNC, TightVNC. Matches the executable basename on
+    ES/ETW rows and the processes differential. Allow-listing: deploy
+    suppression rules (alert_suppressions, per rule_name/host) for hosts
+    where a tool is sanctioned -- never edit the rule to add an allowlist;
+    the SIEM's tuning path is the suppression table.
+author: SecurityScarletAI
+date: 2026/09/14
+logsource:
+    category: process
+detection:
+    selection_screenconnect:
+        event_type: start
+        process_name:
+            - ScreenConnect.ClientService.exe
+            - ScreenConnect.Service.exe
+            - ScreenConnect.Backshell.exe
+            - screenconnect
+    selection_anydesk:
+        event_type: start
+        process_name:
+            - AnyDesk.exe
+            - AnyDesk
+            - anydesk
+    selection_netsupport:
+        event_type: start
+        process_name:
+            - client32.exe
+            - client32
+            - pcAnywhere
+    selection_simplehelp:
+        event_type: start
+        process_name:
+            - ServerService.exe
+            - ClientService.exe
+            - RemoteAccess.exe
+        process_path|contains:
+            - SimpleHelp
+            - simplehelp
+    selection_teamviewer:
+        event_type: start
+        process_name:
+            - TeamViewer.exe
+            - TeamViewer_Service.exe
+            - teamviewer
+    selection_rustdesk:
+        event_type: start
+        process_name:
+            - RustDesk.exe
+            - RustDesk
+            - rustdesk
+    selection_vnc_variants:
+        event_type: start
+        process_name:
+            - AmmyyAdmin.exe
+            - LogMeIn.exe
+            - ultravnc.exe
+            - winvnc.exe
+            - TightVNC.exe
+            - vncserver
+    condition: selection_screenconnect or selection_anydesk or selection_netsupport or selection_simplehelp or selection_teamviewer or selection_rustdesk or selection_vnc_variants
+level: medium
+tags:
+    - attack.command_and_control
+    - attack.ta0011
+    - attack.t1219

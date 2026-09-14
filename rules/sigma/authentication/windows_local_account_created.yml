@@ -1,0 +1,26 @@
+title: Windows Local Account Created
+id: 3aba9b2b-f94c-4b24-8419-26104c32e5b5
+status: stable
+description: >
+    Detects creation of a local user account via Windows Security eventid
+    4720 (parsed server-side into the account_created vocabulary token --
+    the per-token decision added in V0.6b). Rogue local account creation is
+    a top ransomware/persistence technique (T1136). The existing
+    "New Account Created" rule remains the SaaS/future-source waiver; this
+    rule selects the token the windows_events parser actually emits. Arming
+    is per-deployment: dormant until a Windows host's windows_events
+    telemetry flows.
+author: SecurityScarletAI
+date: 2026/09/14
+logsource:
+    category: authentication
+detection:
+    selection_account_created:
+        event_type: start
+        event_action: account_created
+    condition: selection_account_created
+level: medium
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1136

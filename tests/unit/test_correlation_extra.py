@@ -39,8 +39,8 @@ class TestCorrelationRuleDefinitions:
     """Test correlation rule definitions."""
 
     def test_rule_count(self):
-        """Should have 8 correlation rules."""
-        assert len(CORRELATION_RULES) == 8
+        """Should have 10 correlation rules (8 original + 2 V0.6b chains)."""
+        assert len(CORRELATION_RULES) == 10
 
     def test_all_rule_names(self):
         """Should have expected rule names."""
@@ -53,6 +53,8 @@ class TestCorrelationRuleDefinitions:
             "credential_theft_exfil",
             "defense_evasion_cleanup",
             "ai_verdict_block_sustained",
+            "clickfix_dropper_execution",
+            "ai_process_egress",
         }
         assert set(CORRELATION_RULES.keys()) == expected
 
@@ -111,7 +113,7 @@ class TestListCorrelationRules:
     def test_returns_list(self):
         rules = list_correlation_rules()
         assert isinstance(rules, list)
-        assert len(rules) == 8
+        assert len(rules) == 10
 
     def test_each_rule_has_required_fields(self):
         rules = list_correlation_rules()
@@ -280,7 +282,7 @@ class TestRunAllCorrelations:
 
     @pytest.mark.asyncio
     async def test_run_all_returns_results(self):
-        """Should run all 8 correlation rules and return results."""
+        """Should run all 10 correlation rules and return results."""
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.fetch = AsyncMock(return_value=[])
@@ -299,8 +301,8 @@ class TestRunAllCorrelations:
             assert "persisted" in result
             assert "as_of" in result
             assert "per_rule" in result
-            # All 8 rules should be present in per_rule
-            assert len(result["per_rule"]) == 8
+            # All 10 rules should be present in per_rule
+            assert len(result["per_rule"]) == 10
             for rule_name in CORRELATION_RULES:
                 assert rule_name in result["per_rule"]
 

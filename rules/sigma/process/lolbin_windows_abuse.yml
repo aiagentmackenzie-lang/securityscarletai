@@ -1,0 +1,67 @@
+title: Windows LOLBin Remote Payload Abuse
+id: 5d999598-f5d1-4725-ad55-a99d2d29b013
+status: stable
+description: >
+    Detects living-off-the-land binaries used to fetch or decode remote
+    payloads on Windows: certutil urlcache/decode, bitsadmin transfer,
+    regsvr32 scriptlet loading, and msbuild inline-task execution. Fires on
+    process_etw_events (process_name derived from basename(path)) and
+    powershell_events where script_text lands in process_cmdline.
+    Complements (does not replace) the existing POSIX lolbin rule.
+author: SecurityScarletAI
+date: 2026/09/14
+logsource:
+    category: process
+detection:
+    selection_certutil:
+        event_type:
+            - start
+            - info
+        process_name:
+            - certutil.exe
+            - certutil
+        process_cmdline|contains:
+            - -urlcache
+            - -split
+            - -decode
+            - -verifyctl
+    selection_bitsadmin:
+        event_type:
+            - start
+            - info
+        process_name:
+            - bitsadmin.exe
+            - bitsadmin
+        process_cmdline|contains:
+            - /transfer
+            - /create
+            - /addfile
+    selection_regsvr32:
+        event_type:
+            - start
+            - info
+        process_name:
+            - regsvr32.exe
+            - regsvr32
+        process_cmdline|contains:
+            - scrobj
+            - /i:http
+            - /i https
+    selection_msbuild_inline:
+        event_type:
+            - start
+            - info
+        process_name:
+            - msbuild.exe
+            - msbuild
+        process_cmdline|contains:
+            - .csproj
+            - .xml
+            - /t:InlineTask
+    condition: selection_certutil or selection_bitsadmin or selection_regsvr32 or selection_msbuild_inline
+level: medium
+tags:
+    - attack.defense_evasion
+    - attack.execution
+    - attack.ta0005
+    - attack.t1218

@@ -1,14 +1,14 @@
 # Detection Rules Reference
 
-SecurityScarletAI ships with **100 Sigma rules** and **8 event-driven correlation rules**, covering authentication, process, network, file, macOS, cloud, and AI-firewall attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL by the legacy `SigmaParser` + custom PostgreSQL backend in `src/detection/sigma.py`. (A pySigma-backed `PostgreSQLBackend` is retained as a unit-tested module but is off the production detection path — see P0-01/P0-04.)
+SecurityScarletAI ships with **112 Sigma rules** and **10 event-driven correlation rules**, covering authentication, process, network, file, macOS, cloud, AI-firewall, and AI-CLI/2026-technique attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL by the legacy `SigmaParser` + custom PostgreSQL backend in `src/detection/sigma.py`. (A pySigma-backed `PostgreSQLBackend` is retained as a unit-tested module but is off the production detection path — see P0-01/P0-04.)
 
 ---
 
-## Sigma Rule Catalog (100 total)
+## Sigma Rule Catalog (112 total)
 
-100 rules distributed across 6 categories. Each rule is a YAML file under `rules/sigma/<category>/`. Generated from the rule frontmatter — regenerate rather than hand-editing.
+112 rules distributed across 7 categories. Each rule is a YAML file under `rules/sigma/<category>/`. Generated from the rule frontmatter — regenerate rather than hand-editing.
 
-### Authentication (14 rules)
+### Authentication (15 rules)
 
 | # | Rule Name | Severity | MITRE Tactic | MITRE Technique | Description |
 |---|-----------|----------|--------------|-----------------|-------------|
@@ -26,8 +26,9 @@ SecurityScarletAI ships with **100 Sigma rules** and **8 event-driven correlatio
 | 12 | Service Account Anomaly | Medium | Initial Access (TA0001) | T1078 | Detects authentication events from service accounts outside of normal patterns |
 | 13 | SSH Brute Force Detected | Medium | Credential Access (TA0006) | T1110 | Detects multiple failed SSH login attempts from the same source IP, indicating a brute force attack |
 | 14 | SSH Successful Login After Multiple Failures | Medium | Credential Access (TA0006) | T1110 | Detects repeated failed SSH logins from a single source — a brute-force indicator. NOTE (P1-04): the origin... |
+| 15 | Windows Local Account Created | Medium | Persistence (TA0003) | T1136 | Detects local account creation via Windows Security 4720 (parsed into the account_created vocabulary; V0.6b) — rogue accounts are a top ransomware persistence/chokepoint technique |
 
-### Process (34 rules)
+### Process (41 rules)
 
 | # | Rule Name | Severity | MITRE Tactic | MITRE Technique | Description |
 |---|-----------|----------|--------------|-----------------|-------------|
@@ -65,6 +66,13 @@ SecurityScarletAI ships with **100 Sigma rules** and **8 event-driven correlatio
 | 32 | Tamper Protection Disabled | Medium | Defense Evasion (TA0005) | T1562 | Detects attempts to disable tamper protection on EDR/AV agents |
 | 33 | Upload to File-Sharing Service | Medium | Exfiltration (TA0010) | T1567 | Detects uploads to consumer file-sharing services via CLI (exfiltration channel) |
 | 34 | WMI Remote Execution | Medium | Lateral Movement (TA0008) | T1047 | Detects WMI-based remote process execution (lateral movement) |
+| 35 | ClickFix Paste and Run (macOS) | High | Execution / Initial Access (TA0001, TA0002) | T1204.004 | Detects the ClickFix paste-and-run pattern on macOS: applescript:// deep links, scripted curl+exec, curl piped to a shell, quarantine-attribute removal (2026's #1 delivery technique; V0.6b) |
+| 36 | ClickFix Windows Interpreter with Remote Payload | High | Execution / Initial Access (TA0001, TA0002) | T1204.004 | Detects the Windows ClickFix shapes: mshta/rundll32 with remote URLs, hidden+encoded PowerShell, cmd-piped fetches (V0.6b; FileFix TypedPaths not Sigma-expressible — honest scope in the spec) |
+| 37 | Windows LOLBin Remote Payload Abuse | Medium | Defense Evasion / Execution (TA0005) | T1218 | Detects certutil urlcache/decode, bitsadmin transfer, regsvr32 scriptlet, msbuild inline-task payload fetches (V0.6b) |
+| 38 | Shadow Copy Deletion (Recovery Inhibition) | Critical | Impact (TA0040) | T1490 | Detects vssadmin/wbadmin/diskshadow shadow-copy deletion — the ransomware recovery-inhibition chokepoint (V0.6b) |
+| 39 | RMM Remote-Access Tool Execution | Medium | Command and Control (TA0011) | T1219 | Detects execution of commonly-abused RMM tools (ScreenConnect, AnyDesk, NetSupport, SimpleHelp, TeamViewer, RustDesk, VNC variants); allow-list via suppression rules (V0.6b) |
+| 40 | Cloudflared Tunnel Process | High | C2 / Exfiltration (TA0010, TA0011) | T1572 | Detects the cloudflared tunnel client executing on a host — the 2026 blend-with-legitimate-egress exfil chokepoint (V0.6b) |
+| 41 | AI CLI Tool Credential or Shell Abuse | Medium | Execution / Credential Access (TA0006) | T1059, T1552 | Detects AI CLI/coding-agent tools touching credential material or spawning shell/network one-liners (OWASP ASI02 process-level shape; QUIETVAULT pattern; V0.6b) |
 
 ### Network (17 rules)
 
@@ -138,11 +146,22 @@ SecurityScarletAI ships with **100 Sigma rules** and **8 event-driven correlatio
 | 5 | New Admin Account Creation | Medium | Persistence (TA0003) | T1136 | Detects creation of new accounts with administrative privileges |
 | 6 | SaaS Permission Escalation | Medium | Privilege Escalation (TA0004) | T1078 | Detects permission or role changes in SaaS applications indicating privilege escalation |
 
+### AI (4 rules)
+
+| # | Rule Name | Severity | Primary Mapping | ATT&CK Tag (approx) | Description |
+|---|-----------|----------|-----------------|---------------------|-------------|
+| 1 | Prompt Injection Attempt | High | ASI01/ASI09 | T1190 | Detects any AI prompt-injection detection event |
+| 2 | MCP Tool Denial Burst | High | ASI02/ASI10 | T1110 | >= 10 MCP denials from one acting identity in 15m |
+| 3 | MCP Tool Call Volume | Medium | ASI02/ASI10 | T1213 | >= 50 allowed MCP calls from one acting identity in 15m |
+| 4 | Agent Run Burst | Medium | ASI10/ASI09 | T1059 | >= 20 agentic investigation runs from one acting identity in 15m |
+
+Full vocabulary + ASI01-10 coverage table: [AI_USAGE_DETECTIONS.md](AI_USAGE_DETECTIONS.md).
+
 ---
 
-## Correlation Rules (8 event-driven)
+## Correlation Rules (10 event-driven)
 
-The correlation engine (`src/detection/correlation.py`) defines 8 multi-step attack chain detectors. Each rule is **event-driven** (queries the `logs` table with an explicit `as_of` timestamp for point-in-time safety — no `NOW()` baked into SQL) and returns matches with a unique `correlation_id`. When `run_all_correlations(persist=True)` is called, matches are written to the `correlation_matches` table and surfaced as alerts via `create_alert()`.
+The correlation engine (`src/detection/correlation.py`) defines 10 multi-step attack chain detectors (8 original + 2 added in V0.6b). Each rule is **event-driven** (queries the `logs` table with an explicit `as_of` timestamp for point-in-time safety — no `NOW()` baked into SQL) and returns matches with a unique `correlation_id`. When `run_all_correlations(persist=True)` is called, matches are written to the `correlation_matches` table and surfaced as alerts via `create_alert()`.
 
 | # | Rule ID | Title | Severity | Confidence (base) | MITRE Tactics | MITRE Techniques | Description |
 |---|---------|-------|----------|-------------------|---------------|------------------|-------------|
@@ -154,6 +173,8 @@ The correlation engine (`src/detection/correlation.py`) defines 8 multi-step att
 | 6 | `credential_theft_exfil` | Credential Access → External Connection | Critical | 80% | Credential Access (TA0006), Exfiltration (TA0010) | T1555, T1048 | Access to sensitive credential files followed by outbound network connection |
 | 7 | `defense_evasion_cleanup` | Suspicious Activity → Log Deletion | High | 70% | Defense Evasion (TA0005) | T1070 | High-severity process followed by log file deletion |
 | 8 | `ai_verdict_block_sustained` | Sustained AI Firewall BLOCK Verdicts | High | 75% | Initial Access (TA0001) | T1190 | Sustained AI-firewall BLOCK verdicts (e.g. NeuralGuard, source=neuralguard) from one tenant/source within the trailing window — repeated attack traffic against a protected LLM endpoint |
+| 9 | `clickfix_dropper_execution` | ClickFix Drop → Interpreter Execution | High | 75% | Initial Access / Execution (TA0001, TA0002) | T1204.004, T1059 | A payload dropped in a user-writable/temp path followed by an interpreter execution (path or cmdline-referenced) on the same host — the file-drop half of the paste-and-run pattern (V0.6b) |
+| 10 | `ai_process_egress` | AI CLI Process → External Egress | Medium | 60% | Exfiltration (TA0010) | T1048 | An AI CLI/coding-agent tool starts, then the host makes an external outbound connection — hijacked/abused AI agent sessions (OWASP ASI02 process-level shape; V0.6b) |
 
 ### Programmatic invocation
 
@@ -224,6 +245,23 @@ tags:
 | `|endswith` | Suffix match | `file_path|endswith: .php` |
 | `|startswith` | Prefix match | `file_path|startswith: /tmp` |
 | List values | OR condition | `process_name: [curl, wget, nc]` |
+
+### Parser Limitations (honest scope, learned 2026-09-14)
+
+The legacy compiler enforces these constraints — violating them either
+fails to load the rule or silently degrades it:
+
+1. **Exactly ONE field modifier per key.** `|contains|all` and
+   `|contains|endswith` fail the modifier regex and become an invalid
+   column (rule fails to load). Compound conditions must be expressed as
+   separate selections.
+2. **Conditions split on OR first.** A mixed `A or B and C` condition is
+   split on `or` and each part is treated as a SELECTION NAME — an `and`
+   inside an or-part is looked up as a selection name, not found, and
+   fails safe to FALSE (the pairing is silently lost). Keep every
+   selection self-contained; use pure-OR or pure-AND condition lines.
+3. **A selection whose name is missing from `detection` matches NOTHING**
+   (fail-safe, logged loudly) — it never widens to TRUE (F-20).
 
 ### Aggregation Conditions
 

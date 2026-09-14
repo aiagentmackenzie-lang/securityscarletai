@@ -307,14 +307,26 @@ class TestWindowsEventsAuth:
         assert event.user_name == "svc-backup"
         assert event.source_ip == "198.51.100.7"
 
-    def test_other_eventids_fail_closed_unmapped(self):
-        # 4720 (user created) etc. stay UNMAPPED: adding auth-adjacent tokens
-        # is a reviewed per-token decision (V0.6b), not a silent widening.
+    def test_4720_maps_to_account_created(self):
+        # V0.6b per-token decision (the widening the V0.6a comment promised):
+        # 4720 = "A user account was created" -- arms the T1136 rule.
         event = parse_osquery_line(_win_line("windows_events", {"eventid": "4720", "data": "<x/>"}))
-        assert event is not None  # row still ingests
+        assert event is not None
         assert event.event_category == "authentication"
-        assert event.event_action is None  # no fabricated token
-        assert event.raw_data["columns"]["eventid"] == "4720"
+        assert event.event_action == "account_created"
+
+    def test_other_eventids_fail_closed_unmapped(self):
+        # 4724 (password reset), 4672 (special logon), group-membership ids
+        # etc. stay UNMAPPED: adding tokens is a reviewed per-token decision,
+        # never a silent widening.
+        for eid in ("4724", "4672", "4732", "4728"):
+            event = parse_osquery_line(
+                _win_line("windows_events", {"eventid": eid, "data": "<x/>"})
+            )
+            assert event is not None  # row still ingests
+            assert event.event_category == "authentication"
+            assert event.event_action is None  # no fabricated token
+            assert event.raw_data["columns"]["eventid"] == eid
 
     def test_unparseable_payload_keeps_token_from_eventid(self):
         # eventid is the ground truth; a malformed `data` payload must not

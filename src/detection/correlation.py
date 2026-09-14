@@ -29,6 +29,43 @@ from src.detection.alerts import create_alert
 
 log = get_logger("detection.correlation")
 
+# AI CLI / coding-agent executables (V0.6b "ai_process_egress" chain).
+# These are the process-level shapes an agentic AI tool produces; a
+# compromised or hijacked AI CLI session is a documented 2026 exfil
+# channel (stealers weaponize AI CLIs). Executable basenames only -- the
+# parser's process_name comes from basename(path) on both separators.
+# Extending this list is a reviewed, tested change (matrix scenario + rule).
+AI_PROCESS_NAMES = (
+    "claude",
+    "codex",
+    "aider",
+    "gemini",
+    "cursor-agent",
+    "copilot",
+    "ollama",
+    "continue",
+)
+
+# Interpreter/script-host executables for the clickfix_dropper_execution
+# chain: the second half of the paste-and-run pattern. POSIX shells + macOS
+# script hosts + Windows script hosts (process_name = basename(path)).
+CLICKFIX_INTERPRETERS = (
+    "sh",
+    "bash",
+    "zsh",
+    "osascript",
+    "script",
+    "mshta",
+    "powershell",
+    "pwsh",
+    "cmd",
+    "certutil",
+    "rundll32",
+    "cscript",
+    "wscript",
+    "msbuild",
+)
+
 
 # ───────────────────────────────────────────────────────────────
 # Coalesced correlation trigger (F-10) -- the SINGLE shared entrypoint for
@@ -160,6 +197,32 @@ CORRELATION_RULES = {
         "mitre_tactics": ["TA0001"],
         "mitre_techniques": ["T1190"],
         "confidence_base": 75,
+    },
+    "clickfix_dropper_execution": {
+        "title": "ClickFix Drop -> Interpreter Execution",
+        "description": (
+            "A file created in a user-writable or temp path followed by an "
+            "interpreter/script execution from the same host -- the "
+            "ClickFix / paste-and-run pattern (T1204.004), 2026's #1 "
+            "initial-access delivery technique"
+        ),
+        "severity": "high",
+        "mitre_tactics": ["TA0001", "TA0002"],
+        "mitre_techniques": ["T1204.004", "T1059"],
+        "confidence_base": 75,
+    },
+    "ai_process_egress": {
+        "title": "AI CLI Process -> External Egress",
+        "description": (
+            "An AI CLI/coding-agent tool started on the host followed by an "
+            "outbound external connection -- hijacked or abused AI agent "
+            "sessions exfiltrating data or pulling payloads (OWASP ASI02 "
+            "tool misuse, process-level shape)"
+        ),
+        "severity": "medium",
+        "mitre_tactics": ["TA0010"],
+        "mitre_techniques": ["T1048"],
+        "confidence_base": 60,
     },
 }
 
@@ -856,6 +919,217 @@ async def detect_defense_evasion_cleanup(
     return results
 
 
+async def detect_clickfix_dropper_execution(
+    conn,
+    as_of: datetime,
+    time_window_minutes: int = 10,
+    lookback_hours: int = 24,
+) -> List[Dict[str, Any]]:
+    """Detect: payload dropped in a user-writable path -> interpreter execution.
+
+    The ClickFix / paste-and-run chain (T1204.004): a file lands in /tmp,
+    a user directory, or a Windows user-profile path, and shortly after an
+    interpreter or script host executes on the same host -- either FROM a
+    user-writable path (payload-as-binary) or WITH a user-writable script
+    path on its command line (the .command/.sh double-click shape: the
+    interpreter is /bin/zsh, the cmdline carries the dropped path). This is
+    the file-drop half of the 2026 #1 delivery technique; the pure cmdline
+    half (curl|sh, mshta with URL) is covered by the V0.6b Sigma rules.
+
+    SQL shape mirrors detect_payload_callback (file variant). LIKE patterns
+    are parameters: Windows patterns use the escaped-backslash form
+    (a LIKE backslash escapes, so a literal backslash is \\\\).
+    """
+    sql = """
+    WITH dropped_files AS (
+        SELECT
+            host_name,
+            file_path,
+            user_name,
+            time AS drop_time
+        FROM logs
+        WHERE event_category = 'file'
+          AND event_action = $2
+          AND (
+                file_path LIKE $3
+                OR file_path LIKE $4
+                OR file_path LIKE $5
+                OR file_path LIKE $6
+                OR file_path LIKE $7
+                OR file_path LIKE $8
+                OR file_path LIKE $9
+              )
+          AND time > $1::timestamptz - INTERVAL '1 hour' * $10
+          AND time <= $1::timestamptz
+    ),
+    interpreter_execs AS (
+        SELECT
+            host_name,
+            process_name,
+            process_path,
+            process_cmdline,
+            time AS exec_time
+        FROM logs
+        WHERE event_category = 'process'
+          AND event_type = 'start'
+          AND process_name = ANY($11::text[])
+          AND (
+                -- payload executed as the binary itself
+                process_path LIKE $3
+                OR process_path LIKE $4
+                OR process_path LIKE $12
+                OR process_path LIKE $13
+                OR process_path LIKE $14
+                -- or the interpreter's cmdline references the dropped path
+                -- (the double-clicked .command/.sh shape: /bin/zsh <script>))
+                OR process_cmdline LIKE $15
+                OR process_cmdline LIKE $16
+                OR process_cmdline LIKE $17
+                OR process_cmdline LIKE $18
+              )
+          AND time > $1::timestamptz - INTERVAL '1 hour' * $10
+          AND time <= $1::timestamptz
+    )
+    SELECT
+        d.host_name,
+        d.file_path,
+        d.user_name,
+        d.drop_time,
+        i.process_name,
+        i.process_path,
+        i.process_cmdline,
+        i.exec_time
+    FROM dropped_files d
+    JOIN interpreter_execs i
+        ON d.host_name = i.host_name
+        AND i.exec_time > d.drop_time
+        AND i.exec_time < d.drop_time + INTERVAL '1 minute' * $19
+    ORDER BY d.drop_time DESC
+    """
+
+    rows = await conn.fetch(
+        sql,
+        as_of,  # $1
+        "file_created",  # $2
+        "/tmp/%",  # $3 -- POSIX temp (LIKE: % wildcard, / literal)  # noqa: S108
+        "/var/tmp/%",  # $4  # noqa: S108
+        "/Users/%",  # $5 -- macOS user dirs
+        r"C:\\Users\\%",  # $6 -- Windows user profiles (escaped backslash)
+        r"C:\\Windows\\Temp\\%",  # $7
+        r"C:\\Users\\%\\AppData\\%",  # $8
+        r"C:\\Users\\Public\\%",  # $9
+        lookback_hours,  # $10
+        list(CLICKFIX_INTERPRETERS),  # $11
+        r"C:\\Users\\%",  # $12
+        r"C:\\Windows\\Temp\\%",  # $13
+        r"C:\\Users\\Public\\%",  # $14
+        "%/tmp/%",  # $15 -- cmdline references to dropped temp paths
+        "%/var/tmp/%",  # $16
+        "%/Users/%",  # $17 -- cmdline references to dropped user-dir paths
+        r"%C:\\Users\\%",  # $18 -- cmdline references to Windows user paths
+        time_window_minutes,  # $19
+    )
+    results = []
+    for row in rows:
+        d = dict(row)
+        d["correlation_rule"] = "clickfix_dropper_execution"
+        d["correlation_id"] = str(uuid.uuid4())
+        d["severity"] = CORRELATION_RULES["clickfix_dropper_execution"]["severity"]
+        d["title"] = CORRELATION_RULES["clickfix_dropper_execution"]["title"]
+        d["mitre_tactics"] = CORRELATION_RULES["clickfix_dropper_execution"]["mitre_tactics"]
+        d["mitre_techniques"] = CORRELATION_RULES["clickfix_dropper_execution"]["mitre_techniques"]
+        d["confidence"] = CORRELATION_RULES["clickfix_dropper_execution"]["confidence_base"]
+        results.append(d)
+    return results
+
+
+async def detect_ai_process_egress(
+    conn,
+    as_of: datetime,
+    time_window_minutes: int = 15,
+    lookback_hours: int = 24,
+) -> List[Dict[str, Any]]:
+    """Detect: AI CLI process start -> outbound external connection.
+
+    A hijacked or abused AI agent session is a documented 2026 exfil
+    channel (stealers weaponize AI CLIs; OWASP ASI02 tool misuse). The
+    chain fires when an AI CLI tool STARTS and the host then makes an
+    EXTERNAL (non-RFC1918) outbound connection within the window. Honest
+    FP note: legitimate AI tools DO phone home (model APIs, updates) --
+    this is a medium-severity investigate signal, not automatic containment;
+    the verdict/HITL layer is where that disposition happens.
+    """
+    sql = """
+    WITH ai_starts AS (
+        SELECT
+            host_name,
+            process_name,
+            user_name,
+            time AS start_time
+        FROM logs
+        WHERE event_category = 'process'
+          AND event_type = 'start'
+          AND process_name = ANY($2::text[])
+          AND time > $1::timestamptz - INTERVAL '1 hour' * $3
+          AND time <= $1::timestamptz
+    ),
+    outbound_connections AS (
+        SELECT
+            host_name,
+            destination_ip,
+            destination_port,
+            time AS conn_time
+        FROM logs
+        WHERE event_category = 'network'
+          AND event_type = 'connection'
+          AND destination_ip IS NOT NULL
+          AND NOT destination_ip <<= $4::inet
+          AND NOT destination_ip <<= $5::inet
+          AND NOT destination_ip <<= $6::inet
+          AND time > $1::timestamptz - INTERVAL '1 hour' * $7
+          AND time <= $1::timestamptz
+    )
+    SELECT
+        a.host_name,
+        a.process_name AS ai_process,
+        a.user_name,
+        a.start_time,
+        o.destination_ip,
+        o.destination_port,
+        o.conn_time
+    FROM ai_starts a
+    JOIN outbound_connections o
+        ON a.host_name = o.host_name
+        AND o.conn_time > a.start_time
+        AND o.conn_time < a.start_time + INTERVAL '1 minute' * $8
+    ORDER BY a.start_time DESC
+    """
+
+    rows = await conn.fetch(
+        sql,
+        as_of,  # $1
+        list(AI_PROCESS_NAMES),  # $2
+        lookback_hours,  # $3
+        "10.0.0.0/8",  # $4
+        "192.168.0.0/16",  # $5
+        "172.16.0.0/12",  # $6
+        lookback_hours,  # $7
+        time_window_minutes,  # $8 -- join window (conn within N min of start)
+    )
+    results = []
+    for row in rows:
+        d = dict(row)
+        d["correlation_rule"] = "ai_process_egress"
+        d["correlation_id"] = str(uuid.uuid4())
+        d["severity"] = CORRELATION_RULES["ai_process_egress"]["severity"]
+        d["title"] = CORRELATION_RULES["ai_process_egress"]["title"]
+        d["mitre_tactics"] = CORRELATION_RULES["ai_process_egress"]["mitre_tactics"]
+        d["mitre_techniques"] = CORRELATION_RULES["ai_process_egress"]["mitre_techniques"]
+        d["confidence"] = CORRELATION_RULES["ai_process_egress"]["confidence_base"]
+        results.append(d)
+    return results
+
+
 # ───────────────────────────────────────────────────────────────
 # Sessionization -- group events by host+user into sessions
 # ───────────────────────────────────────────────────────────────
@@ -990,6 +1264,8 @@ async def run_all_correlations(
         "credential_theft_exfil": detect_credential_theft_exfil,
         "defense_evasion_cleanup": detect_defense_evasion_cleanup,
         "ai_verdict_block_sustained": detect_ai_verdict_block_sustained,
+        "clickfix_dropper_execution": detect_clickfix_dropper_execution,
+        "ai_process_egress": detect_ai_process_egress,
     }
 
     all_matches: List[Dict[str, Any]] = []

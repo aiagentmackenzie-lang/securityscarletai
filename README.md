@@ -11,7 +11,7 @@
 [![TimescaleDB](https://img.shields.io/badge/TimescaleDB-hypertable-E58E33)](https://www.timescale.com)
 [![Streamlit](https://img.shields.io/badge/dashboard-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io)
 [![Ollama](https://img.shields.io/badge/LLM-Ollama_(local)-111111)](https://ollama.com)
-[![Sigma](https://img.shields.io/badge/Sigma-104%20rules-orange)](docs/RULES.md)
+[![Sigma](https://img.shields.io/badge/Sigma-112%20rules-orange)](docs/RULES.md)
 [![MITRE ATT&CK](https://img.shields.io/badge/MITRE-ATT%26CK%20mapped-B31E1E)](https://attack.mitre.org)
 
 SecurityScarletAI is an open-source, self-hosted SIEM for macOS hosts and small
@@ -46,8 +46,8 @@ Most security dashboards show you charts. This one shows you **receipts**:
 
 | | Verified state (2026-09-14 — counts hand-checked against the code, no auto-updating badge) |
 |---|---|
-| Tests | **2,007 unit** (mocked DB) + **27 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **86%** |
-| Detections | **104 Sigma rules** (vocabulary-gated in CI) · **8/8 correlation chains live-fire verified** |
+| Tests | **2,028 unit** (mocked DB) + **27 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **86%** |
+| Detections | **112 Sigma rules** (vocabulary-gated in CI) · **10 correlation chains** (8/8 live-fire verified; 2 V0.6b chains armed, live-fire pending the final stage) |
 | Agentic | Read-only investigator · SIEM **MCP server** (3 tools over a scoped read-only DB role) · AI-usage detection domain |
 | Response | 6 action types — 3 live-verified on the reference deployment, 3 capability-gated fail-closed |
 | Pipeline | Real osqueryd telemetry → Sigma alerts in production since 2026-09-04 · FIM file telemetry · fleet ingest (macOS/Linux/Windows agents; Windows auth via Security eventid 4624/4625) · TimescaleDB store |
@@ -77,7 +77,7 @@ Most security dashboards show you charts. This one shows you **receipts**:
 |---|---|---|
 | Ingestion | FastAPI + asyncpg | Bearer-token HTTP ingest (≤1,000 events/batch, rate-limited), checkpointed osquery file shipper, raw-line fleet endpoint with server-side parsing, fire-and-forget enrichment |
 | Storage | TimescaleDB (PostgreSQL 17) + Redis 7 | Hypertable with 1-day chunks, compression + 30-day retention; Redis for rate-limit state and the JWT blocklist |
-| Detection | Sigma → parameterized SQL + correlation engine | 104 rules across 7 categories; 8 event-driven correlation chains with `as_of` time binding and persisted matches |
+| Detection | Sigma → parameterized SQL + correlation engine | 112 rules across 7 categories; 10 event-driven correlation chains with `as_of` time binding and persisted matches |
 | Enrichment | GeoIP2 + DNS + threat intel | MaxMind GeoIP, PTR lookup, AbuseIPDB/OTX/URLhaus IOC match with severity boost |
 | AI/ML | Ollama (mistral:7b) + scikit-learn | Calibrated Random-Forest triage, Isolation-Forest UEBA, NL→SQL with 7-layer injection defense, LLM explanations with template fallback, per-call cost tracking |
 | Response | Policy engine + executors | Slack notifications, SIEM-user disable, host quarantine (+3 capability-gated); every outcome re-queried and recorded |
@@ -87,12 +87,14 @@ Most security dashboards show you charts. This one shows you **receipts**:
 ## Features
 
 **Detection & telemetry**
-- 104 Sigma rules — authentication, process, network, file, macOS, cloud, and
+- 112 Sigma rules — authentication, process, network, file, macOS, cloud, AI, and
   AI-usage categories, MITRE ATT&CK-mapped ([docs/RULES.md](docs/RULES.md))
-- 8 event-driven correlation chains: brute force → success, payload → C2,
+- 10 event-driven correlation chains: brute force → success, payload → C2,
   persistence activation, data exfiltration, privilege escalation, credential
-  theft + exfil, defense evasion, sustained AI-firewall blocks — every chain
-  live-fire verified on real telemetry (2026-09-11)
+  theft + exfil, defense evasion, sustained AI-firewall blocks, ClickFix drop →
+  interpreter execution, AI CLI → external egress — 8 live-fire verified on
+  real telemetry (2026-09-11); the 2 V0.6b chains are CI-armed and
+  live-fire-verified at the next purple-loop pass
 - Evidence-driven coverage map (`GET /detection/coverage`): which rules are
   **armed** by real telemetry vs **dormant** (with itemized reasons) — 86/112
   armed on the reference deployment

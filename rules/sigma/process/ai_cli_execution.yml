@@ -1,0 +1,66 @@
+title: AI CLI Tool Credential or Shell Abuse
+id: 0b1670b4-62a8-4e5c-88cb-5b043e9382a9
+status: stable
+description: >
+    Detects AI CLI / coding-agent tools (claude, codex, aider, gemini,
+    cursor-agent, copilot, ollama, continue) whose command line touches
+    credential material or spawns shell/network one-liners -- the
+    process-level shapes of OWASP ASI02 (tool misuse) and the documented
+    2026 QUIETVAULT pattern (stealers weaponizing AI CLI tools). The
+    egress-from-AI-process chain is the companion correlation rule
+    (ai_process_egress). The SIEM's OWN MCP/agent events remain a separate,
+    first-class detection domain (rules/sigma/ai/). ATT&CK tags are the
+    nearest-neighbor mapping; the PRIMARY mapping is OWASP Agentic ASI02 --
+    where the mapping is approximate the description says so.
+author: SecurityScarletAI
+date: 2026/09/14
+logsource:
+    category: process
+detection:
+    selection_ai_cli_creds:
+        event_type: start
+        process_name:
+            - claude
+            - codex
+            - aider
+            - gemini
+            - cursor-agent
+            - copilot
+            - ollama
+            - continue
+        process_cmdline|contains:
+            - .env
+            - id_rsa
+            - id_ed25519
+            - .ssh
+            - credentials
+            - aws_secret
+            - aws_access_key
+            - api_key
+            - token
+    selection_ai_cli_shell_spawn:
+        event_type: start
+        process_name:
+            - claude
+            - codex
+            - aider
+            - gemini
+            - cursor-agent
+            - copilot
+            - ollama
+            - continue
+        process_cmdline|contains:
+            - bash -c
+            - sh -c
+            - /bin/bash
+            - /bin/sh
+            - curl
+            - wget
+    condition: selection_ai_cli_creds or selection_ai_cli_shell_spawn
+level: medium
+tags:
+    - attack.execution
+    - attack.credential_access
+    - attack.ta0006
+    - attack.t1059
+    - attack.t1552

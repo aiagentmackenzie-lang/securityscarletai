@@ -118,9 +118,14 @@ def parse_osquery_line(raw_line: str) -> Optional[NormalizedEvent]:
             user_name = we_user
         if we_ip and not source_ip:
             source_ip = _safe_ip(we_ip)
-    elif table_name == "process_etw_events" and not process_name:
+    elif table_name in ("process_etw_events", "es_process_events") and not process_name:
         # ETW rows carry NO `name` column -- the executable basename IS the
-        # process name shape the process rules expect.
+        # process name shape the process rules expect. Same shape applies
+        # to es_process_events (schedule selects path/cmdline/username, no
+        # name column): without this fallback EVERY ES exec row had
+        # process_name NULL -- process-name-keyed rules and the coverage
+        # process-name probe could never fire on the macOS ES path
+        # (found by code read 2026-09-14, V0.6b).
         process_name = _basename_any_platform(columns.get("path"))
 
     return NormalizedEvent(

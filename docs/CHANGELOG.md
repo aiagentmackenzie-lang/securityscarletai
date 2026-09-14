@@ -1,5 +1,59 @@
 # CHANGELOG
 
+## V0.6b 2026 behavioral detection pack (2026-09-14, feat/v0.6b-detection-pack)
+
+**Detections aimed at the techniques that actually topped 2026 incident
+telemetry -- built CI-verified, live-fire deferred to the final stage of
+the V0.6/V0.7 stack.**
+
+- 8 new Sigma rules (104 -> 112), all through the rule-quality gate
+  (vocabulary-gated, single-modifier, pure-OR conditions) and all
+  compiling to parameterized SQL:
+  - ClickFix / paste-and-run cross-platform (T1204.004, 2026's #1
+    initial-access delivery): macOS (applescript:// deep links, osascript
+    curl+exec, curl-piped-to-shell, quarantine-attribute removal) and
+    Windows (mshta/rundll32 with remote payloads, hidden+encoded
+    PowerShell, cmd-piped fetches). Honest scope: FileFix TypedPaths
+    registry shapes are NOT Sigma-expressible (registry rows carry no
+    selectable column) -- documented in the spec.
+  - Windows LOLBin abuse (certutil/bitsadmin/regsvr32/msbuild), shadow
+    copy deletion (vssadmin/wbadmin/diskshadow -- T1490 ransomware
+    recovery-inhibition chokepoint, critical), RMM tool execution
+    (ScreenConnect/AnyDesk/NetSupport/SimpleHelp/TeamViewer/RustDesk/VNC
+    variants -- T1219), cloudflared tunnel (T1572), AI CLI credential/
+    shell abuse (OWASP ASI02 process-level shape, QUIETVAULT pattern).
+- 2 new correlation chains (8 -> 10), both with coverage requirements +
+  matrix scenarios (the deferred live-fire drives them through the real
+  pipe in one pass): `clickfix_dropper_execution` (payload dropped in
+  user-writable paths -> interpreter execution, incl. the double-clicked
+  .command shape) and `ai_process_egress` (AI CLI start -> external
+  egress; ASI02).
+- NEW ingest token: windows_events 4720 -> `account_created` (the
+  reviewed per-token widening the V0.6a comment promised) + the T1136
+  rule `windows_local_account_created` selecting it.
+- BUG FOUND BY CODE READ, FIXED: `es_process_events` rows carry NO `name`
+  column (same shape as process_etw_events) and the parser's
+  basename(path) fallback covered ETW but NOT ES -- every ES exec row
+  (the majority of macOS process telemetry) had process_name NULL, so
+  process-name-keyed rules and the coverage process-name probe could
+  never fire on the ES path. Fix: the same basename(path) fallback for
+  es_process_events (both path separators).
+- TEST FLAKINESS CLASS FIXED (LRN-20260911-004 variant): 4 tests in
+  test_api_endpoints.py patched `get_pool` with `return_value=...` --
+  when the module's get_pool binding was a MagicMock (import-order
+  dependent), patch() never auto-created an AsyncMock and `await
+  get_pool()` exploded in isolated runs (passed full-suite runs by
+  import-order luck). Fix: explicit `new=AsyncMock(...)` on all 4 patch
+  sites.
+- Parser-limitation lessons documented in RULES.md (single modifier per
+  key; conditions split on OR first -- mixed and/or silently degrades;
+  missing selection names fail safe to FALSE). Two rule-authoring
+  mistakes were caught by verification before merge.
+- Matrix generator: scenarios for both new chains (live-matrix- hosts,
+  auto-covered by the deferred live-fire cleanup scope) + fixture-level
+  validation tests (scenario shapes parse to the chain vocabulary).
+- Tests: 2,007 -> 2,028 unit (net +21).
+
 ## V0.6c model currency — benchmarked, default retained (2026-09-13, feat/v0.6c-model-benchmark)
 
 **The local LLM is now selected by a measured, reproducible benchmark on
