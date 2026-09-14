@@ -99,6 +99,23 @@ OSQUERY_ECS_MAP: dict[str, dict[str, str]] = {
     "listening_ports": {"event_category": "network", "event_type": "connection"},
     "open_sockets": {"event_category": "network", "event_type": "connection"},
     "logged_in_users": {"event_category": "authentication", "event_type": "start"},
+    # macOS/local user-account state (V0.7 delta fix -- the macOS T1136 half).
+    # Scheduled in DIFFERENTIAL mode: osquery emits an 'added' row only for an
+    # account that APPEARED since the previous interval -- that differential
+    # row IS the macOS account-created ground truth, deriving the same
+    # account_created token windows_events 4720 emits. Honest caveats, both
+    # documented in the schedule + rule text:
+    #   - the FIRST run after an osquery (re)start re-emits the whole
+    #     baseline as added rows (osquery differential semantics) -- a burst
+    #     of account_created rows for EXISTING accounts; alert dedup (15
+    #     min, per rule+host) collapses each burst to one alert per host.
+    #   - 'removed' rows (account deleted) carry NO token: the closed
+    #     vocabulary has no account_deleted token and widening it is a
+    #     reviewed decision, not a silent one. Raw rows survive in raw_data.
+    # Windows is NOT scheduled on this table: 4720 already carries real
+    # account-management ground truth there -- a users-diff rule would be a
+    # duplicate detector on the same event.
+    "users": {"event_category": "authentication", "event_type": "start"},
     "file_events": {"event_category": "file", "event_type": "change"},
     "shell_history": {"event_category": "process", "event_type": "info"},
     "crontab": {"event_category": "configuration", "event_type": "info"},
@@ -278,6 +295,16 @@ def derive_event_action(table_name: str, action: str, columns: dict) -> Optional
             return EVENT_ACTION_NETWORK_CONNECTION
         if table_name == "logged_in_users":
             return EVENT_ACTION_AUTH_SUCCESS
+        if table_name == "users":
+            # V0.7 delta fix (the macOS half of V0.6b item 2): a differential
+            # 'added' row in the users table = an account APPEARED on the
+            # host since the previous interval = the T1136 shape the Windows
+            # 4720 path already carries. logged_in_users is deliberately NOT
+            # part of this: utmpx/WTS rows are SESSION state (auth_success/
+            # session_closed tokens, already correct) -- a login session is
+            # not an account creation. Snapshot dumps stay unmapped (None)
+            # per the differential semantics above.
+            return EVENT_ACTION_ACCOUNT_CREATED
         if table_name == "file_events":
             return _file_action_token(columns.get("action", ""))
         if table_name == "shell_history":

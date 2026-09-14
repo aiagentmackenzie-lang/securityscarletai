@@ -257,6 +257,15 @@ class TestFrameworkMappingsLoader:
         assert doc["version"] == 1
         assert "uk_csr_bill" in doc["frameworks"]
         assert "caf_v4" in doc["frameworks"]
+        # V0.7 delta (a): the plan named a NIST CSF overlay -- it now
+        # exists as a surface-based framework, not just a name in a title.
+        assert "nist_csf" in doc["frameworks"]
+        csf_objectives = {
+            c.get("objective", "").split(" (")[0] for c in doc["frameworks"]["nist_csf"]["controls"]
+        }
+        assert {"GOVERN", "IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"} <= set(
+            csf_objectives
+        ), f"nist_csf must cover all six CSF functions, got {sorted(csf_objectives)}"
         for fw in doc["frameworks"].values():
             assert fw["controls"], f"{fw['name']} has no valid controls"
             for c in fw["controls"]:

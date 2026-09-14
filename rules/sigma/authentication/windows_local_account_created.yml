@@ -7,18 +7,21 @@ description: >
     the per-token decision added in V0.6b). Rogue local account creation is
     a top ransomware/persistence technique (T1136). The existing
     "New Account Created" rule remains the SaaS/future-source waiver; this
-    rule selects the token the windows_events parser actually emits. Arming
-    is per-deployment: dormant until a Windows host's windows_events
-    telemetry flows.
+    rule selects the token the windows_events parser actually emits, keyed
+    to source osquery:windows_events (the macOS users-differential rule
+    selects the same token on osquery:users -- the source column keeps the
+    two halves from double-firing one event). Arming is per-deployment:
+    dormant until a Windows host's windows_events telemetry flows.
 author: SecurityScarletAI
 date: 2026/09/14
 logsource:
     category: authentication
 detection:
-    selection_account_created:
+    selection_windows_4720:
         event_type: start
         event_action: account_created
-    condition: selection_account_created
+        source: osquery:windows_events
+    condition: selection_windows_4720
 level: medium
 tags:
     - attack.persistence

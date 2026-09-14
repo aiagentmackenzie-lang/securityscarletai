@@ -50,8 +50,8 @@ Workflow:
 | Endpoint | Answers |
 |---|---|
 | `GET /compliance/reports/coverage` | "What can you actually detect?" -- the evidence-driven armed/dormant map, not a rule-count claim |
-| `GET /compliance/reports/posture` | "How did we do?" -- alert counts by severity/status, MTTR, rule-scorecard summary for the window |
-| `GET /compliance/frameworks` | "Which framework controls do you evidence?" -- the versioned surface mapping |
+| `GET /compliance/reports/posture` | "How did we do?" -- alert counts by severity/status, MTTR, rule-scorecard summary for the window, + the UEBA-ready outliers view (per-host alert-volume and per-user auth-failure outliers via robust median/MAD z-scores over the window's own population; read-only from alerts/logs, no persisted baselines -- V0.8 UEBA supersedes the statistics, not the shape) |
+| `GET /compliance/frameworks` | "Which framework controls do you evidence?" -- the versioned surface mapping (UK CS&R Bill, CAF v4.0, NIS2/DORA, NIST CSF, SOC2/ISO) |
 | `GET /compliance/retention-policy` | "How long do you keep logs?" -- configured windows AS CONFIGURED (0 = keep forever, reported honestly) + TimescaleDB policy state when present |
 
 All four are auth'd reads. Nothing here mutates state.

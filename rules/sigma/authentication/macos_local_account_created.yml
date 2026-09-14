@@ -1,0 +1,38 @@
+title: macOS Local Account Created (users differential)
+id: 64428248-3286-474d-afad-fd2f203494e8
+status: stable
+description: >
+    Detects creation of a local user account on macOS via the osquery
+    `users` table scheduled in DIFFERENTIAL mode: osquery emits an 'added'
+    row only for an account that appeared since the previous interval, and
+    the parser derives the account_created vocabulary token for it (the
+    same token the Windows 4720 path emits). This is the macOS half of the
+    V0.6b rogue-account-creation item (T1136); the Windows half is
+    windows_local_account_created. The two rules are keyed apart by the
+    `source` column (osquery:users vs osquery:windows_events) so one event
+    cannot fire both. HONEST CAVEATS: (1) the first run after an osquery
+    (re)start re-emits the account baseline as added rows -- a burst of
+    alerts for EXISTING accounts; the 15-minute per-rule-per-host alert
+    dedup collapses each burst to one alert, and an unexpected repeat burst
+    is itself worth a look (osquery restarting or a managed-account churn).
+    (2) logged_in_users is deliberately NOT part of this detection: utmpx
+    rows are session state (auth_success/session_closed tokens) -- a login
+    session is not an account creation. (3) Deleted accounts ('removed'
+    rows) carry no token -- the closed vocabulary has no account_deleted
+    token; the raw rows survive in raw_data. The schedule filters to
+    uid >= 500 (real accounts on macOS; system accounts stay below 500).
+author: SecurityScarletAI
+date: 2026/09/14
+logsource:
+    category: authentication
+detection:
+    selection_users_diff:
+        event_type: start
+        event_action: account_created
+        source: osquery:users
+    condition: selection_users_diff
+level: medium
+tags:
+    - attack.persistence
+    - attack.ta0003
+    - attack.t1136

@@ -1,5 +1,45 @@
 # CHANGELOG
 
+## V0.7 plan-delta fixes (2026-09-14, feat/v07-deltas)
+
+**The three genuine gaps from the Sep-14 delta ledger, closed on a small
+branch before the live-fire final stage. Plus one bug found and fixed
+along the way.**
+
+- NIST CSF framework rows (`GET /compliance/frameworks`): the plan named a
+  NIST CSF overlay but only the title carried the name -- `nist_csf` now
+  exists in config/compliance_mappings.yaml as a surface-based framework
+  covering all six CSF 2.0 functions (GV/ID/PR/DE/RS/RC), every row naming
+  the product surface that evidences it (fail-closed parser drops any
+  control without a surface).
+- UEBA-ready outliers view (`GET /compliance/reports/posture`): the plan's
+  V0.7 item was judged UEBA-dependent during the V0.7 build; re-judged
+  during the delta session it IS buildable read-only from existing tables
+  (alerts, logs) -- per-host alert-volume and per-user auth-failure
+  outliers via robust median/MAD z-scores (Iglewicz & Hoberg; the classic
+  mean+2*stddev rule mathematically cannot fire on a fleet of < 9 hosts),
+  minimum-population and noise floors, honest not-computable notes, zero
+  shape guaranteed. NO persisted baselines: that is V0.8+ UEBA
+  (customer-gated) and stays out of scope; the methodology block says so.
+- macOS users-differential account creation (the macOS half of the V0.6b
+  rogue-account item): the osquery `users` table (uid >= 500, differential
+  mode) is scheduled on macOS; the parser derives the existing
+  account_created token for differential 'added' rows (an account APPEARED
+  since the last interval = the T1136 shape; Windows 4720 keeps its own
+  path -- the two rules are keyed apart by the `source` column so one
+  event cannot fire both). New rule `macos_local_account_created.yml`
+  (113 total). Honest caveats documented: the first run after an osquery
+  restart re-emits the baseline as added rows (alert dedup collapses it
+  per host); deleted accounts ('removed' rows) carry no token (raw
+  preserved); logged_in_users stays session-state only (a login is not an
+  account creation).
+- BUG FOUND: purple_loop.CHAIN_HOSTS still listed 8 chains while the
+  matrix generator emits 10 -- the V0.6b chains (clickfix_dropper_execution,
+  ai_process_egress) were fired but never scored. Fixed (10 scored hosts,
+  pinned to CORRELATION_RULES by a new completeness test) and the
+  generator gained a live-matrix sigma fixture for the new rule (1 true
+  shape + 2 silent false shapes on live-matrix-sigma-users-diff).
+
 ## V0.7 compliance & reporting, UK CS&R spec (2026-09-14, feat/v0.7-compliance-reporting)
 
 **Group E delivered: the budget-justifying surface for the RMSP
