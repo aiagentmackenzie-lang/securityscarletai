@@ -412,31 +412,31 @@ async def run(mode: str, api: str, wait_seconds: int, fail_below: float, runs_di
         print(f"FAIL: unknown mode '{mode}' (supported: matrix)")
         return 1
 
-    # Wait for detection (scheduler ticks every 60s) -- poll until stable.
-    # With alerts present, stability requires SIX consecutive stable polls
-    # (~60s): the periodic correlation sweep runs every 60s and can persist
-    # matches AFTER the alert count has flattened -- breaking at 2 polls
-    # (~20s) under-counted chains whose matches landed in the next sweep
-    # pass (live 2026-09-14: scored 7/10 while the DB verified 10/10 --
-    # every chain's match persisted minutes later; the purple report
-    # under-counted the coverage story). With no alerts at all, 6 stable
-    # polls is already the break.
+    # Wait for detection (scheduler ticks every 60s) -- poll until BOTH
+    # signals are stable. The periodic correlation sweep runs every 60s and
+    # can persist matches AFTER the alert count has flattened; scoring on
+    # alert-stability alone under-counted twice live (2026-09-14: scored
+    # 7/10 then 0/10 while the DB verified 10/10 -- matches landed in the
+    # next sweep pass, once a second after the loop's final fetch). The
+    # joint signal (alerts + persisted matches) must hold stable for six
+    # polls (~60s >= one full sweep cycle) before the loop scores.
     print(f"Waiting for detection (up to {wait_seconds}s, polling every 10s)...")
     fired: list[dict] = []
     run_stamp = ""
+    chain_matches: list[dict] = []
     stable_polls = 0
     deadline = time.time() + wait_seconds
     while time.time() < deadline:
         await asyncio.sleep(10)
         current = await _fetch_fired_alerts(window_start)
-        if len(current) == len(fired):
+        current_matches = await _fetch_chain_matches(window_start)
+        if len(current) == len(fired) and len(current_matches) == len(chain_matches):
             stable_polls += 1
         else:
             stable_polls = 0
         fired = current
-        if stable_polls >= 6 and fired:
-            break
-        if stable_polls >= 6 and not fired:
+        chain_matches = current_matches
+        if stable_polls >= 6:
             break
     print(f"Observed {len(fired)} alerts on live-matrix-% hosts")
 
@@ -452,8 +452,6 @@ async def run(mode: str, api: str, wait_seconds: int, fail_below: float, runs_di
     match_hosts = {m["host_name"] for m in chain_matches if m.get("host_name")}
     # This run's expected hosts: run-unique (stamped) -- scored against the
     # chain registry so a missing/wrong scenario can never pass silently.
-    from src.detection.correlation import CORRELATION_RULES
-
     expected_hosts = {f"live-matrix-{chain}-{run_stamp}": chain for chain in CORRELATION_RULES}
     chains = _merge_chain_hosts(expected_hosts, alert_hosts, match_hosts)
     score = compute_run_score(
