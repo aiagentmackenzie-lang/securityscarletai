@@ -10,11 +10,11 @@ description: >
     V0.6b rogue-account-creation item (T1136); the Windows half is
     windows_local_account_created. The two rules are keyed apart by the
     `source` column (osquery:users vs osquery:windows_events) so one event
-    cannot fire both. HONEST CAVEATS: (1) the first run after an osquery
-    (re)start re-emits the account baseline as added rows -- a burst of
-    alerts for EXISTING accounts; the 15-minute per-rule-per-host alert
-    dedup collapses each burst to one alert, and an unexpected repeat burst
-    is itself worth a look (osquery restarting or a managed-account churn).
+    cannot fire both. HONEST BEHAVIOR NOTES (validated live on the
+    reference daemon, 2026-09-14): (1) the first schedule tick after an
+    osquery (re)start stores the baseline SILENTLY -- no rows are emitted
+    and there is NO restart burst; a stable account set emits nothing, so
+    this rule fires only when an account actually appears on the host.
     (2) logged_in_users is deliberately NOT part of this detection: utmpx
     rows are session state (auth_success/session_closed tokens) -- a login
     session is not an account creation. (3) Deleted accounts ('removed'
