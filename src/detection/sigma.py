@@ -67,6 +67,26 @@ INET_COLUMNS = frozenset({"source_ip", "destination_ip", "host_ip"})
 # value binds as "expected int, got str".
 INT_COLUMNS = frozenset({"process_pid", "destination_port"})
 
+# Sigma field name -> logs column. Fields are validated against ALLOWED_COLUMNS
+# by _map_field; the backtester (W1.1) uses the same mapping to pick the
+# "top offending values" columns for a compiled rule.
+FIELD_MAPPING: dict[str, str] = {
+    "event_type": "event_type",
+    "event_action": "event_action",
+    "event_category": "event_category",
+    "host_name": "host_name",
+    "source_ip": "source_ip",
+    "destination_ip": "destination_ip",
+    "destination_port": "destination_port",
+    "process_name": "process_name",
+    "process_pid": "process_pid",
+    "process_cmdline": "process_cmdline",
+    "process_path": "process_path",
+    "user_name": "user_name",
+    "file_path": "file_path",
+    "file_hash": "file_hash",
+}
+
 
 class UnsupportedSigmaValue(ValueError):
     """A Sigma detection value the SQL compiler cannot represent faithfully.
@@ -81,6 +101,21 @@ class UnsupportedSigmaValue(ValueError):
 
 # Timeframe validation regex
 TIMEFRAME_PATTERN = re.compile(r"^(\d+)([mhd])$")
+
+
+@dataclass
+class SigmaAggregation:
+    """Parsed Sigma aggregation condition (`| count(field) by group > N`).
+
+    Exposed for the backtester (W1.1): the aggregation grammar lives in the
+    parser, so the parsed parts (count field, group-by column, threshold)
+    are returned alongside the compiled WHERE instead of being re-matched
+    (and re-validated) outside the parser.
+    """
+
+    count_field: Optional[str]  # None = COUNT(*)
+    group_by: str
+    threshold: int
 
 
 @dataclass
@@ -196,6 +231,10 @@ class SigmaParser:
     def __init__(self):
         self._param_counter = 0
         self._params: list[Any] = []
+        # W1.1 backtesting: fail-safe compilations are collected here so a
+        # caller (backtest UI) can report "this rule would compile to
+        # match-nothing" honestly instead of showing a fake 0-hit result.
+        self.warnings: list[str] = []
 
     def parse(self, yaml_content: str) -> SigmaRule:
         """Parse a Sigma rule from YAML string (legacy mode)."""
@@ -225,10 +264,25 @@ class SigmaParser:
             mitre_techniques=techniques,
         )
 
-    def to_sql(self, rule: SigmaRule) -> tuple[str, list[Any]]:
-        """Convert Sigma rule to parameterized SQL query (legacy mode)."""
+    def compile_where(self, rule: SigmaRule) -> tuple[str, list[Any], Optional[SigmaAggregation]]:
+        """Compile the rule's WHERE clause (selections + logsource filter).
+
+        Returns (where_clause, params, aggregation):
+        - where_clause: the parameterized base-condition WHERE (for
+          aggregation rules, the part BEFORE the `| count(...) by ...` pipe
+          -- parsed exactly once, the P2-10 rule).
+        - aggregation: parsed SigmaAggregation when the condition is an
+          aggregation, else None. Aggregation grammar is validated HERE
+          (unknown group-by/count fields raise ValueError), so callers get
+          the same hard-failure behavior as to_sql.
+
+        Public on purpose: the backtester (W1.1) reuses the PRODUCTION
+        selection compilation and wraps it in its own bounded window queries
+        instead of re-implementing the grammar.
+        """
         self._param_counter = 0
         self._params = []
+        self.warnings = []
 
         filters = []
         if rule.logsource_category:
@@ -246,27 +300,39 @@ class SigmaParser:
         )
 
         if agg_match:
-            return self._build_aggregation_query(rule, agg_match, filters)
+            count_field_raw = agg_match.group(2).strip() or "*"
+            group_by = _validate_column(agg_match.group(3).strip())
+            count_field = "*" if count_field_raw == "*" else _validate_column(count_field_raw)
+            base_condition = agg_match.group(1).strip()
+            where_clause = self._parse_condition(base_condition, rule.detection)
+            if filters:
+                where_clause = f"({' AND '.join(filters)}) AND ({where_clause})"
+            agg = SigmaAggregation(
+                count_field=count_field,
+                group_by=group_by,
+                threshold=int(agg_match.group(4)),
+            )
+            return where_clause, self._params, agg
 
         where_clause = self._parse_condition(rule.condition, rule.detection)
         if filters:
             where_clause = f"({' AND '.join(filters)}) AND ({where_clause})"
+        return where_clause, self._params, None
 
+    def to_sql(self, rule: SigmaRule) -> tuple[str, list[Any]]:
+        """Convert Sigma rule to parameterized SQL query (legacy mode)."""
+        where_clause, _, agg = self.compile_where(rule)
+        if agg is not None:
+            return self._build_aggregation_query(rule, where_clause, agg)
         return self._build_simple_query(rule, where_clause)
 
-    def _build_aggregation_query(self, rule, agg_match, filters) -> tuple[str, list[Any]]:
+    def _build_aggregation_query(
+        self, rule, where_clause, agg: SigmaAggregation
+    ) -> tuple[str, list[Any]]:
         """Build an aggregation (GROUP BY) SQL query."""
-        base_condition = agg_match.group(1).strip()
-        count_field_raw = agg_match.group(2).strip() or "*"
-        group_by_raw = agg_match.group(3).strip()
-        threshold = int(agg_match.group(4))
-
-        group_by = _validate_column(group_by_raw)
-        count_field = "*" if count_field_raw == "*" else _validate_column(count_field_raw)
-
-        where_clause = self._parse_condition(base_condition, rule.detection)
-        if filters:
-            where_clause = f"({' AND '.join(filters)}) AND ({where_clause})"
+        group_by = agg.group_by
+        count_field = agg.count_field or "*"
+        threshold = agg.threshold
 
         lookback_seconds = _timeframe_to_seconds(rule.timeframe)
         lookback_param = self._add_param(lookback_seconds)
@@ -334,6 +400,10 @@ class SigmaParser:
             # — a match-everything alert storm. A missing selection now makes
             # the rule match NOTHING and logs loudly.
             log.warning("selection_not_found_rule_never_matches", name=name)
+            self.warnings.append(
+                f"selection '{name}' does not exist in the detection block; "
+                "compiled fail-safe to FALSE (rule matches nothing)"
+            )
             return "FALSE"
 
         selection = detection[name]
@@ -381,6 +451,10 @@ class SigmaParser:
                             )
                     else:
                         log.warning("unknown_modifier", modifier=modifier, field=field)
+                        self.warnings.append(
+                            f"field '{field}' uses unknown modifier '|{modifier}'; "
+                            "compiled as exact equality (narrower than intended)"
+                        )
                         conditions.append(
                             f"{sql_field} = {self._add_param(self._coerce_param(sql_field, value))}"
                         )
@@ -411,12 +485,19 @@ class SigmaParser:
                 field=field,
                 reason=str(exc),
             )
+            self.warnings.append(
+                f"selection '{name}' contains an unsupported value on field "
+                f"'{field}': {exc} -- compiled fail-safe to FALSE (rule matches nothing)"
+            )
             return "FALSE"
 
         if not conditions:
             # Empty selection ({}): previously compiled to TRUE — another
             # match-everything alert storm. Fail-safe to FALSE.
             log.warning("empty_selection_rule_never_matches", name=name)
+            self.warnings.append(
+                f"selection '{name}' is empty; compiled fail-safe to FALSE (rule matches nothing)"
+            )
             return "FALSE"
 
         return " AND ".join(conditions)
@@ -477,23 +558,7 @@ class SigmaParser:
 
     def _map_field(self, sigma_field: str) -> str:
         """Map Sigma field names to database column names with validation."""
-        mapping = {
-            "event_type": "event_type",
-            "event_action": "event_action",
-            "event_category": "event_category",
-            "host_name": "host_name",
-            "source_ip": "source_ip",
-            "destination_ip": "destination_ip",
-            "destination_port": "destination_port",
-            "process_name": "process_name",
-            "process_pid": "process_pid",
-            "process_cmdline": "process_cmdline",
-            "process_path": "process_path",
-            "user_name": "user_name",
-            "file_path": "file_path",
-            "file_hash": "file_hash",
-        }
-        mapped = mapping.get(sigma_field, sigma_field)
+        mapped = FIELD_MAPPING.get(sigma_field, sigma_field)
         if mapped not in ALLOWED_COLUMNS:
             raise ValueError(
                 f"Invalid Sigma field '{sigma_field}' (mapped to '{mapped}') — "

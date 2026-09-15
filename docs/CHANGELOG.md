@@ -1,5 +1,47 @@
 # CHANGELOG
 
+## W1.1 rule backtesting (2026-09-15, feat/w11-rule-backtest)
+
+**The detection-engineering loop's backtest leg: author -> backtest -> arm
+-> measure -> retire. Any draft or enabled Sigma rule replays read-only
+against the stored logs window through the PRODUCTION compiler.**
+
+- `POST /detection/backtest` (analyst+, audited `rule.backtest`): takes
+  `rule_id` (existing rule) or `sigma_yaml` (draft) -- exactly one, XOR
+  validated; window bounded to [1h, 30d], every query index-aware
+  (time-range first: `idx_logs_time` / BRIN) with a per-query 30s
+  fail-closed timeout. Read-only: never persists, never auto-arms; results
+  land in the run record, never the rules table.
+- Compiler reuse: the parser's selection compilation is now exposed as
+  `SigmaParser.compile_where()` (public, additive; `to_sql` behavior and
+  parameter ordering unchanged -- full suite green). Fail-safe
+  compilations (selection -> FALSE, unknown modifier -> equality) are
+  collected as compiler warnings and surfaced in the report.
+- Simple rules: hit count, per-day distribution, top offending field
+  values (per selected column, bounded), and an estimated alert volume
+  computed by island-replaying create_alert's actual dedup semantics
+  ((rule, host) inside the 15-min window) -- exact for dense match
+  streams, an upper bound for sparse patterns (labeled per report).
+- Aggregation (count-by) rules -- 5 shipped rules use them: bucketed
+  over-threshold (group, timeframe) triggers (chronological, capped at
+  500, truncated flag when the cap bites), top offending groups, and the
+  dedup-replay estimate reflecting the runtime's per-rule aggregation
+  dedup (host collapses to 'unknown' in that path).
+- Projected FP ratio: lifetime dispositions for the SAME rule via the
+  scorecard's documented precedence (alert_labels > status
+  false_positive > case verdict), with actual alert counts for
+  calibration. Sigmaforge honesty gates: fail-safe compilations and
+  empty corpora report **unmeasured** -- never a fake 0; real zeros over
+  a real corpus stay measured zeros.
+- Dashboard: Backtest 7d button on every rule (Rule Library) + a
+  Backtest draft action in the Create Rule form (test before arming),
+  with the full report rendered inline (metrics, per-day chart, top
+  values, honesty notes).
+- Tests: 20 unit (compiler reuse, estimate replay, honesty gates, API
+  contract) + 3 integration legs on live Postgres (real corpus seeding,
+  real aggregation buckets, disposition-linked FP projection). Suite:
+  2,094 unit + 36 integration; coverage measured 87% (8,197 statements).
+
 ## Live-fire final stage (2026-09-14, main 60e6f6f)
 
 **The V0.6/V0.7 stack booted in production posture and scored honestly:

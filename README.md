@@ -46,7 +46,7 @@ Most security dashboards show you charts. This one shows you **receipts**:
 
 | | Verified state (2026-09-15 — counts hand-checked against the code, no auto-updating badge) |
 |---|---|
-| Tests | **2,074 unit** (mocked DB) + **33 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **87%** |
+| Tests | **2,094 unit** (mocked DB) + **36 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **87%** |
 | Detections | **113 Sigma rules** (vocabulary-gated in CI) · **10 correlation chains** — all 10 live-fire verified through the real pipeline (purple-loop score 1.0, 2026-09-14) |
 | Agentic | Read-only investigator · SIEM **MCP server** (3 tools over a scoped read-only DB role) · AI-usage detection domain |
 | Response | 6 action types — 3 live-verified on the reference deployment, 3 capability-gated fail-closed |
@@ -98,6 +98,19 @@ Most security dashboards show you charts. This one shows you **receipts**:
   **armed** by real telemetry vs **dormant** (with itemized reasons) — 102/123
   armed on the reference deployment (measured 2026-09-14 purple-loop pass;
   113 Sigma rules + 10 correlation chains)
+- Rule backtesting (`POST /detection/backtest`): "would this rule have fired
+  in the last N days, on how many rows, at what false-positive cost?" — any
+  draft or enabled rule compiles through the production Sigma→SQL compiler
+  and replays read-only against the stored logs window (bounded ≤30d,
+  index-aware, per-query timeout). Returns hit count, per-day distribution,
+  top offending field values, an estimated alert volume (replaying the real
+  15-min alert-dedup semantics), and a projected FP ratio where prior
+  adjudicated alerts exist. Honesty gates: fail-safe compilations and empty
+  corpora report **unmeasured** (never a fake 0); never persists, never
+  auto-arms; audited (analyst+)
+- Rule lifecycle scorecard (`GET /detection/scorecard`): per-rule fire
+  counts, disposition mix, FP ratio, and retirement ADVICE (HITL — never
+  automatic)
 - EndpointSecurity process telemetry (`exec`/`exit`, codesigning evidence) and
   FIM file events (LaunchAgents/LaunchDaemons, `.ssh`, `/tmp`, `/var/log`,
   sha256-hashed) via a root LaunchDaemon
@@ -234,14 +247,14 @@ Dev mode (API outside Docker): `poetry install` → apply
 
 ## The API
 
-**100 endpoints** under `/api/v1` (Swagger UI / ReDoc at `/api/docs` and
+**101 endpoints** under `/api/v1` (Swagger UI / ReDoc at `/api/docs` and
 `/api/redoc` when `DOCS_ENABLED=true` — the dev default; production overlays
 serve a 404 there by design).
 
 | Area | Highlights |
 |---|---|
 | Ingest | `POST /ingest` (≤1,000 events/batch, 100 req/min/IP) · `POST /ingest/osquery` (raw lines) · fleet `enroll` / `hosts` / `revoke` |
-| Detection | `GET /rules` (113) · `GET /correlation/rules` · `POST /correlation/run` · `GET /correlation/matches` · `GET /detection/coverage` · `GET /detection/scorecard` |
+| Detection | `GET /rules` (113) · `GET /correlation/rules` · `POST /correlation/run` · `GET /correlation/matches` · `GET /detection/coverage` · `GET /detection/scorecard` · `POST /detection/backtest` (read-only replay) |
 | Compliance | `GET /compliance/incidents/{id}/evidence-pack` (UK CS&R 24/72h) · `GET /compliance/reports/coverage` · `GET /compliance/reports/posture` · `GET /compliance/frameworks` · `GET /compliance/retention-policy` |
 | AI | `GET /ai/status` · `POST /ai/train` · `POST /ai/triage/{id}` · `POST /ai/explain/{id}` · `GET /ai/ueba/{user}` · `POST /query` (NL→SQL) · `POST /ai/chat` |
 | Agentic | `POST /agent/investigate` · `GET /agent/runs/{id}` · `POST /agent/runs/{id}/hitl` |
@@ -296,8 +309,9 @@ against the code (no auto-updating badge):
   suite with the coverage gate · integration suite on a live Postgres ·
   pip-audit · Trivy image scan (HIGH/CRITICAL zero-findings enforced since
   2026-09-10).
-- **Unit + integration:** 2,074 unit tests (mocked DB) and 33 integration
-  tests (live Postgres), re-run 2026-09-15 — green; coverage measured 87%.
+- **Unit + integration:** 2,094 unit tests (mocked DB) and 36 integration
+  tests (live Postgres), re-run 2026-09-15 — green; coverage measured 87%
+  (8,197 statements).
 - **Live-fire:** the full 10-chain correlation matrix scored 10/10 through
   the real pipeline (2026-09-14: 43 alerts, 25 distinct rules, 16 ATT&CK
   techniques); purple-loop runs committed under [`runs/`](runs/) with the
@@ -358,7 +372,7 @@ securityscarletai/
 ├── scripts/                 # entrypoint, backup + watchdog, purple loop, seeds,
 │                            #   provision_readonly.sql, audit-grant verification
 ├── runs/                    # Committed purple-loop run reports (evidence, not claims)
-├── tests/                   # 2,074 unit + 33 integration tests
+├── tests/                   # 2,094 unit + 36 integration tests
 ├── docs/                    # PRODUCTION · DEPLOYMENT · DEMO · RULES · AI · AIR-GAPPED ·
 │                            #   ATTACK-SCENARIOS · AI_USAGE_DETECTIONS · CHANGELOG · …
 └── docker-compose.yml       # TimescaleDB (pg17) + Redis 7 + api + mcp + dashboard
