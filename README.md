@@ -11,7 +11,7 @@
 [![TimescaleDB](https://img.shields.io/badge/TimescaleDB-hypertable-E58E33)](https://www.timescale.com)
 [![Streamlit](https://img.shields.io/badge/dashboard-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io)
 [![Ollama](https://img.shields.io/badge/LLM-Ollama_(local)-111111)](https://ollama.com)
-[![Sigma](https://img.shields.io/badge/Sigma-113%20rules-orange)](docs/RULES.md)
+[![Sigma](https://img.shields.io/badge/Sigma-116%20rules-orange)](docs/RULES.md)
 [![MITRE ATT&CK](https://img.shields.io/badge/MITRE-ATT%26CK%20mapped-B31E1E)](https://attack.mitre.org)
 
 SecurityScarletAI is an open-source, self-hosted SIEM for macOS, Linux, and
@@ -46,8 +46,8 @@ Most security dashboards show you charts. This one shows you **receipts**:
 
 | | Verified state (2026-09-15 — counts hand-checked against the code, no auto-updating badge) |
 |---|---|
-| Tests | **2,145 unit** (mocked DB) + **37 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **86%** |
-| Detections | **113 Sigma rules** (vocabulary-gated in CI) · **10 correlation chains** — all 10 live-fire verified through the real pipeline (purple-loop score 1.0, 2026-09-14) |
+| Tests | **2,157 unit** (mocked DB) + **40 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **86%** |
+| Detections | **116 Sigma rules** (vocabulary-gated in CI) · **10 correlation chains** — all 10 live-fire verified through the real pipeline (purple-loop score 1.0, 2026-09-14) |
 | Agentic | Read-only investigator · SIEM **MCP server** (3 tools over a scoped read-only DB role) · AI-usage detection domain |
 | Response | 6 action types — 3 live-verified on the reference deployment, 3 capability-gated fail-closed |
 | Pipeline | Real osqueryd telemetry → Sigma alerts in production since 2026-09-04 · FIM file telemetry · fleet ingest (macOS/Linux/Windows agents; Windows auth via Security eventid 4624/4625) · TimescaleDB store |
@@ -77,7 +77,7 @@ Most security dashboards show you charts. This one shows you **receipts**:
 |---|---|---|
 | Ingestion | FastAPI + asyncpg | Bearer-token HTTP ingest (≤1,000 events/batch, rate-limited), checkpointed osquery file shipper, raw-line fleet endpoint with server-side parsing, fire-and-forget enrichment |
 | Storage | TimescaleDB (PostgreSQL 17) + Redis 7 | Hypertable with 1-day chunks, compression + 30-day retention; Redis for rate-limit state and the JWT blocklist |
-| Detection | Sigma → parameterized SQL + correlation engine | 113 rules across 7 categories; 10 event-driven correlation chains with `as_of` time binding and persisted matches |
+| Detection | Sigma → parameterized SQL + correlation engine | 116 rules across 8 categories; 10 event-driven correlation chains with `as_of` time binding and persisted matches |
 | Enrichment | GeoIP2 + DNS + threat intel | MaxMind GeoIP, PTR lookup, AbuseIPDB/OTX/URLhaus IOC match with severity boost |
 | AI/ML | Ollama (mistral:7b) + scikit-learn | Calibrated Random-Forest triage, Isolation-Forest UEBA, NL→SQL with 7-layer injection defense, LLM explanations with template fallback, per-call cost tracking |
 | Response | Policy engine + executors | Notification channels (Slack / HMAC-signed webhook / PagerDuty / email, per-severity routing + retry + audited), SIEM-user disable, host quarantine (+3 capability-gated); every outcome re-queried and recorded |
@@ -87,8 +87,8 @@ Most security dashboards show you charts. This one shows you **receipts**:
 ## Features
 
 **Detection & telemetry**
-- 113 Sigma rules — authentication, process, network, file, macOS, cloud, AI, and
-  AI-usage categories, MITRE ATT&CK-mapped ([docs/RULES.md](docs/RULES.md))
+- 116 Sigma rules — authentication, process, network, file, macOS, cloud, AI,
+  AI-usage, and deception categories, MITRE ATT&CK-mapped ([docs/RULES.md](docs/RULES.md))
 - 10 event-driven correlation chains: brute force → success, payload → C2,
   persistence activation, data exfiltration, privilege escalation, credential
   theft + exfil, defense evasion, sustained AI-firewall blocks, ClickFix drop →
@@ -97,7 +97,9 @@ Most security dashboards show you charts. This one shows you **receipts**:
 - Evidence-driven coverage map (`GET /detection/coverage`): which rules are
   **armed** by real telemetry vs **dormant** (with itemized reasons) — 102/123
   armed on the reference deployment (measured 2026-09-14 purple-loop pass;
-  113 Sigma rules + 10 correlation chains)
+  113 Sigma rules + 10 correlation chains at measurement; 116 after W1.5's
+  deception rules — deception reports DORMANT-BY-SOURCE until its shipper
+  is enabled)
 - Rule backtesting (`POST /detection/backtest`): "would this rule have fired
   in the last N days, on how many rows, at what false-positive cost?" — any
   draft or enabled rule compiles through the production Sigma→SQL compiler
@@ -114,6 +116,14 @@ Most security dashboards show you charts. This one shows you **receipts**:
 - ATT&CK Navigator layer export (`GET /detection/coverage/navigator`): the
   analyst-standard coverage artifact in the official layer-file format
   (v4.5) — per-technique armed-coverage scores (0–100, red→green gradient)
+- Deception ingestion (W1.5): HONEYTRAP honeypots and the fleet canary
+  playbook emit a closed deception-vocabulary event stream
+  (`src/ingestion/deception.py`, NDJSON shipper or host-bound /ingest);
+  3 dedicated Sigma rules — canary access/token use are **critical by
+  construction** (severity floor, downgrade refused) and auto-create a
+case in create_alert; probes alert + notify. Near-zero-FP doctrine:
+  nothing in production traffic should ever touch a honeypot
+  ([docs/RULES.md](docs/RULES.md) → Deception)
   with disposition-weighted FP ratios in the comments; one-click download
   from the dashboard, importable at attack.mitre.org
 - EndpointSecurity process telemetry (`exec`/`exit`, codesigning evidence) and
@@ -271,7 +281,7 @@ serve a 404 there by design).
 | Area | Highlights |
 |---|---|
 | Ingest | `POST /ingest` (≤1,000 events/batch, 100 req/min/IP) · `POST /ingest/osquery` (raw lines) · fleet `enroll` / `hosts` / `revoke` |
-| Detection | `GET /rules` (113) · `GET /correlation/rules` · `POST /correlation/run` · `GET /correlation/matches` · `GET /detection/coverage` · `GET /detection/scorecard` · `POST /detection/backtest` (read-only replay) · `GET /detection/coverage/navigator` (ATT&CK layer export) |
+| Detection | `GET /rules` (116) · `GET /correlation/rules` · `POST /correlation/run` · `GET /correlation/matches` · `GET /detection/coverage` · `GET /detection/scorecard` · `POST /detection/backtest` (read-only replay) · `GET /detection/coverage/navigator` (ATT&CK layer export) |
 | Compliance | `GET /compliance/incidents/{id}/evidence-pack` (UK CS&R 24/72h) · `GET /compliance/reports/coverage` · `GET /compliance/reports/posture` · `GET /compliance/frameworks` · `GET /compliance/retention-policy` |
 | AI | `GET /ai/status` · `POST /ai/train` · `POST /ai/triage/{id}` · `POST /ai/explain/{id}` · `GET /ai/ueba/{user}` · `POST /query` (NL→SQL) · `POST /ai/chat` |
 | Agentic | `POST /agent/investigate` · `GET /agent/runs/{id}` · `POST /agent/runs/{id}/hitl` |
@@ -306,7 +316,7 @@ serve a 404 there by design).
 | [docs/DEMO.md](docs/DEMO.md) | The full demo guide: what the demo contains, setup, freshness slider, page-by-page verification, live-telemetry demo, teardown, troubleshooting |
 | [docs/PRODUCTION.md](docs/PRODUCTION.md) | Local-production reference: osquery deployment (user agent → root daemon), FIM, hardening, backups, watchdog, runbooks |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Internet-exposed deployment: Caddy + TLS, env vars, hardening checklist, backup & recovery |
-| [docs/RULES.md](docs/RULES.md) | All 113 Sigma + 10 correlation rules by category with ATT&CK mappings |
+| [docs/RULES.md](docs/RULES.md) | All 116 Sigma + 10 correlation rules by category with ATT&CK mappings |
 | [docs/COMPLIANCE.md](docs/COMPLIANCE.md) | Compliance runbook: UK CS&R 24/72h evidence packs, standing reports, framework mappings, retention-as-evidence |
 | [docs/MODEL_BENCHMARK.md](docs/MODEL_BENCHMARK.md) | LLM model benchmark: candidates, scoring, the measured decision to retain mistral:7b |
 | [docs/AI.md](docs/AI.md) | AI internals: LLMResult contract, prompts, cost tracking, triage, UEBA, NL→SQL |
@@ -326,7 +336,7 @@ against the code (no auto-updating badge):
   suite with the coverage gate · integration suite on a live Postgres ·
   pip-audit · Trivy image scan (HIGH/CRITICAL zero-findings enforced since
   2026-09-10).
-- **Unit + integration:** 2,145 unit tests (mocked DB) and 37 integration
+- **Unit + integration:** 2,157 unit tests (mocked DB) and 40 integration
   tests (live Postgres), re-run 2026-09-15 — green; coverage measured 86%
   (8,682 statements).
 - **Live-fire:** the full 10-chain correlation matrix scored 10/10 through
@@ -381,15 +391,15 @@ securityscarletai/
 │   └── db/                  # asyncpg pool, schema.sql (idempotent, 18 tables)
 ├── dashboard/               # Streamlit UI: alerts, cases, logs, hunt, rules,
 │                            #   suppressions, AI chat, charts (all via api_client)
-├── rules/sigma/             # 113 Sigma YAML rules: process(41) · auth(16) · network(17)
-│                            #   file(17) · macOS(12) · cloud(6) · ai(4)
+├── rules/sigma/             # 116 Sigma YAML rules: process(41) · auth(16) · network(17)
+│                            #   file(17) · macOS(12) · cloud(6) · ai(4) · deception(3)
 ├── config/                  # osquery.conf + response_policy.yaml (fail-closed tiers)
 ├── deploy/                  # Caddyfile, osqueryd/backup/watchdog launchd templates,
 │   └── fleet/               #   fail-closed small-fleet agent kit + runbook
 ├── scripts/                 # entrypoint, backup + watchdog, purple loop, seeds,
 │                            #   provision_readonly.sql, audit-grant verification
 ├── runs/                    # Committed purple-loop run reports (evidence, not claims)
-├── tests/                   # 2,145 unit + 37 integration tests
+├── tests/                   # 2,157 unit + 40 integration tests
 ├── docs/                    # PRODUCTION · DEPLOYMENT · DEMO · RULES · AI · AIR-GAPPED ·
 │                            #   ATTACK-SCENARIOS · AI_USAGE_DETECTIONS · CHANGELOG · …
 └── docker-compose.yml       # TimescaleDB (pg17) + Redis 7 + api + mcp + dashboard
@@ -408,7 +418,7 @@ dashboard a fresh demo boot serves:
 | ![AI Triage Explanation](docs/screenshots/ai-triage-explanation.png) | ![Cases](docs/screenshots/cases.png) |
 | **MITRE ATT&CK hunting** | **AI chat (NL hunting)** |
 | ![Hunting MITRE](docs/screenshots/hunting-mitre.png) | ![AI Chat](docs/screenshots/ai-chat.png) |
-| **Detection rules** (screenshot at 104; catalog now 113) | **Overview** |
+| **Detection rules** (screenshot at 104; catalog now 116) | **Overview** |
 | ![Rules](docs/screenshots/rules.png) | ![Overview](docs/screenshots/overview.png) |
 
 ## License

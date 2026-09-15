@@ -1,5 +1,42 @@
 # CHANGELOG
 
+## W1.5 deception ingestion + canary playbook (2026-09-15, feat/w15-deception-ingestion)
+
+**Deception as a first-class detection domain: HONEYTRAP alerts and fleet
+planted canaries become near-zero-FP critical signals — high-fidelity by
+construction, cases by construction.**
+
+- Producer contract (`src/ingestion/deception.py`): closed kind vocabulary
+  (service_probe / canary_file_access / canary_token_use — unknown kinds
+  refused), severity floor (producers may raise, never lower the doctrine
+  default: probes HIGH, canary/token CRITICAL), NDJSON shipper-line
+  serialization shared by the forwarder, the canary playbook, the matrix
+  generator, and tests.
+- Ingestion: third normalized-format FileShipper (`enable_deception_shipper`,
+  default OFF, own checkpoint — per-instance checkpoints, P2-22), wired into
+  the API lifespan; the deception category joins the coverage map
+  (INGESTED_CATEGORIES) so the 3 rules count as armed-by-source once the
+  shipper is on, DORMANT-BY-SOURCE (honest, not silent) without it.
+- Rules: 3 new Sigma rules in `rules/sigma/deception/` (T1083 / T1552 /
+  T1046, nearest-neighbor mappings documented as approximate). The doctrine
+  is in create_alert: a CRITICAL deception alert (canary/token kinds;
+  title-convention "Deception*", case-insensitive) auto-creates + links a
+  case — best-effort, never blocks alert creation; probes (high) alert +
+  notify without an auto-case. Verified by NEW integration tests against
+  live Postgres (unit mocks cannot parse SQL — the live gate is the point).
+- Fleet kit: `deploy/fleet/canary_playbook.sh` — plants 0600 honeypot
+  canary files (decoy content deliberately NOT a parseable credential so
+  the repo's own secret-scan gates stay clean) and emits one test canary
+  event through the REAL ingest pipe (health + zero-write token probe
+  first, fail-closed). Detection matrix:
+  `python -m scripts.generate_deception_events` — true/false pairs through
+  /ingest; the FALSE leg is a closed-vocabulary negative (an unmapped
+  deception action must never fire a rule).
+- Tests: +12 unit (contract, severity floor, shipper factory), +3
+  integration (auto-case doctrine: critical creates + links + notes; high
+  probe and non-deception critical do NOT). Suite 2,157 unit + 40
+  integration.
+
 ## W1.6 agentic memory (2026-09-15, same session)
 
 **Institutional memory for the investigator: the data was persisted since

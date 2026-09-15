@@ -169,7 +169,46 @@ async def create_alert(
             severity=escalated_severity,
         )
 
-        # ── Step 5: Trigger notifications ─────────────────────
+        # ── Step 5: Deception doctrine — a CRITICAL deception alert (the
+        # canary/token kinds; probes alert + notify without an auto-case) is
+        # a case by construction (Wave 1 W1.5): auto-create + link a case.
+        # A failure here never blocks alert creation.
+        #
+        # Identification: rule_name is the rule TITLE (main.load_sigma_rules
+        # stores data.title as rules.name) — the W1.5 convention is that
+        # deception-domain rule titles begin with "Deception" (documented in
+        # src/ingestion/deception.py); the match is case-insensitive so a
+        # correlation-style name "deception_*" qualifies too.
+        if rule_name.lower().startswith("deception") and escalated_severity == "critical":
+            try:
+                case_row = await conn.fetchrow(
+                    """
+                    INSERT INTO cases (title, description, status, severity, alert_ids)
+                    VALUES ($1, $2, 'open', $3, $4::int[])
+                    RETURNING id
+                    """,
+                    f"Deception: {rule_name}",
+                    description,
+                    escalated_severity,
+                    [alert_id],
+                )
+                if case_row is not None:
+                    case_id = cast("int", case_row["id"])
+                    await conn.execute(
+                        "UPDATE alerts SET case_id = $1, updated_at = NOW() WHERE id = $2",
+                        case_id,
+                        alert_id,
+                    )
+                    await _add_note(
+                        conn,
+                        alert_id,
+                        "system",
+                        f"Auto-escalated to case {case_id} (deception doctrine)",
+                    )
+            except Exception as e:  # best-effort: alert creation is not blocked
+                log.warning("deception_auto_escalate_failed", alert_id=alert_id, error=str(e))
+
+        # ── Step 6: Trigger notifications ─────────────────────
         await _send_alert_notification(
             alert_id, rule_name, escalated_severity, host_name, description
         )

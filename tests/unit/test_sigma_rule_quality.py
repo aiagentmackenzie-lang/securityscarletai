@@ -57,6 +57,10 @@ KNOWN_TOKENS = {
     vocabulary.EVENT_ACTION_MCP_TOOL_CALL,
     vocabulary.EVENT_ACTION_MCP_TOOL_DENIED,
     vocabulary.EVENT_ACTION_AI_PROMPT_INJECTION,
+    # Deception domain (W1.5: HONEYTRAP / canary playbook)
+    vocabulary.EVENT_ACTION_DECEPTION_SERVICE_PROBE,
+    vocabulary.EVENT_ACTION_DECEPTION_CANARY_ACCESS,
+    vocabulary.EVENT_ACTION_DECEPTION_TOKEN_USE,
 }
 
 # Legal event_type values per category -- a rule demanding event_type=start
@@ -69,6 +73,7 @@ LEGAL_EVENT_TYPES = {
     "configuration": {"info"},
     "intrusion_detection": {"info"},
     "ai": {"info", "start", "end"},
+    "deception": {"info"},
 }
 
 REQUIRED_FIELDS = (

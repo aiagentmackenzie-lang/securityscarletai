@@ -42,6 +42,30 @@ def maybe_create_shipper(writer: LogWriter) -> FileShipper | None:
     return shipper
 
 
+def maybe_create_deception_shipper(writer: LogWriter) -> FileShipper | None:
+    """Return a normalized-format FileShipper iff the deception pipe is
+    enabled.
+
+    W1.5 deception ingestion: tails ``settings.deception_events_log_path``
+    -- NDJSON lines in the deception-vocabulary contract
+    (src/ingestion/deception.py), written by HONEYTRAP's forwarder and the
+    deployment kit's canary playbook. Independent enable flag + own
+    checkpoint (P2-22: per-instance checkpoints -- the three shippers never
+    clobber each other).
+    """
+    if not settings.enable_deception_shipper:
+        log.info("deception_shipper_disabled")
+        return None
+    shipper = FileShipper(
+        settings.deception_events_log_path,
+        writer,
+        checkpoint_path=Path(settings.deception_shipper_checkpoint_path),
+        format="normalized",
+    )
+    log.info("deception_shipper_enabled", path=settings.deception_events_log_path)
+    return shipper
+
+
 def maybe_create_auth_shipper(writer: LogWriter) -> FileShipper | None:
     """Return a normalized-format FileShipper iff the auth pipe is enabled.
 

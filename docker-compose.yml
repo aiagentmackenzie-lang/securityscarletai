@@ -102,6 +102,13 @@ services:
       # DORMANT in the coverage map without it (honest, not silent).
       ENABLE_AUTH_SHIPPER: ${ENABLE_AUTH_SHIPPER:-false}
       AUTH_EVENTS_LOG_PATH: /app/osquery/auth_events.log
+      # Deception shipper (W1.5): HONEYTRAP's forwarder / the fleet canary
+      # playbook write deception-vocabulary NDJSON (src/ingestion/deception.py)
+      # host-side into the SAME read-only osquery dir; the API tails it as a
+      # third normalized-format FileShipper. Default OFF — the deception rules
+      # report DORMANT-BY-SOURCE without it (honest, not silent).
+      ENABLE_DECEPTION_SHIPPER: ${ENABLE_DECEPTION_SHIPPER:-false}
+      DECEPTION_EVENTS_LOG_PATH: /app/osquery/deception_events.log
       # Scoped ingest token (P2.6) + metrics scrape token (P3.3) pass-through
       # (empty = feature disabled, matching settings defaults).
       INGEST_BEARER_TOKEN: ${INGEST_BEARER_TOKEN:-}

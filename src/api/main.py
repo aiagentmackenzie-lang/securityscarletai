@@ -178,7 +178,11 @@ async def lifespan(app: FastAPI):
     await load_sigma_rules()
 
     # Start ingestion shipper (osquery tail) if enabled. OFF by default.
-    from src.ingestion.runner import maybe_create_auth_shipper, maybe_create_shipper
+    from src.ingestion.runner import (
+        maybe_create_auth_shipper,
+        maybe_create_deception_shipper,
+        maybe_create_shipper,
+    )
 
     shipper = maybe_create_shipper(writer)
     shipper_task: Optional[asyncio.Task] = None
@@ -190,6 +194,14 @@ async def lifespan(app: FastAPI):
     auth_shipper_task: Optional[asyncio.Task] = None
     if auth_shipper is not None:
         auth_shipper_task = asyncio.create_task(auth_shipper.run())
+
+    # Start deception shipper (W1.5: HONEYTRAP/canary telemetry) if enabled.
+    # OFF by default -- the deception rules report DORMANT-BY-SOURCE without
+    # it (honest, not silent).
+    deception_shipper = maybe_create_deception_shipper(writer)
+    deception_shipper_task: Optional[asyncio.Task] = None
+    if deception_shipper is not None:
+        deception_shipper_task = asyncio.create_task(deception_shipper.run())
 
     # Start detection scheduler
     from src.detection.scheduler import schedule_rules
@@ -273,6 +285,14 @@ async def lifespan(app: FastAPI):
         auth_shipper_task.cancel()
         try:
             await auth_shipper_task
+        except asyncio.CancelledError:
+            pass
+    if deception_shipper is not None:
+        deception_shipper.stop()
+    if deception_shipper_task is not None:
+        deception_shipper_task.cancel()
+        try:
+            await deception_shipper_task
         except asyncio.CancelledError:
             pass
 
