@@ -14,9 +14,9 @@
 [![Sigma](https://img.shields.io/badge/Sigma-113%20rules-orange)](docs/RULES.md)
 [![MITRE ATT&CK](https://img.shields.io/badge/MITRE-ATT%26CK%20mapped-B31E1E)](https://attack.mitre.org)
 
-SecurityScarletAI is an open-source, self-hosted SIEM for macOS hosts and small
-fleets: real osquery telemetry in, Sigma detections + ML triage + LLM-driven
-investigation out — with every AI decision recorded and every response action
+SecurityScarletAI is an open-source, self-hosted SIEM for macOS, Linux, and
+Windows hosts and small fleets: real osquery telemetry in, Sigma detections +
+LLM-driven investigation out — with every AI decision recorded and every response action
 **verified by re-querying the system it changed**. The LLM runs locally via
 Ollama. No cloud, no phone-home; the whole stack is air-gappable.
 
@@ -25,9 +25,9 @@ Most security dashboards show you charts. This one shows you **receipts**:
 - **Verified detections, not vibes.** A built-in purple-team loop fires the
   full correlation matrix through the real pipeline — shipper → parser →
   Postgres → Sigma → correlation — and scores every run. The latest committed
-  run: **8/8 chains fired, 13 MITRE ATT&CK techniques hit**, with the full
-  run history and a machine-readable fix-feedback artifact committed under
-  [`runs/`](runs/).
+  run: **10/10 chains fired (score 1.0), 43 alerts, 16 MITRE ATT&CK
+  techniques hit**, with the full run history and a machine-readable
+  fix-feedback artifact committed under [`runs/`](runs/).
 - **Governed AI.** The investigation agent is read-only and its verdicts are
   always drafts until a human confirms them. Response actions run through a
   fail-closed policy engine (`allow` / `approval_required` / `never`), a
@@ -44,10 +44,10 @@ Most security dashboards show you charts. This one shows you **receipts**:
   sha256-at-rest tokens, host-bound identity (a stolen token cannot spoof
   another host), and a fail-closed agent install kit.
 
-| | Verified state (2026-09-14 — counts hand-checked against the code, no auto-updating badge) |
+| | Verified state (2026-09-15 — counts hand-checked against the code, no auto-updating badge) |
 |---|---|
-| Tests | **2,051 unit** (mocked DB) + **27 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **86%** |
-| Detections | **113 Sigma rules** (vocabulary-gated in CI) · **10 correlation chains** (8/8 live-fire verified; 2 V0.6b chains armed, live-fire pending the final stage) |
+| Tests | **2,074 unit** (mocked DB) + **33 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **87%** |
+| Detections | **113 Sigma rules** (vocabulary-gated in CI) · **10 correlation chains** — all 10 live-fire verified through the real pipeline (purple-loop score 1.0, 2026-09-14) |
 | Agentic | Read-only investigator · SIEM **MCP server** (3 tools over a scoped read-only DB role) · AI-usage detection domain |
 | Response | 6 action types — 3 live-verified on the reference deployment, 3 capability-gated fail-closed |
 | Pipeline | Real osqueryd telemetry → Sigma alerts in production since 2026-09-04 · FIM file telemetry · fleet ingest (macOS/Linux/Windows agents; Windows auth via Security eventid 4624/4625) · TimescaleDB store |
@@ -92,9 +92,8 @@ Most security dashboards show you charts. This one shows you **receipts**:
 - 10 event-driven correlation chains: brute force → success, payload → C2,
   persistence activation, data exfiltration, privilege escalation, credential
   theft + exfil, defense evasion, sustained AI-firewall blocks, ClickFix drop →
-  interpreter execution, AI CLI → external egress — 8 live-fire verified on
-  real telemetry (2026-09-11); the 2 V0.6b chains are CI-armed and
-  live-fire-verified at the next purple-loop pass
+  interpreter execution, AI CLI → external egress — all 10 live-fire verified
+  through the real pipeline (2026-09-14 purple-loop pass, score 1.0)
 - Evidence-driven coverage map (`GET /detection/coverage`): which rules are
   **armed** by real telemetry vs **dormant** (with itemized reasons) — 102/123
   armed on the reference deployment (measured 2026-09-14 purple-loop pass;
@@ -105,7 +104,9 @@ Most security dashboards show you charts. This one shows you **receipts**:
 - Fleet ingest: per-host enrollment, host-bound tokens with whole-batch spoof
   refusal (403 + audited), immediate revocation, dumb shippers + server-side
   parsing, a stdlib-only `fleet_shipper.py`, and a fail-closed
-  [deployment kit](deploy/fleet/) (Linux systemd + macOS launchd)
+  [deployment kit](deploy/fleet/) (Linux systemd + macOS launchd + Windows
+  scheduled task) — a mixed-estate fleet with identity telemetry on all
+  three platforms
 
 **AI & ML**
 - ML alert triage: calibrated Random Forest with cross-validated accuracy and
@@ -218,6 +219,12 @@ Dev mode (API outside Docker): `poetry install` → apply
   vocabulary (`OSQUERY_ECS_MAP`); unmapped event types fail-closed and are
   preserved raw. Fleet hosts POST raw lines to `POST /ingest/osquery` —
   parsing stays server-side, one mapping truth.
+- **Identity/auth telemetry (auth shipper)** — `scripts/auth_log_shipper.py`
+  tails sshd events from the platform log (macOS unified log; Linux
+  `journalctl` with `/var/log/auth.log` fallback) and ships normalized
+  `auth_success` / `auth_failed` rows — the brute-force → success chain
+  runs on this source. On Windows, auth arrives via the osquery
+  `windows_events` table (Security eventid 4624/4625) — no separate shipper.
 - **NeuralGuard (AI-firewall verdicts)** — the sibling
   [4-layer AI firewall](https://github.com/aiagentmackenzie-lang/NeuralGuard-AI-Firewall)
   streams every audit verdict (block/allow/quarantine/…) into this SIEM with
@@ -227,7 +234,7 @@ Dev mode (API outside Docker): `poetry install` → apply
 
 ## The API
 
-**98 endpoints** under `/api/v1` (Swagger UI / ReDoc at `/api/docs` and
+**100 endpoints** under `/api/v1` (Swagger UI / ReDoc at `/api/docs` and
 `/api/redoc` when `DOCS_ENABLED=true` — the dev default; production overlays
 serve a 404 there by design).
 
@@ -269,7 +276,9 @@ serve a 404 there by design).
 | [docs/DEMO.md](docs/DEMO.md) | The full demo guide: what the demo contains, setup, freshness slider, page-by-page verification, live-telemetry demo, teardown, troubleshooting |
 | [docs/PRODUCTION.md](docs/PRODUCTION.md) | Local-production reference: osquery deployment (user agent → root daemon), FIM, hardening, backups, watchdog, runbooks |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Internet-exposed deployment: Caddy + TLS, env vars, hardening checklist, backup & recovery |
-| [docs/RULES.md](docs/RULES.md) | All 104 Sigma + 8 correlation rules by category with ATT&CK mappings |
+| [docs/RULES.md](docs/RULES.md) | All 113 Sigma + 10 correlation rules by category with ATT&CK mappings |
+| [docs/COMPLIANCE.md](docs/COMPLIANCE.md) | Compliance runbook: UK CS&R 24/72h evidence packs, standing reports, framework mappings, retention-as-evidence |
+| [docs/MODEL_BENCHMARK.md](docs/MODEL_BENCHMARK.md) | LLM model benchmark: candidates, scoring, the measured decision to retain mistral:7b |
 | [docs/AI.md](docs/AI.md) | AI internals: LLMResult contract, prompts, cost tracking, triage, UEBA, NL→SQL |
 | [docs/AI_USAGE_DETECTIONS.md](docs/AI_USAGE_DETECTIONS.md) | The AI-usage detection domain + OWASP Agentic mappings |
 | [docs/ATTACK-SCENARIOS.md](docs/ATTACK-SCENARIOS.md) | 4 attack walkthroughs: SSH brute force, reverse shell, exfiltration, insider privilege escalation |
@@ -287,13 +296,15 @@ against the code (no auto-updating badge):
   suite with the coverage gate · integration suite on a live Postgres ·
   pip-audit · Trivy image scan (HIGH/CRITICAL zero-findings enforced since
   2026-09-10).
-- **Unit + integration:** 1,980 unit tests (mocked DB) and 27 integration
-  tests (live Postgres), re-run 2026-09-12 — green; coverage measured 86%.
-- **Live-fire:** 8/8 correlation chains verified against real telemetry
-  (2026-09-11); purple-loop runs committed under [`runs/`](runs/) with the
-  7/8 → 8/8 fix progression preserved; NeuralGuard ingest verified
-  end-to-end (2026-09-05); fleet enrollment + raw-line ingest + TimescaleDB
-  migration (zero data loss) + agent kit verified 2026-09-12.
+- **Unit + integration:** 2,074 unit tests (mocked DB) and 33 integration
+  tests (live Postgres), re-run 2026-09-15 — green; coverage measured 87%.
+- **Live-fire:** the full 10-chain correlation matrix scored 10/10 through
+  the real pipeline (2026-09-14: 43 alerts, 25 distinct rules, 16 ATT&CK
+  techniques); purple-loop runs committed under [`runs/`](runs/) with the
+  full iteration history (7/8 → 8/8 → 10/10) preserved; NeuralGuard ingest
+  verified end-to-end (2026-09-05); fleet enrollment + raw-line ingest +
+  TimescaleDB migration (zero data loss) + Linux agent live-fire verified
+  2026-09-12/13.
 - **Standing deployment:** the reference deployment has run as a real
   local-production SIEM (real osqueryd telemetry, hardened overlay) since
   2026-09-04.
@@ -310,6 +321,10 @@ against the code (no auto-updating badge):
   upstream) — PyJWT migration tracked in the backlog.
 - **Dashboard sessions re-login after ~15 min** (short access-token TTL by
   design; refresh rotation not yet wired into the dashboard).
+- **Windows agent leg is CI-verified, not yet live-fired** — parsers, fleet
+  API, and per-platform configs are tested; the PowerShell bootstrap is
+  syntax-reviewed but has never run on a real Windows host. The Linux
+  agent leg is live-verified.
 - **An LLM is a probabilistic component.** Data-fencing and quotas are
   structural defenses, not guarantees — AI output is labeled unverified in
   the UI; treat it that way.
@@ -319,13 +334,13 @@ against the code (no auto-updating badge):
 ```
 securityscarletai/
 ├── src/
-│   ├── api/                 # 22 FastAPI routers, middleware, rate limiting, WebSocket
+│   ├── api/                 # 23 FastAPI routers, middleware, rate limiting, WebSocket
 │   ├── ai/                  # NL→SQL (7-layer safety), triage, UEBA, explanations,
 │   │                        #   hunting assistant, versioned prompts, cost tracker,
 │   │                        #   untrusted-data fencing, Ollama client + LLMResult
 │   ├── agents/              # Read-only investigation agent (HITL-gated verdicts)
 │   ├── mcp_server/          # SIEM MCP server (JSON-RPC, 3 read-only tools, scoped DB role)
-│   ├── detection/           # Sigma parser → SQL, 8-chain correlation, scheduler, MITRE cache
+│   ├── detection/           # Sigma parser → SQL, 10-chain correlation, scheduler, MITRE cache
 │   ├── enrichment/          # GeoIP (lazy singleton), DNS, threat-intel match + severity boost
 │   ├── intel/               # AbuseIPDB, OTX, URLhaus clients with honest feed health
 │   ├── ingestion/           # osquery ECS parser, checkpointed FileShipper, fleet schemas
@@ -335,7 +350,7 @@ securityscarletai/
 │   └── db/                  # asyncpg pool, schema.sql (idempotent, 18 tables)
 ├── dashboard/               # Streamlit UI: alerts, cases, logs, hunt, rules,
 │                            #   suppressions, AI chat, charts (all via api_client)
-├── rules/sigma/             # 104 Sigma YAML rules: process(34) · auth(14) · network(17)
+├── rules/sigma/             # 113 Sigma YAML rules: process(41) · auth(16) · network(17)
 │                            #   file(17) · macOS(12) · cloud(6) · ai(4)
 ├── config/                  # osquery.conf + response_policy.yaml (fail-closed tiers)
 ├── deploy/                  # Caddyfile, osqueryd/backup/watchdog launchd templates,
@@ -343,7 +358,7 @@ securityscarletai/
 ├── scripts/                 # entrypoint, backup + watchdog, purple loop, seeds,
 │                            #   provision_readonly.sql, audit-grant verification
 ├── runs/                    # Committed purple-loop run reports (evidence, not claims)
-├── tests/                   # 1,980 unit + 27 integration tests
+├── tests/                   # 2,074 unit + 33 integration tests
 ├── docs/                    # PRODUCTION · DEPLOYMENT · DEMO · RULES · AI · AIR-GAPPED ·
 │                            #   ATTACK-SCENARIOS · AI_USAGE_DETECTIONS · CHANGELOG · …
 └── docker-compose.yml       # TimescaleDB (pg17) + Redis 7 + api + mcp + dashboard
@@ -362,7 +377,7 @@ dashboard a fresh demo boot serves:
 | ![AI Triage Explanation](docs/screenshots/ai-triage-explanation.png) | ![Cases](docs/screenshots/cases.png) |
 | **MITRE ATT&CK hunting** | **AI chat (NL hunting)** |
 | ![Hunting MITRE](docs/screenshots/hunting-mitre.png) | ![AI Chat](docs/screenshots/ai-chat.png) |
-| **Detection rules (104)** | **Overview** |
+| **Detection rules** (screenshot at 104; catalog now 113) | **Overview** |
 | ![Rules](docs/screenshots/rules.png) | ![Overview](docs/screenshots/overview.png) |
 
 ## License
