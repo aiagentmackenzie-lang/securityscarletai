@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## W1.9 ATT&CK Navigator layer export (2026-09-15, same session as W1.1)
+
+**The analyst-standard coverage artifact: the evidence-driven coverage map
++ scorecard FP ratios, rendered as an official ATT&CK Navigator layer file
+(v4.5) and downloadable from the dashboard.**
+
+- `GET /detection/coverage/navigator` (read-only, any authenticated user):
+  merges compute_coverage (armed/dormant per rule) with the rule lifecycle
+  scorecard into the verified v4.5 layer format (spec checked against
+  mitre-attack/attack-navigator layers/spec/v4.5/layerformat.md).
+- Per technique: score = armed coverage (armed rules / mapped rules,
+  0-100, red->green gradient); comment = armed counts + disposition-weighted
+  FP ratio (only where adjudicated dispositions exist -- unmeasured is
+  labeled, never faked) + contributing rule names (capped at 4). Correlation
+  chains included (they carry MITRE tags too).
+- Honesty: the layer declares `attack: "14"` -- the version the repo's STIX
+  mappings were actually built against (v14-pinned cache), never the latest
+  release; the Navigator's own upgrade flow handles newer datasets.
+- Dashboard: one-click download button under the MITRE heatmap
+  (securityscarletai_coverage_layer.json), graceful caption on API error.
+- Tests: 6 unit (spec shape, score math, weighted FP aggregate, name cap,
+  stable sort, endpoint wiring). Suite 2,100 unit + 36 integration.
+
 ## W1.1 rule backtesting (2026-09-15, feat/w11-rule-backtest)
 
 **The detection-engineering loop's backtest leg: author -> backtest -> arm

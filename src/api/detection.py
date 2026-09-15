@@ -30,6 +30,7 @@ from src.api.audit import log_audit_action
 from src.api.auth import get_current_user, require_role
 from src.detection.backtest import run_backtest
 from src.detection.coverage import compute_coverage
+from src.detection.navigator import build_navigator_layer
 from src.detection.scorecard import compute_rule_scorecard
 
 router = APIRouter(tags=["detection"], prefix="/detection")
@@ -58,6 +59,20 @@ async def detection_scorecard(
     """Per-rule lifecycle scorecard + retirement advice (read-only, HITL)."""
     return await compute_rule_scorecard(
         window_hours=window_hours,
+        as_of=datetime.now(timezone.utc),
+    )
+
+
+@router.get("/coverage/navigator")
+async def detection_coverage_navigator(
+    lookback_hours: Annotated[int, Query(ge=1, le=24 * 30)] = 168,
+    user: dict = Depends(get_current_user),
+):
+    """ATT&CK Navigator layer export (v4.5): armed coverage scores + scorecard
+    FP ratios per technique. Read-only; import the JSON into attack.mitre.org
+    -- the analyst-standard coverage artifact."""
+    return await build_navigator_layer(
+        lookback_hours=lookback_hours,
         as_of=datetime.now(timezone.utc),
     )
 

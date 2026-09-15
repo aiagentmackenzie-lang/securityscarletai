@@ -507,6 +507,13 @@ class ApiClient:
         except ApiError:
             return {}
 
+    def get_coverage_navigator(self, lookback_hours: int = 168) -> dict:
+        """Fetch the ATT&CK Navigator layer export (W1.9, v4.5 format).
+
+        Raises on error -- the caller decides whether the download button
+        degrades gracefully."""
+        return self._get("/detection/coverage/navigator", params={"lookback_hours": lookback_hours})
+
     def get_rule(self, rule_id: int) -> dict:
         """Fetch a single rule by ID."""
         return self._get(f"/rules/{rule_id}")
