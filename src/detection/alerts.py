@@ -275,11 +275,13 @@ async def _add_note(conn, alert_id: int, author: str, text: str) -> None:
 async def _send_alert_notification(
     alert_id: int, rule_name: str, severity: str, host_name: str, description: str
 ) -> None:
-    """Send alert notification via configured channels (Slack, email)."""
+    """Dispatch the alert through the W1.7 notification channels (routing,
+    retry, HMAC, audit). Never raises: notifications are side-effect only,
+    and a channel failure must not fail alert creation."""
     try:
-        from src.response.notifications import send_alert_notification
+        from src.response.notification_channels import dispatch_alert
 
-        await send_alert_notification(
+        result = await dispatch_alert(
             {
                 "severity": severity,
                 "rule_name": rule_name,
@@ -288,6 +290,14 @@ async def _send_alert_notification(
                 "time": datetime.now(timezone.utc).isoformat(),
             }
         )
+        if result["matched"]:
+            log.info(
+                "alert_notification_dispatched",
+                alert_id=alert_id,
+                matched=result["matched"],
+                delivered=result["delivered"],
+                failed=result["failed"],
+            )
     except Exception as e:
         log.warning("notification_failed", alert_id=alert_id, error=str(e))
 

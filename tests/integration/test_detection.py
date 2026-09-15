@@ -332,3 +332,28 @@ async def test_alert_stats(db_pool):
     assert "new_count" in stats
     assert "critical_count" in stats
     assert stats["critical_count"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_backtest_channel_and_report_module_smoke(db_pool):
+    """W1.7/W1.8 integration smoke: the notification-channel config parses
+    (default-off -> no channels) and the shared posture builder runs against
+    the live schema with the exact endpoint payload shape."""
+    from src.detection.scheduler import SCHEDULES_CONFIG_PATH
+    from src.response.scheduled_reports import (
+        closed_cases_digest,
+        load_schedules_file,
+        posture_report_data,
+    )
+
+    # Fail-closed: the shipped config is default-off -> no schedules.
+    assert load_schedules_file(SCHEDULES_CONFIG_PATH) == []
+
+    payload = await posture_report_data(24)
+    assert {"window_hours", "alerts", "mttr_seconds", "rule_scorecard_summary", "outliers"} <= set(
+        payload
+    )
+    assert payload["alerts"]["total"] >= 0
+
+    digest = await closed_cases_digest(24)
+    assert {"window_hours", "closed_cases", "count"} <= set(digest)

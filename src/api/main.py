@@ -3,6 +3,7 @@ FastAPI application entry point.
 """
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -48,6 +49,11 @@ from src.db.connection import close_pool, get_pool
 from src.services.writer import writer
 
 log = get_logger("api")
+
+# W1.8 scheduled-report config path (boot-time verification).
+SCHEDULES_YAML = os.path.join(
+    os.path.dirname(__file__), "..", "..", "config", "scheduled_reports.yaml"
+)
 
 # Shared writer instance
 
@@ -189,6 +195,36 @@ async def lifespan(app: FastAPI):
     from src.detection.scheduler import schedule_rules
 
     await schedule_rules()
+
+    # W1.7/W1.8: boot-time notification + report config verification (the
+    # existing posture pattern): log per-channel status loudly at startup so
+    # a misconfigured channel (missing env, bad type) is surfaced instead of
+    # silently never delivering. Never blocks the boot.
+    from src.response.notification_channels import load_effective_channels
+
+    try:
+        channels = await load_effective_channels()
+        log.info(
+            "notification_channels_loaded",
+            channels=[
+                {"name": c.name, "type": c.type, "severities": list(c.severities)} for c in channels
+            ],
+        )
+    except Exception as e:
+        log.warning("notification_channels_boot_check_failed", error=str(e))
+    from src.response.scheduled_reports import load_schedules_file
+
+    try:
+        schedules = load_schedules_file(SCHEDULES_YAML)
+        log.info(
+            "scheduled_reports_loaded",
+            schedules=[
+                {"name": s.name, "report": s.report, "channels": list(s.channels)}
+                for s in schedules
+            ],
+        )
+    except Exception as e:
+        log.warning("scheduled_reports_boot_check_failed", error=str(e))
 
     # Start threat intel refresh scheduler
     from src.intel.threat_intel import start_threat_intel_scheduler

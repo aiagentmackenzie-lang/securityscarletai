@@ -18,6 +18,8 @@ every connection held awaiting another one, the pool dead-locked forever
      fails the rule (fail-closed, logged) instead of wedging the tick.
 """
 
+import os
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -35,6 +37,11 @@ RULE_QUERY_TIMEOUT_SECONDS = 60
 _ENRICH_MAX_CONCURRENT = 2
 _enrich_semaphore = None  # created lazily inside the running loop
 _enrich_tasks: set = set()  # F-17: keep fire-and-forget tasks GC-alive
+
+# W1.8 scheduled-report config (fail-closed: missing file = no jobs).
+SCHEDULES_CONFIG_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "..", "config", "scheduled_reports.yaml"
+)
 
 
 def _get_enrich_semaphore():
@@ -191,6 +198,30 @@ async def schedule_rules() -> None:
         replace_existing=True,
     )
     log.info("scheduled_auto_train_check", interval_hours=1)
+
+    # W1.8: scheduled report delivery -- one job per ENABLED schedule
+    # (fail-closed config; no config = no jobs). Lazy import: the reports
+    # module pulls compliance + notification senders, none of which need the
+    # scheduler at import time.
+    from src.response.scheduled_reports import (
+        load_schedules_file,
+        run_scheduled_report,
+    )
+
+    for schedule in load_schedules_file(SCHEDULES_CONFIG_PATH):
+        scheduler.add_job(
+            run_scheduled_report,
+            trigger=IntervalTrigger(hours=schedule.interval_hours),
+            args=[schedule],
+            id=f"report_{schedule.name}",
+            replace_existing=True,
+        )
+        log.info(
+            "scheduled_report_job",
+            schedule=schedule.name,
+            report=schedule.report,
+            interval_hours=schedule.interval_hours,
+        )
 
     # Periodic correlation sweep (F-10 follow-up, found live 2026-09-12):
     # correlations previously triggered ONLY per ingest batch -- a batch that

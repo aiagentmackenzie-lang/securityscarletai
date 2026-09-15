@@ -46,7 +46,7 @@ Most security dashboards show you charts. This one shows you **receipts**:
 
 | | Verified state (2026-09-15 — counts hand-checked against the code, no auto-updating badge) |
 |---|---|
-| Tests | **2,100 unit** (mocked DB) + **36 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **87%** |
+| Tests | **2,130 unit** (mocked DB) + **37 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **86%** |
 | Detections | **113 Sigma rules** (vocabulary-gated in CI) · **10 correlation chains** — all 10 live-fire verified through the real pipeline (purple-loop score 1.0, 2026-09-14) |
 | Agentic | Read-only investigator · SIEM **MCP server** (3 tools over a scoped read-only DB role) · AI-usage detection domain |
 | Response | 6 action types — 3 live-verified on the reference deployment, 3 capability-gated fail-closed |
@@ -80,7 +80,7 @@ Most security dashboards show you charts. This one shows you **receipts**:
 | Detection | Sigma → parameterized SQL + correlation engine | 113 rules across 7 categories; 10 event-driven correlation chains with `as_of` time binding and persisted matches |
 | Enrichment | GeoIP2 + DNS + threat intel | MaxMind GeoIP, PTR lookup, AbuseIPDB/OTX/URLhaus IOC match with severity boost |
 | AI/ML | Ollama (mistral:7b) + scikit-learn | Calibrated Random-Forest triage, Isolation-Forest UEBA, NL→SQL with 7-layer injection defense, LLM explanations with template fallback, per-call cost tracking |
-| Response | Policy engine + executors | Slack notifications, SIEM-user disable, host quarantine (+3 capability-gated); every outcome re-queried and recorded |
+| Response | Policy engine + executors | Notification channels (Slack / HMAC-signed webhook / PagerDuty / email, per-severity routing + retry + audited), SIEM-user disable, host quarantine (+3 capability-gated); every outcome re-queried and recorded |
 | Dashboard | Streamlit + WebSocket | Real-time alerts, cases, hunting, AI chat; JWT or service-bearer auth |
 | Audit | DB-enforced middleware | Every state-changing request → `audit_logs`; two-role deploy makes UPDATE/DELETE/TRUNCATE impossible for the app role |
 
@@ -154,6 +154,12 @@ Most security dashboards show you charts. This one shows you **receipts**:
   `quarantine_host` (ingest endpoint refuses that host's telemetry),
   `notify_slack` (webhook receipt) — live-verified; `pf_block_ip`,
   `disable_macos_user`, `isolate_host_fleet` — capability-gated fail-closed
+- Notification channels (Wave 1): versioned, fail-closed
+  `config/notification_channels.yaml` routes alerts to Slack / generic
+  webhook (HMAC-signed, receiver contract in PRODUCTION.md §8) / PagerDuty /
+  email with per-severity routing, bounded retry + backoff, and every
+  dispatch outcome audited; legacy single-webhook deployments keep their
+  behavior unchanged
 - Governed decision records: AI triage, correlation matches, human verdicts,
   response actions with approval + verification trails, and policy refusals in
   one read-only surface (`GET /decisions`)
@@ -314,9 +320,9 @@ against the code (no auto-updating badge):
   suite with the coverage gate · integration suite on a live Postgres ·
   pip-audit · Trivy image scan (HIGH/CRITICAL zero-findings enforced since
   2026-09-10).
-- **Unit + integration:** 2,100 unit tests (mocked DB) and 36 integration
-  tests (live Postgres), re-run 2026-09-15 — green; coverage measured 87%
-  (8,197 statements).
+- **Unit + integration:** 2,130 unit tests (mocked DB) and 37 integration
+  tests (live Postgres), re-run 2026-09-15 — green; coverage measured 86%
+  (8,682 statements).
 - **Live-fire:** the full 10-chain correlation matrix scored 10/10 through
   the real pipeline (2026-09-14: 43 alerts, 25 distinct rules, 16 ATT&CK
   techniques); purple-loop runs committed under [`runs/`](runs/) with the
@@ -377,7 +383,7 @@ securityscarletai/
 ├── scripts/                 # entrypoint, backup + watchdog, purple loop, seeds,
 │                            #   provision_readonly.sql, audit-grant verification
 ├── runs/                    # Committed purple-loop run reports (evidence, not claims)
-├── tests/                   # 2,100 unit + 36 integration tests
+├── tests/                   # 2,130 unit + 37 integration tests
 ├── docs/                    # PRODUCTION · DEPLOYMENT · DEMO · RULES · AI · AIR-GAPPED ·
 │                            #   ATTACK-SCENARIOS · AI_USAGE_DETECTIONS · CHANGELOG · …
 └── docker-compose.yml       # TimescaleDB (pg17) + Redis 7 + api + mcp + dashboard

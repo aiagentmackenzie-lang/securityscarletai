@@ -436,3 +436,38 @@ Standing-volume conversion runbook (executed 2026-09-12):
 a timescale-converted volume with the vanilla image: the extension's
 objects live in the database catalog and the vanilla binary cannot serve
 them.
+
+## 8. Notification channels + scheduled reports (Wave 1, 2026-09-15)
+
+Config (both FAIL-CLOSED, both ship default-off):
+
+- `config/notification_channels.yaml` -- alert routing to Slack / generic
+  webhook (HMAC-signed) / PagerDuty / email, per-severity. Secrets are
+  env-referenced only (`*_env` keys): a LITERAL secret in the file rejects
+  the channel; a missing env at dispatch time refuses that delivery
+  (audited), never an unconfigured send.
+- `config/scheduled_reports.yaml` -- renders the standing reports
+  (coverage / posture / retention / closed-cases digest) on a schedule and
+  delivers them through the SAME channels. Closed-case evidence packs stay
+  on-demand: the digest carries case ids + evidence-pack pointers, never
+  the packs themselves (auto-broadcasting case evidence would be a leak).
+
+Webhook receiver verification (generic webhook channels):
+
+1. The sender signs the CANONICAL body:
+   `json.dumps(body, sort_keys=True, separators=(",", ":")).encode()` --
+   sort_keys + compact separators. This is the exact byte string signed.
+2. `X-ScarletAI-Signature: sha256=<hex hmac_sha256(secret, canonical_body)>`.
+3. Receiver-side verify: re-serialize the RAW received body with the same
+   canonicalization and compare HMACs (constant-time compare), OR accept
+   the raw body if your receiver cannot canonicalize -- then the sender
+   must NOT set sort_keys. Both sides must agree on ONE form; the default
+   here is the canonical form above.
+4. Replay window: the body carries `sent_at` (UTC); drop payloads older
+   than your tolerance.
+
+Delivery semantics: bounded retries (default 3, cap 5) with exponential
+backoff (1s, 2s, 4s... capped at 30s); 4xx (except 429) fails fast
+non-retryable (a config error is not retried); every dispatch outcome is
+audited (`notification.attempt` / `report.attempt` in audit_log); delivery
+failure NEVER blocks alert creation.

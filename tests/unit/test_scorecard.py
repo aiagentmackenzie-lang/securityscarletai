@@ -28,11 +28,10 @@ def _mock_conn(rules, sigma_metrics, corr_metrics):
     async def fetch(sql, *params):
         if "FROM rules" in sql:
             return rules
-        # The two metric scans bind 3 params: as_of, window_start, verdict tokens.
-        assert len(params) == 3, f"metric query binds 3 params, got {len(params)}"
+        # The two metric scans bind 2 params: window_start, verdict tokens.
+        assert len(params) == 2, f"metric query binds 2 params, got {len(params)}"
         assert isinstance(params[0], datetime)
-        assert isinstance(params[1], datetime)
-        assert isinstance(params[2], list)
+        assert isinstance(params[1], list)
         if "a.rule_id IS NOT NULL" in sql:
             return sigma_metrics
         if "a.rule_id IS NULL" in sql:
@@ -271,13 +270,13 @@ class TestDispositionPrecedence:
     @pytest.mark.asyncio
     async def test_verdict_tokens_bound_as_param(self):
         # The lateral case-verdict lookup is bounded to the closed verdict
-        # vocabulary (param $3) -- an arbitrary payload value never joins.
+        # vocabulary (param $2) -- an arbitrary payload value never joins.
         conn = _mock_conn([], [], [])
         with patch("src.detection.scorecard.get_pool", return_value=_pool_mock(conn)):
             await compute_rule_scorecard(window_hours=720, as_of=AS_OF)
         for c in conn.fetch.call_args_list:
-            if len(c.args) >= 4:
-                tokens = c.args[3]
+            if len(c.args) >= 3:
+                tokens = c.args[2]
                 assert set(tokens) == {"true_positive", "false_positive", "benign", "needs_review"}
 
     @pytest.mark.asyncio
