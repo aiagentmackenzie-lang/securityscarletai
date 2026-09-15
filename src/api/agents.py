@@ -296,6 +296,30 @@ async def get_run(
     return _serialize_run(row)
 
 
+@router.get(
+    "/runs/{run_id}/outcome",
+    response_model=dict,
+    summary="The run's outcome linkage: draft verdict vs the alert's human disposition",
+)
+async def get_run_outcome(
+    run_id: int,
+    _user: dict = Depends(require_role("analyst")),
+) -> dict:
+    """W1.6(c): the final HITL verdict linkage (read-only). agreement is
+    None while the alert has no human disposition yet -- unmeasured is
+    honest."""
+    _require_agent_enabled()
+    from src.agents.memory import link_outcome
+
+    linkage = await link_outcome(run_id)
+    if linkage is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="run not found or has no verdict draft",
+        )
+    return linkage
+
+
 @router.post(
     "/runs/{run_id}/hitl",
     response_model=dict,

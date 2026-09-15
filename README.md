@@ -46,7 +46,7 @@ Most security dashboards show you charts. This one shows you **receipts**:
 
 | | Verified state (2026-09-15 — counts hand-checked against the code, no auto-updating badge) |
 |---|---|
-| Tests | **2,130 unit** (mocked DB) + **37 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **86%** |
+| Tests | **2,145 unit** (mocked DB) + **37 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **86%** |
 | Detections | **113 Sigma rules** (vocabulary-gated in CI) · **10 correlation chains** — all 10 live-fire verified through the real pipeline (purple-loop score 1.0, 2026-09-14) |
 | Agentic | Read-only investigator · SIEM **MCP server** (3 tools over a scoped read-only DB role) · AI-usage detection domain |
 | Response | 6 action types — 3 live-verified on the reference deployment, 3 capability-gated fail-closed |
@@ -169,6 +169,12 @@ Most security dashboards show you charts. This one shows you **receipts**:
   every query rides the full NL→SQL guardrail stack, every step rides the
   append-only audit chain, and only a human confirms the verdict (mandatory
   note)
+- Agentic memory (Wave 1): few-shot exemplars from past adjudicated alerts
+  of the same rule shape (bounded, PII-conscious) into the verdict prompt;
+  dead-end tracking (each plan hypothesis reported as supported / ruled out
+  / unresolved with the evidence that decided it); and an outcome linkage
+  (`GET /agent/runs/{id}/outcome`) that makes draft-vs-human agreement
+  measurable over time — retrieval is read-only, HITL unchanged
 - SIEM as an MCP server: JSON-RPC 2.0 (SSE refused, fail-closed) exposing
   exactly three read-only tools — `investigate`, `hunt`, `explain` — running
   as a scoped read-only DB role verified against `information_schema` at boot
@@ -258,7 +264,7 @@ Dev mode (API outside Docker): `poetry install` → apply
 
 ## The API
 
-**102 endpoints** under `/api/v1` (Swagger UI / ReDoc at `/api/docs` and
+**103 endpoints** under `/api/v1` (Swagger UI / ReDoc at `/api/docs` and
 `/api/redoc` when `DOCS_ENABLED=true` — the dev default; production overlays
 serve a 404 there by design).
 
@@ -320,7 +326,7 @@ against the code (no auto-updating badge):
   suite with the coverage gate · integration suite on a live Postgres ·
   pip-audit · Trivy image scan (HIGH/CRITICAL zero-findings enforced since
   2026-09-10).
-- **Unit + integration:** 2,130 unit tests (mocked DB) and 37 integration
+- **Unit + integration:** 2,145 unit tests (mocked DB) and 37 integration
   tests (live Postgres), re-run 2026-09-15 — green; coverage measured 86%
   (8,682 statements).
 - **Live-fire:** the full 10-chain correlation matrix scored 10/10 through
@@ -383,7 +389,7 @@ securityscarletai/
 ├── scripts/                 # entrypoint, backup + watchdog, purple loop, seeds,
 │                            #   provision_readonly.sql, audit-grant verification
 ├── runs/                    # Committed purple-loop run reports (evidence, not claims)
-├── tests/                   # 2,130 unit + 37 integration tests
+├── tests/                   # 2,145 unit + 37 integration tests
 ├── docs/                    # PRODUCTION · DEPLOYMENT · DEMO · RULES · AI · AIR-GAPPED ·
 │                            #   ATTACK-SCENARIOS · AI_USAGE_DETECTIONS · CHANGELOG · …
 └── docker-compose.yml       # TimescaleDB (pg17) + Redis 7 + api + mcp + dashboard

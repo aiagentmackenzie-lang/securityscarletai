@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## W1.6 agentic memory (2026-09-15, same session)
+
+**Institutional memory for the investigator: the data was persisted since
+V0.7b and never reused — now the loop is closed, read-only.**
+
+- Few-shot exemplars (`src/agents/memory.py`):
+  `fetch_adjudicated_exemplars()` retrieves the K (cap 3) most recent past
+  alerts of the SAME rule shape with a human disposition (the scorecard's
+  documented precedence) + short rationale (truncated to 280 chars, no
+  evidence blobs — PII-conscious by construction); the verdict prompt
+  carries them as fenced untrusted data (past ground truth shapes the
+  draft, never the verdict's authority).
+- Dead-end tracking: the verdict step (prompt bumped to agent_verdict_v2)
+  asks the LLM to assess EVERY plan hypothesis against the evidence and
+  report it as supported / ruled out / unresolved, with the deciding
+  evidence; validated verbatim against the plan, capped, closed vocabulary
+  — the draft always carries the field (empty = none assessed).
+- Outcome linkage: `GET /agent/runs/{id}/outcome` joins the run's draft
+  verdict to the alert's current human disposition so agreement is
+  MEASURABLE over time (`agreement_stats`); unmeasured linkages are None —
+  the honesty gate, never a fake rate.
+- Tests: 15 unit. Suite 2,145 unit + 37 integration.
+
 ## W1.7 + W1.8 notifications + scheduled reports (2026-09-15, feat/w17-w18-notifications-reports)
 
 **The enterprise delivery surfaces: alert routing that generalizes the
