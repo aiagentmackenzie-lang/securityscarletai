@@ -170,7 +170,7 @@ TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
 | Log Viewer — 24 h window | `GET /api/v1/logs?limit=100&time_minutes=1440` | ~11 rows — the seed spreads logs uniformly over 48 h (`randint(1, 2880)` min), so ~half sit beyond 24 h by design (2026-09-04: corrected — "20 rows" was a stale expectation that never matched the seed shape). **0 rows ⇒ stale data, run `make demo-refresh`** |
 | Cases | `GET /api/v1/cases` | 3 cases |
 | Threat Intel | `GET /api/v1/threat-intel/stats` | `total_indicators: 15` |
-| Rules | `GET /api/v1/rules` | 104 Sigma rules |
+| Rules | `GET /api/v1/rules` | 113 Sigma rules (reconciled from disk on boot) |
 | **Suppressions** | `GET /api/v1/alerts/suppressions` | **200 `[]`** — a 422 here is the route-shadowing regression (`/{alert_id}` swallowing the literal path); fixed in repo history: `fix/suppressions-route-shadowing` |
 | AI status | `GET /api/v1/ai/status` | `mistral:7b` ready |
 

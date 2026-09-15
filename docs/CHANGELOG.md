@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## Live-fire final stage (2026-09-14, main 60e6f6f)
+
+**The V0.6/V0.7 stack booted in production posture and scored honestly:
+four purple-loop iterations to 10/10, every failure a real harness bug,
+every detection DB-verified.**
+
+- Boot + posture battery all green (loopback-only, /api/docs 404, Redis
+  NOAUTH, audit grants --strict). The shipper checkpoint tail auto-replayed
+  55,396 accumulated osquery rows at boot with no dead-letter -- moots the
+  carried backlog-replay question.
+- Purple loop: 10/10 chains, score 1.0 (43 alerts, 25 distinct rules, 16
+  ATT&CK techniques, 102/123 armed). The three failed iterations each
+  exposed a real harness bug, fixed in order: the alert-stability window
+  raced the 60s correlation sweep; re-runs collided with the 15-min alert
+  dedup window (fixed with run-unique matrix hosts); a run-stamp init
+  placed after the matrix branch silently clobbered the stamp (scored 0/10
+  with all 10 matches present). All four iteration reports committed under
+  runs/ -- the honest record, including the 0/10s.
+- The macOS users-diff account rule fired through the real pipeline on its
+  stamped fixture host; false shapes for the target rule stayed silent.
+  Burst-caveat correction banked: osquery stores a new schedule's baseline
+  silently (no restart burst).
+- HITL cleanup: synthetic live-fire rows purged transactionally (logs,
+  alerts, correlation matches for host LIKE live-matrix-%); audit chain,
+  revoked fleet enrollments, and real-host telemetry kept.
+
 ## V0.7 plan-delta fixes (2026-09-14, feat/v07-deltas)
 
 **The three genuine gaps from the Sep-14 delta ledger, closed on a small
