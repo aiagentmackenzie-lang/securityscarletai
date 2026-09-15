@@ -9,8 +9,60 @@ Loading states: st.spinner() on fetches, st.toast() on actions.
 import streamlit as st
 
 from dashboard.api_client import ApiError
-from dashboard.auth import can_manage_rules, get_api_client
+from dashboard.auth import can_manage_rules, can_write, get_api_client
 from dashboard.ui_utils import sev_badge
+
+
+def _render_backtest_report(report: dict) -> None:
+    """Render a W1.1 backtest report (honesty gates first, then numbers)."""
+    results = report.get("results", {})
+    proj = report.get("projected_fp_ratio", {})
+
+    if report.get("unmeasured_reasons"):
+        st.warning("**Unmeasured:** " + " | ".join(report["unmeasured_reasons"]))
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Matching rows", results.get("total_rows", 0))
+    c2.metric("Est. alerts", results.get("estimated_alerts", 0))
+    c3.metric("Hosts affected", results.get("hosts_affected", 0))
+    if proj.get("measured"):
+        c4.metric("Projected FP ratio", f"{proj['ratio']:.0%}")
+    else:
+        c4.metric("Projected FP ratio", "unmeasured")
+
+    warnings = report.get("compilation", {}).get("warnings", [])
+    if warnings:
+        st.warning("Compile warnings: " + " | ".join(warnings))
+
+    if proj.get("measured"):
+        st.caption(
+            f"FP ratio basis: {proj.get('basis', '')} ({proj.get('dispositions', 0)} dispositions)"
+        )
+    elif proj.get("note") and not report.get("unmeasured_reasons"):
+        st.caption(proj["note"])
+
+    per_day = results.get("per_day") or []
+    if per_day:
+        st.bar_chart(data={d["day"]: d["rows"] for d in per_day})
+    st.caption(results.get("estimate_method", ""))
+
+    top = results.get("top_values") or {}
+    for column, values in top.items():
+        if values:
+            with st.expander(f"Top {column} values", expanded=False):
+                st.dataframe(
+                    [{"value": v["value"], "count": v["count"]} for v in values],
+                    hide_index=True,
+                    use_container_width=True,
+                )
+
+    if results.get("trigger_buckets_truncated"):
+        st.caption("Trigger buckets capped at 500 -- estimate is a lower bound.")
+    st.caption(
+        f"Window {report['window']['start']} -> {report['window']['end']} UTC "
+        "-- read-only backtest, never auto-arms"
+    )
+
 
 # Sample rule templates
 RULE_TEMPLATES = {
@@ -198,6 +250,23 @@ def render_rules_view():
                                 except ApiError as e:
                                     st.error(f"Delete failed: {e.detail}")
 
+                    # W1.1 backtest: analyst+ (matches the API gate).
+                    if can_write() and st.button("Backtest 7d", key=f"backtest_{r.get('id', 0)}"):
+                        with st.spinner("Backtesting against stored logs..."):
+                            try:
+                                st.session_state[f"backtest_report_{r['id']}"] = api.backtest_rule(
+                                    r["id"], window_hours=168
+                                )
+                                st.toast("Backtest complete")
+                            except ApiError as e:
+                                st.error(f"Backtest failed: {e.detail}")
+
+                # Stored backtest report (survives reruns within the session).
+                stored_report = st.session_state.get(f"backtest_report_{r.get('id', 0)}")
+                if stored_report:
+                    with st.expander("Backtest report (last 7 days)", expanded=True):
+                        _render_backtest_report(stored_report)
+
     # ─── Create Rule ───
     with tab2:
         if not can_manage_rules():
@@ -241,7 +310,21 @@ def render_rules_view():
                 st.subheader("Preview")
                 st.code(sigma_yaml, language="yaml")
 
+            backtest_clicked = st.form_submit_button("Backtest draft (7d)")
+
             submitted = st.form_submit_button("Create Rule")
+            if backtest_clicked:
+                if not sigma_yaml:
+                    st.error("Sigma YAML is required to backtest a draft")
+                else:
+                    with st.spinner("Backtesting draft against stored logs..."):
+                        try:
+                            st.session_state["draft_backtest_report"] = api.backtest_draft(
+                                sigma_yaml, window_hours=168
+                            )
+                            st.toast("Draft backtest complete")
+                        except ApiError as e:
+                            st.error(f"Backtest failed: {e.detail}")
             if submitted:
                 if not name or not sigma_yaml:
                     st.error("Name and Sigma YAML are required")
@@ -262,3 +345,9 @@ def render_rules_view():
                             st.rerun()
                         except ApiError as e:
                             st.error(f"Failed to create rule: {e.detail}")
+
+        # Stored draft-backtest report (survives reruns within the session).
+        draft_report = st.session_state.get("draft_backtest_report")
+        if draft_report:
+            st.subheader("Draft backtest (last 7 days)")
+            _render_backtest_report(draft_report)

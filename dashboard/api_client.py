@@ -524,6 +524,26 @@ class ApiClient:
         """Delete a detection rule."""
         self._delete(f"/rules/{rule_id}")
 
+    def backtest_rule(self, rule_id: int, window_hours: int = 168) -> dict:
+        """Backtest an existing rule against the stored logs window (W1.1).
+
+        Read-only server-side, but the scan can take a few seconds on a big
+        window -- hence an explicit timeout above the httpx default.
+        """
+        return self._post(
+            "/detection/backtest",
+            {"rule_id": rule_id, "window_hours": window_hours},
+            timeout=120.0,
+        )
+
+    def backtest_draft(self, sigma_yaml: str, window_hours: int = 168) -> dict:
+        """Backtest a DRAFT Sigma rule before creating it (W1.1)."""
+        return self._post(
+            "/detection/backtest",
+            {"sigma_yaml": sigma_yaml, "window_hours": window_hours},
+            timeout=120.0,
+        )
+
     # ───────────────────────────────────────────────────────────
     # Alert suppressions (AI-triage differentiation -- P4.2)
     # ───────────────────────────────────────────────────────────
