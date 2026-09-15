@@ -45,7 +45,7 @@ _VERDICT_TOKENS = ("true_positive", "false_positive", "benign", "needs_review")
 
 
 async def _fetch_fires_and_dispositions(
-    conn, as_of: datetime, window_start: datetime
+    conn, window_start: datetime
 ) -> tuple[dict[int, dict], dict[str, dict]]:
     """One grouped query per alert kind (sigma rule_id / correlation name).
 
@@ -79,7 +79,7 @@ async def _fetch_fires_and_dispositions(
             SELECT ce.payload->>'verdict' AS v
             FROM case_events ce
             WHERE ce.event_type = 'verdict' AND ce.alert_id = a.id
-              AND ce.payload->>'verdict' = ANY($3::text[])
+              AND ce.payload->>'verdict' = ANY($2::text[])
             ORDER BY ce.created_at DESC
             LIMIT 1
         ) cv ON TRUE
@@ -95,8 +95,12 @@ async def _fetch_fires_and_dispositions(
         key="rule_name",
         where="a.rule_id IS NULL AND a.rule_name IS NOT NULL",
     )
-    window_rows = await conn.fetch(sigma_sql, as_of, window_start, list(_VERDICT_TOKENS))
-    corr_rows = await conn.fetch(corr_sql, as_of, window_start, list(_VERDICT_TOKENS))
+    # The window filter compares against window_start ($1). as_of is used
+    # only in Python (age_days) -- binding an unreferenced parameter made PG
+    # refuse to prepare the statement (found live: the W1.8 shared posture
+    # builder is the first real-DB caller of this query).
+    window_rows = await conn.fetch(sigma_sql, window_start, list(_VERDICT_TOKENS))
+    corr_rows = await conn.fetch(corr_sql, window_start, list(_VERDICT_TOKENS))
     return _group_metrics(window_rows, by="rule_key"), _group_metrics(corr_rows, by="rule_key")
 
 
@@ -161,7 +165,7 @@ async def compute_rule_scorecard(window_hours: int = 720, as_of: Optional[dateti
             ORDER BY id
             """
         )
-        sigma_metrics, corr_metrics = await _fetch_fires_and_dispositions(conn, as_of, window_start)
+        sigma_metrics, corr_metrics = await _fetch_fires_and_dispositions(conn, window_start)
 
     output_rules: list[dict] = []
     for row in rule_rows:

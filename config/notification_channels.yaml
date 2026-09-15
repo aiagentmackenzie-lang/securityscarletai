@@ -1,0 +1,70 @@
+# SecurityScarletAI -- Notification channels (Wave 1 W1.7)
+#
+# Versioned, FAIL-CLOSED by design (loaded by
+# src/response/notification_channels.py):
+#   - an unknown file version disables EVERY channel (never guessed)
+#   - an unknown channel type / malformed entry is dropped (never sent to
+#     a half-understood destination)
+#   - a missing or empty secret env at dispatch time refuses that
+#     delivery (audited), never falls back to an unconfigured send
+#   - a LITERAL secret in this file (webhook_url, routing_key, password
+#     values) REJECTS the channel -- secrets live in the environment,
+#     referenced here via *_env indirection
+#
+# Routing: an alert is delivered to every ENABLED channel whose
+# `severities` list contains the alert's severity (closed vocabulary:
+# info, low, medium, high, critical). Case-insensitive.
+#
+# DEFAULT-OFF: every channel below ships disabled. Enable by flipping
+# `enabled: true` and pointing the *_env names at real environment vars.
+#
+# Delivery semantics: bounded retries with exponential backoff (4xx is
+# non-retryable except 429 -- a config error fails fast); every dispatch
+# outcome is audited (rule: notification.attempt). Delivery failure never
+# blocks alert creation.
+#
+# NOTE: the legacy implicit channel still works -- if settings has
+# slack_webhook_url and this file has no channels, alerts route to that
+# Slack webhook for ALL severities (pre-W1.7 behavior, unchanged). A YAML
+# slack channel with the name "legacy-slack" replaces it explicitly.
+
+notification_channels:
+  version: 1
+
+  channels:
+    - name: legacy-slack
+      type: slack
+      enabled: false
+      severities: [critical, high, medium, low, info]
+      config:
+        webhook_url_env: SCARLETAI_SLACK_WEBHOOK_URL
+
+    - name: soc-webhook
+      type: webhook
+      enabled: false
+      severities: [critical]
+      config:
+        url: "https://soc.example.internal/scarletai/alerts"
+        # Optional HMAC: X-ScarletAI-Signature: sha256=hex(hmac_sha256(secret, body))
+        hmac_secret_env: SCARLETAI_WEBHOOK_HMAC
+        timeout_seconds: 10
+
+    - name: duty-pager
+      type: pagerduty
+      enabled: false
+      severities: [critical]
+      config:
+        routing_key_env: SCARLETAI_PAGERDUTY_ROUTING_KEY
+
+    - name: security-mailbox
+      type: email
+      enabled: false
+      severities: [critical, high]
+      config:
+        smtp_host: "smtp.internal.example"
+        smtp_port: 587
+        use_tls: true
+        from_addr: "scarletai@internal.example"
+        to_addrs: ["soc@internal.example"]
+        username_env: SCARLETAI_SMTP_USER
+        password_env: SCARLETAI_SMTP_PASSWORD

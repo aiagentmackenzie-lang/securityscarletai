@@ -20,12 +20,9 @@ from src.api.audit import log_audit_action
 from src.api.auth import get_current_user, require_role
 from src.compliance.evidence import build_evidence_pack
 from src.compliance.frameworks import CONFIG_PATH, load_frameworks_file
-from src.compliance.outliers import compute_posture_outliers
 from src.compliance.retention import retention_policy_evidence
 from src.config.logging import get_logger
-from src.db.connection import get_pool
 from src.detection.coverage import compute_coverage
-from src.detection.scorecard import compute_rule_scorecard
 
 router = APIRouter(tags=["compliance"], prefix="/compliance")
 log = get_logger("api.compliance")
@@ -79,41 +76,11 @@ async def posture_report(
     read-only from alerts/logs -- the shape V0.8 UEBA baselines supersede;
     see src/compliance/outliers.py for the honest scope.
     """
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        posture = dict(
-            await conn.fetchrow(
-                """
-                SELECT
-                    COUNT(*) AS total,
-                    COUNT(*) FILTER (WHERE severity = 'critical') AS critical,
-                    COUNT(*) FILTER (WHERE severity = 'high') AS high,
-                    COUNT(*) FILTER (WHERE status = 'new') AS new,
-                    COUNT(*) FILTER (WHERE status = 'investigating') AS investigating,
-                    COUNT(*) FILTER (WHERE status IN ('resolved', 'closed')) AS resolved,
-                    COUNT(*) FILTER (WHERE status = 'false_positive') AS false_positives,
-                    EXTRACT(EPOCH FROM AVG(
-                        CASE WHEN resolved_at IS NOT NULL
-                            THEN resolved_at - time END
-                    )) AS mttr_seconds
-                FROM alerts
-                WHERE time > NOW() - INTERVAL '1 hour' * $1
-                """,
-                window_hours,
-            )
-        )
-    mttr = posture.pop("mttr_seconds", None)
-    summary = (
-        await compute_rule_scorecard(window_hours=window_hours, as_of=datetime.now(timezone.utc))
-    )["summary"]
-    outliers = await compute_posture_outliers(window_hours, as_of=datetime.now(timezone.utc))
-    return {
-        "window_hours": window_hours,
-        "alerts": posture,
-        "mttr_seconds": float(mttr) if mttr is not None else None,
-        "rule_scorecard_summary": summary,
-        "outliers": outliers,
-    }
+    from src.response.scheduled_reports import posture_report_data
+
+    # One implementation shared with the W1.8 scheduled-report delivery
+    # (the report can never drift from the endpoint).
+    return await posture_report_data(window_hours, as_of=datetime.now(timezone.utc))
 
 
 @router.get("/frameworks")

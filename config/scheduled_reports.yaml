@@ -1,0 +1,46 @@
+# SecurityScarletAI -- Scheduled report delivery (Wave 1 W1.8)
+#
+# Versioned, FAIL-CLOSED by design (loaded by
+# src/response/scheduled_reports.py):
+#   - an unknown file version disables EVERY schedule (never guessed)
+#   - an unknown report name / unknown channel name drops the schedule
+#     (never delivered half-understood)
+#   - delivery goes THROUGH the W1.7 notification channels; PagerDuty is
+#     an alert-routing destination, not a report reader -- a schedule
+#     targeting a pagerduty channel is dropped with a logged reason
+#
+# Report types (the V0.7 standing reports):
+#   coverage     -- evidence-driven ATT&CK coverage (armed/dormant map)
+#   posture      -- alert counts + MTTR + scorecard summary (+ outliers)
+#   retention    -- the configured retention windows AS EVIDENCE
+#   closed_cases -- digest of cases resolved/closed in the window (ids +
+#                   verdicts + evidence-pack endpoint pointers; the packs
+#                   themselves stay on-demand -- auto-broadcasting case
+#                   evidence to notification channels would be a data-leak
+#                   risk, so only the digest is delivered)
+#
+# DEFAULT-OFF: no schedules ship enabled. A missing file = no reports.
+
+scheduled_reports:
+  version: 1
+
+  schedules:
+    - name: daily-posture
+      report: posture
+      enabled: false
+      interval_hours: 24
+      window_hours: 24
+      channels: [legacy-slack]
+
+    - name: weekly-coverage
+      report: coverage
+      enabled: false
+      interval_hours: 168
+      lookback_hours: 168
+      channels: [legacy-slack]
+
+    - name: weekly-retention-evidence
+      report: retention
+      enabled: false
+      interval_hours: 168
+      channels: [security-mailbox]

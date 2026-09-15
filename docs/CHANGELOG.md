@@ -1,5 +1,48 @@
 # CHANGELOG
 
+## W1.7 + W1.8 notifications + scheduled reports (2026-09-15, feat/w17-w18-notifications-reports)
+
+**The enterprise delivery surfaces: alert routing that generalizes the
+legacy Slack path, and the standing reports delivered on a schedule
+through the same channels. Both default-off, both fail-closed.**
+
+- W1.7 notification channels (`config/notification_channels.yaml` +
+  `src/response/notification_channels.py`): versioned, fail-closed config
+  (the response_policy pattern) routing alerts to Slack / generic webhook
+  (HMAC-signed) / PagerDuty / email with per-severity routing, bounded
+  retry + exponential backoff (4xx except 429 fails fast), and every
+  dispatch outcome audited (`notification.attempt`). Secrets are
+  env-referenced only (`*_env`); a LITERAL secret in the file rejects the
+  channel; a missing env at dispatch time refuses that delivery (audited),
+  never an unconfigured send.
+- Backward compatibility preserved exactly: the legacy implicit Slack
+  channel (settings.slack_webhook_url, ALL severities, same message
+  format) still fires when no YAML slack channel exists -- pre-W1.7
+  deployments see no change; an explicit legacy-slack channel replaces it
+  (no double-send).
+- W1.8 scheduled reports (`config/scheduled_reports.yaml` +
+  `src/response/scheduled_reports.py`): renders the standing reports
+  (coverage / posture / retention / closed-cases digest) on a schedule and
+  delivers through the SAME channels. One builder per report shared with
+  the HTTP endpoints (the posture builder is literally the same function
+  the /compliance/reports/posture endpoint now delegates to) -- a
+  delivered report can never drift from the API's answer. Closed-case
+  evidence packs stay on-demand: the digest carries case ids + pointers,
+  never the packs (auto-broadcasting case evidence would be a leak).
+  Boot-time config verification logs per-channel/schedule status loudly.
+- PRODUCTION BUG FOUND + FIXED: the V0.7b scorecard's metric SQL never
+  referenced its $2 (window_start) parameter and compared the window
+  filter against $1 = as_of -- unreferenced parameters cannot be typed by
+  Postgres, so GET /detection/scorecard could NEVER prepare the query
+  against a live database (window_fires was also semantically wrong --
+  keyed on as_of, not the window). Hidden for a week because the only
+  tests were mocks that asserted the 3-param binding. Fixed (window
+  filter = window_start; binds reduced to what the query uses); the W1.8
+  shared posture builder is the first real-DB caller and the integration
+  suite now covers it.
+- Tests: 30 unit (channels + reports) + 1 integration smoke leg. Suite
+  2,130 unit + 37 integration; coverage 87% held.
+
 ## W1.9 ATT&CK Navigator layer export (2026-09-15, same session as W1.1)
 
 **The analyst-standard coverage artifact: the evidence-driven coverage map

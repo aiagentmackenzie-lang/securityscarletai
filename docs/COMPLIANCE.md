@@ -56,6 +56,18 @@ Workflow:
 
 All four are auth'd reads. Nothing here mutates state.
 
+## 2b. Scheduled report delivery (Wave 1 W1.8, 2026-09-15)
+
+`config/scheduled_reports.yaml` (versioned, fail-closed, ships default-off)
+renders the standing reports on a schedule and delivers them through the
+W1.7 notification channels (Slack gets the compact summary; webhook/email
+get the full signed payload). Report types: `coverage`, `posture`,
+`retention`, `closed_cases` (a digest of newly-closed cases with evidence-pack
+pointers -- the packs themselves stay on-demand). One builder per report is
+shared with the HTTP endpoint (the posture builder is literally the same
+function), so a delivered report can never drift from the API's answer.
+Delivery + build outcomes are audited (`report.attempt`).
+
 ## 3. Framework notes
 
 - **CAF v4.0** (NCSC): the monitoring/response principles map to the
