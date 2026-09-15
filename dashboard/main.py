@@ -17,6 +17,7 @@ Pages:
   - Hunting: Threat hunting templates & MITRE gaps
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -672,6 +673,21 @@ def render_overview():
             # fallback to the legacy title-driven view when unavailable.
             coverage = get_api_client().get_coverage()
             render_mitre_heatmap(rules, coverage if coverage else None)
+            # W1.9: one-click Navigator layer download (analyst-standard
+            # artifact; import the JSON at attack.mitre.org -- Navigator ->
+            # Open Existing Layer -> load from URL, or upload the file).
+            try:
+                navigator_layer = get_api_client().get_coverage_navigator()
+                st.download_button(
+                    "Download ATT&CK Navigator layer",
+                    data=json.dumps(navigator_layer, indent=2),
+                    file_name="securityscarletai_coverage_layer.json",
+                    mime="application/json",
+                    help="Opens in the MITRE ATT&CK Navigator "
+                    "(attack.mitre.org) as an importable layer file.",
+                )
+            except ApiError as e:
+                st.caption(f"Navigator layer export unavailable: {e.detail}")
         except ApiError:
             st.info(
                 "Rule information unavailable -- MITRE coverage will show when rules are loaded."
