@@ -38,7 +38,8 @@ from src.detection.correlation import AI_PROCESS_NAMES, CORRELATION_RULES
 log = get_logger("detection.coverage")
 
 # Categories our producers can actually emit (osquery parser vocabulary,
-# auth shipper, NeuralGuard/AI-firewall ingesters, API ingest convention).
+# auth shipper, NeuralGuard/AI-firewall ingesters, API ingest convention,
+# W1.5 deception forwarder).
 # Sigma rules selecting outside this set are DORMANT-BY-SOURCE.
 INGESTED_CATEGORIES = {
     "process",
@@ -48,6 +49,7 @@ INGESTED_CATEGORIES = {
     "configuration",
     "intrusion_detection",
     "ai",  # V0.4/5 item 3: the SIEM watches its own AI agents (src/ingestion/ai_usage.py)
+    "deception",  # W1.5: HONEYTRAP deception alerts (src/ingestion/deception.py)
 }
 
 # Future-source waivers (V0.3 rule-quality gate + coverage). A rule listed

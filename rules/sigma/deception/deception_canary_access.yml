@@ -1,0 +1,25 @@
+title: Deception Canary File Accessed
+id: 91fd4492-6879-4753-bb5b-47ed04d1a873
+status: stable
+description: >
+    A honeypot canary file planted by the fleet canary playbook or watched
+    by the HONEYTRAP forwarder was accessed. Nothing in production traffic
+    should ever touch a honeypot: this signal is high-fidelity by
+    construction (NIST SC-26 deception control; the ATT&CK mapping is
+    nearest-neighbor, documented as approximate). Producer contract:
+    src/ingestion/deception.py (source=deception, category=deception);
+    critical by default -> auto-case doctrine in create_alert.
+author: SecurityScarletAI
+date: 2026/09/15
+logsource:
+    category: deception
+detection:
+    selection:
+        event_category: deception
+        event_action: deception_canary_access
+    condition: selection
+level: critical
+tags:
+    - attack.discovery
+    - attack.ta0007
+    - attack.t1083

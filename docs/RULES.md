@@ -1,12 +1,12 @@
 # Detection Rules Reference
 
-SecurityScarletAI ships with **113 Sigma rules** and **10 event-driven correlation rules**, covering authentication, process, network, file, macOS, cloud, AI-firewall, and AI-CLI/2026-technique attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL by the legacy `SigmaParser` + custom PostgreSQL backend in `src/detection/sigma.py`. (A pySigma-backed `PostgreSQLBackend` is retained as a unit-tested module but is off the production detection path — see P0-01/P0-04.)
+SecurityScarletAI ships with **116 Sigma rules** and **10 event-driven correlation rules**, covering authentication, process, network, file, macOS, cloud, AI-firewall, deception, and AI-CLI/2026-technique attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL by the legacy `SigmaParser` + custom PostgreSQL backend in `src/detection/sigma.py`. (A pySigma-backed `PostgreSQLBackend` is retained as a unit-tested module but is off the production detection path — see P0-01/P0-04.)
 
 ---
 
-## Sigma Rule Catalog (113 total)
+## Sigma Rule Catalog (116 total)
 
-113 rules distributed across 7 categories. Each rule is a YAML file under `rules/sigma/<category>/`. Generated from the rule frontmatter — regenerate rather than hand-editing.
+116 rules distributed across 8 categories. Each rule is a YAML file under `rules/sigma/<category>/`. Generated from the rule frontmatter — regenerate rather than hand-editing.
 
 ### Authentication (16 rules)
 
@@ -157,6 +157,16 @@ SecurityScarletAI ships with **113 Sigma rules** and **10 event-driven correlati
 | 4 | Agent Run Burst | Medium | ASI10/ASI09 | T1059 | >= 20 agentic investigation runs from one acting identity in 15m |
 
 Full vocabulary + ASI01-10 coverage table: [AI_USAGE_DETECTIONS.md](AI_USAGE_DETECTIONS.md).
+
+### Deception (3 rules)
+
+| # | Rule Name | Severity | MITRE Tactic | MITRE Technique | Description |
+|---|-----------|----------|--------------|-----------------|-------------|
+| 1 | Deception Canary File Accessed | Critical | Discovery (TA0007) | T1083 | A honeypot canary file (canary playbook / HONEYTRAP forwarder) was accessed — high-fidelity by construction; auto-case doctrine in create_alert |
+| 2 | Deception Canary Token Used | Critical | Credential Access (TA0006) | T1552 | A decoy canary token was USED — any use of decoy credential material is a signal by construction; auto-case doctrine applies |
+| 3 | Deception Service Probed | High | Discovery (TA0007) | T1046 | A honeypot deception service (HONEYTRAP) was probed — any touch is a signal; alerts + notifies without an auto-case |
+
+Producer contract: [src/ingestion/deception.py](../src/ingestion/deception.py) (closed kind vocabulary, severity floor); canary planting: `deploy/fleet/canary_playbook.sh`.
 
 ---
 

@@ -176,6 +176,11 @@ class Settings(BaseSettings):
     enable_auth_shipper: bool = False
     auth_events_log_path: str = "data/osquery/auth_events.log"
     auth_shipper_checkpoint_path: str = "data/auth_shipper_checkpoint"
+    # W1.5 deception ingestion (HONEYTRAP -> SIEM): default-off, own path +
+    # checkpoint so the deception shipper never clobbers the other shippers.
+    enable_deception_shipper: bool = False
+    deception_events_log_path: str = "data/osquery/deception_events.log"
+    deception_shipper_checkpoint_path: str = "data/deception_shipper_checkpoint"
 
     # --- Response authority (V0.4 "Trusted Loop") ---
     # Bounded response actions: the policy file decides allow /

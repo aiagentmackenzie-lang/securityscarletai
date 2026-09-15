@@ -18,6 +18,7 @@ and Windows, and the brute-force chain fires on all three.
 | `fleet-shipper.service.example` | systemd unit (Linux). Token via root-only `/etc/scarletai/fleet.env` (0600), never in the unit file. |
 | `com.scarletai.fleet-shipper.launchagent.plist.example` | launchd plist (macOS). launchd has no env-file mechanism, so the token lives in the plist -- the bootstrap chmods it 0600. |
 | `scarletai-auth-shipper.service.example` + `.timer.example` | Linux auth shipper (V0.6a): sshd events (journalctl primary, `/var/log/auth.log` fallback) into the auth-vocabulary contract; 5-min timer; watermark dedup. Windows needs NO auth shipper -- `windows_events` 4624/4625 is parsed server-side into the same vocabulary. |
+| `canary_playbook.sh` | Canary playbook (W1.5, deception-as-code): plants 0600 honeypot canary files (FIM-watched paths) and can emit one test `canary_file_access` event through the real ingest pipe -- expect a CRITICAL alert + auto-created case on the SIEM. Producer contract: `src/ingestion/deception.py`. |
 
 ## Quickstart
 

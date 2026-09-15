@@ -1,0 +1,25 @@
+title: Deception Canary Token Used
+id: fb0728a9-188c-4774-b305-51d156f21397
+status: stable
+description: >
+    A canary token (decoy credential/key) planted by the canary playbook or
+    the HONEYTRAP forwarder was USED. Any use of decoy credential material
+    is a signal by construction (NIST SC-26 deception; the ATT&CK mapping
+    is nearest-neighbor -- using found credential material -- documented as
+    approximate). Producer contract: src/ingestion/deception.py
+    (source=deception, category=deception); critical by default ->
+    auto-case doctrine in create_alert.
+author: SecurityScarletAI
+date: 2026/09/15
+logsource:
+    category: deception
+detection:
+    selection:
+        event_category: deception
+        event_action: deception_token_use
+    condition: selection
+level: critical
+tags:
+    - attack.credential_access
+    - attack.ta0006
+    - attack.t1552

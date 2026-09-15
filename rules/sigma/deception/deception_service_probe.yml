@@ -1,0 +1,24 @@
+title: Deception Service Probed
+id: 949ba5f1-66bf-473a-b330-df368601585d
+status: stable
+description: >
+    A honeypot deception service (HONEYTRAP: SMB/RDP/SSH/HTTP honeypots)
+    was probed. Any touch is a signal: high-fidelity by construction
+    (NIST SC-26 deception; the ATT&CK mapping is nearest-neighbor,
+    documented as approximate). Producer contract:
+    src/ingestion/deception.py. HIGH severity: alerts + notifies without
+    the auto-case doctrine (that tier is the critical canary/token kinds).
+author: SecurityScarletAI
+date: 2026/09/15
+logsource:
+    category: deception
+detection:
+    selection:
+        event_category: deception
+        event_action: deception_service_probe
+    condition: selection
+level: high
+tags:
+    - attack.discovery
+    - attack.ta0007
+    - attack.t1046

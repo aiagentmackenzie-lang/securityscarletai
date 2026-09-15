@@ -208,6 +208,11 @@ EVENT_ACTION_MCP_TOOL_CALL = "mcp_tool_call"  # an allowed MCP tool call
 EVENT_ACTION_MCP_TOOL_DENIED = "mcp_tool_denied"  # a denied/failed MCP call
 EVENT_ACTION_AI_PROMPT_INJECTION = "ai_prompt_injection"  # detected injection
 
+# Deception domain (W1.5): HONEYTRAP / canary playbook alerts (deception.py)
+EVENT_ACTION_DECEPTION_SERVICE_PROBE = "deception_service_probe"
+EVENT_ACTION_DECEPTION_CANARY_ACCESS = "deception_canary_access"
+EVENT_ACTION_DECEPTION_TOKEN_USE = "deception_token_use"  # noqa: S105 -- vocabulary token, not a credential
+
 
 def derive_event_action(table_name: str, action: str, columns: dict) -> Optional[str]:
     """Map (table, osquery differential action, columns) -> vocabulary token.
