@@ -1,12 +1,12 @@
 # Detection Rules Reference
 
-SecurityScarletAI ships with **116 Sigma rules** and **10 event-driven correlation rules**, covering authentication, process, network, file, macOS, cloud, AI-firewall, deception, and AI-CLI/2026-technique attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL by the legacy `SigmaParser` + custom PostgreSQL backend in `src/detection/sigma.py`. (A pySigma-backed `PostgreSQLBackend` is retained as a unit-tested module but is off the production detection path — see P0-01/P0-04.)
+SecurityScarletAI ships with **118 Sigma rules** and **10 event-driven correlation rules**, covering authentication, process, network, file, macOS, cloud, AI-firewall, deception, identity, and AI-CLI/2026-technique attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL by the legacy `SigmaParser` + custom PostgreSQL backend in `src/detection/sigma.py`. (A pySigma-backed `PostgreSQLBackend` is retained as a unit-tested module but is off the production detection path — see P0-01/P0-04.)
 
 ---
 
-## Sigma Rule Catalog (116 total)
+## Sigma Rule Catalog (118 total)
 
-116 rules distributed across 8 categories. Each rule is a YAML file under `rules/sigma/<category>/`. Generated from the rule frontmatter — regenerate rather than hand-editing.
+118 rules distributed across 9 categories. Each rule is a YAML file under `rules/sigma/<category>/`. Generated from the rule frontmatter — regenerate rather than hand-editing.
 
 ### Authentication (16 rules)
 
@@ -167,6 +167,17 @@ Full vocabulary + ASI01-10 coverage table: [AI_USAGE_DETECTIONS.md](AI_USAGE_DET
 | 3 | Deception Service Probed | High | Discovery (TA0007) | T1046 | A honeypot deception service (HONEYTRAP) was probed — any touch is a signal; alerts + notifies without an auto-case |
 
 Producer contract: [src/ingestion/deception.py](../src/ingestion/deception.py) (closed kind vocabulary, severity floor); canary planting: `deploy/fleet/canary_playbook.sh`.
+
+---
+
+### Identity (2 rules)
+
+| # | Rule Name | Severity | MITRE Tactic | MITRE Technique | Description |
+|---|-----------|----------|--------------|-----------------|-------------|
+| 1 | Identity Signal Session Revoked | High | Credential Access (TA0006) | T1539 (approx.) | A configured IdP transmitter signed and delivered an SSF/CAEP session-revoked SET — the IdP itself asserts the subject's session is dead; high-fidelity by construction (the signature IS the attestation) |
+| 2 | Identity Signal Credential Revoked or Deleted | High | Credential Access (TA0006) | T1552 (approx.) | A credential-change SET with change_type revoke or delete (mapped to the high-severity leg by the producer's severity contract) — creations/updates stay medium and deliberately do NOT select |
+
+Producer contract: [src/ingestion/ssf.py](../src/ingestion/ssf.py) (RFC 8935 push receiver, `source=ssf`, `category=identity`; closed CAEP vocabulary, SET-signature authentication). Wire contract + config: `config/ssf.yaml` (both legs off by default); runbook: [docs/PRODUCTION.md](PRODUCTION.md) §10. ATT&CK mappings are nearest-neighbor, documented as approximate in the rule descriptions.
 
 ---
 

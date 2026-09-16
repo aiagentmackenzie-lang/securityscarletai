@@ -1,5 +1,46 @@
 # CHANGELOG
 
+## W1.4 SSF/CAEP receiver + transmitter (2026-09-16, feat/w14-ssf-caep)
+
+**The SIEM now speaks the Shared Signals Framework in both directions: it
+receives RFC 8935 push-delivered SETs from configured IdP transmitters
+(receiver), and it propagates its own verified containment actions as
+signed CAEP session-revoked SETs to configured receivers (transmitter).**
+
+- Receiver (`src/ingestion/ssf.py` + `src/api/ssf.py`): `POST
+  /api/v1/ingest/ssf` per RFC 8935 — Content-Type
+  `application/secevent+jwt` enforced; valid SET → **202 with an empty
+  body**; refusal → 400 `{"err", "description"}` + `Content-Language` with
+  the IANA SET error codes (invalid_request / invalid_audience /
+  invalid_issuer / invalid_key / access_denied). Authentication is the SET
+  signature itself: every SET must verify kid-pinned against the JWKS of a
+  CONFIGURED transmitter (ES256/RS256 only — HS256 unsupported in v1),
+  carry that transmitter's audience, and use only its configured event
+  vocabulary. SSF profile enforced: explicit `secevent+jwt` typing, NO
+  `sub`/`exp` claims, top-level `sub_id` (RFC 9493), jti+iat required,
+  exactly one event; CAEP vocabularies closed (credential_type +
+  change_type sets validated). Accepted SETs persist BEFORE responding
+  (source=ssf, category=identity) and every accept/refusal is audited.
+- Transmitter (`src/response/ssf_transmitter.py`): after a response action's
+  outcome is verify()-proven (e.g. disable_siem_user), a signed CAEP
+  session-revoked SET is emitted to every configured receiver — ES256,
+  per-receiver `aud`, env-referenced signing key (a literal key in config
+  REJECTS the whole config), fire-and-forget (never blocks/fails the
+  action), every attempt audited, 5s timeout per receiver, no automatic
+  retry (the audited attempt is the honest record).
+- Detection: 2 new high-severity Sigma rules (identity_session_revoked /
+  identity_credential_revoked — nearest-neighbor ATT&CK mappings,
+  documented as approximate); 116 → 118 rules; the identity category joins
+  the ingested + vocabulary gates. Live-DB verified end-to-end: signed SET
+  → 202 → logs row (source=ssf, category=identity, severity high) → the
+  Sigma rule fired → alert created; refused SET → 400 + audited.
+- Config: `config/ssf.yaml` — versioned, BOTH legs OFF by default
+  (customer-gated per the wave-1 contract); secrets env-referenced only.
+- +64 unit tests (2,186 → 2,250), coverage re-measured 86% (9,271 stmts).
+- Honest scope: unit + wire-contract + live-DB validated against our own
+  receiver; a REAL IdP transmitter (Authentik/Okta dev org) is NOT yet
+  exercised; RFC 8936 polling + the SSF management API are follow-ups.
+
 ## W1.2 TES-aligned purple scoring (2026-09-16, feat/w12-tes-purple-scoring)
 
 **Purple runs are now self-scored against the published MITRE ATT&CK

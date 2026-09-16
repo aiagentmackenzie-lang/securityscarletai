@@ -481,3 +481,90 @@ all verified in-pipeline BEFORE the release is published. The buyer-side
 verification commands live in **SECURITY.md → "Release verification (supply
 chain)"** (single source of truth; not duplicated here). Receipts exist only
 from the first tagged release produced by that workflow onward.
+
+## 10. SSF/CAEP identity signals (Wave 1, 2026-09-16)
+
+The SIEM exchanges Shared Signals Framework Security Event Tokens with the
+identity layer in both directions. **Both legs ship OFF** — this capability
+is behind explicit operator configuration (`config/ssf.yaml`), and
+production use is customer-gated (the wave-1 contract).
+
+### Receiver (IdP → SIEM)
+
+`POST /api/v1/ingest/ssf` implements the RFC 8935 push contract:
+
+- request body = the SET (a JWS-signed JWT), `Content-Type:
+  application/secevent+jwt` (enforced);
+- valid SET → **202 Accepted, empty body** — persisted (source=ssf,
+  category=identity) BEFORE the response; detection runs through the
+  standard post-ingest pipeline;
+- refusal → 400 `{"err", "description"}` + `Content-Language: en-US`, err
+  from the IANA SET registry (`invalid_request`, `invalid_audience`,
+  `invalid_issuer`, `invalid_key`, `access_denied`); every refusal is
+  audited (`ssf.set_refused`, unverified issuer named for the trail only).
+
+Authentication is the SET signature itself — there is intentionally NO
+bearer dependency (a leaked SIEM bearer token must not become the SSF trust
+root). Enabling the receiver:
+
+```yaml
+# config/ssf.yaml
+receiver:
+  enabled: true
+  transmitters:
+    - issuer: "https://idp.example.com/"       # the transmitter's iss claim
+      aud: "securityscarletai-receiver"        # OUR audience in received SETs
+      jwks_uri: "https://idp.example.com/jwks.json"   # TLS required; or inline jwks
+      events: [session-revoked, credential-change, verification]
+```
+
+Validation (all fail-closed, in RFC order): explicit `secevent+jwt` typ; alg
+ES256/RS256 only (HS256 SETs are unsupported in v1); issuer must be
+configured; kid-pinned JWKS verification; audience required and matching
+(scalar or RFC 7519 array); NO `sub`/`exp` claims; top-level `sub_id`
+(RFC 9493); jti + iat required; exactly one event; closed CAEP vocabulary
+(credential-change requires credential_type + change_type from the
+published sets). A config with a literal private key REJECTS at load —
+secrets are env-referenced only. Config path: `SSF_CONFIG_PATH` env override
+or the repo default.
+
+### Transmitter (SIEM → IdP layer)
+
+When a response action's outcome is verify()-proven (currently the
+session-terminating containment actions: `disable_siem_user`,
+`disable_macos_user`), a signed CAEP session-revoked SET is emitted to every
+configured receiver. Signing is per receiver (a JWS carries a single aud
+claim; each receiver has its own audience). Emission is **best-effort
+fire-and-forget**: it never blocks or fails the containment action itself,
+every attempt is audited (`ssf.emit_attempt`), each receiver POST gets a 5s
+timeout, and there is NO automatic retry (the audited attempt is the honest
+record; retransmission policy is an operator decision).
+
+```yaml
+# config/ssf.yaml
+transmitter:
+  enabled: true
+  issuer: "https://siem.example.com/"          # our iss claim
+  signing_key_env: "SSF_SIGNING_KEY"           # PEM EC P-256 private key, env only
+  key_id: "scarletai-caep-1"                   # the kid receivers pin in their JWKS
+  receivers:
+    - endpoint_url: "https://idp.example.com/ssf/events"
+      audience: "https://idp.example.com/"     # the receiver's aud claim
+      authorization_header_env: "SSF_RECEIVER_1_AUTH"   # optional
+```
+
+Generate the signing key: `openssl ecparam -name prime256v1 -genkey -out
+ssf_signing.pem` and load it into the environment (`SSF_SIGNING_KEY`).
+Receivers verify our SETs against the public half of that key (the JWKS with
+`kid: scarletai-caep-1`).
+
+### Honest scope (wave boundary)
+
+- Validated: unit matrix (64 tests), the RFC 8935 wire contract, and a
+  live-DB E2E — signed SET → 202 → logs row (source=ssf, category=identity,
+  severity high) → the Sigma rule fired → alert created; refusal → 400 +
+  audited; and the full loop (our own transmitter's SET accepted by our own
+  receiver).
+- NOT yet exercised: a REAL IdP transmitter (Authentik 2025.2+ / Okta dev
+  org) pushing live SETs; RFC 8936 (event-stream polling) and the SSF
+  management API are follow-ups. HS256-signed SETs are unsupported in v1.
