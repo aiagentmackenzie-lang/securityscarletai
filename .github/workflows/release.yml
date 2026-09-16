@@ -132,7 +132,10 @@ jobs:
       artifact-metadata: write # storage records (org-owned repo)
     runs-on: ubuntu-latest
     env:
-      IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+      # NOTE: job-level env can NOT reference the env context (GitHub context
+      # availability rules) — so DIGEST/TAG come from needs/github here, and
+      # IMAGE is derived inside each run block from the workflow-level
+      # REGISTRY/IMAGE_NAME (workflow env vars are inherited by every shell).
       DIGEST: ${{ needs.build-push.outputs.digest }}
       TAG: ${{ github.ref_name }}
     steps:
@@ -166,6 +169,7 @@ jobs:
         # release page.
         run: |
           set -euo pipefail
+          IMAGE="${REGISTRY}/${IMAGE_NAME}" # from workflow-level env (inherited)
           cosign sign --yes "${IMAGE}@${DIGEST}"
           cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "${IMAGE}@${DIGEST}"
 
@@ -196,6 +200,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          IMAGE="${REGISTRY}/${IMAGE_NAME}" # from workflow-level env (inherited)
           ID_REG='^https://github\.com/aiagentmackenzie-lang/securityscarletai/\.github/workflows/release\.yml@refs/tags/.*$'
           ISSUER='https://token.actions.githubusercontent.com'
           SUBJECT="${IMAGE}@${DIGEST}"
@@ -231,6 +236,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          IMAGE="${REGISTRY}/${IMAGE_NAME}" # from workflow-level env (inherited)
           notes="SecurityScarletAI ${TAG}
 
           Image: ${IMAGE}@${DIGEST}
