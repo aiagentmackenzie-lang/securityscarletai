@@ -1,5 +1,37 @@
 # CHANGELOG
 
+## W2.1 SigmaHQ community import pipeline (2026-09-16, wave 2)
+
+**Bulk import of SigmaHQ community rules is now an honest pipeline:
+classify → report with named reasons → dialect-translate → verify through
+the production compiler → stage born-disabled. No silent drops; nothing
+ever auto-arms.**
+
+- `src/detection/sigmahq.py` + `scripts/sigmahq_import.py`: a local SigmaHQ
+  checkout is classified imported / needs-rewrite / unsupported, with
+  reasons per rule — every candidate appears in the report (no silent
+  drops). Classification is conservative on purpose: plain values compile
+  as exact equality (a Sigma glob would be silently narrower), unmapped
+  fields would be hard parser errors — a rule whose semantics we cannot
+  represent faithfully is needs-rewrite, never an approximation.
+- Dialect translation: logsource category map (process_creation → process,
+  file_* → file, network_connection/dns_query → network; anything else →
+  unsupported, named), CamelCase field map (Image → process_path,
+  CommandLine → process_cmdline, TargetFilename → file_path, ...),
+  aggregation-condition field rewrites + count() → count(*). Modifiers are
+  preserved; unknown modifiers, glob wildcards in values, null selectors
+  and nested structures are named problems, never guesses.
+- Imported rules: tagged `source.sigmahq`, staged born `enabled: false`,
+  OUTSIDE rules/sigma/ — the boot reconciler cannot auto-arm them.
+- Boot reconciler extension: a rule carrying `enabled: false` frontmatter
+  inserts DISABLED (shipped rules carry no flag — default True, unchanged,
+  live-DB verified both paths). Promote + arm = explicit operator
+  decisions (PRODUCTION.md §11 runbook); scorecard lifecycle measures
+  promoted rules like any shipped rule.
+- +24 unit tests (2,250 → 2,274), coverage re-measured 86% (9,456 stmts);
+  live-DB verified: imported rule born disabled, shipped rule default
+  enabled.
+
 ## W1.4 SSF/CAEP receiver + transmitter (2026-09-16, feat/w14-ssf-caep)
 
 **The SIEM now speaks the Shared Signals Framework in both directions: it

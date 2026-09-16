@@ -568,3 +568,49 @@ Receivers verify our SETs against the public half of that key (the JWKS with
 - NOT yet exercised: a REAL IdP transmitter (Authentik 2025.2+ / Okta dev
   org) pushing live SETs; RFC 8936 (event-stream polling) and the SSF
   management API are follow-ups. HS256-signed SETs are unsupported in v1.
+
+## 11. SigmaHQ community import (Wave 2, 2026-09-16)
+
+Bulk import of SigmaHQ community rules runs through an honest pipeline —
+the quality gate is what makes bulk import safe where others ship it raw.
+The import path NEVER touches the network: clone SigmaHQ locally and point
+the tool at its rules directory.
+
+```bash
+git clone --depth 1 https://github.com/SigmaHQ/sigma /tmp/sigma
+poetry run python scripts/sigmahq_import.py \
+    --dir /tmp/sigma/rules/windows \
+    --report-dir /tmp/sigmahq_import \
+    [--staging-dir /tmp/sigmahq_staging]
+```
+
+Outputs:
+
+- `report.md` + `report.json` — every candidate classified with named
+  reasons. **No silent drops**: every candidate file appears with a verdict.
+- `imported` — translated into our dialect (logsource category map +
+  CamelCase field map + aggregation-condition field rewrite), compiled
+  through the PRODUCTION parser with ZERO fail-safe warnings, tagged
+  `source.sigmahq`, staged (with `--staging-dir`) born `enabled: false`
+  OUTSIDE the live rules tree — the boot reconciler cannot auto-arm them.
+- `needs_rewrite` — one named problem away (unmapped field, wildcard in a
+  value, unsupported modifier, complex condition, compiler warning). A
+  dropped selection term would WIDEN a match, so nothing is ever dropped
+  silently — the report names the exact field.
+- `unsupported` — no viable mapping (logsource category/product we do not
+  ingest, invalid YAML, missing detection/condition).
+
+Classification is deliberately conservative: our compiler's plain values
+are exact string comparisons (a Sigma glob would be silently narrower),
+so any rule whose semantics we cannot represent faithfully is
+needs-rewrite, never an approximation.
+
+### Promote + arm (explicit operator decisions, in order)
+
+1. Review the report; rewrite `needs_rewrite` candidates if wanted.
+2. Promote: copy a staged file into `rules/sigma/<category>/`.
+3. Next boot the reconciler inserts it **DISABLED** (the `enabled: false`
+   frontmatter; shipped rules, which carry no flag, are unaffected).
+4. Arm via the rules API when you are ready — from that moment the
+   scorecard lifecycle measures it (fires, dispositions, retirement
+   advice) like any shipped rule.
