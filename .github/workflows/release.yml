@@ -1,0 +1,252 @@
+# Release pipeline (W1.3 supply-chain attestation, 2026-09-16).
+#
+# Trigger: a version tag push (v*). The FIRST tagged release (v0.8.0+) is the
+# validation run for this pipeline; versions produced before it carry no
+# receipts (documented honestly in SECURITY.md).
+#
+# What every release produces (the "we ship what we prove" leg):
+#   1. The image, built ONCE here and pushed to ghcr.io BY DIGEST, with
+#      GIT_SHA baked (same label contract as `make build`), then BOOT-GATED
+#      against a live Postgres — the published digest must serve /health and
+#      have applied the schema before anything else runs.
+#   2. A CycloneDX SBOM generated FROM THE PUBLISHED DIGEST (Syft) — the SBOM
+#      describes what ships, not what a local builder produced.
+#   3. cosign keyless image signature + a cosign SBOM attestation
+#      (--type cyclonedx), pushed to the registry as OCI referrers.
+#   4. SLSA v1.0 build provenance + SBOM attestation via actions/attest@v4
+#      (GitHub artifact attestations) — GitHub attestation store AND registry
+#      (push-to-registry).
+#   5. AN IN-PIPELINE VERIFY GATE: cosign verify / cosign verify-attestation /
+#      gh attestation verify run against this release's own receipts. A
+#      release that cannot prove itself fails and does not ship.
+#   6. A GitHub release carrying sbom.cdx.json + the provenance and SBOM
+#      attestation bundles (Sigstore JSONL bundles).
+#
+# Honest provenance claim (SECURITY.md holds the buyer runbook): provenance
+# is the SLSA v1.0 predicate from GitHub artifact attestations — GitHub
+# documents this at SLSA v1 Build Level 2 (GitHub-hosted runner). We do NOT
+# claim certified SLSA Build L3. The slsa-framework generator that would
+# provide L3 is maintenance-frozen as of 2026; named trigger to revisit: an
+# RFP requiring certified L3.
+
+name: Release (image + SBOM + signatures + provenance)
+
+on:
+  push:
+    tags: ['v*'] # a tag cut IS the release act; the tag is the version
+
+permissions: {} # deny-all; every job re-grants exactly what it needs
+
+env:
+  REGISTRY: ghcr.io
+  # MUST stay lowercase (GHCR requirement). Keep in sync with the Dockerfile
+  # org.opencontainers.image.source label and SECURITY.md's verify commands.
+  IMAGE_NAME: aiagentmackenzie-lang/securityscarletai
+
+jobs:
+  # ── 1. Build once, push by digest, boot-gate the published digest ─────────
+  build-push:
+    permissions:
+      contents: read
+      packages: write # push the image to ghcr.io
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (digest-pinned)
+        # GIT_SHA keeps the Dockerfile contract: /health, the entrypoint log
+        # and docker inspect all answer "which build is running?" with the
+        # tag's commit sha (org.opencontainers.image.revision).
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+          build-args: GIT_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Boot gate on the PUBLISHED image (the shipped bytes)
+        # Same gate as ci.yml's build job, but pointed at the pushed digest:
+        # the release runs the REAL entrypoint (schema apply + seed + train)
+        # against a live Postgres and requires /health 200. Digest-pinned so
+        # there is no "it worked on the local tag" ambiguity. Dummy env values
+        # are the same placeholders already committed in ci.yml (not secrets).
+        env:
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
+        run: |
+          docker network create release-boot
+          docker run -d --name rel-db --network release-boot \
+            -e POSTGRES_DB=scarletai -e POSTGRES_USER=scarletai \
+            -e POSTGRES_PASSWORD=cibootpassword \
+            postgres:17-alpine
+          docker run -d --name rel-api --network release-boot \
+            -e DB_HOST=rel-db -e DB_PORT=5432 -e DB_NAME=scarletai \
+            -e DB_USER=scarletai -e DB_PASSWORD=cibootpassword \
+            -e API_SECRET_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+            -e API_BEARER_TOKEN=dummybearertoken1234 \
+            "$IMAGE_REF"
+          ok=""
+          for i in $(seq 1 120); do
+            if docker exec rel-api python -c \
+              "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=5)" 2>/dev/null; then
+              ok=1; break
+            fi
+            sleep 2
+          done
+          docker logs rel-api 2>&1 | tail -40
+          if [ -z "$ok" ]; then
+            echo "::error::published digest never reached a healthy API (see logs above)"
+            exit 1
+          fi
+          tables=$(docker exec rel-db psql -U scarletai -d scarletai -tAc \
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")
+          echo "public tables after boot: $tables"
+          if [ "$tables" -lt 5 ]; then
+            echo "::error::schema not applied during boot"
+            exit 1
+          fi
+          docker rm -f rel-api rel-db
+          docker network rm release-boot
+
+  # ── 2. SBOM + signatures + provenance + release ────────────────────────────
+  attest-and-release:
+    needs: build-push
+    permissions:
+      id-token: write        # Sigstore keyless signing (cosign + attest)
+      contents: write        # create the GitHub release
+      packages: write        # push attestations to ghcr.io (OCI referrers)
+      attestations: write    # persist attestations in GitHub's attestation store
+      artifact-metadata: write # storage records (org-owned repo)
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+      DIGEST: ${{ needs.build-push.outputs.digest }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Log in to GHCR
+        # One login for everything downstream: Syft's registry pull, cosign's
+        # signature/attestation push, and attest's push-to-registry.
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4.1.0
+
+      - name: Generate CycloneDX SBOM from the published digest
+        # Syft scans the exact published image by digest. upload-artifact:
+        # false — the release attachment below is the distribution path; no
+        # duplicate workflow artifact.
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.digest }}
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+          upload-artifact: false
+
+      - name: cosign sign (keyless) + cosign SBOM attestation
+        # No --key: keyless mode signs with the workflow's OIDC identity
+        # (id-token: write). The SBOM attestation makes the SBOM retrievable
+        # FROM THE REGISTRY by any buyer with cosign — not just from the
+        # release page.
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+          cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "${IMAGE}@${DIGEST}"
+
+      - name: SLSA v1.0 build provenance (GitHub artifact attestations)
+        # Signed with the workflow's OIDC identity, stored in GitHub's
+        # attestation store AND pushed to the registry (push-to-registry).
+        id: prov
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ needs.build-push.outputs.digest }}
+          push-to-registry: true
+
+      - name: CycloneDX SBOM attestation (GitHub artifact attestations)
+        id: sbomatt
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ needs.build-push.outputs.digest }}
+          sbom-path: sbom.cdx.json
+          push-to-registry: true
+
+      - name: Verify the receipts (in-pipeline — we ship what we prove)
+        # The exact commands a buyer runs (SECURITY.md), executed here against
+        # this release's own receipts. Identity regexp pins the signer to THIS
+        # repo's release workflow (dots escaped). Any failure fails the release.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ID_REG='^https://github\.com/aiagentmackenzie-lang/securityscarletai/\.github/workflows/release\.yml@refs/tags/.*$'
+          ISSUER='https://token.actions.githubusercontent.com'
+          SUBJECT="${IMAGE}@${DIGEST}"
+
+          echo "== cosign: image signature =="
+          cosign verify "$SUBJECT" \
+            --certificate-identity-regexp "$ID_REG" \
+            --certificate-oidc-issuer "$ISSUER"
+
+          echo "== cosign: SBOM attestation (registry) =="
+          cosign verify-attestation --type cyclonedx "$SUBJECT" \
+            --certificate-identity-regexp "$ID_REG" \
+            --certificate-oidc-issuer "$ISSUER"
+
+          echo "== gh: provenance (SLSA v1.0) =="
+          gh attestation verify "oci://${SUBJECT}" \
+            -R "$GITHUB_REPOSITORY" \
+            --predicate-type https://slsa.dev/provenance/v1
+
+          echo "== gh: SBOM (CycloneDX) =="
+          gh attestation verify "oci://${SUBJECT}" \
+            -R "$GITHUB_REPOSITORY" \
+            --predicate-type https://cyclonedx.org/bom
+
+      - name: Collect attestation bundles for the release
+        run: |
+          set -euo pipefail
+          cp "${{ steps.prov.outputs.bundle-path }}" release-provenance.intoto.jsonl
+          cp "${{ steps.sbomatt.outputs.bundle-path }}" release-sbom.intoto.jsonl
+
+      - name: Create (or refresh) the release with the SBOM
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          notes="SecurityScarletAI ${TAG}
+
+          Image: ${IMAGE}@${DIGEST}
+
+          Receipts attached: CycloneDX SBOM, build-provenance and SBOM
+          attestation bundles. The image itself carries a cosign keyless
+          signature + SBOM attestation in the registry, and provenance in
+          GitHub's attestation store.
+
+          Verify this release (cosign / gh commands):
+          SECURITY.md → 'Release verification (supply chain)'."
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $TAG already exists (re-run) — uploading assets with --clobber"
+          else
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" \
+              --title "SecurityScarletAI ${TAG}" --notes "$notes"
+          fi
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber \
+            sbom.cdx.json release-provenance.intoto.jsonl release-sbom.intoto.jsonl
