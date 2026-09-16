@@ -37,8 +37,15 @@ import subprocess
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
+from scripts.purple_tes import (
+    TESConfigError,
+    load_tes_config,
+    render_tes_md,
+    score_tes,
+    validate_tes_config,
+)
 from src.config.logging import get_logger
 from src.detection.correlation import CORRELATION_RULES
 
@@ -291,7 +298,8 @@ async def _fetch_fired_alerts(window_start: datetime) -> list[dict]:
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT id, host_name, rule_name, severity, mitre_techniques, time
+            SELECT id, host_name, rule_name, severity, mitre_techniques, time,
+                   description, evidence, ai_summary, case_id, status, resolved_at
             FROM alerts
             WHERE host_name LIKE 'live-matrix-%' AND time >= $1::timestamptz
             ORDER BY time ASC
@@ -299,6 +307,66 @@ async def _fetch_fired_alerts(window_start: datetime) -> list[dict]:
             window_start,
         )
     return [dict(r) for r in rows]
+
+
+async def _fetch_run_cases(case_ids: set[int]) -> dict[int, dict]:
+    """Case rows for the run's linked alerts (DP Cases + IQI DISPOSITION)."""
+    if not case_ids:
+        return {}
+    from src.db.connection import get_pool
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, title, status, alert_ids, resolution_note, resolved_at
+            FROM cases WHERE id = ANY($1::int[])
+            """,
+            sorted(case_ids),
+        )
+    return {r["id"]: dict(r) for r in rows}
+
+
+async def _fetch_case_alerts(case_ids: set[int]) -> dict[int, list[dict]]:
+    """Alert rows per case (the IC SCOPE element: multi-host consolidation)."""
+    if not case_ids:
+        return {}
+    from src.db.connection import get_pool
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, case_id, host_name FROM alerts
+            WHERE case_id = ANY($1::int[])
+            """,
+            sorted(case_ids),
+        )
+    out: dict[int, list[dict]] = {}
+    for r in rows:
+        if r["case_id"] is not None:
+            out.setdefault(int(r["case_id"]), []).append(dict(r))
+    return out
+
+
+async def _fetch_log_first_times(hosts: list[str], window_start: datetime) -> dict[str, Any]:
+    """First telemetry timestamp per host in the window (MTTD baseline)."""
+    if not hosts:
+        return {}
+    from src.db.connection import get_pool
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT host_name, min(time) AS first_time FROM logs
+            WHERE host_name = ANY($1::text[]) AND time >= $2::timestamptz
+            GROUP BY host_name
+            """,
+            hosts,
+            window_start,
+        )
+    return {r["host_name"]: r["first_time"] for r in rows}
 
 
 def _merge_chain_hosts(
@@ -348,13 +416,15 @@ async def _fetch_chain_matches(window_start: datetime) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def _write_report(runs_dir: Path, score: dict, fired_alerts: list[dict]) -> Path:
+def _write_report(
+    runs_dir: Path, score: dict, fired_alerts: list[dict], extra_md: str = ""
+) -> Path:
     runs_dir.mkdir(parents=True, exist_ok=True)
     (runs_dir / "report.json").write_text(
         json.dumps({**score, "alerts": fired_alerts}, indent=2, default=str)
     )
     md_path = runs_dir / "report.md"
-    md_path.write_text(render_report_md(score))
+    md_path.write_text(render_report_md(score) + extra_md)
     # The detection-engineering feedback as its own machine-readable
     # artifact: failed chains -> the correlation rule to inspect. Empty
     # list = nothing to fix (all chains fired).
@@ -491,7 +561,62 @@ async def run(mode: str, api: str, wait_seconds: int, fail_below: float, runs_di
     score["progression"] = progression
 
     stamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    md_path = _write_report(runs_dir / f"purple-{stamp}", score, fired)
+
+    # W1.2: TES-aligned self-scoring (MITRE ATT&CK Evaluations Enterprise
+    # 2026 methodology, published spec). Fail-closed: an invalid config
+    # leaves the TES block 'unmeasured' with the reason — never a fabricated
+    # score. Legacy keys above are unchanged (the chain gate stays primary).
+    extra_md = ""
+    try:
+        tes_config_path = REPO_ROOT / "config" / "purple_tes.yaml"
+        tes_cfg = load_tes_config(tes_config_path)
+        tes_errors = validate_tes_config(tes_cfg, set(CORRELATION_RULES))
+        if tes_errors:
+            print(f"TES BLOCK UNMEASURED — config validation failed: {tes_errors}")
+            score["tes"] = {
+                "methodology": "MITRE ATT&CK Evaluations Enterprise 2026 — TES, self-scored",
+                "unmeasured_reason": f"config validation failed: {tes_errors}",
+            }
+        else:
+            chain_hosts = {host: chain for chain, host in expected_hosts.items()}
+            run_case_ids = {a["case_id"] for a in fired if a.get("case_id") is not None}
+            run_cases = await _fetch_run_cases(run_case_ids)
+            per_case_alerts = await _fetch_case_alerts(run_case_ids)
+            log_first_times = await _fetch_log_first_times(list(chain_hosts), window_start)
+            tes = score_tes(
+                config=tes_cfg,
+                chains=chains,
+                chain_hosts=chain_hosts,
+                alerts=fired,
+                matches=chain_matches,
+                log_first_times=log_first_times,
+                cases=run_cases,
+                case_alerts=per_case_alerts,
+            )
+            score["tes"] = tes
+            extra_md = render_tes_md(tes)
+            # The versioned ACW config snapshot lives WITH the run (published
+            # ACW rule: weights stored next to the run, versioned).
+            (runs_dir / f"purple-{stamp}" / "purple_tes_config.yaml").parent.mkdir(
+                parents=True, exist_ok=True
+            )
+            (runs_dir / f"purple-{stamp}" / "purple_tes_config.yaml").write_text(
+                tes_config_path.read_text()
+            )
+            dqi_label = tes.get("dqi") if tes.get("dqi") is not None else "unmeasured"
+            iqi_value = (tes.get("iqi") or {}).get("value")
+            iqi_label = (
+                "measured" if iqi_value is not None else "unmeasured (pending human adjudication)"
+            )
+            print(f"TES (self-scored): DQI {dqi_label}; IQI {iqi_label}")
+    except (TESConfigError, OSError) as e:
+        print(f"TES block unmeasured — config error: {e}")
+        score["tes"] = {
+            "methodology": "MITRE ATT&CK Evaluations Enterprise 2026 — TES, self-scored",
+            "unmeasured_reason": str(e),
+        }
+
+    md_path = _write_report(runs_dir / f"purple-{stamp}", score, fired, extra_md)
 
     print()
     print("PURPLE-LOOP RESULT")

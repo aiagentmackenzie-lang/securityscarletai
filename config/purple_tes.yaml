@@ -1,0 +1,212 @@
+# Purple-loop TES scenario weights (W1.2) — versioned, fail-closed.
+#
+# SELF-SCORED against the published MITRE ATT&CK Evaluations Enterprise 2026
+# methodology specification (evals.mitre.org/methodology-specification).
+# This is NOT program participation and MUST NOT be cited as such.
+#
+# Every scenario here maps 1:1 to a chain in src/detection/correlation.py's
+# CORRELATION_RULES registry (config drift is a validation error). Each
+# scenario carries:
+#   terminal_objective : the mandatory sentence — "the adversary ... succeeds
+#                        when ___" (ACW weights without one are invalid).
+#   techniques         : ACW per ATT&CK behavior, assigned via the published
+#                        diagnostic questions Q1/Q2/Q3 + context check, each
+#                        with a written justification tied to the objective.
+#   ceiling_justification : REQUIRED when >25% of the scenario's scored
+#                        techniques carry 1.0x (published critical-weight
+#                        ceiling rule; single-behavior scenarios qualify —
+#                        the behavior IS the terminal objective).
+#
+# Weights vocabulary (published): 1.0 / 0.75 / 0.5 / 0.25 / 0.0.
+
+schema_version: 1
+methodology: "MITRE ATT&CK Evaluations Enterprise 2026 — TES, self-scored"
+methodology_source: "https://evals.mitre.org/methodology-specification"
+note: >-
+  Self-scored purple-loop weights. Weights are scenario-bound (per chain),
+  assigned per the published six-step ACW procedure: Q1 termination test,
+  Q2 degradation test, Q3 context test, then the internal/external context
+  check. Each justification references the scenario's terminal objective.
+
+scenarios:
+  brute_force_success:
+    terminal_objective: >-
+      The adversary in this scenario succeeds when it obtains working access
+      to the target by brute-forcing authentication and then completing a
+      successful login with the cracked credential.
+    techniques:
+      - id: T1110
+        acw: 1.0
+        tier: critical
+        justification: >-
+          Q1 = yes: the credential acquisition IS the terminal objective —
+          without T1110 succeeding the chain has no outcome at all; no
+          substitution applies in context.
+    ceiling_justification: >-
+      Single-behavior scenario: the scored behavior IS the terminal objective
+      (Q1 = yes), so 100% critical is the only faithful assignment.
+
+  payload_callback:
+    terminal_objective: >-
+      The adversary in this scenario succeeds when the dropped payload
+      executes and establishes a command-and-control channel for follow-on
+      tasking.
+    techniques:
+      - id: T1059
+        acw: 1.0
+        tier: critical
+        justification: >-
+          Q1 = yes: no execution, no scenario — the dropped payload running is
+          the pivot every later step depends on.
+      - id: T1071
+        acw: 0.75
+        tier: high
+        justification: >-
+          Q2 = yes: blocking the application-layer C2 channel leaves the
+          payload running but under no control — the adversary must switch
+          protocol/infrastructure and restart delivery (major rework, not
+          termination).
+    ceiling_justification: >-
+      Two-behavior chain: the trigger behavior (payload execution) and its
+      follow-on are the chain's whole purpose; 1 of 2 critical (50%) is
+      justified because blocking execution terminates the chain by itself.
+
+  persistence_activated:
+    terminal_objective: >-
+      The adversary in this scenario succeeds when it survives re-auth or
+      reboot and its implanted mechanism auto-activates.
+    techniques:
+      - id: T1547
+        acw: 1.0
+        tier: critical
+        justification: >-
+          Q1 = yes: the persistence mechanism auto-activating IS the terminal
+          objective; without activation the implant is inert.
+    ceiling_justification: >-
+      Single-behavior scenario: the scored behavior IS the terminal objective
+      (Q1 = yes); 100% critical is the only faithful assignment.
+
+  data_exfiltration:
+    terminal_objective: >-
+      The adversary in this scenario succeeds when harvested data leaves the
+      network over an alternative protocol.
+    techniques:
+      - id: T1048
+        acw: 1.0
+        tier: critical
+        justification: >-
+          Q1 = yes: the exfiltration step IS the terminal objective; blocking
+          it ends the campaign in this scenario.
+    ceiling_justification: >-
+      Single-behavior scenario: the scored behavior IS the terminal objective
+      (Q1 = yes); 100% critical is the only faithful assignment.
+
+  privilege_escalation_chain:
+    terminal_objective: >-
+      The adversary in this scenario succeeds when it obtains elevated (root)
+      execution on the target host.
+    techniques:
+      - id: T1548
+        acw: 1.0
+        tier: critical
+        justification: >-
+          Q1 = yes: the elevation mechanism IS the terminal objective — no
+          elevated execution, no success in this scenario.
+    ceiling_justification: >-
+      Single-behavior scenario: the scored behavior IS the terminal objective
+      (Q1 = yes); 100% critical is the only faithful assignment.
+
+  credential_theft_exfil:
+    terminal_objective: >-
+      The adversary in this scenario succeeds when credentials harvested from
+      files are transmitted outside the network.
+    techniques:
+      - id: T1552
+        acw: 1.0
+        tier: critical
+        justification: >-
+          Q1 = yes: without harvesting usable credentials from files there is
+          nothing to exfiltrate — the objective fails entirely.
+      - id: T1048
+        acw: 0.75
+        tier: high
+        justification: >-
+          Q2 = yes: blocking the exfil channel forces a restart or detour
+          (different protocol/infrastructure) but the adversary still holds
+          the harvested credentials — significant degradation, not
+          termination.
+    ceiling_justification: >-
+      Two-behavior chain: 1 of 2 critical (50%) — the harvest step is
+      terminal-objective-essential, the egress step is the major enabler.
+
+  defense_evasion_cleanup:
+    terminal_objective: >-
+      The adversary in this scenario succeeds when it erases the evidence of
+      its activity from host logs.
+    techniques:
+      - id: T1070
+        acw: 1.0
+        tier: critical
+        justification: >-
+          Q1 = yes: the log deletion IS the terminal objective — this is an
+          anti-forensics scenario, not a stepping-stone one.
+    ceiling_justification: >-
+      Single-behavior scenario: the scored behavior IS the terminal objective
+      (Q1 = yes); 100% critical is the only faithful assignment.
+
+  ai_verdict_block_sustained:
+    terminal_objective: >-
+      The adversary in this scenario succeeds when it exploits the exposed AI
+      service for initial access — success here means the exploit path works
+      (the chain's detection success criterion is that the platform keeps
+      blocking it).
+    techniques:
+      - id: T1190
+        acw: 1.0
+        tier: critical
+        justification: >-
+          Q1 = yes: the initial exploitation attempt against the exposed
+          service is the whole scenario — without it there is no adversary
+          path at all.
+    ceiling_justification: >-
+      Single-behavior scenario: the scored behavior IS the terminal objective
+      (Q1 = yes); 100% critical is the only faithful assignment.
+
+  clickfix_dropper_execution:
+    terminal_objective: >-
+      The adversary in this scenario succeeds when a social-engineered user
+      (ClickFix) runs the dropper command on their own workstation.
+    techniques:
+      - id: T1204.004
+        acw: 1.0
+        tier: critical
+        justification: >-
+          Q1 = yes: the user being deceived into execution IS the terminal
+          objective — ClickFix campaigns succeed or fail at this step.
+      - id: T1059
+        acw: 0.75
+        tier: high
+        justification: >-
+          Q2 = yes: the interpreter executing the pasted command is a major
+          enabling step; a substitute interpreter (cmd/PowerShell/node)
+          preserves the path, so blocking one is significant degradation
+          rather than termination.
+    ceiling_justification: >-
+      Two-behavior chain: 1 of 2 critical (50%) — the social-engineering
+      execution is the essence of the campaign; the interpreter leg is the
+      major enabler.
+
+  ai_process_egress:
+    terminal_objective: >-
+      The adversary in this scenario succeeds when the rogue AI CLI process
+      sends harvested data out through external egress.
+    techniques:
+      - id: T1048
+        acw: 1.0
+        tier: critical
+        justification: >-
+          Q1 = yes: the egress step IS the terminal objective — the rogue
+          process achieving external egress is the success condition.
+    ceiling_justification: >-
+      Single-behavior scenario: the scored behavior IS the terminal objective
+      (Q1 = yes); 100% critical is the only faithful assignment.
