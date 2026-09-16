@@ -27,7 +27,11 @@ Most security dashboards show you charts. This one shows you **receipts**:
   Postgres → Sigma → correlation — and scores every run. The latest committed
   run: **10/10 chains fired (score 1.0), 43 alerts, 16 MITRE ATT&CK
   techniques hit**, with the full run history and a machine-readable
-  fix-feedback artifact committed under [`runs/`](runs/).
+  fix-feedback artifact committed under [`runs/`](runs/). Runs are also
+  self-scored against the published MITRE ATT&CK Evaluations Enterprise 2026
+  TES methodology (ACW-weighted coverage, detection precision with the
+  case-consolidation penalty, detection speed, IQI-style investigation
+  coverage) — labeled self-scored, never program participation.
 - **Governed AI.** The investigation agent is read-only and its verdicts are
   always drafts until a human confirms them. Response actions run through a
   fail-closed policy engine (`allow` / `approval_required` / `never`), a
@@ -46,7 +50,7 @@ Most security dashboards show you charts. This one shows you **receipts**:
 
 | | Verified state (2026-09-15 — counts hand-checked against the code, no auto-updating badge) |
 |---|---|
-| Tests | **2,157 unit** (mocked DB) + **40 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **86%** |
+| Tests | **2,186 unit** (mocked DB) + **40 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **86%** |
 | Detections | **116 Sigma rules** (vocabulary-gated in CI) · **10 correlation chains** — all 10 live-fire verified through the real pipeline (purple-loop score 1.0, 2026-09-14) |
 | Agentic | Read-only investigator · SIEM **MCP server** (3 tools over a scoped read-only DB role) · AI-usage detection domain |
 | Response | 6 action types — 3 live-verified on the reference deployment, 3 capability-gated fail-closed |
@@ -196,7 +200,11 @@ case in create_alert; probes alert + notify. Near-zero-FP doctrine:
 **Platform & operations**
 - Purple-loop validation (`python -m scripts.purple_loop`): live-fire the
   correlation matrix, score coverage, emit machine-readable feedback, and
-  track run-to-run progression from committed evidence
+  track run-to-run progression from committed evidence; every run is also
+  self-scored against the published ATT&CK Evaluations Enterprise 2026 TES
+  methodology (versioned ACW weights in `config/purple_tes.yaml`, snapshot
+  stored with each run; unmeasurable components report "unmeasured" — never
+  a fabricated 0)
 - TimescaleDB telemetry store: 1-day chunks, compression (segmentby host),
   30-day retention — schema block is a guarded no-op on vanilla PostgreSQL
 - Hardened local-production overlay: loopback-only publishing, authenticated
@@ -336,9 +344,9 @@ against the code (no auto-updating badge):
   suite with the coverage gate · integration suite on a live Postgres ·
   pip-audit · Trivy image scan (HIGH/CRITICAL zero-findings enforced since
   2026-09-10).
-- **Unit + integration:** 2,157 unit tests (mocked DB) and 40 integration
-  tests (live Postgres), re-run 2026-09-15 — green; coverage measured 86%
-  (8,682 statements).
+- **Unit + integration:** 2,186 unit tests (mocked DB) and 40 integration
+  tests (live Postgres), re-run 2026-09-16 — green; coverage measured 86%
+  (8,848 statements).
 - **Live-fire:** the full 10-chain correlation matrix scored 10/10 through
   the real pipeline (2026-09-14: 43 alerts, 25 distinct rules, 16 ATT&CK
   techniques); purple-loop runs committed under [`runs/`](runs/) with the

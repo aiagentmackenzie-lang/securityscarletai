@@ -1,5 +1,52 @@
 # CHANGELOG
 
+## W1.2 TES-aligned purple scoring (2026-09-16, feat/w12-tes-purple-scoring)
+
+**Purple runs are now self-scored against the published MITRE ATT&CK
+Evaluations Enterprise 2026 methodology — ACW-weighted detection coverage,
+precision with the case-consolidation penalty, detection speed, and an
+IQI-style investigation score from the case/evidence chain.**
+
+- `scripts/purple_tes.py` (pure, unit-tested): DC tiers per BEHAVIOR
+  (DC-3 requires all six published elements — WHO/WHAT/WHEN/WHERE/HOW/
+  SEVERITY — on the best alert for the behavior; DC-2 alert-without-full-
+  checklist; DC-1 telemetry-no-alert; DC-0 blind spot); ACW weights
+  {1.0, 0.75, 0.5, 0.25, 0.0} validated fail-closed; DP = TP/(TP+FP+
+  (Cases−1)) with the case-consolidation penalty; DS tier table
+  (<15 min = 1.0 / 15–30 = 0.75 / >30 = 0.5 / No Detection = 0.0);
+  IQI-style IC from the case/evidence chain (core 5 + extended 4, missing
+  HOW caps at IC-2) — AP and CS measured only where the run's data supports
+  them. The published worked examples are reproduced as GOLDEN TESTS so
+  drift from the methodology fails CI.
+- `config/purple_tes.yaml` (versioned): per-chain terminal objective (the
+  mandatory "succeeds when" sentence, enforced), per-technique ACW weight +
+  written justification tied to the objective, and the published critical-
+  weight ceiling (>25% at 1.0x requires a ceiling justification — single-
+  behavior chains carry it). The config snapshot is stored WITH every run.
+- `scripts/purple_loop.py`: every live-fire run now also produces the TES
+  block (report.json `tes` key + a report.md section) and carries the ACW
+  config snapshot in the run dir. Legacy chain scoring unchanged — the
+  chain gate stays primary. Fail-closed: an invalid/missing ACW config
+  leaves the TES block unmeasured with the reason — never a fabricated
+  score.
+- Honesty gates (adopted from the published methodology + the W1.1
+  sigmaforge standard): unmeasurable components report "unmeasured"
+  (never 0); the purple matrix fires no benign probes, so DP's FP term is
+  0 IN-WINDOW and labeled (benign-precision evidence lives in the deception
+  matrix + scorecard dispositions); PQI is NOT SCORED in a detection-only
+  run — the TES line reports DQI alone, never implied to be a full TES;
+  everything carries "self-scored ... NOT program participation".
+- MTTD is measured from the chain's first telemetry timestamp to its first
+  detection (approximation under batch ingestion, labeled); a persisted
+  correlation match without an alert scores DC-1 (conservative).
+- Tests: +29 unit (published worked-example golden tests: the 4-technique
+  ACW example → 0.833, DP 0.505/1.0, DQI 0.747, AP 0.526, IQI 0.694, CS
+  bands; config validation incl. the ceiling rule; DC tier matrix; DP/DS
+  honesty gates; end-to-end + live-DB validation of the new fetches).
+  Suite 2,186 unit + 40 integration; coverage measured 86% (8,848 stmts).
+- Docs: README purple/tests/verification sections updated; assessment
+  W1.2 → DELIVERED (local-only).
+
 ## W1.3 supply-chain attestation (2026-09-16, feat/w13-supply-chain-attestation)
 
 **The product ships receipts: image + SBOM + provenance, signed keyless and
