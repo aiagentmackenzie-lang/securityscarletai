@@ -157,7 +157,26 @@ async def ingest_events(
             )
 
     # Import here to avoid circular dependency
-    from src.services.writer import writer
+    # W2.2 durable mode: fail-closed BEFORE any event of the batch is taken
+    # when Redis is unavailable — the SIEM does not half-accept a batch it
+    # cannot durably queue (the quarantine doctrine shape).
+    from src.ingestion.durable import (
+        DurableIngestUnavailable,
+        durable_mode,
+        durable_redis_probe,
+        persist_event,
+    )
+
+    if durable_mode():
+        if not await durable_redis_probe():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "durable ingest buffer unavailable — refusing events "
+                    "(fail-closed; the SIEM does not accept at-most-once while "
+                    "promising durability)"
+                ),
+            )
 
     # V0.4 quarantine enforcement: the ingest endpoint refuses events from
     # hosts on the quarantine list (fail-closed: a quarantined host's
@@ -192,7 +211,23 @@ async def ingest_events(
                 source=event.source,
             )
             continue
-        await writer.write(event)
+        try:
+            await persist_event(event)
+        except DurableIngestUnavailable as e:
+            # Fail closed: events enqueued so far stay durable in the stream
+            # (they will be persisted by the consumer); the REST is refused.
+            log.error(
+                "ingest_durable_enqueue_failed",
+                accepted=count,
+                error=str(e),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    f"durable ingest buffer unavailable — {count} events durably "
+                    "queued, remainder refused (fail-closed)"
+                ),
+            ) from e
         if event.host_name:
             hosts_in_batch.add(event.host_name)
         # P2.4: broadcast MOVED OUT of the ingest hot path — it now runs in
@@ -214,67 +249,18 @@ async def ingest_events(
     # log and move on.
     if count > 0:
         try:
-            from src.enrichment.pipeline import enrich_event_dict
+            # W1.8 shared-builder doctrine: the enrichment write-back is the
+            # SAME function the W2.2 durable consumer uses (no drift
+            # possible). Flush-first (P1-07) + F-18 keying documented in
+            # write_back_enrichment.
+            from src.enrichment.pipeline import write_back_enrichment
 
             async def _enrich_and_writeback():
-                """Enrich the batch and write back, keyed on the natural key
-                plus BOTH endpoint ips (F-18: the tuple-only UPDATE could land
-                one event's enrichment on a later, different-IP event sharing
-                the same natural key. The inputs to enrichment ARE the ips —
-                keying on them leaves an overlap only between fully-identical
-                events, which share enrichment legitimately)."""
+                """Enrich the batch and write back. Best-effort: a failure
+                here never affects ingestion — the events are already
+                persisted and the HTTP 202 is on the wire."""
                 try:
-                    # Persist the just-written batch so the enrichment
-                    # write-back below can find the rows. The writer is batched
-                    # (flush every ~2s); force a flush now (P1-07).
-                    await writer.flush()
-
-                    import json as _json
-
-                    from src.db.connection import get_pool
-
-                    pool = await get_pool()
-                    # Enrichment pipeline (GeoIP, DNS, threat intel) for public
-                    # IPs in the batch. Writes into logs.enrichment. Best-effort:
-                    # a failure here never affects ingestion — the events are
-                    # already persisted and the HTTP 202 is on the wire.
-                    async with pool.acquire() as conn:
-                        for event_data in events:
-                            try:
-                                enrichment = await enrich_event_dict(
-                                    event_data.model_dump(by_alias=True)
-                                )
-                                if enrichment:
-                                    await conn.execute(
-                                        """UPDATE logs SET enrichment = $1::jsonb
-                                           WHERE time = $2 AND host_name = $3
-                                             AND source = $4 AND event_category = $5
-                                             AND event_type = $6
-                                             AND source_ip::text
-                                               = COALESCE($7::text, source_ip::text)
-                                             AND destination_ip::text
-                                               = COALESCE($8::text,
-                                                          destination_ip::text)""",
-                                        _json.dumps(enrichment),
-                                        event_data.timestamp,
-                                        event_data.host_name,
-                                        event_data.source,
-                                        event_data.event_category,
-                                        event_data.event_type,
-                                        event_data.source_ip,
-                                        event_data.destination_ip,
-                                    )
-                                    log.debug(
-                                        "ingest_enrichment_persisted",
-                                        host=event_data.host_name,
-                                        keys=list(enrichment.keys()),
-                                    )
-                            except Exception as e:  # pragma: no cover — defensive
-                                log.warning(
-                                    "ingest_enrichment_failed",
-                                    host=getattr(event_data, "host_name", None),
-                                    error=str(e),
-                                )
+                    await write_back_enrichment(batch_events)
                 except Exception as e:  # pragma: no cover — defensive
                     log.warning("ingest_enrichment_loop_failed", error=str(e))
 
@@ -376,8 +362,8 @@ async def ingest_osquery_lines(
     host binding: every parsed line's hostIdentifier must match the
     token's enrolled host.
     """
+    from src.ingestion.durable import DurableIngestUnavailable, persist_event
     from src.ingestion.parser import parse_osquery_line
-    from src.services.writer import writer
 
     if not payload.lines:
         return OsqueryIngestResponse(
@@ -441,6 +427,16 @@ async def ingest_osquery_lines(
             detail="quarantine enforcement unavailable; batch refused",
         ) from e
 
+    # W2.2 durable mode: fail-closed BEFORE any event is taken (same shape
+    # as the quarantine 503 — a DB/Redis outage must NOT silently accept).
+    from src.ingestion.durable import durable_mode, durable_redis_probe
+
+    if durable_mode() and not await durable_redis_probe():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="durable ingest buffer unavailable; batch refused",
+        )
+
     accepted = 0
     rejected_quarantine = 0
     for event in parsed:
@@ -452,7 +448,21 @@ async def ingest_osquery_lines(
                 source=event.source,
             )
             continue
-        await writer.write(event)
+        try:
+            await persist_event(event)
+        except DurableIngestUnavailable as e:
+            log.error(
+                "ingest_osquery_durable_enqueue_failed",
+                accepted=accepted,
+                error=str(e),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    f"durable ingest buffer unavailable — {accepted} events durably "
+                    "queued, remainder refused (fail-closed)"
+                ),
+            ) from e
         accepted += 1
 
     if accepted:

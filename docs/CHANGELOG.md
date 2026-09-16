@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## W2.2 Durable ingest buffer (2026-09-16, wave 2)
+
+**The API ingest path can now guarantee delivery: a Redis-Streams buffer
+between the ingest endpoints and the batched writer — consumer group, ACK
+only after DB persist, crash-safe, bounded backlog, dead-letter preserved.
+Removes the documented at-most-once in-process writer-buffer loss. OFF by
+default.**
+
+- `src/ingestion/durable.py` + `config/durable_ingest.yaml` (versioned,
+  fail-closed validation; an invalid config fails the boot): accepted
+  events are XADD'd to the stream BEFORE the API responds; the consumer
+  persists them through the standard LogWriter and ACKs only after
+  write+flush — a crash leaves entries PENDING, reclaimed (XAUTOCLAIM) on
+  the next pass, never lost. Bounded backlog (approximate MAXLEN);
+  poison payloads and exhausted-delivery entries are dead-lettered to a
+  DLQ stream (reason + attempts preserved — never silently dropped).
+- **Fail-closed**: durable mode + Redis unavailable → the ingest endpoints
+  refuse with 503 (the quarantine doctrine shape). The consumer survives
+  outages and recovers without a restart. Delivery becomes at-least-once
+  (duplicates possible on persist-retry — labeled, documented).
+- Enrichment write-back extracted to the SHARED builder
+  (`write_back_enrichment`) used by both the API post-process and the
+  consumer (the W1.8 no-drift doctrine; F-18 keying preserved).
+- +25 unit tests (2,274 → 2,299), coverage re-measured 86% (9,726 stmts).
+- LIVE-DB verified (throwaway Redis 7 + PostgreSQL 17, removed after):
+  202 → stream → DB row → XPENDING 0 (ack after persist); Redis down →
+  **503 fail-closed**; recovery → accepted + persisted; an orphaned
+  pending entry (simulated crashed consumer) reclaimed and persisted;
+  a poison payload dead-lettered with reason, nothing dropped.
+
 ## W2.1 SigmaHQ community import pipeline (2026-09-16, wave 2)
 
 **Bulk import of SigmaHQ community rules is now an honest pipeline:

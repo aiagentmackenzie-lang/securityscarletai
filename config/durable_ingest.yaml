@@ -1,0 +1,24 @@
+# Durable ingest buffer (W2.2) — versioned, fail-closed, OFF by default.
+#
+# When enabled, the API ingest path XADDs each accepted event to a Redis
+# Stream BEFORE responding; a consumer persists it through the standard
+# batched writer and ACKs only after the DB persist (crash-safe: a crash
+# between enqueue and ACK leaves the entry PENDING — reclaimed, never
+# lost). Redis unavailable -> the ingest endpoints refuse with 503
+# (fail-closed: the SIEM does not silently degrade to at-most-once while
+# promising durability). Delivery is AT-LEAST-ONCE (duplicates possible on
+# a persist-retry — labeled, never silent). With the flag off every path
+# behaves byte-identically to pre-W2.2.
+schema_version: 1
+
+durable_ingest:
+  enabled: false
+  # stream: "scarletai:ingest:events"
+  # dead_letter_stream: "scarletai:ingest:dead"   # poison entries preserved, never dropped
+  # consumer_group: "writer"
+  # consumer_name: "siem-writer"                  # default: siem-<hostname>
+  # max_stream_length: 100000                     # bounded backlog (approximate MAXLEN)
+  # max_deliveries: 5                             # attempts before dead-letter
+  # claim_idle_seconds: 60                        # crash-recovery reclaim threshold
+  # read_block_ms: 1000
+  # read_count: 100

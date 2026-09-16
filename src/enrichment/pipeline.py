@@ -253,7 +253,63 @@ async def enrich_event(event) -> dict[str, Any]:
     return enrichment
 
 
-async def enrich_event_dict(event_data: dict) -> dict:
+async def write_back_enrichment(events: list) -> None:
+    """Persist + enrich + write back a batch of NormalizedEvent — the
+    W1.8 shared-builder doctrine: the ingest post-process AND the W2.2
+    durable consumer use THE SAME function (no drift). Flush first (the
+    writer is batched, P1-07), then per-event enrichment keyed on the
+    natural key plus BOTH endpoint ips (F-18: the tuple-only UPDATE could
+    land one event's enrichment on a later, different-IP event sharing the
+    same natural key — the inputs to enrichment ARE the ips). Best-effort:
+    a failure here never affects ingestion."""
+    import json as _json
+
+    from src.db.connection import get_pool
+    from src.services.writer import writer
+
+    # Persist the just-written batch so the enrichment write-back below
+    # can find the rows.
+    await writer.flush()
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        for event_data in events:
+            try:
+                enrichment = await enrich_event_dict(event_data.model_dump(by_alias=True))
+                if enrichment:
+                    await conn.execute(
+                        """UPDATE logs SET enrichment = $1::jsonb
+                           WHERE time = $2 AND host_name = $3
+                             AND source = $4 AND event_category = $5
+                             AND event_type = $6
+                             AND source_ip::text
+                               = COALESCE($7::text, source_ip::text)
+                             AND destination_ip::text
+                               = COALESCE($8::text,
+                                          destination_ip::text)""",
+                        _json.dumps(enrichment),
+                        event_data.timestamp,
+                        event_data.host_name,
+                        event_data.source,
+                        event_data.event_category,
+                        event_data.event_type,
+                        event_data.source_ip,
+                        event_data.destination_ip,
+                    )
+                    log.debug(
+                        "ingest_enrichment_persisted",
+                        host=event_data.host_name,
+                        keys=list(enrichment.keys()),
+                    )
+            except Exception as e:  # pragma: no cover — defensive
+                log.warning(
+                    "ingest_enrichment_failed",
+                    host=getattr(event_data, "host_name", None),
+                    error=str(e),
+                )
+
+
+async def enrich_event_dict(event_data: dict) -> dict[str, Any]:
     """
     Enrich an event from a dict (used when LogEvent object not available).
 
