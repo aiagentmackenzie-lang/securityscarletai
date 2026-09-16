@@ -185,9 +185,16 @@ class TestCorrelationBounds:
         src = inspect.getsource(ingest)
         assert "_post_process_tasks.add(task)" in src  # F-17 strong ref
         assert "task.add_done_callback(_post_process_tasks.discard)" in src
-        # F-18: both ips participate in the write-back predicate
-        assert "source_ip::text" in src
-        assert "destination_ip::text" in src
+        # F-18: both ips participate in the write-back predicate — since W2.2
+        # the write-back is the SHARED builder (used by the durable consumer
+        # too), so the predicate lives there; the ingest module must DELEGATE
+        # to it (no drift between the two paths).
+        from src.enrichment import pipeline as _ep
+
+        shared = inspect.getsource(_ep)
+        assert "source_ip::text" in shared
+        assert "destination_ip::text" in shared
+        assert "write_back_enrichment(batch_events)" in src
 
     @pytest.mark.asyncio
     async def test_correlation_dedupe_skips_insert(self):

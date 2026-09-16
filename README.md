@@ -50,7 +50,7 @@ Most security dashboards show you charts. This one shows you **receipts**:
 
 | | Verified state (2026-09-16 — counts hand-checked against the code, no auto-updating badge) |
 |---|---|
-| Tests | **2,274 unit** (mocked DB) + **40 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **86%** |
+| Tests | **2,299 unit** (mocked DB) + **40 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **86%** |
 | Detections | **118 Sigma rules** (vocabulary-gated in CI) · **10 correlation chains** — all 10 live-fire verified through the real pipeline (purple-loop score 1.0, 2026-09-14) |
 | Agentic | Read-only investigator · SIEM **MCP server** (3 tools over a scoped read-only DB role) · AI-usage detection domain |
 | Response | 6 action types — 3 live-verified on the reference deployment, 3 capability-gated fail-closed |
@@ -150,6 +150,16 @@ case in create_alert; probes alert + notify. Near-zero-FP doctrine:
   decision ([docs/PRODUCTION.md](docs/PRODUCTION.md) §11); the boot
   reconciler honors an `enabled:` frontmatter extension (shipped rules
   unaffected)
+- Durable ingest buffer (W2.2): a Redis-Streams buffer between the API
+  ingest path and the batched writer — consumer group, **ACK only after
+  DB persist**, crash-safe (orphans reclaimed via XAUTOCLAIM), bounded
+  backlog (MAXLEN), poison entries preserved to a dead-letter stream;
+  removes the documented at-most-once in-process writer-buffer loss.
+  OFF by default; when enabled, Redis unavailable → the ingest endpoints
+  refuse with **503 (fail-closed)** — the SIEM never accepts at-most-once
+  while promising durability. Delivery becomes at-least-once (duplicates
+  possible on persist-retry — labeled, never silent)
+  ([docs/PRODUCTION.md](docs/PRODUCTION.md) §12)
   with disposition-weighted FP ratios in the comments; one-click download
   from the dashboard, importable at attack.mitre.org
 - EndpointSecurity process telemetry (`exec`/`exit`, codesigning evidence) and
@@ -366,7 +376,7 @@ against the code (no auto-updating badge):
   suite with the coverage gate · integration suite on a live Postgres ·
   pip-audit · Trivy image scan (HIGH/CRITICAL zero-findings enforced since
   2026-09-10).
-- **Unit + integration:** 2,274 unit tests (mocked DB) and 40 integration
+- **Unit + integration:** 2,299 unit tests (mocked DB) and 40 integration
   tests (live Postgres), re-run 2026-09-16 — green; coverage measured 86%
   (8,848 statements).
 - **Live-fire:** the full 10-chain correlation matrix scored 10/10 through

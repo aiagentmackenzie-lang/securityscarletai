@@ -614,3 +614,66 @@ needs-rewrite, never an approximation.
 4. Arm via the rules API when you are ready — from that moment the
    scorecard lifecycle measures it (fires, dispositions, retirement
    advice) like any shipped rule.
+cd "/Users/agentmackenzie/Development/ Security Apps/securityscarletai" 2>/dev/null; cd "/Users/agentmackenzie/Development/Security Apps/securityscarletai" && tail -4 docs/PRODUCTION.md
+
+## 12. Durable ingest buffer (Wave 2, 2026-09-16)
+
+The API ingest path can now guarantee delivery through a Redis-Streams
+buffer (`src/ingestion/durable.py`), removing the documented at-most-once
+gap of the in-process writer buffer (a process crash loses the writer's
+un-flushed buffer). **OFF by default** (`config/durable_ingest.yaml`); with
+the flag off every path behaves byte-identically to pre-W2.2.
+
+### Enabling
+
+```yaml
+schema_version: 1
+durable_ingest:
+  enabled: true
+  stream: "scarletai:ingest:events"
+  dead_letter_stream: "scarletai:ingest:dead"
+  consumer_group: "writer"
+  consumer_name: "siem-writer"     # default: siem-<hostname>
+  max_stream_length: 100000        # bounded backlog (approximate MAXLEN)
+  max_deliveries: 5                # attempts before dead-letter
+  claim_idle_seconds: 60           # crash-recovery reclaim threshold
+```
+
+`DURABLE_INGEST_CONFIG` env overrides the config path. An INVALID config
+fails the boot (fail-closed). The consumer starts in the API lifespan.
+
+### Semantics (honest)
+
+- **Wire contract unchanged**: same 202 responses; the event is durably
+  queued (XADD) BEFORE the response. With the flag off, nothing changes.
+- **Delivery becomes at-least-once**: the consumer persists through the
+  standard LogWriter and ACKs ONLY after the DB persist (write + flush). A
+  crash between enqueue and ACK leaves the entry PENDING — the next
+  consumer pass reclaims it (XAUTOCLAIM after `claim_idle_seconds`), so
+  events are never lost, but a redelivery after a partial persist can
+  duplicate an event (labeled tradeoff vs the old silent loss).
+- **Fail-closed on Redis outage**: the ingest endpoints refuse with 503
+  (the quarantine doctrine shape) while Redis is unavailable — the SIEM
+  does not silently degrade to at-most-once while promising durability.
+  The consumer itself survives outages (retry/backoff) and recovers
+  without a restart.
+- **Bounded backlog**: XADD runs with approximate MAXLEN — at the
+  configured cap the OLDEST un-persisted events are trimmed by Redis. This
+  is a deliberate bound-vs-loss choice; size `max_stream_length` for your
+  worst plausible outage window.
+- **Dead-letter preserved**: a payload that cannot parse is moved to
+  `dead_letter_stream` (with reason) and ACKed; an entry that exhausts
+  `max_deliveries` (Redis's own delivery counter) is dead-lettered the same
+  way. Nothing is ever silently dropped. Inspect with:
+  `redis-cli XPENDING <stream> <group> - + 10` / `XRANGE <dead_letter> - +`.
+- **Enrichment + correlation**: the enrichment write-back is the SHARED
+  builder (`src/enrichment/pipeline.py::write_back_enrichment`) used by
+  both the API post-process and the durable consumer, so streamed batches
+  are enriched identically. Correlation still fires per ingest batch (the
+  coalesced sweep also runs on the scheduler cadence, which covers rows
+  persisted a beat later).
+
+Redis persistence note: the stream survives process crashes by default
+(RDB snapshots); for full host-loss durability configure AOF (`appendonly
+yes`) on the Redis instance — the compose service's standard hardening
+applies.

@@ -59,6 +59,8 @@ SCHEDULES_YAML = os.path.join(
 # Shared writer instance
 
 RULES_DIR = Path(__file__).parent.parent.parent / "rules" / "sigma"
+# W2.2: the durable-ingest config default (DURABLE_INGEST_CONFIG env overrides).
+DURABLE_INGEST_CONFIG = Path(__file__).parent.parent.parent / "config" / "durable_ingest.yaml"
 
 
 def _docs_urls() -> tuple[Optional[str], Optional[str], Optional[str]]:
@@ -181,6 +183,41 @@ async def lifespan(app: FastAPI):
     log.info("starting_api", host=settings.api_host, port=settings.api_port)
     await get_pool()
     await writer.start()
+
+    # W2.2 durable ingest buffer — versioned config, OFF by default. Boot-time
+    # verification (the W1.7 pattern): an INVALID config fails the boot
+    # (fail-closed); the feature being off is the valid default. The consumer
+    # survives Redis outages by design; the API path 503s (fail-closed) while
+    # Redis is down — the SIEM never accepts at-most-once while promising
+    # durability.
+    durable_instance = None
+    durable_consumer_task: Optional[asyncio.Task] = None
+    durable_stop = asyncio.Event()
+    try:
+        from src.ingestion.durable import DurableIngest, load_durable_config
+
+        durable_cfg = load_durable_config(
+            Path(os.environ["DURABLE_INGEST_CONFIG"])
+            if os.environ.get("DURABLE_INGEST_CONFIG")
+            else DURABLE_INGEST_CONFIG
+        )
+        if durable_cfg.enabled:
+            from src.api.redis_client import _get_client
+
+            durable_instance = DurableIngest(durable_cfg, client_factory=_get_client)
+            durable_consumer_task = asyncio.create_task(durable_instance.run(durable_stop))
+            log.info(
+                "durable_ingest_enabled",
+                stream=durable_cfg.stream,
+                group=durable_cfg.consumer_group,
+                max_stream_length=durable_cfg.max_stream_length,
+            )
+    except Exception as e:
+        log.error("durable_ingest_config_invalid", error=str(e))
+        raise  # fail-closed: an invalid config never boots
+    from src.ingestion.durable import configure_durable
+
+    configure_durable(durable_instance)
 
     # Load Sigma rules from disk
     await load_sigma_rules()
@@ -320,6 +357,15 @@ async def lifespan(app: FastAPI):
     close_geoip_reader()
 
     await writer.stop()
+    # W2.2: stop the durable consumer (if it was started) BEFORE the writer —
+    # un-ACKed pendings are reclaimed by the next boot's consumer.
+    if durable_consumer_task is not None:
+        durable_stop.set()
+        try:
+            await asyncio.wait_for(durable_consumer_task, timeout=10.0)
+        except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001 — shutdown must complete
+            durable_consumer_task.cancel()
+            log.warning("durable_consumer_stop_forced", error=str(e))
     await close_pool()
     log.info("api_shutdown_complete")
 
