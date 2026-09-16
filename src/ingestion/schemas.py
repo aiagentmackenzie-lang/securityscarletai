@@ -213,6 +213,12 @@ EVENT_ACTION_DECEPTION_SERVICE_PROBE = "deception_service_probe"
 EVENT_ACTION_DECEPTION_CANARY_ACCESS = "deception_canary_access"
 EVENT_ACTION_DECEPTION_TOKEN_USE = "deception_token_use"  # noqa: S105 -- vocabulary token, not a credential
 
+# Identity-signal domain (W1.4): SSF/CAEP SETs from configured IdP
+# transmitters (src/ingestion/ssf.py). High-fidelity by construction: the
+# IdP cryptographically asserts the identity event.
+EVENT_ACTION_IDENTITY_SESSION_REVOKED = "identity_session_revoked"
+EVENT_ACTION_IDENTITY_CREDENTIAL_CHANGE = "identity_credential_change"  # noqa: S105 -- vocabulary token, not a credential
+
 
 def derive_event_action(table_name: str, action: str, columns: dict) -> Optional[str]:
     """Map (table, osquery differential action, columns) -> vocabulary token.
