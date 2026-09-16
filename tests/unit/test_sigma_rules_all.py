@@ -30,7 +30,7 @@ def test_every_rule_file_exists_and_count():
     assert files, "no Sigma rules found under rules/sigma/"
     # Guard against silent rule deletion; update this count when rules are
     # intentionally added/removed.
-    assert len(files) == 116, f"expected 116 Sigma rules, found {len(files)}"
+    assert len(files) == 118, f"expected 118 Sigma rules, found {len(files)}"
 
 
 def test_no_rule_produces_list_repr_or_true_where():

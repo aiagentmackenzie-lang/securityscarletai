@@ -1,0 +1,24 @@
+title: Identity Signal Session Revoked
+id: 4a7f2c81-3b0e-4a5d-9c2f-7e1a5b8d2f61
+status: stable
+description: >
+    A configured IdP transmitter (SSF/CAEP, RFC 8935 push delivery) signed
+    and delivered a session-revoked SET: the identity provider itself
+    asserts that the subject's session is dead. Identity events are
+    high-fidelity by construction (the signature IS the IdP's attestation;
+    the ATT&CK mapping is nearest-neighbor, documented as approximate).
+    Producer contract: src/ingestion/ssf.py (source=ssf, category=identity).
+author: SecurityScarletAI
+date: 2026/09/16
+logsource:
+    category: identity
+detection:
+    selection:
+        event_category: identity
+        event_action: identity_session_revoked
+    condition: selection
+level: high
+tags:
+    - attack.credential_access
+    - attack.ta0006
+    - attack.t1539

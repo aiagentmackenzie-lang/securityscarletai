@@ -50,6 +50,7 @@ INGESTED_CATEGORIES = {
     "intrusion_detection",
     "ai",  # V0.4/5 item 3: the SIEM watches its own AI agents (src/ingestion/ai_usage.py)
     "deception",  # W1.5: HONEYTRAP deception alerts (src/ingestion/deception.py)
+    "identity",  # W1.4: SSF/CAEP identity signals from configured IdPs (src/ingestion/ssf.py)
 }
 
 # Future-source waivers (V0.3 rule-quality gate + coverage). A rule listed

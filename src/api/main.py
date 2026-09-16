@@ -40,6 +40,7 @@ from src.api.rate_limit import (
 )
 from src.api.response import router as response_router
 from src.api.rules import router as rules_router
+from src.api.ssf import router as ssf_router
 from src.api.threat_intel import router as threat_intel_router
 from src.api.users import router as users_router
 from src.api.websocket import router as websocket_router
@@ -340,6 +341,7 @@ app.add_middleware(
 )
 
 app.include_router(ingest_router, prefix="/api/v1")
+app.include_router(ssf_router, prefix="/api/v1")
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(rules_router, prefix="/api/v1")
 app.include_router(alerts_router, prefix="/api/v1")

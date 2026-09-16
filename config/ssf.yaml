@@ -1,0 +1,46 @@
+# SSF/CAEP configuration (W1.4) — versioned, fail-closed. BOTH legs OFF by
+# default: this capability ships behind explicit operator configuration, and
+# production use is customer-gated (the wave-1 contract).
+#
+# Secret rules (the W1.7 notification-channel pattern):
+#   - a LITERAL private key in this file REJECTS the whole config at load
+#   - keys are referenced by env var name only (*_env); a missing env at
+#     use time refuses that operation (audited), never an unconfigured send
+#
+# Receiver: accepts RFC 8935 push-delivered SSF SETs (POST, Content-Type
+# application/secevent+jwt) at /api/v1/ingest/ssf. Authentication is the SET
+# signature itself: every received SET must verify against the JWKS of a
+# CONFIGURED transmitter, carry the configured audience, and use only the
+# configured event types (closed vocabulary).
+#
+# Transmitter: when a verified containment action fires, emit a signed CAEP
+# SET to each configured receiver (the SIEM's containment propagates to the
+# IdP layer, closing the loop). Signing uses ES256 with a P-256 key.
+
+schema_version: 1
+
+receiver:
+  enabled: false
+  # Each transmitter must be explicitly configured. A SET from any other
+  # issuer is refused (invalid_issuer) and audited.
+  transmitters: []
+  #  - issuer: "https://idp.example.com/"
+  #    aud: "securityscarletai-receiver"           # our audience in received SETs
+  #    jwks_uri: "https://idp.example.com/jwks.json"  # HTTP over TLS per SSF
+  #    # OR an inline JWKS (mutual agreement out of band):
+  #    # jwks: {"keys": [...]}
+  #    # Allowed event types for this transmitter (closed vocabulary, URIs):
+  #    events:
+  #      - session-revoked
+  #      - credential-change
+  #      - verification
+
+transmitter:
+  enabled: false
+  # issuer: "https://siem.example.com/"            # our iss in emitted SETs
+  # signing_key_env: "SSF_SIGNING_KEY"             # PEM (EC P-256) via env only
+  # key_id: "scarletai-caep-1"                     # kid in the JOSE header
+  # receivers:
+  #   - endpoint_url: "https://idp.example.com/ssf/events"
+  #     audience: "https://idp.example.com/"       # our aud claim in emitted SETs
+  #     authorization_header_env: "SSF_RECEIVER_1_AUTH"  # optional; env-referenced

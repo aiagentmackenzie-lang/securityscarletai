@@ -61,6 +61,9 @@ KNOWN_TOKENS = {
     vocabulary.EVENT_ACTION_DECEPTION_SERVICE_PROBE,
     vocabulary.EVENT_ACTION_DECEPTION_CANARY_ACCESS,
     vocabulary.EVENT_ACTION_DECEPTION_TOKEN_USE,
+    # Identity domain (W1.4: SSF/CAEP SETs from configured IdP transmitters)
+    vocabulary.EVENT_ACTION_IDENTITY_SESSION_REVOKED,
+    vocabulary.EVENT_ACTION_IDENTITY_CREDENTIAL_CHANGE,
 }
 
 # Legal event_type values per category -- a rule demanding event_type=start

@@ -241,6 +241,15 @@ async def _execute_and_verify(action_row: dict, approver: str | None) -> dict:
             "mode": verification.mode,
         },
     )
+    # W1.4: SSF/CAEP propagation — verified containment (e.g. disable_siem_user)
+    # emits a signed session-revoked SET to configured receivers. Best-effort
+    # fire-and-forget: never blocks or fails the action (see
+    # src/response/ssf_transmitter.py).
+    from src.response.ssf_transmitter import maybe_propagate_session_revoked
+
+    await maybe_propagate_session_revoked(
+        action_type=action_type, params=params, action_id=action_id, verified=verification.verified
+    )
     log.info(
         "response_action_outcome",
         action_id=action_id,
