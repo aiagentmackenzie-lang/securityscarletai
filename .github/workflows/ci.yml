@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+# W1.3 supply-chain hardening (2026-09-16): explicit least privilege. All four
+# jobs only need to check out code and use repo secrets — grant contents: read
+# at the workflow level instead of relying on the default (which is read-write
+# for push-triggered runs on repos without an org-level default). No
+# behavioral change intended; the release.yml pipeline (added in the same
+# wave) demonstrates the per-job grant pattern.
+permissions:
+  contents: read
+
 jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
   # entrypoint, dependency install failures) is caught instead of slipping
   # through a test-only gate. No secrets required.

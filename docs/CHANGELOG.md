@@ -1,5 +1,48 @@
 # CHANGELOG
 
+## W1.3 supply-chain attestation (2026-09-16, feat/w13-supply-chain-attestation)
+
+**The product ships receipts: image + SBOM + provenance, signed keyless and
+verifiable by any buyer with two free tools (cosign / gh).**
+
+- New release pipeline (`.github/workflows/release.yml`, trigger: tag push
+  `v*`):
+  - build + push to ghcr.io BY DIGEST with GIT_SHA baked (same label
+    contract as `make build`); the image is built ONCE and every receipt
+    binds to the pushed digest;
+  - BOOT GATE on the PUBLISHED image — the real entrypoint against a live
+    Postgres, /health 200 + schema assert (the ci.yml boot-gate pattern,
+    pointed at the pushed digest: the bytes that ship are the bytes that
+    were booted);
+  - CycloneDX SBOM via Syft, generated FROM the published digest (the SBOM
+    describes what ships, not what a local builder produced);
+  - cosign keyless image signature + cosign SBOM attestation
+    (`--type cyclonedx`) pushed to the registry (OCI referrers);
+  - SLSA v1.0 build provenance + SBOM attestation via `actions/attest@v4`
+    (GitHub artifact attestations) — GitHub attestation store AND registry;
+  - IN-PIPELINE VERIFY GATE: `cosign verify` / `cosign verify-attestation` /
+    `gh attestation verify` (provenance + cyclonedx) run against this
+    release's own receipts before the release is created — a release that
+    cannot prove itself fails and does not ship;
+  - GH release assets: `sbom.cdx.json` + provenance + SBOM attestation
+    bundles (Sigstore JSONL).
+- Honesty decisions (full detail in SECURITY.md + the assessment):
+  - the wave-1 spec named the slsa-framework generator ("reaches SLSA L3
+    with no extra code"); that project now states it is maintenance-frozen
+    and GitHub recommends artifact attestations. Provenance is therefore
+    delivered via `actions/attest` (SLSA v1.0 predicate — SLSA Build L2 per
+    GitHub's own docs) and the L3 claim is NOT made. Named trigger to
+    revisit: an RFP requiring certified L3.
+  - receipts exist only from the first tagged release onward; older
+    versions carry none (stated in SECURITY.md).
+  - one-time post-first-release step: confirm GHCR package visibility is
+    public (anonymous buyer pull + verify).
+- ci.yml: workflow-level `permissions: contents: read` (least-privilege
+  hardening for the existing 4 jobs; no behavioral change intended).
+- docs: SECURITY.md gains the buyer verification runbook; PRODUCTION.md §9
+  points to it.
+- No runtime code touched (CI + docs only) — endpoints/tests unchanged.
+
 ## W1.5 deception ingestion + canary playbook (2026-09-15, feat/w15-deception-ingestion)
 
 **Deception as a first-class detection domain: HONEYTRAP alerts and fleet

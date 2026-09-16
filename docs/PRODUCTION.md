@@ -471,3 +471,13 @@ backoff (1s, 2s, 4s... capped at 30s); 4xx (except 429) fails fast
 non-retryable (a config error is not retried); every dispatch outcome is
 audited (`notification.attempt` / `report.attempt` in audit_log); delivery
 failure NEVER blocks alert creation.
+
+## 9. Release verification (supply chain) — Wave 1, 2026-09-16
+
+Tagged releases (`v*`) build + push the image to ghcr.io by digest, boot-gate
+the published image against a live Postgres, generate a CycloneDX SBOM from
+that digest, and attach cosign keyless signatures + SLSA v1.0 provenance —
+all verified in-pipeline BEFORE the release is published. The buyer-side
+verification commands live in **SECURITY.md → "Release verification (supply
+chain)"** (single source of truth; not duplicated here). Receipts exist only
+from the first tagged release produced by that workflow onward.
