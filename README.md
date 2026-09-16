@@ -50,7 +50,7 @@ Most security dashboards show you charts. This one shows you **receipts**:
 
 | | Verified state (2026-09-16 — counts hand-checked against the code, no auto-updating badge) |
 |---|---|
-| Tests | **2,250 unit** (mocked DB) + **40 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **86%** |
+| Tests | **2,274 unit** (mocked DB) + **40 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **86%** |
 | Detections | **118 Sigma rules** (vocabulary-gated in CI) · **10 correlation chains** — all 10 live-fire verified through the real pipeline (purple-loop score 1.0, 2026-09-14) |
 | Agentic | Read-only investigator · SIEM **MCP server** (3 tools over a scoped read-only DB role) · AI-usage detection domain |
 | Response | 6 action types — 3 live-verified on the reference deployment, 3 capability-gated fail-closed |
@@ -140,6 +140,16 @@ case in create_alert; probes alert + notify. Near-zero-FP doctrine:
   session-revoked SET to configured receivers — the SIEM speaks the
   identity-signal protocol in both directions ([docs/RULES.md](docs/RULES.md)
   → Identity, [docs/PRODUCTION.md](docs/PRODUCTION.md) §10)
+- SigmaHQ community import pipeline (W2.1): a local SigmaHQ rules checkout
+  is classified into an honest import report — imported / needs-rewrite /
+  unsupported, with reasons per rule, **no silent drops**; imported rules
+  are dialect-translated (logsource category + CamelCase field maps),
+  verified through the PRODUCTION compiler with zero fail-safe warnings,
+  tagged `source.sigmahq`, and staged **born `enabled: false` OUTSIDE the
+  live rules tree** — promoting + arming stays an explicit operator
+  decision ([docs/PRODUCTION.md](docs/PRODUCTION.md) §11); the boot
+  reconciler honors an `enabled:` frontmatter extension (shipped rules
+  unaffected)
   with disposition-weighted FP ratios in the comments; one-click download
   from the dashboard, importable at attack.mitre.org
 - EndpointSecurity process telemetry (`exec`/`exit`, codesigning evidence) and
@@ -356,7 +366,7 @@ against the code (no auto-updating badge):
   suite with the coverage gate · integration suite on a live Postgres ·
   pip-audit · Trivy image scan (HIGH/CRITICAL zero-findings enforced since
   2026-09-10).
-- **Unit + integration:** 2,250 unit tests (mocked DB) and 40 integration
+- **Unit + integration:** 2,274 unit tests (mocked DB) and 40 integration
   tests (live Postgres), re-run 2026-09-16 — green; coverage measured 86%
   (8,848 statements).
 - **Live-fire:** the full 10-chain correlation matrix scored 10/10 through

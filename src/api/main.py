@@ -76,12 +76,15 @@ def _docs_urls() -> tuple[Optional[str], Optional[str], Optional[str]]:
 async def load_sigma_rules():
     """Reconcile Sigma YAML rules on disk into the rules table (P1-05).
 
-    Runs on every boot. Upserts by name: new disk rules are inserted (enabled);
-    existing rules have their content fields refreshed (sigma_yaml, description,
-    severity, mitre_*, run_interval, lookback, threshold) while operator-set
-    state (enabled, last_run, last_match, match_count) is preserved. DB rows not
-    present on disk are left untouched -- they may be operator-created via the
-    rules API and cannot be distinguished from disk rules that were removed.
+    Runs on every boot. Upserts by name: new disk rules are inserted (enabled
+    unless the rule's frontmatter carries `enabled: false` — the W2.1 import
+    extension that keeps promoted SigmaHQ rules from arming before an
+    operator arms them); existing rules have their content fields refreshed
+    (sigma_yaml, description, severity, mitre_*, run_interval, lookback,
+    threshold) while operator-set state (enabled, last_run, last_match,
+    match_count) is preserved. DB rows not present on disk are left
+    untouched -- they may be operator-created via the rules API and cannot
+    be distinguished from disk rules that were removed.
     """
     from datetime import timedelta
 
@@ -137,7 +140,11 @@ async def load_sigma_rules():
                     data.get("description", ""),
                     yaml_content,
                     level,
-                    True,
+                    # W2.1 import extension: a disk rule born `enabled: false`
+                    # (promoted SigmaHQ imports) inserts DISABLED — arming is
+                    # always an explicit operator decision. Shipped rules
+                    # carry no `enabled` key and default to True (unchanged).
+                    bool(data.get("enabled", True)),
                     timedelta(seconds=60),
                     timedelta(minutes=5),
                     1,
