@@ -197,21 +197,22 @@ jobs:
 
       - name: Verify the receipts (in-pipeline — we ship what we prove)
         # Registry receipts are verified CRYPTOGRAPHICALLY by cosign (offline
-        # tlog, docker-login-authenticated — proven ~7s on the first live
-        # run). The GitHub attestation STORE copies are asserted via the
-        # authenticated REST API: subject digest + both predicate types.
+        # tlog, docker-login-authenticated). The GitHub attestation STORE
+        # copies are asserted via the authenticated REST API: subject digest
+        # + both predicate types.
         #
-        # gh's `attestation verify oci://` path is NOT used in-pipeline: on
-        # the first live run (2026-09-17, v0.8.0) it hung >60min inside its
-        # runner-side OCI resolution with zero output — cosign verified the
-        # SAME receipts in 7s and the store held both bundles (verified via
-        # this same REST endpoint from a dev machine). The buyer-side gh
-        # command stays in SECURITY.md with its environment requirements
-        # documented. timeout-minutes makes any future gate hang fail the
-        # release in minutes, not hours.
-        timeout-minutes: 5
+        # Hang hardening (2026-09-17, first two live runs): run 1 hung >60min
+        # inside gh's `attestation verify oci://` (removed from the gate);
+        # run 2 — with gh attestation gone and every command locally proven
+        # (~2s) — STILL hung >14min at the verify step on the runner, and the
+        # job-level timeout/cancel machinery could not reclaim it. Every
+        # command is therefore wrapped in coreutils `timeout` (signal-based,
+        # reliable) with echo markers between commands, so a wedged command
+        # fails the release in <=2min and the logs name the exact command.
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
+          VERIFY_TIMEOUT: "120"
         run: |
           set -euo pipefail
           export DIGEST_HEX="${DIGEST#sha256:}"
@@ -219,18 +220,18 @@ jobs:
           ISSUER='https://token.actions.githubusercontent.com'
           SUBJECT="${REGISTRY}/${IMAGE_NAME}@${DIGEST}" # from workflow-level env (inherited)
 
-          echo "== cosign: image signature =="
-          cosign verify "$SUBJECT" \
+          echo "== [1/4] cosign: image signature (subject ${SUBJECT}) =="
+          timeout "${VERIFY_TIMEOUT}" cosign verify "$SUBJECT" \
             --certificate-identity-regexp "$ID_REG" \
             --certificate-oidc-issuer "$ISSUER"
 
-          echo "== cosign: SBOM attestation (registry) =="
-          cosign verify-attestation --type cyclonedx "$SUBJECT" \
+          echo "== [2/4] cosign: SBOM attestation (registry) =="
+          timeout "${VERIFY_TIMEOUT}" cosign verify-attestation --type cyclonedx "$SUBJECT" \
             --certificate-identity-regexp "$ID_REG" \
             --certificate-oidc-issuer "$ISSUER"
 
-          echo "== gh attestation store: provenance + SBOM presence =="
-          STORE_JSON=$(gh api "/repos/${GITHUB_REPOSITORY}/attestations/${DIGEST}")
+          echo "== [3/4] gh attestation store: provenance + SBOM presence =="
+          STORE_JSON=$(timeout "${VERIFY_TIMEOUT}" gh api "/repos/${GITHUB_REPOSITORY}/attestations/${DIGEST}")
           echo "$STORE_JSON" | jq -e '
             (.attestations | length) >= 2
             and ([.attestations[].bundle.dsseEnvelope.payload
@@ -242,6 +243,7 @@ jobs:
                   | @base64d | fromjson | .subject[0].digest.sha256]
                  | all(. == env.DIGEST_HEX))' >/dev/null
           echo "attestation store: provenance + SBOM present for ${DIGEST}"
+          echo "== [4/4] all receipt checks passed =="
 
       - name: Collect attestation bundles for the release
         run: |
