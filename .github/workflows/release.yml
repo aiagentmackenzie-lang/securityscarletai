@@ -201,14 +201,20 @@ jobs:
         # copies are asserted via the authenticated REST API: subject digest
         # + both predicate types.
         #
-        # Hang hardening (2026-09-17, first two live runs): run 1 hung >60min
-        # inside gh's `attestation verify oci://` (removed from the gate);
-        # run 2 — with gh attestation gone and every command locally proven
-        # (~2s) — STILL hung >14min at the verify step on the runner, and the
-        # job-level timeout/cancel machinery could not reclaim it. Every
-        # command is therefore wrapped in coreutils `timeout` (signal-based,
-        # reliable) with echo markers between commands, so a wedged command
-        # fails the release in <=2min and the logs name the exact command.
+        # Hang hardening (2026-09-17, first three live runs ALL wedged at
+        # this step): cosign dumps the full attestation payloads to stdout —
+        # a multi-MB single-line SBOM payload — and the RUNNER's stdout
+        # secret-scanner wedges processing it (sigstore/cosign#3602 via
+        # actions/runner#1031): the step hangs indefinitely, the job timeout
+        # cannot reclaim the runner, and even the log upload dies (the first
+        # two runs' logs were permanently lost to BlobNotFound). Root fix:
+        # redirect cosign's stdout to /dev/null — the gate checks EXIT
+        # CODES (SECURITY.md doctrine), never grepped output — plus
+        # per-command coreutils timeouts so ANY future wedge fails the
+        # release in minutes. gh's `attestation verify oci://` is NOT used
+        # in-pipeline (also hangs with no deadline — gh sets no request
+        # timeout); the buyer-side commands stay in SECURITY.md with their
+        # environment requirements.
         timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
@@ -221,14 +227,21 @@ jobs:
           SUBJECT="${REGISTRY}/${IMAGE_NAME}@${DIGEST}" # from workflow-level env (inherited)
 
           echo "== [1/4] cosign: image signature (subject ${SUBJECT}) =="
+          # stdout -> /dev/null: cosign dumps the full attestation payloads to
+          # stdout, and the RUNNER's stdout secret-scanner wedges on a
+          # multi-MB single-line SBOM payload (sigstore/cosign#3602 via
+          # actions/runner#1031 — 3 consecutive release runs wedged here;
+          # the wedge is so deep even job-cancel and the log upload die).
+          # The check IS the exit code (SECURITY.md: "check exit codes, not
+          # grepped output — silence is not success").
           timeout "${VERIFY_TIMEOUT}" cosign verify "$SUBJECT" \
             --certificate-identity-regexp "$ID_REG" \
-            --certificate-oidc-issuer "$ISSUER"
+            --certificate-oidc-issuer "$ISSUER" > /dev/null
 
           echo "== [2/4] cosign: SBOM attestation (registry) =="
           timeout "${VERIFY_TIMEOUT}" cosign verify-attestation --type cyclonedx "$SUBJECT" \
             --certificate-identity-regexp "$ID_REG" \
-            --certificate-oidc-issuer "$ISSUER"
+            --certificate-oidc-issuer "$ISSUER" > /dev/null
 
           echo "== [3/4] gh attestation store: provenance + SBOM presence =="
           STORE_JSON=$(timeout "${VERIFY_TIMEOUT}" gh api "/repos/${GITHUB_REPOSITORY}/attestations/${DIGEST}")
@@ -243,7 +256,7 @@ jobs:
                   | @base64d | fromjson | .subject[0].digest.sha256]
                  | all(. == env.DIGEST_HEX))' >/dev/null
           echo "attestation store: provenance + SBOM present for ${DIGEST}"
-          echo "== [4/4] all receipt checks passed =="
+          echo "== [3/4] all receipt checks passed =="
 
       - name: Collect attestation bundles for the release
         run: |
