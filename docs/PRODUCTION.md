@@ -677,3 +677,41 @@ Redis persistence note: the stream survives process crashes by default
 (RDB snapshots); for full host-loss durability configure AOF (`appendonly
 yes`) on the Redis instance — the compose service's standard hardening
 applies.
+
+## 13. Rule-authority separation (Wave 2, 2026-09-16)
+
+Detection-rule authorship and response/containment authority are SEPARATE
+surfaces. Authoring or editing a Sigma rule can never create, approve, or
+execute a response action — the disclosed vulnerability class where rule
+authorship accidentally granted containment authority is structurally
+excluded, and the separation is pinned by regression tests
+(`tests/unit/test_rule_authority_separation.py`).
+
+The verified authority map:
+
+- **Rule CRUD** (`src/api/rules.py`): create/update/patch/delete are
+  admin-only (P1-12); reads are any authenticated user. Audited as
+  `rule.create` / `rule.update` / `rule.delete`.
+- **Response** (`src/api/response.py`): request/read = analyst+;
+  approve/reject/execute = admin; four-eyes (the requester can never
+  approve their own action). Audited as `response.*`.
+- **Write single-siting**: the ONLY module that may write
+  `response_actions` or invoke the executors is `src/api/response.py`
+  (pinned by test across `src/` + `scripts/`). The detection pipeline
+  (scheduler / alerts / correlation / ingestion) produces alerts,
+  correlation matches and CASES — never containment. The deception
+  auto-case doctrine (W1.5) creates a case, an investigation object.
+- **Policy immutability**: the containment policy is loaded READ-ONLY
+  from a server-side settings path; no API endpoint accepts or persists
+  policy content, so authoring a rule cannot reshape containment policy.
+- **Audit separation**: rule mutations and response governance live in
+  disjoint audit namespaces (`rule.*` vs `response.*`) — the chain never
+  conflates authorship with containment approval.
+- **MCP server**: read-only data grants (SELECT only, verified
+  fail-closed against `information_schema` at boot); every tool is
+  `readOnlyHint`. The agent holds no containment write path.
+
+Widening any of these (an approve endpoint dropping below admin, a
+`response_actions` write appearing outside the response router, a
+write-mode open in the policy loader) fails CI on the W2.3 regression
+tests.

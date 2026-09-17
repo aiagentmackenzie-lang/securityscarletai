@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## W2.3 Rule-authority separation audit (2026-09-16, wave 2 — complete)
+
+**Rule authorship can no longer silently gain containment authority: the
+separation is verified and pinned by regression tests. Audit-only item —
+no production code changed.**
+
+- Verified the full authority map: rule CRUD admin-only (create/update/
+  patch/delete — `patch_rule` previously untested), rule reads any
+  authenticated user, response request/read analyst+, approve/reject/
+  execute admin-only with four-eyes.
+- Structural separation pinned: `response_actions` writes and executor
+  invocations are single-sited to `src/api/response.py`; the detection
+  pipeline never writes containment; the response policy is read-only
+  from server settings; audit namespaces `rule.*` / `response.*` are
+  disjoint.
+- Role matrix (admin=3 / analyst=2 / viewer=1) exercised over every
+  (role × gate) pair incl. the fleet `ingest` role (level 0 — never a
+  containment principal).
+- Docs: PRODUCTION.md §13. +28 unit tests (2,299 → 2,327), coverage
+  86% held (9,726 stmts).
+
 ## W2.2 Durable ingest buffer (2026-09-16, wave 2)
 
 **The API ingest path can now guarantee delivery: a Redis-Streams buffer
