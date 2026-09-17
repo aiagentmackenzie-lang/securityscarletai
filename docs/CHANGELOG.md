@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## v0.8.0 — first receipted release (2026-09-17)
+
+**The "we ship what we prove" release leg went live: every v0.8.0 image
+ships with independently verifiable supply-chain receipts, and the tag is
+the release act.**
+
+- Release: https://github.com/aiagentmackenzie-lang/securityscarletai/releases/tag/v0.8.0
+- Image: `ghcr.io/aiagentmackenzie-lang/securityscarletai:sha256:5f04dbbc…` (digest-pinned in the release notes)
+- Receipts: CycloneDX SBOM (2.0 MB) + provenance/SBOM attestation bundles
+  attached to the release; cosign keyless signature + SBOM attestation in
+  the registry; SLSA v1.0 provenance + SBOM attestation in GitHub's
+  attestation store. All four buyer commands re-run against the shipped
+  digest at release time (exit 0). GHCR package confirmed public.
+- In-pipeline gate: cosign verify + verify-attestation (exit-code-gated,
+  stdout redirected) + attestation-store REST assertion, per-command
+  timeouts.
+- Postmortem (disclosed in SECURITY.md): the first three pipeline runs
+  wedged at the verify step — the GitHub runner's stdout secret-scanner
+  chokes on cosign's multi-MB single-line SBOM payload print
+  (sigstore/cosign#3602 via actions/runner#1031); redirecting cosign
+  stdout fixed it (run 4: ~3 min total, verify leg ~4.5 s).
+
 ## W2.3 Rule-authority separation audit (2026-09-16, wave 2 — complete)
 
 **Rule authorship can no longer silently gain containment authority: the
