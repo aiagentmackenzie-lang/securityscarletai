@@ -52,6 +52,7 @@ jobs:
     outputs:
       digest: ${{ steps.push.outputs.digest }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20 # cold GHA cache per tag (cache is ref-namespaced)
     steps:
       - uses: actions/checkout@v4
 
@@ -84,6 +85,7 @@ jobs:
         # against a live Postgres and requires /health 200. Digest-pinned so
         # there is no "it worked on the local tag" ambiguity. Dummy env values
         # are the same placeholders already committed in ci.yml (not secrets).
+        timeout-minutes: 10
         env:
           IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
         run: |
@@ -131,6 +133,7 @@ jobs:
       attestations: write    # persist attestations in GitHub's attestation store
       artifact-metadata: write # storage records (org-owned repo)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       # NOTE: job-level env can NOT reference the env context (GitHub context
       # availability rules) — so DIGEST/TAG come from needs/github here, and
@@ -193,17 +196,28 @@ jobs:
           push-to-registry: true
 
       - name: Verify the receipts (in-pipeline — we ship what we prove)
-        # The exact commands a buyer runs (SECURITY.md), executed here against
-        # this release's own receipts. Identity regexp pins the signer to THIS
-        # repo's release workflow (dots escaped). Any failure fails the release.
+        # Registry receipts are verified CRYPTOGRAPHICALLY by cosign (offline
+        # tlog, docker-login-authenticated — proven ~7s on the first live
+        # run). The GitHub attestation STORE copies are asserted via the
+        # authenticated REST API: subject digest + both predicate types.
+        #
+        # gh's `attestation verify oci://` path is NOT used in-pipeline: on
+        # the first live run (2026-09-17, v0.8.0) it hung >60min inside its
+        # runner-side OCI resolution with zero output — cosign verified the
+        # SAME receipts in 7s and the store held both bundles (verified via
+        # this same REST endpoint from a dev machine). The buyer-side gh
+        # command stays in SECURITY.md with its environment requirements
+        # documented. timeout-minutes makes any future gate hang fail the
+        # release in minutes, not hours.
+        timeout-minutes: 5
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          IMAGE="${REGISTRY}/${IMAGE_NAME}" # from workflow-level env (inherited)
+          export DIGEST_HEX="${DIGEST#sha256:}"
           ID_REG='^https://github\.com/aiagentmackenzie-lang/securityscarletai/\.github/workflows/release\.yml@refs/tags/.*$'
           ISSUER='https://token.actions.githubusercontent.com'
-          SUBJECT="${IMAGE}@${DIGEST}"
+          SUBJECT="${REGISTRY}/${IMAGE_NAME}@${DIGEST}" # from workflow-level env (inherited)
 
           echo "== cosign: image signature =="
           cosign verify "$SUBJECT" \
@@ -215,15 +229,19 @@ jobs:
             --certificate-identity-regexp "$ID_REG" \
             --certificate-oidc-issuer "$ISSUER"
 
-          echo "== gh: provenance (SLSA v1.0) =="
-          gh attestation verify "oci://${SUBJECT}" \
-            -R "$GITHUB_REPOSITORY" \
-            --predicate-type https://slsa.dev/provenance/v1
-
-          echo "== gh: SBOM (CycloneDX) =="
-          gh attestation verify "oci://${SUBJECT}" \
-            -R "$GITHUB_REPOSITORY" \
-            --predicate-type https://cyclonedx.org/bom
+          echo "== gh attestation store: provenance + SBOM presence =="
+          STORE_JSON=$(gh api "/repos/${GITHUB_REPOSITORY}/attestations/${DIGEST}")
+          echo "$STORE_JSON" | jq -e '
+            (.attestations | length) >= 2
+            and ([.attestations[].bundle.dsseEnvelope.payload
+                  | @base64d | fromjson | .predicateType]
+                 | unique
+                 | contains(["https://slsa.dev/provenance/v1",
+                             "https://cyclonedx.org/bom"]))
+            and ([.attestations[].bundle.dsseEnvelope.payload
+                  | @base64d | fromjson | .subject[0].digest.sha256]
+                 | all(. == env.DIGEST_HEX))' >/dev/null
+          echo "attestation store: provenance + SBOM present for ${DIGEST}"
 
       - name: Collect attestation bundles for the release
         run: |
