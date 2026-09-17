@@ -104,12 +104,32 @@ gh attestation verify "oci://${SUBJECT}" \
 
 Check exit codes, not grepped output — silence is not success.
 
+### Environment requirements for the buyer commands
+
+- Commands 1–2 (cosign, registry): work against a private package with
+  `docker login ghcr.io` first (cosign reads the docker credential store);
+  work anonymously if the package is public.
+- Commands 3–4 (`gh attestation verify oci://`): gh resolves the image
+  digest against the registry on its own path — for a private package it
+  needs gh to have registry access. **Disclosed: on the first live release
+  run (2026-09-17, v0.8.0) this path hung >60 minutes inside the CI
+  runner's OCI resolution with zero output (cosign verified the same
+  receipts in 7 seconds). The in-pipeline gate therefore verifies the
+  registry receipts with cosign and asserts the attestation-store copies
+  via the authenticated REST API (`gh api /repos/<org>/<repo>/attestations/
+  <digest>` — subject digest + predicate types), with step timeouts so a
+  future hang fails the release in minutes.** Making the GHCR package
+  public removes the private-package caveat for buyers entirely.
+
 ### Honest status of these claims
 
-- ✅ CI-verified: the release workflow executes all four verification
-  commands against its own receipts before publishing.
-- ⚠️ **First tagged release pending**: receipts exist only for releases
-  produced AFTER this workflow landed; versions before it carry none.
+- ✅ CI-verified: cosign cryptographically verifies the registry receipts
+  (signature + SBOM + provenance referrers, offline tlog) in-pipeline;
+  the GitHub attestation-store copies are asserted (subject digest +
+  predicate types) via the authenticated REST API before publishing.
+- ⚠️ **First receipted release in flight**: receipts exist for releases
+  produced by this workflow (from v0.8.0 onward); versions before it
+  carry none.
 - ❌ **NOT claimed: certified SLSA Build Level 3.** GitHub documents its
   artifact-attestation provenance at SLSA v1 Build Level 2 (GitHub-hosted
   runner, non-isolated builder). The retired `slsa-framework` generator
