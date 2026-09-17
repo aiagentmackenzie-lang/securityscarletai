@@ -123,21 +123,32 @@ Check exit codes, not grepped output — silence is not success.
 
 ### Honest status of these claims
 
-- ✅ CI-verified: cosign cryptographically verifies the registry receipts
-  (signature + SBOM + provenance referrers, offline tlog) in-pipeline;
-  the GitHub attestation-store copies are asserted (subject digest +
-  predicate types) via the authenticated REST API before publishing.
-- ⚠️ **First receipted release in flight**: receipts exist for releases
-  produced by this workflow (from v0.8.0 onward); versions before it
-  carry none.
+- ✅ **LIVE receipts: v0.8.0 (2026-09-17)** — the release ships the
+  CycloneDX SBOM + provenance/SBOM attestation bundles as release assets;
+  the image carries a cosign keyless signature + SBOM attestation in the
+  registry and provenance + SBOM attestation in GitHub's attestation
+  store. All four buyer commands were re-run against the shipped digest
+  at release time (exit 0 each). In-pipeline, the gate verifies the
+  registry receipts with cosign (exit-code-gated, stdout redirected) and
+  asserts the attestation-store copies via the authenticated REST API
+  before publishing.
+- ✅ GHCR package visibility confirmed PUBLIC (anonymous manifest pull
+  verified post-release) — buyers pull and verify anonymously.
+- ⚠️ **Postmortem disclosure**: the first three release-pipeline runs
+  (2026-09-17) wedged at the in-pipeline verify step — root-caused to the
+  GitHub runner's stdout secret-scanner choking on cosign's multi-MB
+  single-line SBOM payload print (sigstore/cosign#3602 via
+  actions/runner#1031); job timeouts cannot reclaim a wedged runner and
+  the wedged runs' logs were permanently lost. The gate redirects cosign
+  stdout and checks exit codes; run 4 completed in ~3 minutes with the
+  verify leg at ~4.5 seconds. Buyer-side commands are unaffected (they
+  run in a terminal, not a runner log pipe).
 - ❌ **NOT claimed: certified SLSA Build Level 3.** GitHub documents its
   artifact-attestation provenance at SLSA v1 Build Level 2 (GitHub-hosted
   runner, non-isolated builder). The retired `slsa-framework` generator
   would have provided L3 but is maintenance-frozen as of 2026 and is no
   longer recommended for new integrations. Named trigger to revisit: an
   RFP that requires certified L3.
-- One-time step after the first release: confirm the GHCR package
-  visibility is public so buyers can pull and verify anonymously.
 
 ## Supported versions
 
