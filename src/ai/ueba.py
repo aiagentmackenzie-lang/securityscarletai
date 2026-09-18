@@ -480,11 +480,16 @@ class UEBABaseline:
 _ueba: Optional[UEBABaseline] = None
 
 
-async def get_ueba() -> UEBABaseline:
-    """Get singleton UEBA instance."""
+async def get_ueba(*, train_if_missing: bool = True) -> UEBABaseline:
+    """Get singleton UEBA instance.
+
+    train_if_missing=False keeps the accessor READ-ONLY: the /ai/status
+    polling path must never trigger a synchronous training run as a side
+    effect (AUD-043). Default behavior (True) is unchanged for callers
+    that rely on lazy-train."""
     global _ueba
     if _ueba is None:
         _ueba = UEBABaseline()
-        if not _ueba.is_trained:
+        if train_if_missing and not _ueba.is_trained:
             await _ueba.train()
     return _ueba

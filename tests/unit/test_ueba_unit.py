@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.ai.ueba import UEBA_FEATURES, UEBABaseline, _shannon_entropy
+from src.ai.ueba import UEBA_FEATURES, UEBABaseline, _shannon_entropy, get_ueba
 
 
 class TestShannonEntropy:
@@ -279,3 +279,22 @@ class TestUEBAModelIntegrity:
         result = UEBABaseline._sha256_file(test_file)
         assert isinstance(result, str)
         assert len(result) == 64  # SHA256 hex digest length
+
+
+class TestGetUebaSingleton:
+    @pytest.mark.asyncio
+    async def test_train_if_missing_false_never_trains(self):
+        """AUD-043: train_if_missing=False keeps the accessor read-only —
+        the /ai/status polling path must never trigger a synchronous
+        training run as a side effect."""
+        import src.ai.ueba as ueba_mod
+
+        ueba_mod._ueba = None
+        with (
+            patch.object(UEBABaseline, "_load_model", return_value=False),
+            patch.object(UEBABaseline, "train", AsyncMock(return_value=False)) as mock_train,
+        ):
+            engine = await get_ueba(train_if_missing=False)
+            assert engine.is_trained is False
+            assert mock_train.await_count == 0  # NO side effect
+        ueba_mod._ueba = None

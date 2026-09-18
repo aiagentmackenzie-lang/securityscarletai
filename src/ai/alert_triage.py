@@ -890,12 +890,17 @@ async def check_auto_train() -> bool:
 _triage_model: Optional[AlertTriageModel] = None
 
 
-async def get_triage_model() -> AlertTriageModel:
-    """Get singleton triage model instance."""
+async def get_triage_model(*, train_if_missing: bool = True) -> AlertTriageModel:
+    """Get singleton triage model instance.
+
+    train_if_missing=False keeps the accessor READ-ONLY: a status/polling
+    path must never trigger a synchronous multi-second training run as a
+    side effect (AUD-043). Default behavior (True) is unchanged for the
+    callers that rely on lazy-train."""
     global _triage_model
     if _triage_model is None:
         _triage_model = AlertTriageModel()
-        if not _triage_model.is_trained:
+        if train_if_missing and not _triage_model.is_trained:
             await _triage_model.train()
     return _triage_model
 
