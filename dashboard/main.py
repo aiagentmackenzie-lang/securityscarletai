@@ -33,6 +33,7 @@ from dashboard.auth import (
     render_sidebar_user_info,
 )
 from dashboard.ui_utils import logo_svg
+from src.config.version import APP_VERSION
 
 # ───────────────────────────────────────────────────────────
 # Auto-refresh -- graceful fallback if component not installed
@@ -442,6 +443,21 @@ PAGE_REFRESH_MS = {
     "audit": 60000,
 }
 
+# Valid auto-refresh interval choices (seconds) for the sidebar slider.
+_REFRESH_OPTIONS = [10, 15, 30, 60, 120]
+
+
+def _nearest_refresh_option(default_secs: int) -> int:
+    """Nearest valid refresh option for the sidebar slider (AUD-068).
+
+    PAGE_REFRESH_MS is in ms; ai_chat is 0, and after //1000 the value 0 is
+    not in the slider options -- select_slider(value=0) raised
+    StreamlitAPIException and crashed the sidebar whenever auto-refresh was
+    toggled from the AI Chat page. Snap to the nearest option instead (ties
+    resolve to the smaller option).
+    """
+    return min(_REFRESH_OPTIONS, key=lambda o: abs(o - default_secs))
+
 
 _SIDEBAR_LABEL_CSS = (
     "color:#8b95a5;font-size:0.75rem;font-weight:600;"
@@ -464,6 +480,23 @@ def _sidebar_p(color: str, icon: str, text: str, bold: bool = False) -> str:
     """Sidebar status line as a styled <p>."""
     weight = "font-weight:500;" if bold else ""
     return f"<p style='color:{color};font-size:0.85rem;{weight}'>{icon} {text}</p>"
+
+
+# AUD-066: the sidebar polled /health and /ai/status on EVERY rerun (every
+# widget interaction, every auto-refresh tick). TTL-cached fetchers bound the
+# sidebar to one fetch per 30s. Exceptions are NOT cached (st.cache_data does
+# not cache them), so an unreachable API still renders "API Unreachable" on
+# every rerun instead of a stale lie.
+@st.cache_data(ttl=30)
+def _cached_health() -> dict:
+    api = get_api_client()
+    return api.health()
+
+
+@st.cache_data(ttl=30)
+def _cached_ai_status() -> dict:
+    api = get_api_client()
+    return api.ai_status()
 
 
 def render_sidebar():
@@ -510,8 +543,7 @@ def render_sidebar():
     st.sidebar.markdown(_SIDEBAR_HR, unsafe_allow_html=True)
     st.sidebar.markdown(_sidebar_label("System Status"), unsafe_allow_html=True)
     try:
-        api = get_api_client()
-        health = api.health()
+        health = _cached_health()
         if health and health.get("status") in ("healthy", "degraded"):
             checks = health.get("checks", {})
             db_status = checks.get("database", "unknown")
@@ -563,8 +595,8 @@ def render_sidebar():
             default_secs = PAGE_REFRESH_MS.get(page_key, 30000) // 1000
             refresh_interval = st.sidebar.select_slider(
                 "Refresh interval",
-                options=[10, 15, 30, 60, 120],
-                value=min(default_secs, 120),
+                options=_REFRESH_OPTIONS,
+                value=_nearest_refresh_option(default_secs),
                 format_func=lambda x: f"{x}s",
                 key="refresh_interval",
             )
@@ -584,7 +616,7 @@ def render_sidebar():
     st.sidebar.markdown(_SIDEBAR_HR, unsafe_allow_html=True)
     st.sidebar.markdown(_sidebar_label("AI Status"), unsafe_allow_html=True)
     try:
-        status = api.ai_status()
+        status = _cached_ai_status()
         triage = status.get("triage", {})
         # P2-39: get_status() returns is_trained (bool), not a status string.
         if triage.get("is_trained"):
@@ -611,10 +643,6 @@ def render_sidebar():
     # User info and logout
     render_sidebar_user_info()
 
-    # Keyboard shortcuts hint
-    st.sidebar.markdown(_SIDEBAR_HR, unsafe_allow_html=True)
-    st.sidebar.caption("Press 1-7 for quick nav")
-
     return page_key
 
 
@@ -636,8 +664,11 @@ def render_overview():
 
     st.header("Security Overview")
 
-    # Fetch alerts once -- all chart functions reuse this single fetch
-    from dashboard.charts import cached_alerts
+    # Fetch alerts once -- all chart functions reuse this single fetch.
+    # Rules go through the ttl-cached fetcher too (AUD-063: the overview
+    # fetched api.get_rules() raw on every rerun while charts.cached_rules
+    # sat unwired).
+    from dashboard.charts import cached_alerts, cached_rules
 
     alerts = cached_alerts()
 
@@ -668,7 +699,7 @@ def render_overview():
     # MITRE coverage with loading state
     with st.spinner("Loading MITRE ATT&CK coverage...", show_time=True):
         try:
-            rules = get_api_client().get_rules()
+            rules = cached_rules()
             # V0.3: evidence-driven coverage (armed vs dormant). Graceful
             # fallback to the legacy title-driven view when unavailable.
             coverage = get_api_client().get_coverage()
@@ -754,6 +785,15 @@ def render_audit():
 # ───────────────────────────────────────────────────────────
 
 
+# AUD-067: the footer hardcoded "v0.1.0" against pyproject 0.8.0 -- the
+# version is now single-sourced from src/config/version.py (the Wave-5 seam;
+# the pyproject-sync test guards drift).
+FOOTER_TEXT = (
+    f"SecurityScarletAI v{APP_VERSION} -- AI-Native SIEM | "
+    "All data via authenticated API -- No direct DB access"
+)
+
+
 def main():
     """Main application entry point."""
 
@@ -802,35 +842,8 @@ def main():
 
     # Footer
     st.divider()
-    st.caption(
-        "SecurityScarletAI v0.1.0 -- AI-Native SIEM | "
-        "All data via authenticated API -- No direct DB access"
-    )
-
-
-# ───────────────────────────────────────────────────────────
-# Keyboard shortcuts
-# ───────────────────────────────────────────────────────────
-
-KEYBOARD_SHORTCUTS_JS = """
-<script>
-document.addEventListener('keydown', function(e) {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-    const pages = ['Overview', 'Live Logs', 'Alerts', 'Rules',
-                   'Cases', 'AI Chat', 'Hunting'];
-    const num = parseInt(e.key);
-    if (num >= 1 && num <= 7) {
-        const radios = document.querySelectorAll('label[data-baseweb="radio"]');
-        if (radios[num - 1]) {
-            radios[num - 1].click();
-        }
-    }
-});
-</script>
-"""
+    st.caption(FOOTER_TEXT)
 
 
 if __name__ == "__main__":
-    # Inject keyboard shortcuts
-    st.components.v1.html(KEYBOARD_SHORTCUTS_JS, height=0)
     main()

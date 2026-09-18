@@ -18,7 +18,23 @@ import streamlit as st
 
 from dashboard.api_client import ApiClient, ApiError
 from dashboard.auth import can_write, get_api_client
-from dashboard.ui_utils import esc, sev_badge, status_badge
+from dashboard.ui_utils import esc, esc_md, sev_badge, status_badge
+
+
+@st.cache_data(ttl=60)
+def _cached_alert_notes(alert_id: int) -> list[dict]:
+    """TTL-cached notes fetch (AUD-059).
+
+    Streamlit executes expander bodies on EVERY rerun regardless of collapse
+    state, so render_alert_detail fetched get_alert_notes for every rendered
+    alert (default limit 100) on every filter click / checkbox / auto-refresh
+    tick. The cache bounds it to one fetch per alert per 60s; the write path
+    (add_alert_note) clears the cache before st.rerun so a fresh note is
+    never swallowed by the TTL. ApiError propagates (st.cache_data does not
+    cache exceptions) so the caller keeps its existing failure handling.
+    """
+    api = get_api_client()
+    return api.get_alert_notes(alert_id)
 
 
 def _note_card_html(author: str, text: str, timestamp: str = "") -> str:
@@ -398,9 +414,13 @@ def render_alert_detail(alert: dict, api: ApiClient):
                                 label=f"Found {len(hunts)} hunt suggestions", state="complete"
                             )
                             for hunt in hunts[:5]:
+                                # AUD-061: LLM suggestion name/description are
+                                # rendered as plain markdown — escaped so link/
+                                # heading injection can't put clickable links
+                                # inside the SIEM.
                                 st.markdown(
-                                    f"- **{hunt.get('name', 'Unknown')}**: "
-                                    f"{hunt.get('description', '')}"
+                                    f"- **{esc_md(hunt.get('name', 'Unknown'))}**: "
+                                    f"{esc_md(hunt.get('description', ''))}"
                                 )
                         else:
                             status.update(label="No specific hunt suggestions", state="complete")
@@ -423,8 +443,10 @@ def render_alert_detail(alert: dict, api: ApiClient):
                             conf_str = f"({float(confidence):.1%})"
                         except (TypeError, ValueError):
                             conf_str = f"({confidence})"
-                        st.markdown(f"**Prediction:** {prediction} {conf_str}")
-                        st.markdown(f"**Reasoning:** {reasoning}")
+                        st.markdown(f"**Prediction:** {esc_md(prediction)} {conf_str}")
+                        # AUD-061: triage reasoning is model output — escaped
+                        # at the markdown seam.
+                        st.markdown(f"**Reasoning:** {esc_md(reasoning)}")
                     except ApiError as e:
                         status.update(label="AI triage failed", state="error")
                         st.warning(f"AI triage unavailable: {e.detail}")
@@ -439,7 +461,7 @@ def render_alert_detail(alert: dict, api: ApiClient):
 
         with st.spinner("Loading notes...", show_time=True):
             try:
-                notes = api.get_alert_notes(alert_id) or []
+                notes = _cached_alert_notes(alert_id) or []
             except ApiError:
                 notes = []
 
@@ -463,6 +485,7 @@ def render_alert_detail(alert: dict, api: ApiClient):
                     with st.spinner("Adding note..."):
                         try:
                             api.add_alert_note(alert_id, note_text)
+                            _cached_alert_notes.clear()  # AUD-059: invalidate before rerun
                             st.toast("Note added")
                             st.success("Note added!")
                             st.rerun()

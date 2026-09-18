@@ -17,6 +17,7 @@ import streamlit as st
 
 from dashboard.api_client import ApiError
 from dashboard.auth import can_write, get_api_client
+from dashboard.ui_utils import esc_md
 
 # Quick action suggestions for the chat
 QUICK_ACTIONS = [
@@ -69,17 +70,35 @@ def render_ai_chat():
 
                     if can_write():
                         if st.button("Retrain Models", key="retrain_btn"):
-                            with st.status("Training AI models...", expanded=True) as train_status:
+                            # AUD-044 (Wave 5) follow-through: /ai/train starts
+                            # a detached background task and returns
+                            # immediately — the old "Training complete" toast
+                            # fired on the START message and lied. Surface the
+                            # API's own message and the poll surface (the AI
+                            # Status panel above reads GET /ai/status).
+                            with st.status(
+                                "Starting background training...", expanded=True
+                            ) as train_status:
                                 try:
                                     result = api.ai_train()
-                                    train_status.update(label="Training complete", state="complete")
-                                    st.toast("Model training complete")
+                                    train_status.update(
+                                        label="Training started in background", state="complete"
+                                    )
+                                    st.toast("Model training started in background")
                                     st.success(
-                                        f"Training complete: {result.get('message', 'Done')}"
+                                        result.get("message", "Training started in background")
                                     )
                                 except ApiError as e:
-                                    train_status.update(label="Training failed", state="error")
-                                    st.error(f"Training failed: {e.detail}")
+                                    train_status.update(
+                                        label="Training failed to start", state="error"
+                                    )
+                                    st.error(f"Training failed to start: {e.detail}")
+
+                if status.get("training_in_progress"):
+                    st.info(
+                        "Model training is running in the background — "
+                        "this panel reflects the new metrics when it completes."
+                    )
 
             except ApiError as e:
                 st.warning(f"AI status unavailable: {e.detail}")
@@ -109,10 +128,12 @@ def render_ai_chat():
         st.session_state.chat_history = st.session_state.chat_history[-MAX_CHAT_HISTORY:]
 
     for msg in st.session_state.chat_history:
+        # AUD-061: chat content (user input + LLM output) renders as plain
+        # markdown on every rerun — escaped at the seam.
         if msg["role"] == "user":
-            st.chat_message("user").markdown(msg["content"])
+            st.chat_message("user").markdown(esc_md(msg["content"]))
         else:
-            st.chat_message("assistant").markdown(msg["content"])
+            st.chat_message("assistant").markdown(esc_md(msg["content"]))
 
     # Inline input — replaces the pinned st.chat_input footer.
     # The footer was called mid-script (before the NL→SQL section), so
@@ -147,7 +168,9 @@ def render_ai_chat():
                             "\u26a0\ufe0f AI-generated — log-derived context is data-fenced; "
                             "verify specifics against the alerts before acting."
                         )
-                    st.markdown(response)
+                    # AUD-061: assistant output is LLM text — escaped at the
+                    # markdown seam.
+                    st.markdown(esc_md(response))
                     st.session_state.chat_history.append({"role": "assistant", "content": response})
 
                 except ApiError as e:
