@@ -69,10 +69,17 @@ jobs:
         # GIT_SHA keeps the Dockerfile contract: /health, the entrypoint log
         # and docker inspect all answer "which build is running?" with the
         # tag's commit sha (org.opencontainers.image.revision).
+        # AUD-014: the pushed artifact is the api/mcp target (the primary
+        # runtime; `api` is also the Dockerfile's default target — pinned
+        # explicitly so stage re-ordering can never change what ships). The
+        # dashboard target ships via the deploy host's compose build
+        # (docker-compose.yml sets target: dashboard) — PRODUCTION.md documents
+        # the split.
         id: push
         uses: docker/build-push-action@v6
         with:
           context: .
+          target: api
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
           build-args: GIT_SHA=${{ github.sha }}

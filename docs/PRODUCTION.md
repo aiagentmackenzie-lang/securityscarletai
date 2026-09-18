@@ -479,7 +479,10 @@ the published image against a live Postgres, generate a CycloneDX SBOM from
 that digest, and attach cosign keyless signatures + SLSA v1.0 provenance —
 all verified in-pipeline BEFORE the release is published. The buyer-side
 verification commands live in **SECURITY.md → "Release verification (supply
-chain)"** (single source of truth; not duplicated here). Receipts exist only
+chain)"** (single source of truth; not duplicated here). AUD-014 (2026-09-18):
+the pushed artifact is the api/mcp Docker target — no Streamlit stack; the
+dashboard target ships via the deploy host's compose build, which pins
+`target: dashboard`. Receipts exist only
 from the first tagged release produced by that workflow onward.
 
 ## 10. SSF/CAEP identity signals (Wave 1, 2026-09-16)

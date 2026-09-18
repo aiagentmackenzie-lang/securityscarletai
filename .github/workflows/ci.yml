@@ -25,14 +25,37 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
 
       - uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image
+      - name: Build Docker image (api/mcp target — AUD-014)
+        # The api target is the DEFAULT (last Dockerfile stage); pinned
+        # explicitly so a future stage re-order can never silently change what
+        # CI boots and scans.
         uses: docker/build-push-action@v6
         with:
           context: .
+          target: api
           load: true
           tags: securityscarletai:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Build dashboard image (AUD-014)
+        # Same reason the build job exists: Dockerfile/compose target breakage
+        # (stale dashboard COPYs, dependency-group drift) must be caught here,
+        # not on a deploy host. Import check = the dashboard venv really
+        # carries the Streamlit stack (and sklearn for the entrypoint parity).
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: dashboard
+          load: true
+          tags: securityscarletai:ci-dashboard
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify dashboard image imports its runtime
+        run: |
+          docker run --rm --entrypoint python securityscarletai:ci-dashboard \
+            -c "import streamlit, altair, pandas, sklearn; import dashboard.api_client; print('dashboard import ok')"
 
       - name: Verify image boots its entrypoint
         # P0-05 class: assert the app imports without crashing at load. We run
@@ -249,10 +272,13 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Docker image
-        run: docker build -t securityscarletai:ci .
+      - name: Build Docker image (api target — the shipped artifact)
+        run: docker build --target api -t securityscarletai:ci .
 
-      - name: Trivy image scan (HIGH, CRITICAL)
+      - name: Build Docker image (dashboard target)
+        run: docker build --target dashboard -t securityscarletai:ci-dashboard .
+
+      - name: Trivy scan — api image (HIGH, CRITICAL)
         # 2026-09-03: pin was `@0.28.0` — the tag is `v0.28.0` (v-prefix), so the
         # action never resolved and trivy failed at 'Set up job' on every run
         # since it was added (P3.5) — the image scan silently never ran.
@@ -263,6 +289,19 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: securityscarletai:ci
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          trivyignores: .trivyignore
+
+      - name: Trivy scan — dashboard image (HIGH, CRITICAL)
+        # The dashboard venv is a DIFFERENT package universe (adds the
+        # Streamlit stack); the api image no longer carries it, so the old
+        # single-scan gate would silently stop covering these packages.
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: securityscarletai:ci-dashboard
           format: table
           exit-code: '1'
           ignore-unfixed: true

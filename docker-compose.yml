@@ -56,6 +56,9 @@ services:
   api:
     build:
       context: .
+      # AUD-014: api/mcp image WITHOUT the Streamlit stack (Dockerfile target
+      # `api` — the venv carries only the main dependency group).
+      target: api
       args:
         GIT_SHA: ${GIT_SHA:-unknown}
     container_name: scarletai-api
@@ -169,6 +172,8 @@ services:
     # and refuses tools if the boot-time DB-scope check fails.
     build:
       context: .
+      # AUD-014: same api target as the api service (mcp = api venv + MCP entry).
+      target: api
       args:
         GIT_SHA: ${GIT_SHA:-unknown}
     container_name: scarletai-mcp
@@ -232,6 +237,9 @@ services:
     # required. When unset, the dashboard falls back to the JWT login flow.
     build:
       context: .
+      # AUD-014: dashboard target — full venv (main + dashboard groups) + the
+      # baked dashboard/ source (dev still mounts ./dashboard over it).
+      target: dashboard
       args:
         GIT_SHA: ${GIT_SHA:-unknown}
     container_name: scarletai-dashboard
