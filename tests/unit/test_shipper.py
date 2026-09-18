@@ -104,6 +104,76 @@ async def test_shipper_skips_malformed_lines(tmp_path, monkeypatch):
         pass
 
 
+@pytest.mark.asyncio
+async def test_shipper_survives_non_utf8_bytes(tmp_path, monkeypatch):
+    """AUD-006: one undecodable byte used to raise UnicodeDecodeError inside
+    text-mode iteration; the outer handler retried from the SAME offset
+    forever — an infinite error loop that stalled the pipe until manual
+    intervention. Binary read + errors="replace" must advance past the
+    corrupt line and ship the rest."""
+    log_file = tmp_path / "osqueryd.results.log"
+    good1 = _process_line("python3").encode() + b"\n"
+    corrupt = b"\xff\xfe not json at all\n"  # invalid UTF-8, unparseable
+    good2 = _process_line("bash", "bash -c id").encode() + b"\n"
+    log_file.write_bytes(good1 + corrupt + good2)
+    monkeypatch.setattr(shipper, "CHECKPOINT_FILE", tmp_path / "ckpt")
+
+    writer = FakeWriter()
+    ship = FileShipper(str(log_file), writer)  # type: ignore[arg-type]
+    task = asyncio.create_task(ship.run())
+    await asyncio.sleep(1.2)
+
+    # The corrupt line no longer wedges the shipper: both good lines shipped
+    # (the corrupt line fails parse and is skipped), and the checkpoint
+    # advanced to end-of-file — RAW byte accounting, replacement chars
+    # (3-byte U+FFFD) must not drift the offset.
+    assert len(writer.events) == 2
+    assert ship._offset == log_file.stat().st_size
+
+    # A read at the end offset processes nothing new (no infinite loop).
+    await ship._read_new_lines()
+    assert len(writer.events) == 2
+
+    ship.stop()
+    task.cancel()
+    try:
+        await asyncio.wait_for(task, timeout=2)
+    except (asyncio.CancelledError, asyncio.TimeoutError):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_shipper_holds_trailing_partial_line(tmp_path, monkeypatch):
+    """AUD-006 companion contract: the offset advances over COMPLETE lines
+    only — a trailing partial line waits for its newline (never ship half a
+    JSON object; the old text-mode iteration shipped it and let parse
+    failure drop it)."""
+    log_file = tmp_path / "osqueryd.results.log"
+    full = _process_line("python3").encode()
+    log_file.write_bytes(full[:20])  # cut mid-JSON, no trailing newline
+
+    writer = FakeWriter()
+    ship = FileShipper(str(log_file), writer)  # type: ignore[arg-type]
+    task = asyncio.create_task(ship.run())
+    await asyncio.sleep(1.2)
+
+    assert writer.events == []  # nothing consumable yet
+    assert ship._offset == 0  # checkpoint did not advance over the partial
+
+    # Complete the line: the whole line ships exactly once.
+    log_file.write_bytes(full + b"\n")
+    await asyncio.sleep(1.2)
+    assert len(writer.events) == 1
+    assert ship._offset == log_file.stat().st_size
+
+    ship.stop()
+    task.cancel()
+    try:
+        await asyncio.wait_for(task, timeout=2)
+    except (asyncio.CancelledError, asyncio.TimeoutError):
+        pass
+
+
 def test_maybe_create_shipper_disabled_by_default(monkeypatch):
     monkeypatch.setattr(runner.settings, "enable_ingestion_shipper", False)
     assert maybe_create_shipper(FakeWriter()) is None  # type: ignore[arg-type]
