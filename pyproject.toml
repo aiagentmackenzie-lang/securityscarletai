@@ -71,7 +71,6 @@ ignore = ["S608", "B008"]  # B008: FastAPI Depends() in args is standard pattern
 # the file; long data lines (E501) and one-liner branches (E701) are
 # presentation-only better left alone here (F-23 plan phase 6).
 "scripts/seed_demo_data.py" = ["S311", "E501", "E701"]
-"scripts/generate_attack_data.py" = ["S311", "E501"]
 "scripts/seed_realistic_data.py" = ["S311", "E501", "E701"]
 "scripts/analyze_alerts.py" = ["E501"]
 "scripts/migrate_passwords.py" = ["E501"]

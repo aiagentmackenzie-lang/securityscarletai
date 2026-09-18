@@ -341,11 +341,17 @@ The **Suspicious Activity → Log Deletion** correlation rule (`defense_evasion_
 To exercise these scenarios in development, use:
 
 ```bash
-# Generate realistic test alerts (no real IOCs)
-poetry run python scripts/generate_attack_data.py --scenario ssh_brute_force
+# Seed realistic demo alerts, cases, threat intel (opt-in gate)
+DEMO_SEED_ENABLED=true poetry run python scripts/seed_demo_data.py
 
-# Or seed the full demo dataset (45+ alerts, 8 correlation chains)
+# Or the standalone realistic dataset (45+ alerts, 8 correlation chains)
 poetry run python scripts/seed_realistic_data.py
 ```
+
+For live osquery-shaped events (the exact osqueryd results-log format), use
+`scripts/generate_osquery_events.py` — its `--matrix` mode emits one real
+pipeline-shape event sequence per correlation chain. (AUD-072: the legacy
+`generate_attack_data.py` was retired — its shapes no longer matched the
+closed parser vocabulary.)
 
 The generated events go through the full pipeline — Sigma rules fire, correlation chains form, AI explanations render, triage scores compute — without touching external services.

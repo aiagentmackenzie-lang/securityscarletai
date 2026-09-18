@@ -131,10 +131,12 @@ mid-market price with data sovereignty."
     already are). "The SIEM that watches your AI agents" is a genuinely
     underserved, 2026-native wedge — OWASP Agentic Top 10 mapping already
     exists in the portfolio.
-15. **Purple-loop productization:** `generate_attack_data` (exists) →
-    NeuralStrike scenarios → live-fire → detection-coverage score per run →
-    rule-feedback. The compounding-coverage demo (33%→56%→83% pattern) is the
-    single most compelling thing we can show a client.
+15. **Purple-loop productization:** `generate_osquery_events --matrix` (the live-fire
+    generator; AUD-072 retired the legacy `generate_attack_data.py` whose shapes
+    never matched the closed parser vocabulary) → NeuralStrike scenarios →
+    live-fire → detection-coverage score per run → rule-feedback. The
+    compounding-coverage demo (33%→56%→83% pattern) is the single most
+    compelling thing we can show a client.
 
 ### E. Compliance/reporting (budget-justifying surface)
 16. Scheduled reports: ATT&CK coverage, MTTR/alerts, UEBA outliers;

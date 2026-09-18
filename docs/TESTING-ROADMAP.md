@@ -47,9 +47,12 @@ The demo proves one Sigma rule. The 8 correlation chains have unit tests with
 synthetic sequences but no verified live-fire on real-shaped data.
 
 ```bash
-poetry run python scripts/generate_attack_data.py --scenario all --host livefire-probe --output /tmp/attack.jsonl
-cat /tmp/attack.jsonl >> data/osquery/osqueryd.results.log   # through the REAL shipper pipe
-# wait ~75s (shipper + sigma tick), then — NOTE: persist is a JSON BODY field,
+# (AUD-072: the legacy generate_attack_data.py was retired — the matrix
+# generator is the live-fire path; its sequences use REAL pipeline shapes:
+# osquery differential lines + auth-shipper NDJSON + POST /ingest verdicts.)
+poetry run python scripts/generate_osquery_events.py \
+  --path data/osquery/osqueryd.results.log --matrix
+# --path APPENDS to the shipper-tailed log directly; wait ~75s (shipper + sigma tick), then — NOTE: persist is a JSON BODY field,
 # not a query param (the old ?persist=true form silently ran with persist=false):
 curl -s -X POST http://127.0.0.1:8000/api/v1/correlation/run \
   -H "Authorization: Bearer $API_BEARER_TOKEN" -H "Content-Type: application/json" \
