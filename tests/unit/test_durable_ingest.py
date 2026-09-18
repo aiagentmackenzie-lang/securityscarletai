@@ -18,7 +18,7 @@ import asyncio
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -458,6 +458,20 @@ class TestApiFailClosed:
         assert resp.status_code == 503
         assert "fail-closed" in resp.json()["detail"]
 
+    @staticmethod
+    def _healthy_quarantine_pool():
+        """AUD-001: the /ingest quarantine lookup is fail-closed now — a 202
+        test needs a healthy lookup. (These 202 tests previously relied on
+        the fail-open swallow of the unpatched pool: the exact bug.)"""
+        pool = AsyncMock()
+        conn = AsyncMock()
+        acq = AsyncMock()
+        acq.__aenter__ = AsyncMock(return_value=conn)
+        acq.__aexit__ = AsyncMock(return_value=False)
+        pool.acquire = MagicMock(return_value=acq)
+        conn.fetch.return_value = []  # empty quarantine list
+        return pool
+
     def test_durable_mode_redis_up_202(self, client):
         async def _enqueue_ok(event):
             return None
@@ -469,6 +483,10 @@ class TestApiFailClosed:
             patch("src.ingestion.durable.durable_mode", return_value=True),
             patch("src.ingestion.durable.durable_redis_probe", _probe_true),
             patch("src.ingestion.durable.persist_event", _enqueue_ok),
+            patch(
+                "src.api.ingest.get_pool",
+                AsyncMock(return_value=self._healthy_quarantine_pool()),
+            ),
         ):
             resp = client.post("/api/v1/ingest", json=[self._payload()])
         assert resp.status_code == 202
@@ -480,6 +498,10 @@ class TestApiFailClosed:
             patch("src.ingestion.durable.durable_mode", return_value=False),
             patch.object(ws, "write", AsyncMock()),
             patch.object(ws, "flush", AsyncMock()),
+            patch(
+                "src.api.ingest.get_pool",
+                AsyncMock(return_value=self._healthy_quarantine_pool()),
+            ),
         ):
             resp = client.post("/api/v1/ingest", json=[self._payload()])
         assert resp.status_code == 202

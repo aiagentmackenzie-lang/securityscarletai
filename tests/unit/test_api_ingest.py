@@ -226,7 +226,19 @@ class TestBroadcastOffHotPath:
             broadcast_calls["n"] += 1
             raise RuntimeError("ws down")
 
+        # Healthy quarantine lookup on the module-under-test seam (AUD-001:
+        # a failing lookup now refuses the batch with 503 — this test must
+        # not depend on the old fail-open swallow OR a live DB).
+        pool = AsyncMock()
+        conn = AsyncMock()
+        acq = AsyncMock()
+        acq.__aenter__ = AsyncMock(return_value=conn)
+        acq.__aexit__ = AsyncMock(return_value=False)
+        pool.acquire = MagicMock(return_value=acq)
+        conn.fetch.return_value = []  # empty quarantine list
+
         with (
+            patch("src.api.ingest.get_pool", return_value=pool),
             patch.object(writer_singleton, "write", AsyncMock()),
             patch.object(writer_singleton, "flush", AsyncMock()),
             patch(
