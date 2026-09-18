@@ -302,6 +302,10 @@ class TestRoutingAndDelivery:
 
 
 class TestRetrySemantics:
+    # AUD-052: _post_with_retry uses the SHARED per-loop client — created
+    # once per loop, so the tests patch httpx.AsyncClient (the constructor
+    # seam) and put the post mock directly on the returned client (no
+    # `async with` anymore).
     @pytest.mark.asyncio
     async def test_4xx_fails_fast_non_retryable(self):
         from src.response.notification_channels import _post_with_retry
@@ -310,8 +314,7 @@ class TestRetrySemantics:
         response.raise_for_status = MagicMock()
         post = AsyncMock(return_value=response)
         with patch("src.response.notification_channels.httpx.AsyncClient") as client_cls:
-            client_cls.return_value.__aenter__ = AsyncMock(return_value=MagicMock(post=post))
-            client_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+            client_cls.return_value.post = post
             ok, attempts, detail = await _post_with_retry(
                 "https://x", json_body={}, headers={}, timeout=1, max_attempts=3
             )
@@ -330,14 +333,36 @@ class TestRetrySemantics:
             patch("src.response.notification_channels.httpx.AsyncClient") as client_cls,
             patch("src.response.notification_channels.asyncio.sleep", AsyncMock()) as sleeper,
         ):
-            client_cls.return_value.__aenter__ = AsyncMock(return_value=MagicMock(post=post))
-            client_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+            client_cls.return_value.post = post
             ok, attempts, detail = await _post_with_retry(
                 "https://x", json_body={}, headers={}, timeout=1, max_attempts=3
             )
         assert ok is False
         assert attempts == 3
+        assert post.await_count == 3
         assert sleeper.await_count == 2  # backoff between attempts
+
+    @pytest.mark.asyncio
+    async def test_client_created_once_per_loop_not_per_attempt(self):
+        """AUD-052: one AsyncClient for the whole retry loop, not one per
+        attempt (the old shape built up to max_attempts throwaway clients —
+        a fresh TCP/TLS handshake every retry)."""
+        from src.response.notification_channels import _post_with_retry
+
+        response = MagicMock(status_code=503)
+        post = AsyncMock(return_value=response)
+        with (
+            patch("src.config.http_client.httpx.AsyncClient") as client_cls,
+            patch("src.response.notification_channels.asyncio.sleep", AsyncMock()),
+        ):
+            client_cls.return_value.post = post
+            ok, attempts, detail = await _post_with_retry(
+                "https://x", json_body={}, headers={}, timeout=1, max_attempts=5
+            )
+        assert attempts == 5
+        assert post.await_count == 5
+        # ONE constructor call for the loop — the cache serves attempts 2..5.
+        assert client_cls.call_count == 1
 
 
 class TestCreateAlertWiring:
@@ -387,6 +412,62 @@ class TestCreateAlertWiring:
         assert alert_id == 77
         dispatch.assert_awaited_once()
         assert dispatch.await_args.args[0]["severity"] == "critical"
+
+    @pytest.mark.asyncio
+    async def test_dispatch_runs_after_connection_released(self):
+        """AUD-003: notification dispatch must not run while the pool
+        connection is still held (network I/O under a held conn could
+        starve the pool during an incident)."""
+        from src.detection.alerts import create_alert
+
+        released = {"flag": False}
+
+        pool = MagicMock()
+        conn = MagicMock()
+        acquirer = MagicMock()
+
+        async def _exit(*_a, **_kw):
+            released["flag"] = True
+            return False
+
+        acquirer.__aenter__ = AsyncMock(return_value=conn)
+        acquirer.__aexit__ = AsyncMock(side_effect=_exit)
+        pool.acquire = MagicMock(return_value=acquirer)
+
+        async def fetchrow(sql, *params):
+            return None  # no dedup hit, no suppression match
+
+        async def fetchval(sql, *args):
+            if "INSERT INTO alerts" in sql:
+                return 88
+            return 0
+
+        conn.fetchrow = fetchrow
+        conn.fetchval = fetchval
+        conn.execute = AsyncMock(return_value="UPDATE 1")
+
+        async def dispatch_side_effect(alert):
+            # The connection MUST already be released when dispatch runs.
+            assert released["flag"] is True, (
+                "AUD-003: dispatch awaited while the pool connection was held"
+            )
+            return {"matched": ["x"], "delivered": 1, "failed": 0, "results": []}
+
+        with (
+            patch("src.detection.alerts.get_pool", new=AsyncMock(return_value=pool)),
+            patch(
+                "src.response.notification_channels.dispatch_alert",
+                AsyncMock(side_effect=dispatch_side_effect),
+            ),
+        ):
+            alert_id = await create_alert(
+                rule_id=1,
+                rule_name="R",
+                severity="high",
+                host_name="H",
+                description="D",
+            )
+        assert alert_id == 88
 
     def test_shared_formatter_matches_legacy_shape(self):
         from src.config.settings import settings

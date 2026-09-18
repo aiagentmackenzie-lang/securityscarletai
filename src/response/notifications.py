@@ -1,11 +1,17 @@
-"""
-Notification handlers for Slack and Email alerts.
+"""Legacy Slack notifier — the direct-send path shared with the executors.
+
+The W1.7 notification-channel layer (notification_channels.py) is the
+generalized, versioned delivery layer; this module keeps only the direct
+Slack webhook sender it uses (src/response/executors.py imports it).
+
+AUD-055: send_alert_notification was deleted — it had zero callers in any
+src file (the alert-notification formatting + routing live in
+notification_channels.format_alert_message / dispatch_alert).
 """
 
 from typing import Optional
 
-import httpx
-
+from src.config.http_client import get_shared_async_client
 from src.config.logging import get_logger
 from src.config.settings import settings
 
@@ -37,42 +43,17 @@ async def send_slack_notification(message: str, channel: Optional[str] = None) -
         payload["channel"] = channel
 
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                settings.slack_webhook_url,
-                json=payload,
-                timeout=10,
-            )
-            resp.raise_for_status()
-            log.info("slack_notification_sent")
-            return True
+        # AUD-052: the shared per-loop client — no throwaway AsyncClient
+        # (and no new TCP/TLS handshake) per send.
+        client = get_shared_async_client()
+        resp = await client.post(
+            settings.slack_webhook_url,
+            json=payload,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        log.info("slack_notification_sent")
+        return True
     except Exception as e:
         log.error("slack_notification_failed", error=str(e))
         return False
-
-
-async def send_alert_notification(alert: dict) -> bool:
-    """
-    Send formatted alert notification to Slack.
-
-    Args:
-        alert: Alert dictionary with severity, rule_name, etc.
-    """
-    severity_emoji = {
-        "critical": "🔴",
-        "high": "🟠",
-        "medium": "🟡",
-        "low": "🔵",
-        "info": "⚪",
-    }.get(alert.get("severity", "").lower(), "⚪")
-
-    message = f"""{severity_emoji} *Security Alert: {alert.get("severity", "UNKNOWN").upper()}*
-
-*Rule:* {alert.get("rule_name", "Unknown")}
-*Host:* {alert.get("host_name", "Unknown")}
-*Time:* {alert.get("time", "Unknown")[:19]}
-*Description:* {alert.get("description", "No description")}
-
-View in Dashboard: {settings.dashboard_public_url}"""
-
-    return await send_slack_notification(message)

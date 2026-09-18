@@ -75,6 +75,25 @@ def _no_real_db(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _reset_shared_http_clients():
+    """Clear the per-loop shared httpx.AsyncClient cache around each test.
+
+    The shared client (src/config/http_client.py, AUD-028) is keyed by the
+    RUNNING event loop. pytest-asyncio gives each test a fresh function-
+    scoped loop, so entries cannot normally cross tests — this fixture is
+    belt-and-braces: it guarantees a test's patched httpx.AsyncClient class
+    is the one that constructs the client, even if a future loop-reuse
+    config change makes loops outlive a single test (the same class of
+    cross-test bleed the Redis/DB fixtures close).
+    """
+    from src.config import http_client as _hc
+
+    _hc._clients.clear()  # noqa: SLF001 — the cache IS the fixture seam
+    yield
+    _hc._clients.clear()  # noqa: SLF001
+
+
+@pytest.fixture(autouse=True)
 def _inmem_rate_limit_storage():
     """Force the rate limiter to use in-memory storage for the duration of one test.
 

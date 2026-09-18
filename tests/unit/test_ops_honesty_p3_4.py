@@ -1,8 +1,10 @@
 """
 Phase 3.4 — ops honesty sweep.
 
-- notifications dashboard URL comes from DASHBOARD_PUBLIC_URL (no hardcoded
-  localhost:8501 in the payload)
+- the alert message builder takes the dashboard URL from DASHBOARD_PUBLIC_URL
+  (no hardcoded localhost:8501 in the payload) — tested through the LIVE
+  formatter (notification_channels.format_alert_message) since AUD-055
+  deleted the dead send_alert_notification path it used to ride on
 - /ai/status uses the CACHED Ollama probe (same cache as /health, P2-34)
 - migrate_passwords derives its DSN from settings (+asyncpg stripped);
   DATABASE_URL env still wins as an explicit override
@@ -16,38 +18,29 @@ import pytest
 
 
 class TestDashboardUrlFromSettings:
-    @pytest.mark.asyncio
-    async def test_notification_uses_configured_url(self):
-        from src.response.notifications import send_alert_notification
+    def test_alert_message_uses_configured_url(self):
+        """The alert message builder takes the dashboard URL from
+        DASHBOARD_PUBLIC_URL — no hardcoded localhost:8501. (AUD-055: this
+        used to be tested through the now-deleted send_alert_notification;
+        the same claim is carried by the LIVE formatter.)"""
+        from src.response.notification_channels import format_alert_message
 
-        sent = {}
-
-        class FakeResp:
-            def raise_for_status(self):
-                return None
-
-        async def fake_post(self, url, **kwargs):
-            sent["url_target"] = url
-            sent["payload"] = kwargs.get("json", {})
-            return FakeResp()
-
-        alert = {
-            "severity": "high",
-            "rule_name": "brute_force",
-            "host_name": "macmini",
-            "time": "2026-09-02T08:00:00Z",
-            "description": "test",
-        }
-        with (
-            patch("src.config.settings.settings.slack_webhook_url", "https://hooks.slack/x"),
-            patch("src.config.settings.settings.dashboard_public_url", "https://siem.example.com"),
-            patch("httpx.AsyncClient.post", new=fake_post),
+        with patch(
+            "src.response.notification_channels.settings.dashboard_public_url",
+            "https://siem.example.com",
         ):
-            ok = await send_alert_notification(alert)
+            msg = format_alert_message(
+                {
+                    "severity": "high",
+                    "rule_name": "brute_force",
+                    "host_name": "macmini",
+                    "time": "2026-09-02T08:00:00Z",
+                    "description": "test",
+                }
+            )
 
-        assert ok is True
-        assert "https://siem.example.com" in sent["payload"]["text"]
-        assert "localhost:8501" not in sent["payload"]["text"]
+        assert "https://siem.example.com" in msg
+        assert "localhost:8501" not in msg
 
     def test_default_url_is_local_dashboard(self):
         from src.config.settings import settings
