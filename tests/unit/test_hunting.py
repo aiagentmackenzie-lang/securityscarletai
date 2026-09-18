@@ -78,6 +78,57 @@ class TestHuntTemplates:
         # Should cover at least 3 different categories
         assert len(categories) >= 3, f"Only {len(categories)} categories: {categories}"
 
+    def test_lateral_movement_template_category_is_honest(self):
+        """AUD-035: the lateral-movement hunt was categorized 'persistence'
+        (the only carrier of a category the alert-surfacing filter checked).
+        The category now names what the hunt is."""
+        template = next(
+            t for t in HUNTING_QUERY_TEMPLATES if t["id"] == "lateral_movement_service_accounts"
+        )
+        assert template["category"] == "lateral_movement"
+        assert "lateral" in template["name"].lower()
+
+    @pytest.mark.asyncio
+    async def test_critical_alert_still_includes_lateral_movement_hunt(self):
+        """Behavior pin for the AUD-035 rename: hunt_from_alert's core-hunt
+        filter checks BOTH categories, so the renamed template must still be
+        surfaced for critical/high alerts."""
+        from datetime import datetime
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from src.ai.hunting_assistant import hunt_from_alert
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow = AsyncMock(
+            return_value={
+                "id": 2,
+                "rule_name": "Malware Detected",
+                "severity": "critical",
+                "host_name": "server-02",
+                "mitre_techniques": ["T1059"],
+                "evidence": None,
+                "time": datetime(2024, 1, 1, 12, 0, 0),
+            }
+        )
+        acquirer = MagicMock()
+        acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
+        acquirer.__aexit__ = AsyncMock(return_value=None)
+        mock_pool = AsyncMock()
+        mock_pool.acquire = MagicMock(return_value=acquirer)
+
+        with (
+            patch("src.ai.hunting_assistant.get_pool", AsyncMock(return_value=mock_pool)),
+            patch(
+                "src.ai.hunting_assistant._suggest_hunts_for_alert",
+                AsyncMock(return_value=[]),
+            ),
+        ):
+            result = await hunt_from_alert(alert_id=2)
+
+        hunt_ids = [h["id"] for h in result["matching_hunts"]]
+        assert "lateral_movement_service_accounts" in hunt_ids
+        assert "persistence_launch_agents" in hunt_ids
+
 
 # ---------------------------------------------------------------------------
 # Gap analysis tests (mocked DB)

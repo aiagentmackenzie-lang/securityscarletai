@@ -141,10 +141,27 @@ class TestDeadEndValidation:
         raw = [
             {"hypothesis": "h", "status": "supported"},
             {"hypothesis": "h", "status": "RULED_OUT"},  # case-normalized
+            {"hypothesis": "h", "status": "UNRESOLVED"},  # AUD-027: accepted, case-normalized
             {"hypothesis": "h", "status": "bogus"},  # dropped
         ]
         assessed = validate_hypotheses_assessed(raw, ["h"])
-        assert [a["status"] for a in assessed] == ["supported", "ruled_out"]
+        assert [a["status"] for a in assessed] == ["supported", "ruled_out", "unresolved"]
+
+    def test_unresolved_dead_end_record_is_kept(self):
+        """AUD-027: the verdict prompt documents supported/ruled_out/
+        unresolved; 'unresolved' hypotheses (honest dead ends) must be
+        kept, not silently dropped."""
+        raw = [
+            {
+                "hypothesis": "data staged in /tmp",
+                "status": "unresolved",
+                "evidence": "insufficient log retention to decide",
+            },
+        ]
+        assessed = validate_hypotheses_assessed(raw, ["data staged in /tmp"])
+        assert len(assessed) == 1
+        assert assessed[0]["status"] == "unresolved"
+        assert assessed[0]["evidence"] == "insufficient log retention to decide"
 
     def test_cap_and_malformed_entries(self):
         plan = [f"h{i}" for i in range(3)]

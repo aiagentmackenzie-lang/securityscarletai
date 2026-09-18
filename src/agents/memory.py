@@ -276,7 +276,10 @@ def validate_hypotheses_assessed(raw: Any, plan_hypotheses: list[str]) -> list[d
         if hypothesis not in plan_hypotheses:
             continue
         status = str(entry.get("status", "")).strip().lower()
-        if status not in ("supported", "ruled_out"):
+        # AUD-027: accept ALL THREE prompt-documented tokens — the verdict
+        # prompt asks for supported/ruled_out/unresolved, and 'unresolved'
+        # entries (honest dead-end records) were silently dropped.
+        if status not in _HYPOTHESIS_STATUS:
             continue
         assessed.append(
             {

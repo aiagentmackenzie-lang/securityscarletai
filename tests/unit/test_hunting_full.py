@@ -286,6 +286,11 @@ class TestHuntFromAlert:
         assert result["success"] is True
         # Should include lateral movement/persistence for critical
         hunt_ids = [h["id"] for h in result["matching_hunts"]]
+        # AUD-035 behavior pin (the old test computed hunt_ids and never
+        # asserted it): the renamed lateral-movement template and the
+        # persistence template must both surface for critical alerts.
+        assert "lateral_movement_service_accounts" in hunt_ids
+        assert "persistence_launch_agents" in hunt_ids
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

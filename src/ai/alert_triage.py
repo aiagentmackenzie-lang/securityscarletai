@@ -727,6 +727,7 @@ class AlertTriageModel:
                 log.warning("triage_v2_prf_compute_failed", error=str(e))
 
         persisted_path: Optional[str] = None
+        feature_importances: Dict[str, float] = {}
         if accepted:
             await asyncio.to_thread(calibrated.fit, X_array, y_array)
             self.model = calibrated
@@ -736,6 +737,10 @@ class AlertTriageModel:
             self.training_accuracy = cv_accuracy
             self._save_model(accuracy=cv_accuracy)
             persisted_path = str(MODEL_PATH) if MODEL_PATH.exists() else None
+            # AUD-033: persist the REAL per-feature importances — the old
+            # path wrote a hardcoded {} into the provenance row, so the
+            # feature_importances column was always NULL (dead data path).
+            feature_importances = _extract_feature_importances(calibrated)
         else:
             log.warning(
                 "triage_v2_below_threshold",
@@ -763,6 +768,7 @@ class AlertTriageModel:
                 model_path=persisted_path,
                 fold_accuracies=fold_accuracies,
                 features=self.FEATURES,
+                feature_importances=feature_importances or None,
             )
             if accepted and provenance_row_id is not None:
                 await _write_alert_labels(run_id=run_id, source_meta=source_meta)
@@ -899,6 +905,29 @@ async def get_triage_model() -> AlertTriageModel:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
+def _extract_feature_importances(calibrated: Any) -> Dict[str, float]:
+    """AUD-033: real per-feature importances for the provenance row.
+
+    CalibratedClassifierCV (isotonic, cv=K) wraps K fitted base estimators
+    (sklearn 1.8: .calibrated_classifiers_[i].estimator); each is a full
+    RandomForest fit on a calibration fold, so the importances are averaged
+    across them. Returns {} when sklearn's internal shape changes — the
+    provenance column stays NULL rather than being faked (the old path
+    hardcoded {})."""
+    importances: List[np.ndarray] = []
+    for cal in getattr(calibrated, "calibrated_classifiers_", []):
+        imp = getattr(getattr(cal, "estimator", None), "feature_importances_", None)
+        if imp is not None:
+            importances.append(np.asarray(imp, dtype=float))
+    if not importances:
+        return {}
+    names = AlertTriageModel.FEATURES
+    mean = np.mean(np.vstack(importances), axis=0)
+    if len(mean) != len(names):
+        return {}
+    return {str(name): round(float(v), 6) for name, v in zip(names, mean, strict=True)}
+
+
 def _db_reachable(
     host: Optional[str] = None,
     port: Optional[int] = None,
@@ -983,6 +1012,7 @@ async def _write_provenance(
     model_path: Optional[str],
     fold_accuracies: List[float],
     features: List[str],
+    feature_importances: Optional[Dict[str, float]] = None,
 ) -> Optional[int]:
     """
     Insert one row into triage_model_provenance.
@@ -997,7 +1027,6 @@ async def _write_provenance(
     feature_importances, features) were present in the original 391e7d1
     table.
     """
-    feature_importances: Dict[str, float] = {}
     n_pos = sum(1 for r in source_meta if r["label"] == "true_positive")
     n_neg = sum(1 for r in source_meta if r["label"] == "false_positive")
 
