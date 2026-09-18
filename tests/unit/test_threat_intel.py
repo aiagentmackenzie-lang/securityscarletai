@@ -67,7 +67,11 @@ class TestURLhausClient:
 
     @pytest.mark.asyncio
     async def test_check_url_no_results(self):
-        """Should return None when URLhaus has no results."""
+        """Should return None when URLhaus has no results.
+
+        AUD-052: the TI clients use the process-shared per-loop client —
+        the mock shape is direct-call (constructor patched, request called
+        on the client); __aenter__/__aexit__ never happen."""
         client = URLhausClient()
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -76,13 +80,14 @@ class TestURLhausClient:
 
         with patch("httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_client.post.return_value = mock_response
             mock_client_cls.return_value = mock_client
 
             result = await client.check_url("https://example.com/safe")
             assert result is None
+            # Per-request timeout is pinned (the shared client's constructor
+            # default is only a fallback).
+            assert mock_client.post.call_args.kwargs.get("timeout") == 10.0
 
 
 class TestOTXClient:
@@ -97,14 +102,9 @@ class TestOTXClient:
             result = await client.get_pulse_indicators("test-pulse-id")
             assert result == []
 
-    @pytest.mark.asyncio
-    async def test_get_subscribed_pulses_no_api_key(self):
-        """Should return empty list when no OTX API key."""
-        client = OTXClient(api_key=None)
-        with patch("src.intel.threat_intel.settings") as mock_settings:
-            mock_settings.otx_api_key = None
-            result = await client.get_subscribed_pulses()
-            assert result == []
+    # Note (AUD-054, Wave 7): the get_subscribed_pulses tests were deleted
+    # WITH the dead function itself — refresh uses get_modified_pulses and
+    # nothing else ever consumed the subscription list.
 
 
 class TestThreatIntelConfig:
