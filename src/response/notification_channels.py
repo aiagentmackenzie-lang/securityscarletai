@@ -36,6 +36,7 @@ from typing import Any, Optional
 import httpx
 import yaml
 
+from src.config.http_client import get_shared_async_client
 from src.config.logging import get_logger
 from src.config.settings import settings
 
@@ -246,12 +247,18 @@ async def _post_with_retry(
     max_attempts: int,
 ) -> tuple[bool, int, str]:
     """POST with bounded retry/backoff. 4xx (except 429) is non-retryable
-    (a config error fails fast); 5xx and transport errors retry."""
+    (a config error fails fast); 5xx and transport errors retry.
+
+    AUD-052: the client is the SHARED per-loop client created ONCE for the
+    whole retry loop — the old shape built a fresh AsyncClient (and a fresh
+    TCP/TLS handshake) per attempt. The per-request timeout keeps the
+    channel's deadline semantics unchanged.
+    """
     last_error = ""
+    client = get_shared_async_client(default_timeout=DEFAULT_TIMEOUT_SECONDS)
     for attempt in range(1, max_attempts + 1):
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(url, json=json_body, headers=headers, timeout=timeout)
+            resp = await client.post(url, json=json_body, headers=headers, timeout=timeout)
             if resp.status_code < 300:
                 return True, attempt, ""
             if 400 <= resp.status_code < 500 and resp.status_code != 429:

@@ -1,21 +1,17 @@
 """
-Tests for notification handlers.
+Tests for the legacy Slack notifier (src/response/notifications.py).
 
-Covers:
-- Slack notification sending (success, failure, not configured)
-- Email notification (success, failure, not configured)
-- Alert notification formatting
-- Daily summary formatting
+AUD-055: send_alert_notification was deleted (zero callers — the live
+alert formatting + routing is notification_channels.format_alert_message
+/ dispatch_alert). Only the direct send_slack_notification path is tested
+here.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.response.notifications import (
-    send_alert_notification,
-    send_slack_notification,
-)
+from src.response.notifications import send_slack_notification
 
 
 class TestSendSlackNotification:
@@ -102,123 +98,3 @@ class TestSendSlackNotification:
             with patch("httpx.AsyncClient", return_value=mock_client):
                 result = await send_slack_notification("Test alert")
                 assert result is False
-
-
-class TestSendAlertNotification:
-    """Test formatted alert notification."""
-
-    @pytest.mark.asyncio
-    async def test_critical_alert_format(self):
-        """Critical alerts should use 🔴 emoji."""
-        alert = {
-            "severity": "critical",
-            "rule_name": "SSH Brute Force",
-            "host_name": "server01",
-            "time": "2025-01-01T12:00:00",
-            "description": "Multiple failed logins",
-        }
-        with patch(
-            "src.response.notifications.send_slack_notification",
-            new_callable=AsyncMock,
-            return_value=True,
-        ) as mock_slack:
-            result = await send_alert_notification(alert)
-            assert result is True
-            call_args = mock_slack.call_args[0][0]
-            assert "🔴" in call_args
-            assert "CRITICAL" in call_args
-
-    @pytest.mark.asyncio
-    async def test_high_alert_format(self):
-        """High alerts should use 🟠 emoji."""
-        alert = {
-            "severity": "high",
-            "rule_name": "Malware Detected",
-            "host_name": "server02",
-            "time": "2025-01-01T12:00:00",
-            "description": "Suspicious process",
-        }
-        with patch(
-            "src.response.notifications.send_slack_notification",
-            new_callable=AsyncMock,
-            return_value=True,
-        ) as mock_slack:
-            result = await send_alert_notification(alert)
-            call_args = mock_slack.call_args[0][0]
-            assert "🟠" in call_args
-
-    @pytest.mark.asyncio
-    async def test_medium_alert_format(self):
-        """Medium alerts should use 🟡 emoji."""
-        alert = {
-            "severity": "medium",
-            "rule_name": "Test Rule",
-            "host_name": "server03",
-            "time": "2025-01-01T12:00:00",
-            "description": "Test",
-        }
-        with patch(
-            "src.response.notifications.send_slack_notification",
-            new_callable=AsyncMock,
-            return_value=True,
-        ) as mock_slack:
-            result = await send_alert_notification(alert)
-            call_args = mock_slack.call_args[0][0]
-            assert "🟡" in call_args
-
-    @pytest.mark.asyncio
-    async def test_low_alert_format(self):
-        """Low alerts should use 🔵 emoji."""
-        alert = {
-            "severity": "low",
-            "rule_name": "Low Priority",
-            "host_name": "server04",
-            "time": "2025-01-01T12:00:00",
-            "description": "Low severity",
-        }
-        with patch(
-            "src.response.notifications.send_slack_notification",
-            new_callable=AsyncMock,
-            return_value=True,
-        ) as mock_slack:
-            result = await send_alert_notification(alert)
-            call_args = mock_slack.call_args[0][0]
-            assert "🔵" in call_args
-
-    @pytest.mark.asyncio
-    async def test_alert_notification_includes_rule_name(self):
-        """Alert notification should include rule name."""
-        alert = {
-            "severity": "high",
-            "rule_name": "My Test Rule",
-            "host_name": "server01",
-            "time": "2025-01-01T12:00:00",
-            "description": "Test description",
-        }
-        with patch(
-            "src.response.notifications.send_slack_notification",
-            new_callable=AsyncMock,
-            return_value=True,
-        ) as mock_slack:
-            await send_alert_notification(alert)
-            call_args = mock_slack.call_args[0][0]
-            assert "My Test Rule" in call_args
-
-    @pytest.mark.asyncio
-    async def test_alert_notification_includes_host(self):
-        """Alert notification should include hostname."""
-        alert = {
-            "severity": "medium",
-            "rule_name": "Rule",
-            "host_name": "prod-server-01",
-            "time": "2025-01-01",
-            "description": "Desc",
-        }
-        with patch(
-            "src.response.notifications.send_slack_notification",
-            new_callable=AsyncMock,
-            return_value=True,
-        ) as mock_slack:
-            await send_alert_notification(alert)
-            call_args = mock_slack.call_args[0][0]
-            assert "prod-server-01" in call_args

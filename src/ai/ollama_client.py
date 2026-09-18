@@ -13,6 +13,7 @@ from typing import Any, Literal, Optional
 
 import httpx
 
+from src.config.http_client import get_shared_async_client
 from src.config.logging import get_logger
 from src.config.settings import settings
 
@@ -135,25 +136,29 @@ async def query_llm(
     """
     start = time.monotonic()
     try:
-        async with httpx.AsyncClient(timeout=settings.ollama_timeout) as client:
-            payload: dict[str, Any] = {
-                "model": settings.ollama_model,
-                "prompt": prompt,
-                "system": system_prompt,
-                "stream": False,
-                "options": {
-                    "temperature": temperature,
-                    "num_predict": max_tokens,
-                },
-            }
-            if think is not None:
-                payload["think"] = think
-            response = await client.post(
-                f"{settings.ollama_base_url}/api/generate",
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
+        # AUD-028: the shared per-loop client — no throwaway AsyncClient (and
+        # no new TCP/TLS handshake) per LLM call. Per-request timeout keeps
+        # the same deadline semantics as the old per-call client.
+        client = get_shared_async_client(default_timeout=settings.ollama_timeout)
+        payload: dict[str, Any] = {
+            "model": settings.ollama_model,
+            "prompt": prompt,
+            "system": system_prompt,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+            },
+        }
+        if think is not None:
+            payload["think"] = think
+        response = await client.post(
+            f"{settings.ollama_base_url}/api/generate",
+            json=payload,
+            timeout=settings.ollama_timeout,
+        )
+        response.raise_for_status()
+        data = response.json()
 
         latency_ms = int((time.monotonic() - start) * 1000)
         text = data.get("response", "")
@@ -223,9 +228,9 @@ async def query_llm(
 async def is_ollama_available() -> bool:
     """Quick health check — is Ollama responding?"""
     try:
-        async with httpx.AsyncClient(timeout=3) as client:
-            resp = await client.get(f"{settings.ollama_base_url}/api/tags")
-            return resp.status_code == 200
+        client = get_shared_async_client()
+        resp = await client.get(f"{settings.ollama_base_url}/api/tags", timeout=3)
+        return resp.status_code == 200
     except Exception:
         return False
 
@@ -241,31 +246,31 @@ async def validate_ollama_model() -> tuple[bool, Optional[str], Optional[str]]:
     """
     configured = settings.ollama_model
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.get(f"{settings.ollama_base_url}/api/tags")
-            if resp.status_code != 200:
-                msg = f"HTTP {resp.status_code}"
-                log.warning("ollama_model_check_failed", status=resp.status_code)
-                return False, configured, msg
+        client = get_shared_async_client()
+        resp = await client.get(f"{settings.ollama_base_url}/api/tags", timeout=5)
+        if resp.status_code != 200:
+            msg = f"HTTP {resp.status_code}"
+            log.warning("ollama_model_check_failed", status=resp.status_code)
+            return False, configured, msg
 
-            data = resp.json()
-            available = [m.get("name", "") for m in data.get("models", [])]
+        data = resp.json()
+        available = [m.get("name", "") for m in data.get("models", [])]
 
-            if configured not in available:
-                msg = (
-                    f"Configured model '{configured}' not in Ollama. "
-                    f"Available: {available[:10]}. "
-                    f"Set OLLAMA_MODEL in .env to match an installed model."
-                )
-                log.warning(
-                    "ollama_model_not_found",
-                    configured=configured,
-                    available=available[:10],
-                )
-                return False, configured, msg
+        if configured not in available:
+            msg = (
+                f"Configured model '{configured}' not in Ollama. "
+                f"Available: {available[:10]}. "
+                f"Set OLLAMA_MODEL in .env to match an installed model."
+            )
+            log.warning(
+                "ollama_model_not_found",
+                configured=configured,
+                available=available[:10],
+            )
+            return False, configured, msg
 
-            log.info("ollama_model_validated", model=configured)
-            return True, configured, None
+        log.info("ollama_model_validated", model=configured)
+        return True, configured, None
     except httpx.ConnectError as e:
         msg = f"Ollama unreachable at {settings.ollama_base_url}: {e}"
         log.warning("ollama_model_check_unreachable", error=str(e))

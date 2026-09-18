@@ -12,6 +12,7 @@ Features:
 """
 
 import csv
+import hashlib
 import io
 import json
 import uuid
@@ -33,6 +34,21 @@ ESCALATION_FIRE_THRESHOLD = 3  # If same rule fires 3x in 1hr, bump severity
 # Severity ordering for escalation
 SEVERITY_ORDER = ["info", "low", "medium", "high", "critical"]
 SEVERITY_INDEX = {s: i for i, s in enumerate(SEVERITY_ORDER)}
+
+
+def _alert_lock_key(rule_id: Optional[int], rule_name: str, host_name: str) -> int:
+    """Stable advisory-lock key for the (rule, host) dedup pair (AUD-009).
+
+    The previous key used Python's hash() on host_name — per-process salted
+    (PYTHONHASHSEED), so two uvicorn workers would compute DIFFERENT keys for
+    the same pair and the dedup lock would silently stop serializing the
+    check-then-insert. sha256 is stable across processes. Residual collisions
+    between different pairs are possible (as with the old modulus) but
+    benign: the lock only SERIALIZES; the dedup SELECT re-checks inside it.
+    """
+    identity = f"{rule_id if rule_id is not None else rule_name}|{host_name}"
+    digest = hashlib.sha256(identity.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") % (2**31)
 
 
 async def create_alert(
@@ -69,10 +85,7 @@ async def create_alert(
         # ── Step 1: Insert with dedup check (race-safe) ───────
         # Use advisory lock per (rule_id, host_name) to prevent TOCTOU races
         # Correlation-origin alerts have rule_id=None; lock on rule_name instead.
-        if rule_id is not None:
-            lock_key = (rule_id * 1000 + hash(host_name)) % (2**31)
-        else:
-            lock_key = hash((rule_name, host_name)) % (2**31)
+        lock_key = _alert_lock_key(rule_id, rule_name, host_name)
         await conn.execute("SELECT pg_advisory_xact_lock($1)", lock_key)
 
         if rule_id is not None:
@@ -208,12 +221,16 @@ async def create_alert(
             except Exception as e:  # best-effort: alert creation is not blocked
                 log.warning("deception_auto_escalate_failed", alert_id=alert_id, error=str(e))
 
-        # ── Step 6: Trigger notifications ─────────────────────
-        await _send_alert_notification(
-            alert_id, rule_name, escalated_severity, host_name, description
-        )
+    # ── Step 6: Trigger notifications ─────────────────────
+    # AUD-003: dispatch runs AFTER the pool connection is released. The
+    # dispatch is network I/O (retries + backoff ≈ 65s per channel, channels
+    # serial) — awaiting it inside the `async with` held a pool connection
+    # for the whole duration and could starve the pool during an incident
+    # (the same dead-lock class the 2026-09-11 scheduler fix removed
+    # elsewhere). Dispatch needs no connection; same pattern as that fix.
+    await _send_alert_notification(alert_id, rule_name, escalated_severity, host_name, description)
 
-        return cast(int, alert_id)
+    return cast(int, alert_id)
 
 
 async def _check_severity_escalation(
