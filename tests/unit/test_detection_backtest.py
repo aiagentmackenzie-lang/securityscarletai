@@ -380,6 +380,39 @@ class TestAggregationBacktest:
         assert params[-2] == 100  # the Sigma threshold
         assert params[-1] == 500  # MAX_TRIGGER_BUCKETS
 
+    @pytest.mark.asyncio
+    async def test_trigger_count_mirrors_the_runtime_field(self, simple_per_day):
+        """AUD-082: the bucket query counts the rule's OWN count field, exactly
+        like the runtime aggregation — COUNT(destination_ip) for
+        `count(destination_ip) by ...`. The old hardcoded COUNT(*) let a
+        NULL-field bucket cross the threshold in the report while the runtime's
+        COUNT(field) can never fire it (count of all-NULL rows is 0)."""
+        conn = _backtest_conn(corpus=10, agg_base=[{"n": 5}], per_day=simple_per_day, buckets=[])
+        with patch("src.detection.backtest.get_pool", return_value=_pool_mock(conn)):
+            await run_backtest(AGG_RULE, window_hours=24, as_of=AS_OF)
+        bucket_sql = next(
+            c.args[0] for c in conn.fetch.call_args_list if "to_timestamp" in c.args[0]
+        )
+        assert "COUNT(destination_ip) AS cnt" in bucket_sql
+        assert "HAVING COUNT(destination_ip)" in bucket_sql
+        assert "COUNT(*)" not in bucket_sql
+
+    @pytest.mark.asyncio
+    async def test_count_star_rule_keeps_count_star_triggers(self, simple_per_day):
+        """AUD-082 mirror: a count(*) aggregation (data_exfiltration_volume
+        shape) compiles COUNT(*) trigger buckets — unchanged."""
+        star_rule = AGG_RULE.replace(
+            "count(destination_ip) by source_ip > 100", "count(*) by host_name > 100"
+        )
+        conn = _backtest_conn(corpus=10, agg_base=[{"n": 5}], per_day=simple_per_day, buckets=[])
+        with patch("src.detection.backtest.get_pool", return_value=_pool_mock(conn)):
+            await run_backtest(star_rule, window_hours=24, as_of=AS_OF)
+        bucket_sql = next(
+            c.args[0] for c in conn.fetch.call_args_list if "to_timestamp" in c.args[0]
+        )
+        assert "COUNT(*) AS cnt" in bucket_sql
+        assert "HAVING COUNT(*)" in bucket_sql
+
 
 class TestEndpoint:
     @pytest.mark.asyncio

@@ -63,8 +63,10 @@ WAIVED_FUTURE_SOURCES: dict[str, str] = {
     # --- Windows / Active Directory sources ---
     "anomalous_kerberos_ticket_request": "future source: Windows security event log (Kerberos TGS)",
     "kerberoasting_service_ticket_request": "future source: Windows security event log",
-    "ntlm_relay_attempt": "future source: Windows SMB/NTLM telemetry",
-    "pass_the_hash_smb_authentication": "future source: Windows SMB telemetry",
+    "pass_the_hash_smb_authentication": (
+        "future source: Windows SMB/NTLM telemetry (merged detection covers both the "
+        "pass-the-hash and NTLM-relay readings; AUD-078)"
+    ),
     "admin_ipc_share_access": "future source: Windows SMB telemetry",
     "rdp_login_from_anomalous_source": "future source: Windows RDP logon events",
     "multiple_account_lockouts": "future source: account-lockout events (not in utmpx/osquery)",
@@ -72,8 +74,7 @@ WAIVED_FUTURE_SOURCES: dict[str, str] = {
     # --- DNS-content sources (resolver logs; socket telemetry has no
     # query content -- these detections are meaningless without it) ---
     "high_volume_dns_exfil_indicator": "future source: DNS resolver query logs",
-    "dns_tunneling_indicators": "future source: DNS resolver query logs",
-    "suspicious_dns_query": "future source: DNS resolver query logs",
+    "dns_activity_indicator_port_53": "future source: DNS resolver query logs",
     # --- Byte-counting / volume sources ---
     "large_outbound_https_transfer": (
         "future source: egress byte accounting (enrichment bytes_sent)"

@@ -405,6 +405,14 @@ async def _backtest_aggregation(
 
     # 3. Over-threshold (bucket, group) pairs: the triggers. Bucketed on the
     # rule's own timeframe (its count() window), chronological, capped.
+    # AUD-082: the COUNT must mirror the RUNTIME aggregation exactly —
+    # sigma.py compiles `COUNT(<count_field>) ... HAVING COUNT(<count_field>)`,
+    # COUNT(*) only for count(*) rules. The previous hardcoded COUNT(*) let a
+    # NULL-<count_field> bucket cross the threshold in the REPORT while the
+    # runtime's COUNT(field) counts zero for that group — estimated alerts
+    # the SIEM would never create (found live on the Wave-8 c2 backtest:
+    # 141 null-destination rows reported as a trigger that never fires).
+    count_expr = agg.count_field or "*"
     p = list(where_params)
     start_idx, end_idx = len(p) + 1, len(p) + 2
     bucket_idx = len(p) + 3
@@ -416,12 +424,12 @@ async def _backtest_aggregation(
         f"""
         SELECT to_timestamp(FLOOR(EXTRACT(EPOCH FROM time) / ${bucket_idx}) * ${bucket_idx})
                  AS bucket,
-               {agg.group_by} AS grp, COUNT(*) AS cnt
+               {agg.group_by} AS grp, COUNT({count_expr}) AS cnt
         FROM logs
         WHERE ({where}) AND time > ${start_idx}::timestamptz
           AND time <= ${end_idx}::timestamptz
         GROUP BY bucket, {agg.group_by}
-        HAVING COUNT(*) > ${threshold_idx}
+        HAVING COUNT({count_expr}) > ${threshold_idx}
         ORDER BY bucket ASC
         LIMIT ${limit_idx}
         """,  # noqa: S608

@@ -1,7 +1,7 @@
 title: Pass-the-Hash SMB Authentication
 id: 5f627691-a9f5-5181-97ac-96b0a976745b
 status: stable
-description: Detects SMB authentication with an NTLM hash (pass-the-hash indicator)
+description: Detects NTLM authentication over SMB (port 445) — consistent with pass-the-hash or NTLM-relay behavior; this telemetry cannot distinguish the two, and a legitimate NTLM file-server auth also matches, so verify the source/destination before acting. (AUD-078, merged 2026/09/18 — this detection was previously duplicated as "NTLM Relay Attempt", one event firing two alerts under two names; the merged rule carries both technique hypotheses.)
 author: SecurityScarletAI
 date: 2026/08/26
 logsource:
@@ -16,3 +16,6 @@ tags:
     - attack.lateral_movement
     - attack.ta0008
     - attack.t1550
+    - attack.credential_access
+    - attack.ta0006
+    - attack.t1557

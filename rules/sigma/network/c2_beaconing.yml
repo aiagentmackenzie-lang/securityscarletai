@@ -1,7 +1,7 @@
 title: C2 Beaconing Pattern
 id: 64aed8d0-66fa-5db5-a43b-16a01fc4bf0f
 status: experimental
-description: Detects potential C2 beaconing through regular interval outbound connections to the same IP
+description: Detects a high volume of outbound connections to a single destination IP within the timeframe (C2 beaconing indicator). The aggregation measures per-destination volume — interval REGULARITY is not measured (the count-by grammar cannot express it), and a shared destination hit by multiple sources also contributes to the count; verify the source before treating a match as beaconing.
 author: SecurityScarletAI
 date: 2026/05/03
 logsource:
@@ -10,7 +10,16 @@ detection:
     selection:
         event_type: connection
         event_category: network
-    condition: selection | count(destination_ip) by source_ip > 20
+    # AUD-076: group by DESTINATION (the rule's claim: connections to the SAME IP).
+    # The old `count(destination_ip) by source_ip` counted any-destination volume per
+    # SOURCE — a busy host with 21 distinct destinations fired while a true beacon
+    # blended into its count. count(destination_ip) (not count(*)) keeps the
+    # NULL-destination bucket at zero, so rows without a remote address never alert.
+    # The count-by grammar supports exactly ONE group-by key, so per-(source, dest)
+    # pairing is not expressible — all sources to one destination share one count,
+    # and the aggregation alert carries host_name="unknown" (the runtime shape for
+    # count-by rules); the matched destination and count ride in alert evidence.
+    condition: selection | count(destination_ip) by destination_ip > 20
 timeframe: 1h
 level: medium
 tags:

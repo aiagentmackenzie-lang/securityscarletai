@@ -12,6 +12,10 @@ detection:
         event_type: connection
         destination_ip: '*'
     filter_internal:
+        # AUD-077: the RFC1918 172.16-31/12 private block needs PER-OCTET prefix
+        # entries. The old startswith shortcuts ('172.2', '172.3') also matched the
+        # PUBLIC 172.200-255 and 172.32-39 ranges, suppressing real external
+        # destinations from this exfiltration detector.
         destination_ip|startswith:
             - '10.'
             - '192.168.'
@@ -19,8 +23,18 @@ detection:
             - '172.17.'
             - '172.18.'
             - '172.19.'
-            - '172.2'
-            - '172.3'
+            - '172.20.'
+            - '172.21.'
+            - '172.22.'
+            - '172.23.'
+            - '172.24.'
+            - '172.25.'
+            - '172.26.'
+            - '172.27.'
+            - '172.28.'
+            - '172.29.'
+            - '172.30.'
+            - '172.31.'
     condition: selection and not filter_internal | count(*) by host_name > 50
 timeframe: 1h
 level: high

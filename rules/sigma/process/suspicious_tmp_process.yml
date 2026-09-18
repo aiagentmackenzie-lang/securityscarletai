@@ -1,7 +1,7 @@
 title: Suspicious Process from /tmp
 id: bcc0eb02-90ba-5acc-903a-d30aa6722b55
 status: stable
-description: Detects process execution from temporary directories, common for malware staging
+description: Detects process execution from temporary directories, common for malware staging (AUD-079, fixed 2026/09/18 — the selection previously required file_path, which the parser sets ONLY for file-category rows; process rows carry process_path, so the rule could never match)
 author: SecurityScarletAI
 date: 2026/05/03
 logsource:
@@ -9,7 +9,7 @@ logsource:
 detection:
     selection:
         event_type: start
-        file_path|contains: /tmp
+        process_path|contains: /tmp
     condition: selection
 level: medium
 tags:

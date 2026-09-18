@@ -1,0 +1,20 @@
+title: SCP/SFTP/Rsync File Transfer Execution
+id: c381f83b-6260-55a0-a123-65ac1374d5d6
+status: experimental
+description: Detects execution of the scp/sftp/rsync file-transfer tools — review the transfer's destination in process_cmdline, because bulk outbound transfer via these tools is a common exfiltration channel (T1048). The parser does not extract a cmdline destination into network context, so this rule fires on the transfer tool itself. The previous selection (AUD-079, reworked 2026/09/18) required the literal word "external" in the cmdline, which no producer emits — the rule could never fire. No current producer emits these tools either — the rule arms on real hosts' process telemetry and reports measured-but-cold until one does.
+author: SecurityScarletAI
+date: 2026/08/26
+logsource:
+    category: process
+detection:
+    selection:
+        process_name:
+            - scp
+            - sftp
+            - rsync
+    condition: selection
+level: medium
+tags:
+    - attack.exfiltration
+    - attack.ta0010
+    - attack.t1048
