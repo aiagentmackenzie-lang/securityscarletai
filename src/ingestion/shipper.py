@@ -103,20 +103,46 @@ class FileShipper:
                 await asyncio.sleep(5)
 
     async def _read_new_lines(self) -> None:
-        """Read new lines from the current offset."""
+        """Read new lines from the current offset.
+
+        AUD-006: this used to open the log in locale-encoding TEXT mode with
+        no errors handler — one undecodable byte in an osquery line (cmdlines
+        can carry arbitrary bytes) raised UnicodeDecodeError inside the
+        iteration, the outer run() handler slept 5s and retried from the SAME
+        offset: an infinite retry loop that stalled the pipe until manual
+        intervention. Text-mode f.tell() also stored an opaque cookie as the
+        byte checkpoint (fragile).
+
+        The read is now BINARY with an ``errors="replace"`` decode (the
+        fleet_shipper pattern): a corrupt byte can never wedge the loop. The
+        offset advances over COMPLETE lines only, counted in RAW bytes — a
+        trailing partial line waits for its newline (never ship half a JSON
+        object), and byte counts come from the raw chunk, NOT the re-encoded
+        text: one bad byte decodes to a 3-byte U+FFFD, so re-encoding would
+        drift the checkpoint past unconsumed bytes (the trap the fleet
+        shipper's len(text.encode()) shape carries).
+        """
         parser = parse_osquery_line if self.format == "osquery" else parse_normalized_line
-        with open(self.log_path, "r") as f:
+        with open(self.log_path, "rb") as f:
             f.seek(self._offset)
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                event = parser(line)
-                if event:
-                    await self.writer.write(event)
-                    self._events_shipped += 1
-            self._offset = f.tell()
-            self._save_checkpoint()
+            chunk = f.read()
+        if not chunk:
+            return
+        cut = chunk.rfind(b"\n")  # consume COMPLETE lines only
+        if cut == -1:
+            return
+        consumed = chunk[: cut + 1]
+        text = consumed.decode("utf-8", errors="replace")
+        for line in text.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            event = parser(line)
+            if event:
+                await self.writer.write(event)
+                self._events_shipped += 1
+        self._offset += len(consumed)
+        self._save_checkpoint()
 
     def _load_checkpoint(self) -> int:
         """Load the byte offset from the checkpoint file."""

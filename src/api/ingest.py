@@ -119,6 +119,14 @@ async def ingest_events(
     Requires: Bearer token in Authorization header.
     Rate limited to LIMIT_INGEST (100/minute by IP).
 
+    Size bounds (AUD-008, documented per decision): the request body is
+    capped at 1MB by RequestValidationMiddleware (Content-Length AND
+    chunked both abort over the cap — the raw_data vector is bounded at
+    the request level), and the batch is capped at 1000 events (413
+    below). Residual gap, honestly stated: per-event size WITHIN a batch
+    is not separately capped — a single event may approach the whole 1MB
+    request budget.
+
     V0.5a fleet binding: a fleet-enrollment token may ONLY deliver events
     for its own enrolled host_name (identity.kind == "fleet" carries
     fleet_host). Any other host in the batch refuses the WHOLE batch with

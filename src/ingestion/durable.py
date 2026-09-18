@@ -38,7 +38,6 @@ from src.config.logging import get_logger
 log = get_logger("ingestion.durable")
 
 CONFIG_FILENAME = "durable_ingest.yaml"
-REPO_CONFIG = Path(__file__).resolve().parent.parent.parent / "config" / CONFIG_FILENAME
 
 
 class DurableConfigError(Exception):

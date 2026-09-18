@@ -3,13 +3,22 @@ Comprehensive tests for src/intel/threat_intel.py.
 
 Covers:
 - AbuseIPDBClient (check_ip, get_blacklist)
-- OTXClient (get_pulse_indicators, get_subscribed_pulses, get_modified_pulses)
+- OTXClient (get_pulse_indicators, get_modified_pulses)
 - URLhausClient (check_url, get_recent_urls)
 - DB operations (cache_ioc, cache_iocs_bulk, check_ioc_match)
-- Refresh functions (refresh_all_feeds, enrich_ip_with_threat_intel, enrich_url_with_threat_intel)
+- Refresh functions (refresh_all_feeds, enrich_ip_with_threat_intel)
 - Statistics (get_threat_intel_stats)
 - Scheduler (start/stop)
 - _map_ioc_type helper
+
+AUD-052: the TI clients use the process-shared per-loop httpx client —
+mocks are direct-call shape (constructor patched, request called on the
+client); __aenter__/__aexit__ never happen and the constructor is called
+ONCE per loop, not per request.
+
+AUD-054 (Wave 7): get_subscribed_pulses and enrich_url_with_threat_intel
+were dead (zero production callers) and deleted — their tests went with
+them (tests-of-dead-code, the Wave-4 rule).
 """
 
 from datetime import datetime
@@ -26,7 +35,6 @@ from src.intel.threat_intel import (
     cache_iocs_bulk,
     check_ioc_match,
     enrich_ip_with_threat_intel,
-    enrich_url_with_threat_intel,
     get_threat_intel_stats,
     refresh_all_feeds,
     start_threat_intel_scheduler,
@@ -63,8 +71,12 @@ class TestMapIocType:
     def test_hash_sha256(self):
         assert _map_ioc_type("FileHash-SHA256") == "hash_sha256"
 
-    def test_email(self):
-        assert _map_ioc_type("email") == "email"
+    def test_email_dropped(self):
+        """AUD-053: OTX "email" has NO corresponding threat_intel.ioc_type
+        CHECK value (ip/domain/hash_md5/hash_sha256/url) — it maps to ""
+        and cache_iocs_bulk drops it pre-insert. It used to map to "email"
+        and fail per-row against the DB CHECK every refresh."""
+        assert _map_ioc_type("email") == ""
 
     def test_unknown_type(self):
         assert _map_ioc_type("unknown_type") == ""
@@ -105,8 +117,6 @@ class TestAbuseIPDBClient:
         }
 
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(return_value=mock_response)
 
         with (
@@ -140,8 +150,6 @@ class TestAbuseIPDBClient:
         }
 
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(return_value=mock_response)
 
         with (
@@ -162,8 +170,6 @@ class TestAbuseIPDBClient:
 
         client = AbuseIPDBClient()
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
 
         with (
@@ -179,8 +185,6 @@ class TestAbuseIPDBClient:
         """Should return None on HTTP error."""
         client = AbuseIPDBClient()
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(side_effect=Exception("connection error"))
 
         with (
@@ -215,8 +219,6 @@ class TestAbuseIPDBClient:
         }
 
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(return_value=mock_response)
 
         with (
@@ -234,8 +236,6 @@ class TestAbuseIPDBClient:
         """Should return empty list on error."""
         client = AbuseIPDBClient()
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(side_effect=Exception("error"))
 
         with (
@@ -279,8 +279,6 @@ class TestOTXClient:
         }
 
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(return_value=mock_response)
 
         with patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client):
@@ -296,55 +294,10 @@ class TestOTXClient:
         """Should return empty list on error."""
         client = OTXClient(api_key="test-key")
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(side_effect=Exception("error"))
 
         with patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client):
             result = await client.get_pulse_indicators("abc123")
-            assert result == []
-
-    @pytest.mark.asyncio
-    async def test_get_subscribed_pulses_no_api_key(self):
-        """Should return empty list when no API key."""
-        client = OTXClient(api_key="")
-        result = await client.get_subscribed_pulses()
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_get_subscribed_pulses_success(self):
-        """Should return list of pulse dicts."""
-        client = OTXClient(api_key="test-key")
-        mock_response = MagicMock()
-        mock_response.raise_for_status = MagicMock()
-        mock_response.json.return_value = {
-            "results": [
-                {"id": "pulse1", "name": "APT29 Activity"},
-                {"id": "pulse2", "name": "Emotet Campaign"},
-            ]
-        }
-
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.get = AsyncMock(return_value=mock_response)
-
-        with patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client):
-            result = await client.get_subscribed_pulses()
-
-        assert len(result) == 2
-
-    @pytest.mark.asyncio
-    async def test_get_subscribed_pulses_error(self):
-        """Should return empty list on error."""
-        client = OTXClient(api_key="test-key")
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.get = AsyncMock(side_effect=Exception("error"))
-
-        with patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client):
-            result = await client.get_subscribed_pulses()
             assert result == []
 
     @pytest.mark.asyncio
@@ -364,8 +317,6 @@ class TestOTXClient:
         mock_response.json.return_value = {"results": []}
 
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(return_value=mock_response)
 
         with patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client):
@@ -380,8 +331,6 @@ class TestOTXClient:
         """Should return empty list on error."""
         client = OTXClient(api_key="test-key")
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(side_effect=Exception("error"))
 
         with patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client):
@@ -409,8 +358,6 @@ class TestURLhausClient:
         }
 
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.post = AsyncMock(return_value=mock_response)
 
         with patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client):
@@ -430,8 +377,6 @@ class TestURLhausClient:
         mock_response.json.return_value = {"query_status": "no_results"}
 
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.post = AsyncMock(return_value=mock_response)
 
         with patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client):
@@ -443,8 +388,6 @@ class TestURLhausClient:
         """Should return None on error."""
         client = URLhausClient()
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.post = AsyncMock(side_effect=Exception("error"))
 
         with patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client):
@@ -470,8 +413,6 @@ class TestURLhausClient:
         }
 
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(return_value=mock_response)
 
         with patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client):
@@ -486,13 +427,34 @@ class TestURLhausClient:
         """Should return empty list on error."""
         client = URLhausClient()
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(side_effect=Exception("error"))
 
         with patch("src.intel.threat_intel.httpx.AsyncClient", return_value=mock_client):
             result = await client.get_recent_urls()
             assert result == []
+
+    @pytest.mark.asyncio
+    async def test_shared_client_reused_and_never_closed(self):
+        """AUD-052: TI clients use the process-shared per-loop client — ONE
+        constructor call across sequential requests, and the client is never
+        a context manager (no __aenter__/__aexit__; it lives and dies with
+        the loop)."""
+        client = URLhausClient()
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"query_status": "no_results"}
+
+        with patch("src.intel.threat_intel.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client_cls.return_value = mock_client
+
+            await client.check_url("http://a.example/1")
+            await client.check_url("http://b.example/2")
+
+        assert mock_client_cls.call_count == 1  # one shared client, not per call
+        mock_client.__aenter__.assert_not_called()
+        mock_client.__aexit__.assert_not_called()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -571,9 +533,9 @@ class TestCacheIocsBulk:
 
     @pytest.mark.asyncio
     async def test_cache_iocs_bulk_success(self):
-        """Should cache IOCs and return count."""
+        """AUD-051: rows are inserted in ONE executemany upsert (was one
+        round-trip per IOC — ~1,200 per feed refresh)."""
         mock_conn = AsyncMock()
-        mock_conn.execute = AsyncMock()
 
         class AsyncCtx:
             async def __aenter__(self):
@@ -592,13 +554,20 @@ class TestCacheIocsBulk:
 
         with patch("src.intel.threat_intel.get_pool", AsyncMock(return_value=mock_pool)):
             result = await cache_iocs_bulk(iocs, source="test")
-            assert result == 2
+
+        assert result == 2
+        mock_conn.executemany.assert_called_once()
+        rows = mock_conn.executemany.call_args.args[1]
+        assert len(rows) == 2
+        assert rows[0][0] == "ip" and rows[0][1] == "1.2.3.4" and rows[0][2] == "test"
+        assert rows[1][0] == "url"
 
     @pytest.mark.asyncio
-    async def test_cache_iocs_bulk_skips_empty_type(self):
-        """Should skip IOCs with unmapped type."""
+    async def test_cache_iocs_bulk_drops_unmapped_and_email(self):
+        """AUD-053: unmapped types (unknown_type) AND the DB-violating
+        "email" type are dropped PRE-insert with a logged count — they used
+        to reach the DB and fail per-row against the CHECK every refresh."""
         mock_conn = AsyncMock()
-        mock_conn.execute = AsyncMock()
 
         class AsyncCtx:
             async def __aenter__(self):
@@ -612,21 +581,27 @@ class TestCacheIocsBulk:
 
         iocs = [
             {"type": "unknown_type", "value": "test", "threat_type": "malware"},
+            {"type": "email", "value": "phish@evil.example", "threat_type": "malware"},
             {"type": "IPv4", "value": "1.2.3.4", "threat_type": "malicious_ip"},
         ]
 
         with patch("src.intel.threat_intel.get_pool", AsyncMock(return_value=mock_pool)):
-            # Only IPv4 should be cached; unknown_type maps to ""
             result = await cache_iocs_bulk(iocs, source="test")
-            # Should only execute once (skip the unknown type)
-            assert mock_conn.execute.call_count >= 1
+
+        assert result == 1
+        rows = mock_conn.executemany.call_args.args[1]
+        assert len(rows) == 1
+        assert rows[0][1] == "1.2.3.4"
 
     @pytest.mark.asyncio
-    async def test_cache_iocs_bulk_handles_exception(self):
-        """Should handle individual IOC errors gracefully."""
+    async def test_cache_iocs_bulk_executemany_failure_falls_back_per_row(self):
+        """AUD-051: if the bulk statement fails, the insert falls back to
+        per-row best-effort — one malformed row costs its row, not the
+        whole batch."""
         mock_conn = AsyncMock()
-        # First call raises, second succeeds
-        mock_conn.execute = AsyncMock(side_effect=[Exception("db error"), None])
+        mock_conn.executemany = AsyncMock(side_effect=Exception("bulk failed"))
+        # Per-row fallback: first row fails, second succeeds.
+        mock_conn.execute = AsyncMock(side_effect=[Exception("row 1 bad"), None])
 
         class AsyncCtx:
             async def __aenter__(self):
@@ -645,7 +620,9 @@ class TestCacheIocsBulk:
 
         with patch("src.intel.threat_intel.get_pool", AsyncMock(return_value=mock_pool)):
             result = await cache_iocs_bulk(iocs, source="test")
-            # Should not raise, even with an error
+
+        assert result == 1  # row 2 cached; row 1 failed per-row
+        assert mock_conn.execute.call_count == 2
 
 
 class TestCheckIocMatch:
@@ -828,62 +805,7 @@ class TestEnrichIpWithThreatIntel:
         assert result["threat_intel"]["match"] is False
 
 
-class TestEnrichUrlWithThreatIntel:
-    @pytest.mark.asyncio
-    async def test_cached_url_match(self):
-        """Should return cache hit for known URL."""
-        mock_row = {
-            "source": "urlhaus",
-            "threat_type": "malware",
-            "confidence": 80,
-        }
-
-        with patch("src.intel.threat_intel.check_ioc_match", AsyncMock(return_value=mock_row)):
-            result = await enrich_url_with_threat_intel("http://evil.com/payload")
-
-        assert result["threat_intel"]["match"] is True
-        assert result["threat_intel"]["source"] == "urlhaus"
-
-    @pytest.mark.asyncio
-    async def test_url_no_cache_urlhaus_hit(self):
-        """Should check URLhaus when no cache hit."""
-        mock_urlhaus_result = {
-            "url": "http://evil.com/payload",
-            "threat": "malware_download",
-            "tags": ["trojan"],
-        }
-
-        with (
-            patch("src.intel.threat_intel.check_ioc_match", AsyncMock(return_value=None)),
-            patch("src.intel.threat_intel.URLhausClient") as MockClient,
-            patch("src.intel.threat_intel.cache_ioc", AsyncMock()),
-        ):
-            mock_client = MagicMock()
-            mock_client.check_url = AsyncMock(return_value=mock_urlhaus_result)
-            MockClient.return_value = mock_client
-
-            result = await enrich_url_with_threat_intel("http://evil.com/payload")
-
-        assert result["threat_intel"]["match"] is True
-        assert result["threat_intel"]["source"] == "urlhaus"
-        assert result["threat_intel"]["threat_type"] == "malware_download"
-
-    @pytest.mark.asyncio
-    async def test_url_no_cache_urlhaus_miss(self):
-        """Should return empty when URLhaus also has no match."""
-        with (
-            patch("src.intel.threat_intel.check_ioc_match", AsyncMock(return_value=None)),
-            patch("src.intel.threat_intel.URLhausClient") as MockClient,
-        ):
-            mock_client = MagicMock()
-            mock_client.check_url = AsyncMock(return_value=None)
-            MockClient.return_value = mock_client
-
-            result = await enrich_url_with_threat_intel("http://safe-site.com")
-            assert result == {}
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # refresh_all_feeds
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional, cast
 
 import httpx
 
+from src.config.http_client import get_shared_async_client
 from src.config.logging import get_logger
 from src.config.settings import settings
 from src.db.connection import get_pool
@@ -78,65 +79,70 @@ class AbuseIPDBClient:
         if not settings.abuseipdb_api_key:
             return None
 
-        async with httpx.AsyncClient(timeout=10) as client:
-            try:
-                resp = await client.get(
-                    f"{self.BASE_URL}/check",
-                    params={
-                        "ipAddress": ip,
-                        "maxAgeInDays": 90,
-                        "verbose": True,
-                    },
-                    headers={
-                        "Key": settings.abuseipdb_api_key,
-                        "Accept": "application/json",
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json().get("data", {})
+        # AUD-052: ONE process-shared client per event loop (no per-call
+        # AsyncClient, no `async with` — the shared client must never be
+        # closed by callers); deadlines are per-request.
+        client = get_shared_async_client()
+        try:
+            resp = await client.get(
+                f"{self.BASE_URL}/check",
+                params={
+                    "ipAddress": ip,
+                    "maxAgeInDays": 90,
+                    "verbose": True,
+                },
+                headers={
+                    "Key": settings.abuseipdb_api_key,
+                    "Accept": "application/json",
+                },
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("data", {})
 
-                return {
-                    "ip": ip,
-                    "abuse_confidence": data.get("abuseConfidenceScore", 0),
-                    "total_reports": data.get("totalReports", 0),
-                    "country": data.get("countryCode"),
-                    "isp": data.get("isp"),
-                    "domain": data.get("domain"),
-                    "threat_type": (
-                        "malicious_ip" if data.get("abuseConfidenceScore", 0) > 50 else None
-                    ),
-                }
-            except httpx.TimeoutException:
-                log.warning("abuseipdb_timeout", ip=ip)
-                return None
-            except Exception as e:
-                log.warning("abuseipdb_check_failed", ip=ip, error=str(e))
-                return None
+            return {
+                "ip": ip,
+                "abuse_confidence": data.get("abuseConfidenceScore", 0),
+                "total_reports": data.get("totalReports", 0),
+                "country": data.get("countryCode"),
+                "isp": data.get("isp"),
+                "domain": data.get("domain"),
+                "threat_type": (
+                    "malicious_ip" if data.get("abuseConfidenceScore", 0) > 50 else None
+                ),
+            }
+        except httpx.TimeoutException:
+            log.warning("abuseipdb_timeout", ip=ip)
+            return None
+        except Exception as e:
+            log.warning("abuseipdb_check_failed", ip=ip, error=str(e))
+            return None
 
     async def get_blacklist(self, confidence_minimum: int = 90) -> List[str]:
         """Get top abused IPs (returns list of IPs for bulk import)."""
         if not settings.abuseipdb_api_key:
             return []
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            try:
-                resp = await client.get(
-                    f"{self.BASE_URL}/blacklist",
-                    params={
-                        "confidenceMinimum": confidence_minimum,
-                        "limit": 1000,
-                    },
-                    headers={
-                        "Key": settings.abuseipdb_api_key,
-                        "Accept": "application/json",
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                return [ip.get("ipAddress") for ip in data.get("data", []) if ip.get("ipAddress")]
-            except Exception as e:
-                log.warning("abuseipdb_blacklist_failed", error=str(e))
-                return []
+        client = get_shared_async_client()  # AUD-052
+        try:
+            resp = await client.get(
+                f"{self.BASE_URL}/blacklist",
+                params={
+                    "confidenceMinimum": confidence_minimum,
+                    "limit": 1000,
+                },
+                headers={
+                    "Key": settings.abuseipdb_api_key,
+                    "Accept": "application/json",
+                },
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return [ip.get("ipAddress") for ip in data.get("data", []) if ip.get("ipAddress")]
+        except Exception as e:
+            log.warning("abuseipdb_blacklist_failed", error=str(e))
+            return []
 
 
 # ───────────────────────────────────────────────────────────────
@@ -157,50 +163,32 @@ class OTXClient:
         if not self.api_key:
             return []
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            try:
-                resp = await client.get(
-                    f"{self.BASE_URL}/pulses/{pulse_id}/indicators",
-                    headers={"X-OTX-API-KEY": self.api_key},
+        client = get_shared_async_client()  # AUD-052
+        try:
+            resp = await client.get(
+                f"{self.BASE_URL}/pulses/{pulse_id}/indicators",
+                headers={"X-OTX-API-KEY": self.api_key},
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            indicators = []
+            for ind in data.get("results", []):
+                indicators.append(
+                    {
+                        "type": ind.get("type"),  # IPv4, domain, hostname, URL, etc.
+                        "value": ind.get("indicator"),
+                        "threat_type": ind.get("title", "unknown"),
+                        "confidence": ind.get("confidence", 50),
+                        "pulse_name": pulse_id,
+                    }
                 )
-                resp.raise_for_status()
-                data = resp.json()
 
-                indicators = []
-                for ind in data.get("results", []):
-                    indicators.append(
-                        {
-                            "type": ind.get("type"),  # IPv4, domain, hostname, URL, etc.
-                            "value": ind.get("indicator"),
-                            "threat_type": ind.get("title", "unknown"),
-                            "confidence": ind.get("confidence", 50),
-                            "pulse_name": pulse_id,
-                        }
-                    )
-
-                return indicators
-            except Exception as e:
-                log.warning("otx_fetch_failed", pulse_id=pulse_id, error=str(e))
-                return []
-
-    async def get_subscribed_pulses(self) -> List[Dict]:
-        """Get all pulses the user is subscribed to."""
-        if not self.api_key:
+            return indicators
+        except Exception as e:
+            log.warning("otx_fetch_failed", pulse_id=pulse_id, error=str(e))
             return []
-
-        async with httpx.AsyncClient(timeout=30) as client:
-            try:
-                resp = await client.get(
-                    f"{self.BASE_URL}/pulses/subscribed",
-                    headers={"X-OTX-API-KEY": self.api_key},
-                    params={"limit": 100},
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                return cast(List[Dict[str, Any]], data.get("results", []))
-            except Exception as e:
-                log.warning("otx_pulses_failed", error=str(e))
-                return []
 
     async def get_modified_pulses(self, since: Optional[datetime] = None) -> List[Dict]:
         """Get pulses modified since a given date."""
@@ -211,19 +199,20 @@ class OTXClient:
         if since:
             params["modified_since"] = since.isoformat()
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            try:
-                resp = await client.get(
-                    f"{self.BASE_URL}/pulses/subscribed",
-                    headers={"X-OTX-API-KEY": self.api_key},
-                    params=params,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                return cast(List[Dict[str, Any]], data.get("results", []))
-            except Exception as e:
-                log.warning("otx_modified_failed", error=str(e))
-                return []
+        client = get_shared_async_client()  # AUD-052
+        try:
+            resp = await client.get(
+                f"{self.BASE_URL}/pulses/subscribed",
+                headers={"X-OTX-API-KEY": self.api_key},
+                params=params,
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return cast(List[Dict[str, Any]], data.get("results", []))
+        except Exception as e:
+            log.warning("otx_modified_failed", error=str(e))
+            return []
 
 
 # ───────────────────────────────────────────────────────────────
@@ -238,58 +227,60 @@ class URLhausClient:
 
     async def check_url(self, url: str) -> Optional[Dict]:
         """Check if URL is known malware."""
-        async with httpx.AsyncClient(timeout=10) as client:
-            try:
-                resp = await client.post(
-                    f"{self.BASE_URL}/v1/url/",
-                    data={"url": url},
-                )
-                resp.raise_for_status()
-                data = resp.json()
+        client = get_shared_async_client()  # AUD-052
+        try:
+            resp = await client.post(
+                f"{self.BASE_URL}/v1/url/",
+                data={"url": url},
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
 
-                if data.get("query_status") == "no_results":
-                    return None
-
-                return {
-                    "url": url,
-                    "threat": data.get("threat", "unknown"),
-                    "tags": data.get("tags", []),
-                    "malware": (
-                        data.get("payloads", [{}])[0].get("signature", "unknown")
-                        if data.get("payloads")
-                        else "unknown"
-                    ),
-                }
-            except Exception as e:
-                log.warning("urlhaus_check_failed", url=url, error=str(e))
+            if data.get("query_status") == "no_results":
                 return None
+
+            return {
+                "url": url,
+                "threat": data.get("threat", "unknown"),
+                "tags": data.get("tags", []),
+                "malware": (
+                    data.get("payloads", [{}])[0].get("signature", "unknown")
+                    if data.get("payloads")
+                    else "unknown"
+                ),
+            }
+        except Exception as e:
+            log.warning("urlhaus_check_failed", url=url, error=str(e))
+            return None
 
     async def get_recent_urls(self, limit: int = 100) -> List[Dict]:
         """Get recent malicious URLs (no API key needed)."""
-        async with httpx.AsyncClient(timeout=30) as client:
-            try:
-                resp = await client.get(
-                    f"{self.BASE_URL}/v1/urls/recent/",
-                    params={"limit": limit},
+        client = get_shared_async_client()  # AUD-052
+        try:
+            resp = await client.get(
+                f"{self.BASE_URL}/v1/urls/recent/",
+                params={"limit": limit},
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            urls = []
+            for entry in data.get("urls", []):
+                urls.append(
+                    {
+                        "url": entry.get("url"),
+                        "threat": entry.get("threat"),
+                        "tags": entry.get("tags", []),
+                        "host": entry.get("host", ""),
+                    }
                 )
-                resp.raise_for_status()
-                data = resp.json()
 
-                urls = []
-                for entry in data.get("urls", []):
-                    urls.append(
-                        {
-                            "url": entry.get("url"),
-                            "threat": entry.get("threat"),
-                            "tags": entry.get("tags", []),
-                            "host": entry.get("host", ""),
-                        }
-                    )
-
-                return urls
-            except Exception as e:
-                log.warning("urlhaus_fetch_failed", error=str(e))
-                return []
+            return urls
+        except Exception as e:
+            log.warning("urlhaus_fetch_failed", error=str(e))
+            return []
 
 
 # ───────────────────────────────────────────────────────────────
@@ -328,46 +319,88 @@ async def cache_ioc(
 
 
 async def cache_iocs_bulk(iocs: List[Dict], source: str) -> int:
-    """Cache a batch of IOCs efficiently."""
+    """Cache a batch of IOCs efficiently.
+
+    AUD-051: this used to execute one INSERT per IOC — a feed refresh cost
+    ~1,200 sequential round-trips (200 URLhaus + 1,000 AbuseIPDB blacklist
+    + OTX). Rows are mapped + validated FIRST, then inserted in ONE
+    executemany upsert. If the bulk statement fails, the insert falls back
+    to per-row best-effort so one malformed row costs its row, not the
+    whole batch.
+
+    AUD-053: OTX types with no corresponding DB value (e.g. "email" — the
+    threat_intel.ioc_type CHECK allows ip/domain/hash_md5/hash_sha256/url
+    only) are DROPPED here, before the insert loop. They used to reach the
+    DB and fail per-row against the CHECK — a warning every refresh.
+    """
     if not iocs:
         return 0
 
+    rows = []
+    dropped = 0
+    for ioc in iocs:
+        ioc_type = _map_ioc_type(ioc.get("type", ""))
+        ioc_value = ioc.get("value", ioc.get("url", ioc.get("ip", "")))
+        if not ioc_type or not ioc_value:
+            dropped += 1
+            continue
+        rows.append(
+            (
+                ioc_type,
+                ioc_value,
+                source,
+                ioc.get("threat_type", ioc.get("threat", "malware")),
+                ioc.get("confidence", 80),
+                json.dumps(ioc.get("metadata", {})),
+            )
+        )
+    if dropped:
+        log.info(
+            "iocs_dropped_unmapped_type_or_empty",
+            source=source,
+            dropped=dropped,
+            to_cache=len(rows),
+        )
+    if not rows:
+        return 0
+
     pool = await get_pool()
-    total_cached = 0
-
+    upsert_sql = """
+        INSERT INTO threat_intel (
+            ioc_type, ioc_value, source, threat_type, confidence, metadata
+        ) VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (ioc_type, ioc_value, source) DO UPDATE
+        SET last_seen = NOW(), fetched_at = NOW(),
+            confidence = GREATEST(threat_intel.confidence, $5)
+    """
     async with pool.acquire() as conn:
-        for ioc in iocs:
+        try:
+            await conn.executemany(upsert_sql, rows)
+            return len(rows)
+        except Exception as e:
+            log.warning(
+                "ioc_bulk_upsert_failed_falling_back_per_row",
+                source=source,
+                rows=len(rows),
+                error=str(e),
+            )
+        total_cached = 0
+        for row in rows:
             try:
-                ioc_type = _map_ioc_type(ioc.get("type", ""))
-                ioc_value = ioc.get("value", ioc.get("url", ioc.get("ip", "")))
-                if not ioc_type or not ioc_value:
-                    continue
-
-                await conn.execute(
-                    """
-                    INSERT INTO threat_intel (
-                        ioc_type, ioc_value, source, threat_type, confidence, metadata
-                    ) VALUES ($1, $2, $3, $4, $5, $6)
-                    ON CONFLICT (ioc_type, ioc_value, source) DO UPDATE
-                    SET last_seen = NOW(), fetched_at = NOW(),
-                        confidence = GREATEST(threat_intel.confidence, $5)
-                    """,
-                    ioc_type,
-                    ioc_value,
-                    source,
-                    ioc.get("threat_type", ioc.get("threat", "malware")),
-                    ioc.get("confidence", 80),
-                    json.dumps(ioc.get("metadata", {})),
-                )
+                await conn.execute(upsert_sql, *row)
                 total_cached += 1
             except Exception as e:
-                log.warning("ioc_cache_failed", value=ioc.get("value", ""), error=str(e))
+                log.warning("ioc_cache_failed", value=row[1], error=str(e))
 
-    return total_cached
+        return total_cached
 
 
 def _map_ioc_type(otx_type: str) -> str:
-    """Map OTX indicator types to our ioc_type enum."""
+    """Map OTX indicator types to our ioc_type enum.
+
+    Types with no DB value ("email" was mapped to a value the CHECK
+    rejects, AUD-053) map to "" — cache_iocs_bulk drops them pre-insert.
+    """
     mapping = {
         "IPv4": "ip",
         "IPv6": "ip",
@@ -377,7 +410,6 @@ def _map_ioc_type(otx_type: str) -> str:
         "uri": "url",
         "FileHash-MD5": "hash_md5",
         "FileHash-SHA256": "hash_sha256",
-        "email": "email",
     }
     return mapping.get(otx_type, "")
 
@@ -638,37 +670,6 @@ async def enrich_ip_with_threat_intel(ip: str) -> Dict[str, Any]:
             else:
                 # P2.5: clean result — negative-cache so repeats skip the API
                 await _abuseipdb_negative_set(ip)
-
-    return enrichment
-
-
-async def enrich_url_with_threat_intel(url: str) -> Dict[str, Any]:
-    """Enrich a URL with URLhaus threat intel data."""
-    enrichment: Dict[str, Any] = {}
-
-    # Check local cache first
-    cached = await check_ioc_match("url", url)
-    if cached:
-        enrichment["threat_intel"] = {
-            "match": True,
-            "source": cached.get("source", "unknown"),
-            "threat_type": cached.get("threat_type"),
-            "confidence": cached.get("confidence", 0),
-        }
-    else:
-        # Check URLhaus live
-        urlhaus = URLhausClient()
-        result = await urlhaus.check_url(url)
-        if result:
-            enrichment["threat_intel"] = {
-                "match": True,
-                "source": "urlhaus",
-                "threat_type": result.get("threat", "unknown"),
-                "confidence": 80,
-                "tags": result.get("tags", []),
-            }
-            # Cache for future lookups
-            await cache_ioc("url", url, "urlhaus", result.get("threat", "malware"), 80)
 
     return enrichment
 
