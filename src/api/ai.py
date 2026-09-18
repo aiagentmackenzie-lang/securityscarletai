@@ -8,13 +8,14 @@ GET  /api/v1/ai/ueba/{user}   — Get UEBA anomaly score for user
 POST /api/v1/ai/explain/{id}  — Generate AI explanation for alert
 """
 
+import asyncio
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from src.ai.alert_explanation import explain_alert
-from src.ai.alert_triage import AlertTriageModel, check_auto_train, get_triage_model
+from src.ai.alert_triage import check_auto_train, get_triage_model
 from src.ai.ueba import get_ueba
 from src.api.auth import require_role
 from src.api.rate_limit import LIMIT_LLM, limiter, user_or_ip_key
@@ -24,6 +25,35 @@ from src.db.connection import get_pool
 log = get_logger("api.ai")
 
 router = APIRouter(tags=["ai"])
+
+# AUD-044: training runs in a detached background task — /ai/train returns
+# immediately and clients poll GET /ai/status (training_in_progress). The
+# old shape ran BOTH trainers inline in the request (the triage trainer
+# alone is up to ~7k sequential feature queries + CV) while an admin waited.
+_training_task: asyncio.Task[None] | None = None
+
+
+def _training_in_progress() -> bool:
+    return _training_task is not None and not _training_task.done()
+
+
+async def _run_background_training(min_samples: int) -> None:
+    """The /ai/train background body: train triage, then UEBA.
+
+    Every failure is logged — never raised into a request path (the task is
+    detached, so an escape would surface as an unretrieved exception)."""
+    try:
+        triage_model = await get_triage_model(train_if_missing=False)
+        triage_success = await triage_model.train(min_samples=min_samples)
+        ueba = await get_ueba(train_if_missing=False)
+        ueba_success = await ueba.train()
+        log.info(
+            "ai_train_background_complete",
+            triage_success=triage_success,
+            ueba_success=ueba_success,
+        )
+    except Exception as e:
+        log.error("ai_train_background_failed", error=str(e))
 
 
 class TrainRequest(BaseModel):
@@ -47,6 +77,7 @@ class StatusResponse(BaseModel):
     triage: dict
     ueba: dict
     ollama_available: bool | None = None
+    training_in_progress: bool = False
 
 
 class TriageResponse(BaseModel):
@@ -97,29 +128,27 @@ async def train_models(
     request: TrainRequest = TrainRequest(),
     _user: dict = Depends(require_role("admin")),
 ):
-    """Train triage model and UEBA baseline on historical data."""
+    """Trigger background training of the triage model and UEBA baseline.
+
+    AUD-044: the trainers used to run inline in the request — an admin
+    waited on the full run. Training now starts a detached background task
+    and returns immediately; poll GET /ai/status (training_in_progress)
+    for completion, and read the model metrics from the same status
+    payload once done."""
+    global _training_task
     log.info("ai_train_request", min_samples=request.min_samples, user=_user.get("sub"))
 
-    # Train triage model
-    triage_model = await get_triage_model()
-    triage_success = await triage_model.train(min_samples=request.min_samples)
-
-    # Train UEBA model
-    ueba = await get_ueba()
-    ueba_success = await ueba.train()
-
-    if triage_success or ueba_success:
-        return TrainResponse(
-            success=True,
-            message="Models trained successfully",
-            samples=triage_model.training_samples,
-            accuracy=triage_model.training_accuracy,
-        )
-    else:
+    if _training_in_progress():
         return TrainResponse(
             success=False,
-            message="Insufficient data for training. Need more resolved alerts and user activity.",
+            message="Training already in progress — poll GET /api/v1/ai/status.",
         )
+
+    _training_task = asyncio.create_task(_run_background_training(request.min_samples))
+    return TrainResponse(
+        success=True,
+        message="Training started in background — poll GET /api/v1/ai/status.",
+    )
 
 
 @router.get(
@@ -131,9 +160,15 @@ async def train_models(
 async def get_status(
     _user: dict = Depends(require_role("viewer")),
 ):
-    """Get status of AI models."""
-    # Triage model status
-    triage = AlertTriageModel()
+    """Get status of AI models.
+
+    AUD-043: the singletons are accessed with train_if_missing=False — the
+    status path (a dashboard poll) must not build a FRESH model per call
+    (joblib load + SHA-256 of the model file every poll) and must never
+    trigger a synchronous training run as a side effect.
+    """
+    # Triage model status (the shared singleton, read-only)
+    triage = await get_triage_model(train_if_missing=False)
     triage_status = triage.get_status()
 
     # V2 (Epic 3) — attach latest triage_model_provenance row if reachable.
@@ -145,8 +180,8 @@ async def get_status(
         provenance = None
     triage_status["provenance"] = provenance
 
-    # UEBA model status
-    ueba = await get_ueba()
+    # UEBA model status (the shared singleton, read-only)
+    ueba = await get_ueba(train_if_missing=False)
     ueba_status = ueba.get_status()
 
     # Check Ollama availability — via the CACHED probe (P3.4), same 60s
@@ -161,6 +196,7 @@ async def get_status(
         triage=triage_status,
         ueba=ueba_status,
         ollama_available=ollama_available,
+        training_in_progress=_training_in_progress(),
     )
 
 

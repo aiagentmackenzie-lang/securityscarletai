@@ -4,7 +4,7 @@ AI-powered alert analysis using Ollama.
 Analyzes alert evidence and generates:
 - Natural language summary of the threat
 - Risk score (0-100) based on context
-- Recommended response actions
+- Verdict + recommended response actions + reasoning (all persisted — AUD-030)
 - False positive likelihood assessment
 
 Uses shared ollama_client for consistent timeout/error handling/fallback
@@ -88,8 +88,8 @@ async def analyze_alert(
     Send alert to Ollama for AI analysis via shared ollama_client.
 
     Returns parsed analysis dict or None on failure.
-    Uses consistent timeout from settings (OLLAMA_TIMEOUT) and
-    returns None (not FALLBACK_MESSAGE) so callers can skip enrichment.
+    Uses consistent timeout from settings (OLLAMA_TIMEOUT) and returns None
+    (never a fallback message) so callers can skip enrichment.
     """
     prompt = build_prompt(rule_name, severity, host_name, evidence)
 
@@ -104,13 +104,20 @@ async def analyze_alert(
         log.warning("ai_analyzer_query_failed", alert_id=alert_id)
         return None
 
-    # Fallback means Ollama is down — return None so enrichment is skipped.
-    # query_llm returns an LLMResult; detect fallback via the structured
-    # `fallback_used` flag or the canonical fallback text.
-    from src.ai.ollama_client import FALLBACK_MESSAGE
-
-    if raw_response.fallback_used or raw_response.text == FALLBACK_MESSAGE:
-        log.warning("ai_analyzer_ollama_unavailable", alert_id=alert_id)
+    # Any non-ollama source means the LLM call failed — return None so
+    # enrichment is skipped. AUD-029: analyze_alert passes NO fallback_text,
+    # so an outage arrives as source="error" (fallback_used=False,
+    # text="") — the old `fallback_used or text == FALLBACK_MESSAGE` checks
+    # were unreachable on this path and the outage was misattributed as
+    # ai_parse_failed (raw="" logged). Branching on the structured source
+    # attributes the failure honestly.
+    if raw_response.source != "ollama":
+        log.warning(
+            "ai_analyzer_ollama_unavailable",
+            alert_id=alert_id,
+            source=raw_response.source,
+            error=raw_response.error,
+        )
         return None
 
     # Parse structured JSON from response
@@ -140,9 +147,19 @@ async def analyze_alert(
 
 
 async def enrich_alert(alert_id: int, analysis: dict) -> None:
-    """Write AI analysis back to the alert in the database."""
+    """Write AI analysis back to the alert in the database.
+
+    AUD-030: the LLM is asked for (and paid for) verdict / response steps /
+    reasoning — persist them instead of discarding them. The alert detail
+    endpoints read alerts rows with SELECT *, so the persisted fields ride
+    along to the API/dashboard automatically.
+    """
     if not analysis:
         return
+
+    verdict = analysis.get("verdict")
+    reasoning = analysis.get("reasoning")
+    response_steps = analysis.get("response")
 
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -151,12 +168,23 @@ async def enrich_alert(alert_id: int, analysis: dict) -> None:
             UPDATE alerts
             SET ai_summary = $1,
                 risk_score = $2,
+                ai_verdict = $3,
+                ai_reasoning = $4,
+                ai_response = $5::jsonb,
                 updated_at = NOW()
-            WHERE id = $3
+            WHERE id = $6
             """,
             analysis.get("summary", ""),
             analysis.get("risk_score", 50),
+            str(verdict) if verdict is not None else None,
+            str(reasoning) if reasoning is not None else None,
+            json.dumps(response_steps, default=str) if response_steps is not None else None,
             alert_id,
         )
 
-        log.info("alert_enriched", alert_id=alert_id, summary=analysis.get("summary", "")[:80])
+        log.info(
+            "alert_enriched",
+            alert_id=alert_id,
+            summary=analysis.get("summary", "")[:80],
+            verdict=verdict,
+        )

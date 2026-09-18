@@ -159,7 +159,12 @@ class AlertTriageModel:
             log.info("triage_model_saved", hash=model_hash[:16])
 
     async def extract_features(self, alert_id: int) -> Optional[List[float]]:
-        """Extract feature vector from an alert with real feature engineering."""
+        """Extract feature vector for ONE alert (7 queries).
+
+        Kept for the single-alert path (predict); bulk consumers (train,
+        get_priority_queue) use extract_features_batch — AUD-025: the same
+        feature math via 7 grouped queries for the WHOLE batch instead of
+        7 queries per alert."""
         pool = await get_pool()
         async with pool.acquire() as conn:
             # Get alert details
@@ -170,34 +175,11 @@ class AlertTriageModel:
             if not alert:
                 return None
 
-            # --- Basic features ---
-
-            # Severity score
-            severity_map = {
-                "critical": 1.0,
-                "high": 0.8,
-                "medium": 0.5,
-                "low": 0.2,
-                "info": 0.0,
-            }
-            severity_score = severity_map.get(
-                alert["severity"].lower() if alert["severity"] else "info", 0.0
-            )
-
-            # Hour of day (normalized 0-1)
-            alert_time = alert["time"]
-            if isinstance(alert_time, str):
-                alert_time = datetime.fromisoformat(alert_time.replace("Z", "+00:00"))
-            hour_of_day = alert_time.hour if hasattr(alert_time, "hour") else 12
-
-            # Rule hit count (how often this rule fires)
             rule_hits = await conn.fetchval(
                 "SELECT COUNT(*) FROM alerts WHERE rule_id = $1",
                 alert["rule_id"],
             )
-            rule_hit_normalized = min((rule_hits or 0) / 100, 1.0)
 
-            # Host alert count (24h)
             host_alerts = await conn.fetchval(
                 """
                 SELECT COUNT(*) FROM alerts
@@ -205,24 +187,7 @@ class AlertTriageModel:
                 """,
                 alert["host_name"],
             )
-            host_alert_normalized = min((host_alerts or 0) / 20, 1.0)
 
-            # Asset risk score (P2-8): the `assets` table was a never-populated
-            # placeholder and has been dropped from the schema. Asset criticality
-            # is therefore NOT modeled -- this feature is a constant 50.0 (the
-            # previous COALESCE default, which is exactly what the empty-table
-            # read always evaluated to). Keeping the constant preserves the
-            # triage feature-vector shape (11 features) without a model retrain;
-            # wiring real asset criticality would require populating an assets
-            # inventory + retraining.
-            asset_risk = 50.0
-            asset_risk_normalized = asset_risk / 100.0
-
-            # MITRE technique count
-            mitre_techniques = alert["mitre_techniques"] or []
-            mitre_normalized = min(len(mitre_techniques) / 5, 1.0)
-
-            # Time since last similar alert (in hours, normalized)
             last_similar = await conn.fetchval(
                 """
                 SELECT MAX(time) FROM alerts
@@ -232,25 +197,7 @@ class AlertTriageModel:
                 alert_id,
                 alert["time"],
             )
-            if last_similar:
-                delta = alert_time - last_similar
-                if hasattr(delta, "total_seconds"):
-                    seconds = delta.total_seconds()
-                    time_since_hours = max(seconds / 3600, 0)
-                else:
-                    time_since_hours = 1.0
-            else:
-                time_since_hours = 168.0  # 1 week = "never seen before"
-            time_since_normalized = min(time_since_hours / 168, 1.0)
 
-            # Threat intel match
-            has_ti = (
-                1.0 if alert.get("evidence") and "threat_intel" in str(alert["evidence"]) else 0.0
-            )
-
-            # --- Real UEBA features ---
-
-            # 1. Command diversity (Shannon entropy of process names)
             process_names = await conn.fetch(
                 """
                 SELECT DISTINCT process_name FROM logs
@@ -261,12 +208,7 @@ class AlertTriageModel:
                 """,
                 alert["host_name"],
             )
-            command_entropy = _shannon_entropy(
-                [r["process_name"] for r in process_names if r["process_name"]]
-            )
 
-            # 2. Session duration
-            # Find first and last event for this host in the last 24h
             session_times = await conn.fetchrow(
                 """
                 SELECT MIN(time) as first_event, MAX(time) as last_event
@@ -276,19 +218,7 @@ class AlertTriageModel:
                 """,
                 alert["host_name"],
             )
-            if session_times and session_times["first_event"] and session_times["last_event"]:
-                first = session_times["first_event"]
-                last = session_times["last_event"]
-                if hasattr(first, "timestamp") and hasattr(last, "timestamp"):
-                    session_hours = (last.timestamp() - first.timestamp()) / 3600
-                else:
-                    session_hours = 8.0  # Default 8h
-            else:
-                session_hours = 0.0
-            session_duration_normalized = min(session_hours / 24, 1.0)
 
-            # 3. Login hour deviation (deviation from typical 9-5)
-            # Check actual login time distribution for this host
             typical_hour = await conn.fetchval(
                 """
                 SELECT MODE() WITHIN GROUP (ORDER BY EXTRACT(HOUR FROM time))
@@ -299,31 +229,271 @@ class AlertTriageModel:
                 """,
                 alert["host_name"],
             )
-            if typical_hour is not None:
-                hour_deviation = abs(hour_of_day - float(typical_hour))
-                if hour_deviation > 12:
-                    hour_deviation = 24 - hour_deviation
-                login_hour_deviation = hour_deviation / 12.0  # Normalize to 0-1
-            else:
-                # No login history — use deviation from 9 AM (typical work hour)
-                hour_deviation = abs(hour_of_day - 9)
-                if hour_deviation > 12:
-                    hour_deviation = 24 - hour_deviation
-                login_hour_deviation = hour_deviation / 12.0
 
-            return [
-                severity_score,
-                hour_of_day / 24.0,
-                rule_hit_normalized,
-                host_alert_normalized,
-                asset_risk_normalized,
-                mitre_normalized,
-                time_since_normalized,
-                has_ti,
-                command_entropy,
-                session_duration_normalized,
-                login_hour_deviation,
-            ]
+            first_event = session_times["first_event"] if session_times else None
+            last_event = session_times["last_event"] if session_times else None
+
+        return self._features_from_rows(
+            alert_row=alert,
+            rule_hits=rule_hits,
+            host_alerts=host_alerts,
+            last_similar=last_similar,
+            process_names=[r["process_name"] for r in process_names],
+            session_first=first_event,
+            session_last=last_event,
+            typical_hour=typical_hour,
+        )
+
+    @staticmethod
+    def _features_from_rows(
+        *,
+        alert_row: Any,
+        rule_hits: Optional[int],
+        host_alerts: Optional[int],
+        last_similar: Optional[Any],
+        process_names: List[Any],
+        session_first: Optional[Any],
+        session_last: Optional[Any],
+        typical_hour: Optional[float],
+    ) -> List[float]:
+        """The per-alert feature math, from raw query rows (pure, DB-free).
+
+        Single source for BOTH extract_features (7 queries per alert) and
+        extract_features_batch (7 queries per BATCH) — AUD-025. The math is
+        lifted verbatim from the original per-alert implementation.
+        """
+        # --- Basic features ---
+
+        # Severity score
+        severity_map = {
+            "critical": 1.0,
+            "high": 0.8,
+            "medium": 0.5,
+            "low": 0.2,
+            "info": 0.0,
+        }
+        severity = alert_row["severity"]
+        severity_score = severity_map.get(severity.lower() if severity else "info", 0.0)
+
+        # Hour of day (normalized 0-1)
+        alert_time = alert_row["time"]
+        if isinstance(alert_time, str):
+            alert_time = datetime.fromisoformat(alert_time.replace("Z", "+00:00"))
+        hour_of_day = alert_time.hour if hasattr(alert_time, "hour") else 12
+
+        # Rule hit count (how often this rule fires)
+        rule_hit_normalized = min((rule_hits or 0) / 100, 1.0)
+
+        # Host alert count (24h)
+        host_alert_normalized = min((host_alerts or 0) / 20, 1.0)
+
+        # Asset risk score (P2-8): the `assets` table was a never-populated
+        # placeholder and has been dropped from the schema. Asset criticality
+        # is therefore NOT modeled -- this feature is a constant 50.0 (the
+        # previous COALESCE default, which is exactly what the empty-table
+        # read always evaluated to). Keeping the constant preserves the
+        # triage feature-vector shape (11 features) without a model retrain;
+        # wiring real asset criticality would require populating an assets
+        # inventory + retraining.
+        asset_risk = 50.0
+        asset_risk_normalized = asset_risk / 100.0
+
+        # MITRE technique count
+        mitre_techniques = alert_row["mitre_techniques"] or []
+        mitre_normalized = min(len(mitre_techniques) / 5, 1.0)
+
+        # Time since last similar alert (in hours, normalized)
+        if last_similar:
+            delta = alert_time - last_similar
+            if hasattr(delta, "total_seconds"):
+                seconds = delta.total_seconds()
+                time_since_hours = max(seconds / 3600, 0)
+            else:
+                time_since_hours = 1.0
+        else:
+            time_since_hours = 168.0  # 1 week = "never seen before"
+        time_since_normalized = min(time_since_hours / 168, 1.0)
+
+        # Threat intel match
+        evidence = alert_row.get("evidence") if hasattr(alert_row, "get") else alert_row["evidence"]
+        has_ti = 1.0 if evidence and "threat_intel" in str(evidence) else 0.0
+
+        # --- Real UEBA features ---
+
+        # 1. Command diversity (Shannon entropy of process names)
+        command_entropy = _shannon_entropy([p for p in process_names if p])
+
+        # 2. Session duration
+        # First and last event for this host in the last 24h
+        if session_first and session_last:
+            if hasattr(session_first, "timestamp") and hasattr(session_last, "timestamp"):
+                session_hours = (session_last.timestamp() - session_first.timestamp()) / 3600
+            else:
+                session_hours = 8.0  # Default 8h
+        else:
+            session_hours = 0.0
+        session_duration_normalized = min(session_hours / 24, 1.0)
+
+        # 3. Login hour deviation (deviation from typical 9-5)
+        if typical_hour is not None:
+            hour_deviation = abs(hour_of_day - float(typical_hour))
+            if hour_deviation > 12:
+                hour_deviation = 24 - hour_deviation
+            login_hour_deviation = hour_deviation / 12.0  # Normalize to 0-1
+        else:
+            # No login history — use deviation from 9 AM (typical work hour)
+            hour_deviation = abs(hour_of_day - 9)
+            if hour_deviation > 12:
+                hour_deviation = 24 - hour_deviation
+            login_hour_deviation = hour_deviation / 12.0
+
+        return [
+            severity_score,
+            hour_of_day / 24.0,
+            rule_hit_normalized,
+            host_alert_normalized,
+            asset_risk_normalized,
+            mitre_normalized,
+            time_since_normalized,
+            has_ti,
+            command_entropy,
+            session_duration_normalized,
+            login_hour_deviation,
+        ]
+
+    async def extract_features_batch(self, alert_ids: List[int]) -> Dict[int, List[float]]:
+        """Feature vectors for a BATCH of alerts in 7 grouped queries.
+
+        AUD-025: the per-alert path costs 7 round-trips per alert — a train()
+        over 1,000 resolved alerts issued ~7,000 sequential queries. This
+        batches the same feature math over the whole batch (7 queries
+        regardless of N, plus one LATERAL per host capped like the
+        single-alert path). The math lives in _features_from_rows, shared
+        with extract_features.
+        """
+        ids = [int(a) for a in alert_ids]
+        if not ids:
+            return {}
+
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            alert_rows = await conn.fetch(
+                """
+                SELECT id, severity, time, rule_id, host_name,
+                       mitre_techniques, evidence
+                FROM alerts
+                WHERE id = ANY($1::int[])
+                """,
+                ids,
+            )
+            if not alert_rows:
+                return {}
+
+            rule_id_set = {r["rule_id"] for r in alert_rows if r["rule_id"] is not None}
+            rule_hits_by_id: Dict[int, int] = {}
+            if rule_id_set:
+                rows = await conn.fetch(
+                    """
+                    SELECT rule_id, COUNT(*) AS c
+                    FROM alerts
+                    WHERE rule_id = ANY($1::int[])
+                    GROUP BY rule_id
+                    """,
+                    sorted(rule_id_set),
+                )
+                rule_hits_by_id = {r["rule_id"]: r["c"] for r in rows}
+
+            host_set = {r["host_name"] for r in alert_rows}
+
+            host_alert_rows = await conn.fetch(
+                """
+                SELECT host_name, COUNT(*) AS c
+                FROM alerts
+                WHERE host_name = ANY($1::text[])
+                  AND time > NOW() - INTERVAL '24 hours'
+                GROUP BY host_name
+                """,
+                sorted(host_set),
+            )
+            host_alerts_by_host = {r["host_name"]: r["c"] for r in host_alert_rows}
+
+            last_similar_rows = await conn.fetch(
+                """
+                SELECT a.id AS alert_id, MAX(p.time) AS last_similar
+                FROM alerts a
+                LEFT JOIN alerts p
+                    ON p.rule_id = a.rule_id
+                    AND p.id <> a.id
+                    AND p.time < a.time
+                WHERE a.id = ANY($1::int[])
+                GROUP BY a.id
+                """,
+                ids,
+            )
+            last_similar_by_id = {r["alert_id"]: r["last_similar"] for r in last_similar_rows}
+
+            process_rows = await conn.fetch(
+                """
+                SELECT h.host_name, p.process_name
+                FROM (SELECT DISTINCT host_name FROM alerts WHERE id = ANY($1::int[])) h
+                CROSS JOIN LATERAL (
+                    SELECT DISTINCT process_name
+                    FROM logs
+                    WHERE host_name = h.host_name
+                      AND event_category = 'process'
+                      AND time > NOW() - INTERVAL '1 hour'
+                    LIMIT 50
+                ) p
+                """,
+                ids,
+            )
+            process_names_by_host: Dict[str, List[Any]] = {}
+            for r in process_rows:
+                process_names_by_host.setdefault(r["host_name"], []).append(r["process_name"])
+
+            session_rows = await conn.fetch(
+                """
+                SELECT host_name, MIN(time) AS first_event, MAX(time) AS last_event
+                FROM logs
+                WHERE host_name = ANY($1::text[])
+                  AND time > NOW() - INTERVAL '24 hours'
+                GROUP BY host_name
+                """,
+                sorted(host_set),
+            )
+            session_by_host = {
+                r["host_name"]: (r["first_event"], r["last_event"]) for r in session_rows
+            }
+
+            typical_hour_rows = await conn.fetch(
+                """
+                SELECT host_name,
+                       MODE() WITHIN GROUP (ORDER BY EXTRACT(HOUR FROM time)) AS typical_hour
+                FROM logs
+                WHERE host_name = ANY($1::text[])
+                  AND event_category = 'authentication'
+                  AND time > NOW() - INTERVAL '30 days'
+                GROUP BY host_name
+                """,
+                sorted(host_set),
+            )
+            typical_hour_by_host = {r["host_name"]: r["typical_hour"] for r in typical_hour_rows}
+
+        features: Dict[int, List[float]] = {}
+        for alert in alert_rows:
+            host = alert["host_name"]
+            first_event, last_event = session_by_host.get(host, (None, None))
+            features[alert["id"]] = self._features_from_rows(
+                alert_row=alert,
+                rule_hits=rule_hits_by_id.get(alert["rule_id"]),
+                host_alerts=host_alerts_by_host.get(host),
+                last_similar=last_similar_by_id.get(alert["id"]),
+                process_names=process_names_by_host.get(host, []),
+                session_first=first_event,
+                session_last=last_event,
+                typical_hour=typical_hour_by_host.get(host),
+            )
+        return features
 
     async def train(self, min_samples: int = 50) -> bool:
         """
@@ -351,12 +521,14 @@ class AlertTriageModel:
                 log.warning("triage_training_insufficient_samples", count=len(rows))
                 return False
 
-        # Extract features for each alert
+        # AUD-025: one batched extraction (7 queries TOTAL) instead of the
+        # per-alert loop (~7,000 sequential queries for a 1,000-alert train).
+        features_by_id = await self.extract_features_batch([row["id"] for row in rows])
         X = []
         y = []
 
         for row in rows:
-            features = await self.extract_features(row["id"])
+            features = features_by_id.get(row["id"])
             if features:
                 X.append(features)
                 # Label: true_positive (1) vs false_positive (0)
@@ -523,9 +695,16 @@ class AlertTriageModel:
                 limit,
             )
 
+        # AUD-025: one batched extraction instead of per-alert predict()
+        # (which re-extracted 7 features per alert on its own round-trips).
+        features_by_id = await self.extract_features_batch([row["id"] for row in rows])
+
         scored_alerts = []
         for row in rows:
-            prediction = await self.predict(row["id"])
+            features = features_by_id.get(row["id"])
+            if not features:
+                continue
+            prediction = self._predict_from_features(features)
             scored_alerts.append(
                 {
                     **dict(row),
@@ -727,6 +906,7 @@ class AlertTriageModel:
                 log.warning("triage_v2_prf_compute_failed", error=str(e))
 
         persisted_path: Optional[str] = None
+        feature_importances: Dict[str, float] = {}
         if accepted:
             await asyncio.to_thread(calibrated.fit, X_array, y_array)
             self.model = calibrated
@@ -736,6 +916,10 @@ class AlertTriageModel:
             self.training_accuracy = cv_accuracy
             self._save_model(accuracy=cv_accuracy)
             persisted_path = str(MODEL_PATH) if MODEL_PATH.exists() else None
+            # AUD-033: persist the REAL per-feature importances — the old
+            # path wrote a hardcoded {} into the provenance row, so the
+            # feature_importances column was always NULL (dead data path).
+            feature_importances = _extract_feature_importances(calibrated)
         else:
             log.warning(
                 "triage_v2_below_threshold",
@@ -763,6 +947,7 @@ class AlertTriageModel:
                 model_path=persisted_path,
                 fold_accuracies=fold_accuracies,
                 features=self.FEATURES,
+                feature_importances=feature_importances or None,
             )
             if accepted and provenance_row_id is not None:
                 await _write_alert_labels(run_id=run_id, source_meta=source_meta)
@@ -884,12 +1069,17 @@ async def check_auto_train() -> bool:
 _triage_model: Optional[AlertTriageModel] = None
 
 
-async def get_triage_model() -> AlertTriageModel:
-    """Get singleton triage model instance."""
+async def get_triage_model(*, train_if_missing: bool = True) -> AlertTriageModel:
+    """Get singleton triage model instance.
+
+    train_if_missing=False keeps the accessor READ-ONLY: a status/polling
+    path must never trigger a synchronous multi-second training run as a
+    side effect (AUD-043). Default behavior (True) is unchanged for the
+    callers that rely on lazy-train."""
     global _triage_model
     if _triage_model is None:
         _triage_model = AlertTriageModel()
-        if not _triage_model.is_trained:
+        if train_if_missing and not _triage_model.is_trained:
             await _triage_model.train()
     return _triage_model
 
@@ -897,6 +1087,29 @@ async def get_triage_model() -> AlertTriageModel:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # V2 (Epic 3) — module-level helpers (CSV loader, provenance writer)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+def _extract_feature_importances(calibrated: Any) -> Dict[str, float]:
+    """AUD-033: real per-feature importances for the provenance row.
+
+    CalibratedClassifierCV (isotonic, cv=K) wraps K fitted base estimators
+    (sklearn 1.8: .calibrated_classifiers_[i].estimator); each is a full
+    RandomForest fit on a calibration fold, so the importances are averaged
+    across them. Returns {} when sklearn's internal shape changes — the
+    provenance column stays NULL rather than being faked (the old path
+    hardcoded {})."""
+    importances: List[np.ndarray] = []
+    for cal in getattr(calibrated, "calibrated_classifiers_", []):
+        imp = getattr(getattr(cal, "estimator", None), "feature_importances_", None)
+        if imp is not None:
+            importances.append(np.asarray(imp, dtype=float))
+    if not importances:
+        return {}
+    names = AlertTriageModel.FEATURES
+    mean = np.mean(np.vstack(importances), axis=0)
+    if len(mean) != len(names):
+        return {}
+    return {str(name): round(float(v), 6) for name, v in zip(names, mean, strict=True)}
 
 
 def _db_reachable(
@@ -983,6 +1196,7 @@ async def _write_provenance(
     model_path: Optional[str],
     fold_accuracies: List[float],
     features: List[str],
+    feature_importances: Optional[Dict[str, float]] = None,
 ) -> Optional[int]:
     """
     Insert one row into triage_model_provenance.
@@ -997,7 +1211,6 @@ async def _write_provenance(
     feature_importances, features) were present in the original 391e7d1
     table.
     """
-    feature_importances: Dict[str, float] = {}
     n_pos = sum(1 for r in source_meta if r["label"] == "true_positive")
     n_neg = sum(1 for r in source_meta if r["label"] == "false_positive")
 

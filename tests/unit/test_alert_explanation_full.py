@@ -15,13 +15,13 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from src.ai.alert_explanation import (
-    SYSTEM_PROMPT,
     TEMPLATE_EXPLANATIONS,
     _fallback_investigation_steps,
     explain_alert,
     get_template_explanation,
 )
 from src.ai.ollama_client import LLMResult
+from src.ai.prompts import ALERT_EXPLANATION_SYSTEM as SYSTEM_PROMPT
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TEMPLATE_EXPLANATIONS structure

@@ -51,8 +51,13 @@ class TestDashboardUrlFromSettings:
 class TestAiStatusCachedProbe:
     @pytest.mark.asyncio
     async def test_get_status_uses_cached_probe_not_fresh_call(self):
+        # AUD-043: the endpoint now uses the shared singleton accessor with
+        # train_if_missing=False — patch the accessor, not the constructor.
+        model_instance = MagicMock()
+        model_instance.get_status.return_value = {"is_trained": False}
+        model_instance.latest_provenance = AsyncMock(return_value=None)
         with (
-            patch("src.api.ai.AlertTriageModel") as MockModel,
+            patch("src.api.ai.get_triage_model", new_callable=AsyncMock) as mock_get_model,
             patch("src.api.ai.get_ueba") as mock_ueba,
             patch(
                 "src.api.health._cached_ollama_check",
@@ -61,9 +66,7 @@ class TestAiStatusCachedProbe:
             ) as probe,
             patch("src.ai.ollama_client.is_ollama_available", new_callable=AsyncMock) as fresh,
         ):
-            instance = MockModel.return_value
-            instance.get_status.return_value = {"is_trained": False}
-            instance.latest_provenance = AsyncMock(return_value=None)
+            mock_get_model.return_value = model_instance
             ueba_instance = MagicMock()
             ueba_instance.get_status.return_value = {"is_trained": False}
             mock_ueba.return_value = ueba_instance
@@ -78,8 +81,11 @@ class TestAiStatusCachedProbe:
 
     @pytest.mark.asyncio
     async def test_get_status_reflects_probe_false(self):
+        model_instance = MagicMock()
+        model_instance.get_status.return_value = {"is_trained": False}
+        model_instance.latest_provenance = AsyncMock(return_value=None)
         with (
-            patch("src.api.ai.AlertTriageModel") as MockModel,
+            patch("src.api.ai.get_triage_model", new_callable=AsyncMock) as mock_get_model,
             patch("src.api.ai.get_ueba") as mock_ueba,
             patch(
                 "src.api.health._cached_ollama_check",
@@ -87,9 +93,7 @@ class TestAiStatusCachedProbe:
                 return_value=(False, None, "unreachable"),
             ),
         ):
-            instance = MockModel.return_value
-            instance.get_status.return_value = {"is_trained": False}
-            instance.latest_provenance = AsyncMock(return_value=None)
+            mock_get_model.return_value = model_instance
             ueba_instance = MagicMock()
             ueba_instance.get_status.return_value = {}
             mock_ueba.return_value = ueba_instance

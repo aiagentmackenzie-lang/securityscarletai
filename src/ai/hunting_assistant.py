@@ -51,7 +51,10 @@ HUNTING_QUERY_TEMPLATES: List[Dict[str, Any]] = [
     {
         "id": "lateral_movement_service_accounts",
         "name": "Lateral Movement - New Service Accounts",
-        "category": "persistence",
+        "category": "lateral_movement",  # AUD-035: was 'persistence' — the
+        # only carrier of the category the alert-surfacing filter checked;
+        # the category now names what the hunt is. The hunt_from_alert
+        # filter checks BOTH categories, so surfacing is unchanged.
         "mitre": ["T1078", "T1021"],
         "sql": (
             "SELECT DISTINCT user_name, host_name, "

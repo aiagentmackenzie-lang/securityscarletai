@@ -15,7 +15,6 @@ Fail-closed posture:
 
 from __future__ import annotations
 
-import asyncio
 import hmac
 import socket
 import time
@@ -27,6 +26,7 @@ from fastapi.responses import JSONResponse
 
 from src.config.logging import get_logger, setup_logging
 from src.config.settings import settings
+from src.config.version import APP_VERSION
 from src.ingestion.ai_usage import build_ai_usage_event, emit_ai_usage_event
 from src.mcp_server import protocol as rpc
 from src.mcp_server.tools import TOOL_IMPLEMENTATIONS, call_tool, tool_catalog, verify_scoped_role
@@ -41,15 +41,14 @@ _state: dict = {
     "scope_violations": [],
 }
 
-# Bounded tool concurrency (created in the lifespan, inside the event loop).
-_tool_semaphore = None
+# AUD-031: the app-level _tool_semaphore that used to be created here was
+# dead — never acquired; the REAL bounded-concurrency cap is tools.py's
+# module-level _tool_semaphore (acquired in call_tool).
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _tool_semaphore  # noqa: PLW0603
     setup_logging()
-    _tool_semaphore = asyncio.Semaphore(2)
 
     # Auth gate: no token -> no service.
     if settings.mcp_bearer_token is None:
@@ -89,7 +88,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="SecurityScarletAI MCP Server",
-    version="0.1.0",
+    version=APP_VERSION,  # AUD-037: single source, not a stale literal
     lifespan=lifespan,
     docs_url=None,
     redoc_url=None,
@@ -208,7 +207,7 @@ async def mcp_endpoint(request: "Request") -> "JSONResponse":
                 {
                     "protocolVersion": rpc.SUPPORTED_PROTOCOL_VERSION,
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "securityscarletai", "version": "0.1.0"},
+                    "serverInfo": {"name": "securityscarletai", "version": APP_VERSION},
                 },
             ),
             headers=headers,

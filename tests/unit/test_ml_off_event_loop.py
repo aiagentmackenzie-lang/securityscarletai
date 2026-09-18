@@ -65,7 +65,11 @@ async def test_v1_train_fit_runs_off_event_loop_thread():
             "src.ai.alert_triage.get_pool",
             AsyncMock(return_value=_mock_pool(_label_rows(60))),
         ),
-        patch.object(model, "extract_features", AsyncMock(return_value=[0.5] * 11)),
+        patch.object(
+            model,
+            "extract_features_batch",
+            AsyncMock(return_value={i: [0.5] * 11 for i in range(60)}),
+        ),
         patch.object(model, "_save_model"),
         patch.object(RandomForestClassifier, "fit", recording_fit),
     ):
@@ -127,15 +131,15 @@ async def test_ueba_train_fit_runs_off_event_loop_thread():
         "session_duration_minutes": 30.0,
     }
 
-    async def fake_features(user_name, days=7):
-        return dict(features)
+    async def fake_features_batch(user_names, days=7):
+        return {u: dict(features) for u in user_names}
 
     with (
         patch(
             "src.ai.ueba.get_pool",
             AsyncMock(return_value=_mock_pool([{"user_name": f"user{i}"} for i in range(5)])),
         ),
-        patch.object(engine, "extract_user_features", fake_features),
+        patch.object(engine, "extract_user_features_batch", fake_features_batch),
         patch.object(engine, "_save_model"),
         patch.object(IsolationForest, "fit", recording_fit),
     ):

@@ -141,10 +141,27 @@ class TestDeadEndValidation:
         raw = [
             {"hypothesis": "h", "status": "supported"},
             {"hypothesis": "h", "status": "RULED_OUT"},  # case-normalized
+            {"hypothesis": "h", "status": "UNRESOLVED"},  # AUD-027: accepted, case-normalized
             {"hypothesis": "h", "status": "bogus"},  # dropped
         ]
         assessed = validate_hypotheses_assessed(raw, ["h"])
-        assert [a["status"] for a in assessed] == ["supported", "ruled_out"]
+        assert [a["status"] for a in assessed] == ["supported", "ruled_out", "unresolved"]
+
+    def test_unresolved_dead_end_record_is_kept(self):
+        """AUD-027: the verdict prompt documents supported/ruled_out/
+        unresolved; 'unresolved' hypotheses (honest dead ends) must be
+        kept, not silently dropped."""
+        raw = [
+            {
+                "hypothesis": "data staged in /tmp",
+                "status": "unresolved",
+                "evidence": "insufficient log retention to decide",
+            },
+        ]
+        assessed = validate_hypotheses_assessed(raw, ["data staged in /tmp"])
+        assert len(assessed) == 1
+        assert assessed[0]["status"] == "unresolved"
+        assert assessed[0]["evidence"] == "insufficient log retention to decide"
 
     def test_cap_and_malformed_entries(self):
         plan = [f"h{i}" for i in range(3)]
@@ -261,24 +278,27 @@ class TestAgreementStats:
                 "verdict_draft": '{"verdict": "false_positive"}',
             },
         ]
-        outcomes = {
-            3: {"alert_id": 3, "disposition": "true_positive"},
-            4: {"alert_id": 4, "disposition": "false_positive"},
+        dispositions = {
+            3: "true_positive",
+            4: "false_positive",
         }
         conn = AsyncMock()
         conn.fetch = AsyncMock(return_value=runs)
 
-        async def _outcome(alert_id):
-            return outcomes.get(alert_id)
-
         with (
             patch("src.agents.memory.get_pool", return_value=_pool_mock(conn)),
-            patch("src.agents.memory.outcome_for_alert", AsyncMock(side_effect=_outcome)),
+            patch(
+                "src.agents.memory._dispositions_for_alerts",
+                AsyncMock(return_value=dispositions),
+            ) as mock_dispositions,
         ):
             stats = await agreement_stats(720)
         assert stats["measured"] == 2
         assert stats["agreed"] == 2
         assert stats["agreement_rate"] == 1.0
+        # AUD-025: the dispositions for ALL runs' alerts arrive in ONE
+        # batched call — not one outcome_for_alert round-trip per run.
+        mock_dispositions.assert_awaited_once_with([3, 4])
 
 
 class TestOutcomeEndpoint:

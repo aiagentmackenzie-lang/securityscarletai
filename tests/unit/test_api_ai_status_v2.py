@@ -18,10 +18,20 @@ import pytest
 class TestGetStatusIncludesProvenance:
     @pytest.mark.asyncio
     async def test_provenance_none_when_db_unreachable(self):
-        # Stub out everything the endpoint calls so we only exercise
-        # the new provenance-attachment branch.
+        # AUD-043: the status path uses the SHARED singleton with
+        # train_if_missing=False — the fresh-model-per-poll shape (joblib
+        # load + SHA-256 on every dashboard poll) is gone, so the tests
+        # patch the accessor, not the constructor.
+        model_instance = MagicMock()
+        model_instance.get_status.return_value = {
+            "is_trained": False,
+            "training_samples": 0,
+            "model_type": "RandomForestClassifier",
+        }
+        model_instance.latest_provenance = AsyncMock(return_value=None)
+
         with (
-            patch("src.api.ai.AlertTriageModel") as MockModel,
+            patch("src.api.ai.get_triage_model", new_callable=AsyncMock) as mock_get_model,
             patch("src.api.ai.get_ueba") as mock_ueba,
             patch(
                 "src.api.health._cached_ollama_check",
@@ -29,13 +39,7 @@ class TestGetStatusIncludesProvenance:
                 return_value=(False, None, "unreachable"),
             ),
         ):
-            instance = MockModel.return_value
-            instance.get_status.return_value = {
-                "is_trained": False,
-                "training_samples": 0,
-                "model_type": "RandomForestClassifier",
-            }
-            instance.latest_provenance = AsyncMock(return_value=None)
+            mock_get_model.return_value = model_instance
             ueba_instance = MagicMock()
             ueba_instance.get_status.return_value = {"is_trained": False}
             mock_ueba.return_value = ueba_instance
@@ -45,6 +49,9 @@ class TestGetStatusIncludesProvenance:
 
             response = await get_status(_user={"sub": "tester", "role": "viewer"})
 
+        # The singletons were accessed READ-ONLY (no training side effect).
+        mock_get_model.assert_awaited_once_with(train_if_missing=False)
+        mock_ueba.assert_awaited_once_with(train_if_missing=False)
         # Existing keys preserved.
         assert response.triage["is_trained"] is False
         assert response.triage["model_type"] == "RandomForestClassifier"
@@ -66,8 +73,12 @@ class TestGetStatusIncludesProvenance:
             "calibrated": True,
             "trained_at": "2026-06-01T00:00:00+00:00",
         }
+        model_instance = MagicMock()
+        model_instance.get_status.return_value = {"is_trained": True, "model_type": "X"}
+        model_instance.latest_provenance = AsyncMock(return_value=sample_provenance)
+
         with (
-            patch("src.api.ai.AlertTriageModel") as MockModel,
+            patch("src.api.ai.get_triage_model", new_callable=AsyncMock) as mock_get_model,
             patch("src.api.ai.get_ueba") as mock_ueba,
             patch(
                 "src.api.health._cached_ollama_check",
@@ -75,9 +86,7 @@ class TestGetStatusIncludesProvenance:
                 return_value=(False, None, "unreachable"),
             ),
         ):
-            instance = MockModel.return_value
-            instance.get_status.return_value = {"is_trained": True, "model_type": "X"}
-            instance.latest_provenance = AsyncMock(return_value=sample_provenance)
+            mock_get_model.return_value = model_instance
             # Use a plain MagicMock for the awaited return value so .get_status()
             # stays synchronous (matching the real UEBA API).
             ueba_instance = MagicMock()
@@ -96,8 +105,12 @@ class TestGetStatusIncludesProvenance:
     async def test_provenance_lookup_exception_yields_none(self):
         # If latest_provenance() raises, the endpoint must swallow it
         # and still return a valid 200 with provenance=None.
+        model_instance = MagicMock()
+        model_instance.get_status.return_value = {"is_trained": False}
+        model_instance.latest_provenance = AsyncMock(side_effect=RuntimeError("db down"))
+
         with (
-            patch("src.api.ai.AlertTriageModel") as MockModel,
+            patch("src.api.ai.get_triage_model", new_callable=AsyncMock) as mock_get_model,
             patch("src.api.ai.get_ueba") as mock_ueba,
             patch(
                 "src.api.health._cached_ollama_check",
@@ -105,9 +118,7 @@ class TestGetStatusIncludesProvenance:
                 return_value=(False, None, "unreachable"),
             ),
         ):
-            instance = MockModel.return_value
-            instance.get_status.return_value = {"is_trained": False}
-            instance.latest_provenance = AsyncMock(side_effect=RuntimeError("db down"))
+            mock_get_model.return_value = model_instance
             ueba_instance = MagicMock()
             ueba_instance.get_status.return_value = {"is_trained": False}
             mock_ueba.return_value = ueba_instance

@@ -21,6 +21,7 @@ plumbing and the train_v2 result shape, plus a static schema check.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from pathlib import Path
@@ -243,6 +244,80 @@ class TestWriteProvenanceParameterBinding:
         assert positional[12] is None
         assert positional[13] is None
         assert positional[14] is None
+
+
+class TestFeatureImportancesPersisted:
+    """AUD-033: the provenance row's feature_importances column must carry
+    the REAL averaged importances — it was a hardcoded {} (always NULL).
+    """
+
+    @pytest.mark.asyncio
+    async def test_write_provenance_binds_importances_when_given(self):
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow = AsyncMock(return_value={"id": 5})
+        mock_acquirer = MagicMock()
+        mock_acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquirer.__aexit__ = AsyncMock(return_value=None)
+        mock_pool_instance = MagicMock()
+        mock_pool_instance.acquire = MagicMock(return_value=mock_acquirer)
+
+        importances = {"severity_score": 0.42, "command_entropy": 0.11}
+
+        with (
+            patch("src.ai.alert_triage._db_reachable", return_value=True),
+            patch("src.ai.alert_triage.get_pool", new_callable=AsyncMock) as mock_pool,
+        ):
+            mock_pool.return_value = mock_pool_instance
+            await _write_provenance(
+                run_id="v2-test-003",
+                source_csv="data/z.csv",
+                source_meta=[],
+                n_samples=0,
+                cv_accuracy=0.9,
+                cv_std=0.01,
+                precision_score=0.9,
+                recall_score=0.9,
+                f1_score=0.9,
+                calibrated=True,
+                accepted=True,
+                model_path=None,
+                fold_accuracies=[0.9],
+                features=AlertTriageModel.FEATURES,
+                feature_importances=importances,
+            )
+
+        positional = mock_conn.fetchrow.await_args.args
+        bound = json.loads(positional[16])  # $16 = feature_importances
+        assert bound == importances
+
+    @pytest.mark.asyncio
+    async def test_train_v2_persists_real_averaged_importances(
+        self, good_csv: Path, tmp_path: Path
+    ):
+        """End-to-end: an accepted train_v2 run must hand real importances
+        (one per feature, positive, summing to ~1) to _write_provenance."""
+        from unittest.mock import patch as _patch
+
+        captured: dict = {}
+
+        async def fake_write_provenance(**kwargs):
+            captured.update(kwargs)
+            return 1
+
+        m = AlertTriageModel(load=False)
+        with (
+            _patch("src.ai.alert_triage.MODEL_DIR", tmp_path / "models"),
+            _patch("src.ai.alert_triage._write_provenance", side_effect=fake_write_provenance),
+            _patch("src.ai.alert_triage._db_reachable", return_value=False),
+        ):
+            result = await m.train_v2(csv_path=good_csv)
+
+        assert result["accepted"] is True
+        assert captured["feature_importances"] is not None
+        importances = captured["feature_importances"]
+        assert set(importances.keys()) == set(AlertTriageModel.FEATURES)
+        assert all(v > 0 for v in importances.values())
+        assert sum(importances.values()) == pytest.approx(1.0, abs=0.05)
 
 
 # ──────────────────────────────────────────────────────────

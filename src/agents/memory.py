@@ -209,12 +209,49 @@ async def link_outcome(run_id: int) -> dict[str, Any] | None:
     return linkage
 
 
+async def _dispositions_for_alerts(alert_ids: list[int]) -> dict[int, Any | None]:
+    """The human disposition for a BATCH of alerts in ONE round-trip
+    (the scorecard precedence). AUD-025: agreement_stats used to call
+    outcome_for_alert per run — up to 200 sequential queries. The SQL is
+    the same precedence join as outcome_for_alert, keyed by ANY(id)."""
+    if not alert_ids:
+        return {}
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT a.id,
+                   COALESCE(
+                       l.label,
+                       CASE WHEN a.status = 'false_positive' THEN 'false_positive' END,
+                       cv.v
+                   ) AS disposition
+            FROM alerts a
+            LEFT JOIN alert_labels l ON l.alert_id = a.id
+            LEFT JOIN LATERAL (
+                SELECT ce.payload->>'verdict' AS v
+                FROM case_events ce
+                WHERE ce.event_type = 'verdict' AND ce.alert_id = a.id
+                  AND ce.payload->>'verdict' = ANY($2::text[])
+                ORDER BY ce.created_at DESC
+                LIMIT 1
+            ) cv ON TRUE
+            WHERE a.id = ANY($1::int[])
+            """,
+            sorted(set(alert_ids)),
+            list(VERDICT_TOKENS),
+        )
+    return {r["id"]: r["disposition"] for r in rows}
+
+
 async def agreement_stats(window_hours: int = 720) -> dict[str, Any]:
     """Agreement over time: for CONFIRMED runs whose alert carries a human
     disposition, how often the draft matched the final disposition.
 
     The sigmaforge honesty gate applies to the aggregate too: with no
     measurable linkage, the report says unmeasured -- never a fake rate.
+    AUD-025: the dispositions for ALL runs' alerts are fetched in one
+    round-trip (one query per run before).
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -230,15 +267,21 @@ async def agreement_stats(window_hours: int = 720) -> dict[str, Any]:
             """,
             max(window_hours, 1),
         )
-    measured = 0
-    agreed = 0
+
+    drafts: list[tuple[int, int, Any]] = []
     for run in runs:
         draft = load_jsonb(run["verdict_draft"], source="agents.memory")
         verdict = draft.get("verdict") if isinstance(draft, dict) else None
         if not verdict or run["alert_id"] is None:
             continue
-        outcome = await outcome_for_alert(run["alert_id"])
-        disposition = (outcome or {}).get("disposition")
+        drafts.append((run["id"], run["alert_id"], verdict))
+
+    dispositions = await _dispositions_for_alerts([alert_id for _, alert_id, _ in drafts])
+
+    measured = 0
+    agreed = 0
+    for _run_id, alert_id, verdict in drafts:
+        disposition = dispositions.get(alert_id)
         if disposition is None:
             continue  # unmeasured linkage
         measured += 1
@@ -276,7 +319,10 @@ def validate_hypotheses_assessed(raw: Any, plan_hypotheses: list[str]) -> list[d
         if hypothesis not in plan_hypotheses:
             continue
         status = str(entry.get("status", "")).strip().lower()
-        if status not in ("supported", "ruled_out"):
+        # AUD-027: accept ALL THREE prompt-documented tokens — the verdict
+        # prompt asks for supported/ruled_out/unresolved, and 'unresolved'
+        # entries (honest dead-end records) were silently dropped.
+        if status not in _HYPOTHESIS_STATUS:
             continue
         assessed.append(
             {

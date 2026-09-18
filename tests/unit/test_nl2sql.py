@@ -11,6 +11,7 @@ Covers:
 """
 
 import asyncio
+import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -27,6 +28,7 @@ from src.ai.nl2sql import (
     template_match,
     validate_sql_structure,
 )
+from src.ai.ollama_client import LLMResult
 
 # ---------------------------------------------------------------------------
 # Input sanitization tests
@@ -261,6 +263,170 @@ class TestAddSafetyLimits:
         sql = "SELECT * FROM logs LIMIT 50"
         result = add_safety_limits(sql)
         # Should not add semicolons
+
+
+class TestAddSafetyLimitsLimitRegex:
+    """AUD-036: the LIMIT detection/insertion regex bugs.
+
+    (1) the old CTE branch inserted the cap after the LAST ') SELECT' —
+    which could be an inner subquery, not the main query; (2) the bare
+    "LIMIT not in sql_upper" substring check missed a column named
+    row_limit, leaving the query unbounded until the cost gate.
+    """
+
+    def test_limit_at_statement_end_never_inside_cte(self):
+        sql = (
+            "WITH a AS (SELECT * FROM logs WHERE time > NOW() - INTERVAL '1 hour' "
+            "ORDER BY time DESC) SELECT * FROM a ORDER BY time DESC"
+        )
+        result = add_safety_limits(sql)
+        upper = result.upper()
+        # Exactly one LIMIT, at the very end of the statement.
+        assert upper.count("LIMIT") == 1
+        assert upper.rstrip().endswith("LIMIT 500")
+        # The CTE body (between the parens) is untouched.
+        cte_body = result[result.find("(") + 1 : result.rfind(") SELECT")]
+        assert "LIMIT" not in cte_body.upper()
+
+    def test_inner_subquery_limit_not_stolen(self):
+        """An IN-subquery AFTER the CTE close must not capture the cap."""
+        sql = (
+            "WITH a AS (SELECT 1 AS one) SELECT * FROM logs "
+            "WHERE id IN (SELECT id FROM alerts) ORDER BY time DESC"
+        )
+        result = add_safety_limits(sql)
+        assert result.upper().rstrip().endswith("ORDER BY TIME DESC LIMIT 500")
+
+    def test_row_limit_column_does_not_suppress_cap(self):
+        """A column named row_limit is not a LIMIT clause."""
+        sql = "SELECT row_limit, host_name FROM logs"
+        result = add_safety_limits(sql)
+        assert result.upper().rstrip().endswith("LIMIT 500")
+
+    def test_limit_word_in_string_literal_does_not_suppress_cap(self):
+        sql = "SELECT * FROM logs WHERE description ILIKE '%limit%'"
+        result = add_safety_limits(sql)
+        assert result.upper().rstrip().endswith("LIMIT 500")
+
+    def test_cap_skips_matches_inside_string_literals(self):
+        """LIMIT inside a quoted literal is a data value, not a clause."""
+        sql = "SELECT * FROM logs WHERE note = 'LIMIT 999999'"
+        result = add_safety_limits(sql)
+        assert "'LIMIT 999999'" in result  # the literal is untouched
+        assert result.upper().rstrip().endswith("LIMIT 500")
+
+    def test_inner_tighter_limit_preserved_and_outer_capped(self):
+        """The cap is per-LIMIT (preserves tight inner limits) — the old
+        global re.sub raised a tight inner LIMIT 50 to 1000."""
+        sql = "WITH a AS (SELECT * FROM logs LIMIT 50) SELECT * FROM a LIMIT 900000"
+        result = add_safety_limits(sql)
+        vals = [int(v) for v in re.findall(r"LIMIT\s+(\d+)", result, re.IGNORECASE)]
+        assert vals == [50, MAX_RESULT_ROWS]
+
+
+class TestValidateSQLStructureCTE:
+    """AUD-026: CTEs are part of the prompt contract (SYSTEM_PROMPT rule 9)
+    and both the table-allowlist extractor and add_safety_limits support
+    them — the validator must accept the WITH form instead of rejecting it
+    before those layers ever run."""
+
+    def test_cte_select_accepted(self):
+        sql = (
+            "WITH recent AS (SELECT host_name, rule_name FROM alerts "
+            "WHERE time > NOW() - INTERVAL '1 hour') "
+            "SELECT * FROM recent ORDER BY rule_name LIMIT 50"
+        )
+        is_valid, reason = validate_sql_structure(sql)
+        assert is_valid, reason
+
+    def test_multiple_cte_join_accepted(self):
+        sql = (
+            "WITH a AS (SELECT host_name FROM logs WHERE time > NOW() - INTERVAL '1 hour'), "
+            "b AS (SELECT rule_name FROM alerts) "
+            "SELECT a.host_name FROM a JOIN b ON true LIMIT 10"
+        )
+        is_valid, reason = validate_sql_structure(sql)
+        assert is_valid, reason
+
+    def test_data_modifying_cte_rejected(self):
+        """WITH x AS (INSERT/UPDATE/DELETE ...) SELECT must be rejected by
+        the forbidden-pattern layer — sqlparse's get_type() reports
+        'SELECT' for the WITH form and cannot catch these."""
+        for body in (
+            "DELETE FROM logs RETURNING *",
+            "INSERT INTO alerts (rule_name) VALUES ('x') RETURNING *",
+            "UPDATE alerts SET status = 'resolved' RETURNING *",
+        ):
+            is_valid, reason = validate_sql_structure(f"WITH t AS ({body}) SELECT * FROM t")
+            assert not is_valid, body
+            assert "forbidden" in reason.lower()
+
+    def test_cte_with_disallowed_table_rejected(self):
+        """The table allowlist must hold inside CTE bodies."""
+        sql = "WITH stolen AS (SELECT password_hash FROM siem_users) SELECT * FROM stolen LIMIT 10"
+        is_valid, reason = validate_sql_structure(sql)
+        assert not is_valid
+        assert "siem_users" in reason
+
+    def test_explain_still_rejected(self):
+        is_valid, _ = validate_sql_structure("EXPLAIN SELECT * FROM logs")
+        assert not is_valid
+
+    def test_non_select_first_keyword_rejected(self):
+        is_valid, _ = validate_sql_structure("VACUUM logs")
+        assert not is_valid
+
+    @pytest.mark.asyncio
+    async def test_llm_with_query_flows_through_pipeline(self):
+        """AUD-026 end-to-end: an LLM CTE query must survive generation,
+        validation, and safety limits (the old pipeline rejected every
+        WITH query with 'Only SELECT queries are allowed')."""
+        with_query = "WITH recent AS (SELECT host_name FROM alerts) SELECT * FROM recent"
+        with (
+            patch("src.ai.nl2sql.query_llm", new_callable=AsyncMock) as mock_llm,
+            patch("src.ai.nl2sql.estimate_query_cost", new_callable=AsyncMock) as mock_explain,
+        ):
+            mock_llm.return_value = LLMResult(
+                ok=True,
+                text=with_query,
+                source="ollama",
+                model_used="test-model",
+                tokens_in=10,
+                tokens_out=10,
+                latency_ms=1,
+                fallback_used=False,
+            )
+            mock_explain.return_value = (10, "Seq Scan on alerts")
+            result = await nl_to_sql("how many distinct hosts exist")
+
+        assert result["success"] is True, result.get("error")
+        assert result["sql"].upper().startswith("WITH")
+        assert result["sql"].upper().rstrip().endswith("LIMIT 500")
+
+    @pytest.mark.asyncio
+    async def test_llm_with_query_with_preamble_sliced_from_with(self):
+        """The cleanup fallback must slice from WITH, not from the first
+        inner SELECT (which would cut the WITH clause off the statement)."""
+        text = "Here is the query:\nWITH t AS (SELECT host_name FROM logs) SELECT * FROM t"
+        with (
+            patch("src.ai.nl2sql.query_llm", new_callable=AsyncMock) as mock_llm,
+            patch("src.ai.nl2sql.estimate_query_cost", new_callable=AsyncMock) as mock_explain,
+        ):
+            mock_llm.return_value = LLMResult(
+                ok=True,
+                text=text,
+                source="ollama",
+                model_used="test-model",
+                tokens_in=10,
+                tokens_out=10,
+                latency_ms=1,
+                fallback_used=False,
+            )
+            mock_explain.return_value = (10, "Seq Scan on logs")
+            result = await nl_to_sql("count hosts per rule please")
+
+        assert result["success"] is True, result.get("error")
+        assert result["sql"].upper().startswith("WITH")
 
 
 # ---------------------------------------------------------------------------

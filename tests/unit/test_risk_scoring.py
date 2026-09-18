@@ -413,13 +413,28 @@ class TestGetTopRisk:
 
     @pytest.mark.asyncio
     async def test_get_top_risk_users(self):
-        """Should return users sorted by risk_score descending."""
+        """Should return users sorted by risk_score descending.
+
+        AUD-025: ONE grouped query for the whole batch (the M-13 shape) —
+        the per-user calculate_user_risk loop (2 queries × N) is gone."""
         mock_pool = AsyncMock()
         conn = AsyncMock()
         conn.fetch = AsyncMock(
             return_value=[
-                {"user_name": "admin1"},
-                {"user_name": "user1"},
+                {
+                    "user_name": "admin1",
+                    "critical": 1,
+                    "high": 2,
+                    "open_count": 3,
+                    "sudo_count": 4,
+                },
+                {
+                    "user_name": "user1",
+                    "critical": 0,
+                    "high": 0,
+                    "open_count": 0,
+                    "sudo_count": 0,
+                },
             ]
         )
         acquirer = MagicMock()
@@ -427,16 +442,30 @@ class TestGetTopRisk:
         acquirer.__aexit__ = AsyncMock(return_value=None)
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
-        with patch("src.ai.risk_scoring.get_pool", return_value=mock_pool):
-            with patch.object(
-                RiskScorer, "calculate_user_risk", new_callable=AsyncMock
-            ) as mock_calc:
-                mock_calc.side_effect = [
-                    {"username": "admin1", "risk_score": 70},
-                    {"username": "user1", "risk_score": 20},
-                ]
-                result = await RiskScorer.get_top_risk_users(limit=10)
-                assert len(result) <= 10
+        with (
+            patch("src.ai.risk_scoring.get_pool", return_value=mock_pool),
+            patch.object(RiskScorer, "calculate_user_risk", new_callable=AsyncMock) as mock_calc,
+        ):
+            result = await RiskScorer.get_top_risk_users(limit=10)
+
+        assert len(result) <= 10
+        # Sorted by risk_score descending; admin1 (critical+high+sudo beats 0).
+        scores = [r["risk_score"] for r in result]
+        assert scores == sorted(scores, reverse=True)
+        assert result[0]["username"] == "admin1"
+        # The per-user N+1 must be gone: no calculate_user_risk calls,
+        # exactly ONE fetch round-trip for the whole batch.
+        mock_calc.assert_not_called()
+        conn.fetch.assert_awaited_once()
+        # Scoring math identical to calculate_user_risk: admin1 has
+        # severity=min((1+2*0.5)/5,1)=0.4, priv=min(4/20,1)=0.2
+        # risk=(0.4*0.6+0.2*0.4)*100 = 32.
+        assert result[0]["risk_score"] == 32.0
+        assert result[0]["factors"] == {
+            "alert_severity": 0.4,
+            "privilege_escalation": 0.2,
+        }
+        assert result[0]["open_alerts"] == 3
 
 
 class TestUpdateAssetRiskScores:

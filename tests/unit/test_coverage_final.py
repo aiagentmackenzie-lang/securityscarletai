@@ -10,6 +10,7 @@ Covers:
 - src/db/writer.py (LogWriter start/stop)
 """
 
+import asyncio
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -84,51 +85,82 @@ class TestAiEndpointsModels:
 
 class TestAiTrainEndpoint:
     @pytest.mark.asyncio
-    async def test_train_success(self):
+    async def test_train_starts_background_task(self):
+        """AUD-044: /ai/train starts a detached background task and returns
+        immediately — the trainers no longer run inline in the request."""
+        from src.api import ai as ai_module
         from src.api.ai import TrainRequest, train_models
 
-        mock_triage = MagicMock()
-        mock_triage.train = AsyncMock(return_value=True)
-        mock_triage.training_samples = 100
-        mock_triage.training_accuracy = 0.95
-
-        mock_ueba = MagicMock()
-        mock_ueba.train = AsyncMock(return_value=True)
-
-        with (
-            patch("src.api.ai.get_triage_model", AsyncMock(return_value=mock_triage)),
-            patch("src.api.ai.get_ueba", AsyncMock(return_value=mock_ueba)),
-        ):
+        with patch.object(
+            ai_module, "_run_background_training", new_callable=AsyncMock
+        ) as mock_body:
             result = await train_models(
                 request=TrainRequest(min_samples=50),
-                _user={"sub": "analyst1", "role": "analyst"},
+                _user={"sub": "admin", "role": "admin"},
             )
+            # Drain the detached task deterministically in-test.
+            task = ai_module._training_task
+            assert task is not None
+            await task
 
         assert result.success is True
-        assert result.samples == 100
+        assert "background" in result.message.lower()
+        # The samples/accuracy fields belonged to the SYNCHRONOUS contract —
+        # the background contract reports them via GET /ai/status later.
+        assert result.samples is None
+        assert result.accuracy is None
+        mock_body.assert_awaited_once_with(50)
+        assert ai_module._training_in_progress() is False  # drained
 
     @pytest.mark.asyncio
-    async def test_train_insufficient_data(self):
+    async def test_train_refuses_when_already_training(self):
+        """A second train request while the background task runs must not
+        stack a duplicate trainer (the concurrency guard)."""
+        from src.api import ai as ai_module
         from src.api.ai import TrainRequest, train_models
 
-        mock_triage = MagicMock()
-        mock_triage.train = AsyncMock(return_value=False)
-        mock_triage.training_samples = 0
-        mock_triage.training_accuracy = None
+        started = asyncio.Event()
 
-        mock_ueba = MagicMock()
-        mock_ueba.train = AsyncMock(return_value=False)
+        async def slow_body(min_samples: int) -> None:
+            started.set()
+            await asyncio.sleep(0.05)
+
+        with patch.object(ai_module, "_run_background_training", side_effect=slow_body):
+            first = await train_models(request=TrainRequest(), _user={"sub": "a", "role": "admin"})
+            assert first.success is True
+            await started.wait()
+            second = await train_models(request=TrainRequest(), _user={"sub": "a", "role": "admin"})
+            assert second.success is False
+            assert "already in progress" in second.message
+
+            task = ai_module._training_task
+            assert task is not None
+            await task  # drain before the loop closes
+
+        assert ai_module._training_in_progress() is False
+
+    @pytest.mark.asyncio
+    async def test_train_does_not_run_trainers_synchronously(self):
+        """The singleton accessors must NOT be called from the endpoint
+        itself — they belong to the background body (the old shape ran both
+        trainers inline, ~7k sequential feature queries while the admin
+        waited)."""
+        from src.api import ai as ai_module
+        from src.api.ai import TrainRequest, train_models
 
         with (
-            patch("src.api.ai.get_triage_model", AsyncMock(return_value=mock_triage)),
-            patch("src.api.ai.get_ueba", AsyncMock(return_value=mock_ueba)),
+            patch.object(ai_module, "_run_background_training", new_callable=AsyncMock),
+            patch("src.api.ai.get_triage_model", new_callable=AsyncMock) as mock_get_model,
+            patch("src.api.ai.get_ueba", new_callable=AsyncMock) as mock_get_ueba,
         ):
-            result = await train_models(
-                request=TrainRequest(min_samples=50),
-                _user={"sub": "analyst1", "role": "analyst"},
-            )
+            result = await train_models(request=TrainRequest(), _user={"sub": "a", "role": "admin"})
+            task = ai_module._training_task
+            assert task is not None
+            await task
 
-        assert result.success is False
+        assert result.success is True
+        mock_get_model.assert_not_called()
+        mock_get_ueba.assert_not_called()
 
 
 class TestAiStatusEndpoint:
@@ -277,10 +309,31 @@ class TestTriageRemaining:
 
         with (
             patch.object(AlertTriageModel, "_load_model", return_value=False),
-            patch.object(AlertTriageModel, "train", AsyncMock(return_value=False)),
+            patch.object(AlertTriageModel, "train", AsyncMock(return_value=False)) as mock_train,
         ):
             model = await get_triage_model()
             assert isinstance(model, AlertTriageModel)
+            assert mock_train.await_count == 1  # default: lazy-train unchanged
+
+        triage_mod._triage_model = None
+
+    @pytest.mark.asyncio
+    async def test_get_triage_model_train_if_missing_false_never_trains(self):
+        """AUD-043: train_if_missing=False keeps the accessor read-only — a
+        status/polling path must never trigger a synchronous training run."""
+        import src.ai.alert_triage as triage_mod
+        from src.ai.alert_triage import AlertTriageModel, get_triage_model
+
+        triage_mod._triage_model = None
+
+        with (
+            patch.object(AlertTriageModel, "_load_model", return_value=False),
+            patch.object(AlertTriageModel, "train", AsyncMock(return_value=False)) as mock_train,
+        ):
+            model = await get_triage_model(train_if_missing=False)
+            assert isinstance(model, AlertTriageModel)
+            assert model.is_trained is False
+            assert mock_train.await_count == 0  # NO side effect
 
         triage_mod._triage_model = None
 
