@@ -163,7 +163,17 @@ echo "[entrypoint] build: ${GIT_SHA:-unknown} (docker inspect --format '{{ index
 # 3. Seed demo data if alerts table is empty
 # ───────────────────────────────────────────────────────────────
 if [ "${DEMO_SEED_ENABLED:-false}" = "true" ]; then
-    ALERT_COUNT=$(run_async "
+    # AUD-021: the count probe must fail LOUDLY, never guess. The old bare
+    # `ALERT_COUNT=$(run_async ... | tail -n1)` capture had two failure modes:
+    # a failed subprocess crashed the script with an opaque traceback exit
+    # code (set -e + pipefail), and — worse — a non-integer stdout (a stray
+    # log line after print(n)) silently skipped the seed: python exited 0,
+    # so set -e never fired and [ "garbage" = "0" ] is simply false. Both
+    # are now explicit: the capture is failure-checked (if !), the output
+    # must be a non-negative integer, and anything else exits with a named
+    # reason — consistent with the failure policy above (crash → Compose
+    # restart → retry), never a silent decision.
+    if ! ALERT_COUNT=$(run_async "
 import asyncio
 from src.db.connection import get_pool
 
@@ -174,7 +184,14 @@ async def main():
     await pool.close()
     print(n)
 asyncio.run(main())
-" | tail -n1)
+" | tail -n1); then
+        echo "[entrypoint] FATAL: alerts count probe failed (exit status nonzero) — refusing to guess the seed decision. See the error above." >&2
+        exit 1
+    fi
+    if ! [[ "${ALERT_COUNT}" =~ ^[0-9]+$ ]]; then
+        echo "[entrypoint] FATAL: alerts count probe returned non-integer output '${ALERT_COUNT}' — refusing to guess the seed decision." >&2
+        exit 1
+    fi
     if [ "${ALERT_COUNT}" = "0" ]; then
         echo "[entrypoint] alerts table empty — seeding demo data..."
         python -m scripts.seed_demo_data
@@ -229,7 +246,9 @@ fi
 # It is NOT left in `docker logs` indefinitely — the file is the durable
 # copy; rotate the password after first login and remove the file. (P2-4)
 # ───────────────────────────────────────────────────────────────
-USER_COUNT=$(run_async "
+# AUD-021: same loud-failure contract as the alerts count probe above —
+# an admin-creation decision must never be made from empty/garbage output.
+if ! USER_COUNT=$(run_async "
 import asyncio
 from src.db.connection import get_pool
 
@@ -240,7 +259,14 @@ async def main():
     await pool.close()
     print(n)
 asyncio.run(main())
-" | tail -n1)
+" | tail -n1); then
+    echo "[entrypoint] FATAL: user count probe failed (exit status nonzero) — refusing to guess the admin-seed decision. See the error above." >&2
+    exit 1
+fi
+if ! [[ "${USER_COUNT}" =~ ^[0-9]+$ ]]; then
+    echo "[entrypoint] FATAL: user count probe returned non-integer output '${USER_COUNT}' — refusing to guess the admin-seed decision." >&2
+    exit 1
+fi
 if [ "${USER_COUNT}" = "0" ]; then
     ADMIN_PW=$(python -c "import secrets; print(secrets.token_urlsafe(24))")
     echo "[entrypoint] No users — creating admin..."

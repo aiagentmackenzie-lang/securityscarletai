@@ -17,6 +17,8 @@ from src.ingestion.schemas import OSQUERY_ECS_MAP
 _repo = Path(__file__).resolve().parents[2]
 _COMPOSE = _repo / "docker-compose.yml"
 _OSCONF = _repo / "config" / "osquery.conf"
+_OSLINUX = _repo / "config" / "osquery.linux.conf"
+_FIMCONF = _repo / "config" / "osquery-fim.conf"
 
 
 def _api_section() -> str:
@@ -116,3 +118,46 @@ class TestShipperCheckpointPath:
 
         s = Settings()
         assert s.shipper_checkpoint_path == "data/shipper_checkpoint"
+
+
+class TestOsqueryConfQueryHygiene:
+    """AUD-075: scheduled SELECTs must not list the same column twice (the
+    disk_encryption tables carried `encrypted` twice in both configs —
+    harmless in SQLite output, sloppy everywhere else)."""
+
+    @staticmethod
+    def _duplicate_columns(query: str) -> set[str]:
+        select_clause = query.split("FROM")[0].upper()
+        cols = [c.strip() for c in select_clause.replace("SELECT", "").split(",")]
+        return {c for c in cols if cols.count(c) > 1}
+
+    def test_mac_conf_no_duplicate_select_columns(self):
+        conf = json.loads(_OSCONF.read_text())
+        for name, sched in conf["schedule"].items():
+            assert not self._duplicate_columns(sched["query"]), f"{name}: duplicate column"
+
+    def test_linux_conf_no_duplicate_select_columns(self):
+        conf = json.loads(_OSLINUX.read_text())
+        for name, sched in conf["schedule"].items():
+            assert not self._duplicate_columns(sched["query"]), f"{name}: duplicate column"
+
+
+class TestFimOverlayCommentHonesty:
+    """AUD-073: the FIM overlay's validation comment claimed es_process_events
+    is 'NOT parsed by the SIEM yet (backlog)' — stale: schemas.py maps it and
+    the promoted osquery.conf schedules it. Its file_events description also
+    pointed at 'file_events.files above', which the same comment says is wrong.
+    """
+
+    def test_no_stale_es_process_events_claim(self):
+        s = _FIMCONF.read_text()
+        assert "es_process_events is NOT parsed by the SIEM yet" not in s
+        # The corrected comment states the mapping landed.
+        assert "IS parsed by the SIEM now" in s
+
+    def test_file_events_description_points_at_real_keys(self):
+        s = _FIMCONF.read_text()
+        conf = json.loads(s)
+        description = conf["schedule"]["file_events"]["description"]
+        assert "file_events.files" not in description
+        assert "file_paths/exclude_paths below" in description

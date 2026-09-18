@@ -20,6 +20,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 _repo = Path(__file__).resolve().parents[2]
 _ENTRY = _repo / "scripts" / "entrypoint.sh"
 _BASE = _repo / "docker-compose.yml"
@@ -94,6 +96,40 @@ class TestBackupScript:
         # audit_logs."timestamp" and audit_log.created_at — different columns.
         assert "audit_logs WHERE" in s
         assert "audit_log WHERE created_at" in s
+
+
+class TestBackupScriptFailureContract:
+    """AUD-069: backup.sh's failure path must be REACHABLE. Under set -e the
+    old bare `pg_dump ... > tmp 2>/dev/null` died at the dump line — the
+    H-19 exit-code capture, temp-file cleanup, and "Backup failed" message
+    were unreachable dead code, and stderr was discarded. The `||
+    PGDUMP_EXIT=$?` shape is the fix set -e treats as handled.
+    """
+
+    @pytest.fixture(scope="class")
+    def contents(self) -> str:
+        return (_repo / "scripts" / "backup.sh").read_text()
+
+    def test_dump_failure_is_handled_not_fatal_to_capture(self, contents):
+        # The capture happens on the || leg (set -e never fires there).
+        assert "|| PGDUMP_EXIT=$?" in contents
+
+    def test_stderr_is_captured_not_discarded(self, contents):
+        # 2>"$PGDUMP_ERR" — a failed backup must surface pg_dump's stderr.
+        assert '2>"$PGDUMP_ERR"' in contents
+        # The old silenced-dump shape is gone.
+        assert "2>/dev/null\nPGDUMP_EXIT=$?" not in contents
+
+    def test_failure_branch_is_reachable_with_cleanup_and_exit(self, contents):
+        # The else-branch must contain the failure message, the temp cleanup,
+        # and a non-zero exit — in that order. Search from the failure message
+        # onward (an index() on the whole file's first "else" would also match
+        # comment text).
+        segment = contents[contents.index("Backup failed!") :]
+        assert 'rm -f "${BACKUP_DIR}/_temp_backup.sql"' in segment
+        rm_idx = segment.index('rm -f "${BACKUP_DIR}/_temp_backup.sql"')
+        exit_idx = segment.index("exit 1\n")
+        assert rm_idx < exit_idx, "cleanup must run before exit"
 
 
 class TestWatchdogScript:

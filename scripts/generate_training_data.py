@@ -6,8 +6,12 @@ AlertTriageModel.FEATURES plus a `label` column (`true_positive` /
 `false_positive`).
 
 Why a separate generator:
-- `scripts/generate_attack_data.py` emits raw osquery event dicts for
-  ingestion/detection rule testing. Different purpose, different shape.
+- `scripts/generate_osquery_events.py` (the live event generator, incl. the
+  V0.3 `--matrix` mode) emits raw osquery event shapes for ingestion/detection
+  testing. Different purpose, different shape. (AUD-072: the legacy
+  `generate_attack_data.py` was retired — its brute-force shape emitted a
+  token the parser vocabulary never produces, and its exfil burst randomized
+  remote_address per row, so per-destination aggregation could never fire.)
 - The triage model trains on engineered alert features, not raw events.
 - The brief (Epic 3) requires a 1000-row stratified synthetic dataset that
   is reproducible (fixed seed) and CI-runnable without a real database.

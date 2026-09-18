@@ -64,10 +64,21 @@ done
 
 # --- 2. Apply schema (schema.sql is canonical; Alembic is not used) ----------
 echo "🗄️ Applying src/db/schema.sql..."
-docker compose exec -T postgres psql -U scarletai -d scarletai \
-  -f /dev/stdin < src/db/schema.sql >/dev/null 2>&1 \
-  || docker-compose exec -T postgres psql -U scarletai -d scarletai \
-       -f /dev/stdin < src/db/schema.sql >/dev/null 2>&1
+# AUD-071: the old step silenced BOTH legs (stdout+stderr >/dev/null 2>&1),
+# printed "Schema applied." unconditionally, and psql ran without
+# ON_ERROR_STOP=1 (psql exits 0 on per-statement errors by default!) — a
+# failed apply marched the demo into unexplained downstream failures. Now:
+# stderr visible, ON_ERROR_STOP=1, and a failed apply aborts the demo loudly.
+if ! docker compose exec -T postgres psql -U scarletai -d scarletai \
+    -v ON_ERROR_STOP=1 -f /dev/stdin < src/db/schema.sql >/dev/null; then
+  echo "   (docker compose path failed — retrying via docker-compose...)"
+  if ! docker-compose exec -T postgres psql -U scarletai -d scarletai \
+      -v ON_ERROR_STOP=1 -f /dev/stdin < src/db/schema.sql >/dev/null; then
+    echo "❌ Schema apply FAILED — see the psql error above. Aborting the demo" >&2
+    echo "   instead of marching into unexplained downstream failures." >&2
+    exit 1
+  fi
+fi
 echo "   Schema applied."
 
 # --- 2.5. Clear prior demo data for this demo host so a re-run isn't -----

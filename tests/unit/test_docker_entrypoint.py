@@ -149,3 +149,40 @@ class TestEntrypointIdempotency:
         """Phase 1.2 (trust & truth), 2026-09-01: demo seeding is gated on
         DEMO_SEED_ENABLED=true — production first boots stay empty."""
         assert '[ "${DEMO_SEED_ENABLED:-false}" = "true" ]' in contents
+
+
+class TestEntrypointCountProbeFailureContract:
+    """AUD-021: the ALERT_COUNT/USER_COUNT probes must fail LOUDLY, never
+    decide seeding/admin-creation from empty or garbage output. The old bare
+    `VAR=$(python -c ... | tail -n1)` capture crashed with an opaque traceback
+    on a failed subprocess (set -e + pipefail) and — worse — silently skipped
+    the seed/admin when a stray stdout line made tail -n1 capture garbage
+    (python exited 0, so set -e never fired; [ "garbage" = "0" ] is false).
+    """
+
+    @pytest.fixture(scope="class")
+    def contents(self) -> str:
+        return ENTRYPOINT.read_text()
+
+    def test_alert_count_capture_is_failure_checked(self, contents: str):
+        # The capture must be inside `if ! ...` (a bare assignment under
+        # set -e crashes without a named reason; the if! branch is the named one).
+        assert 'if ! ALERT_COUNT=$(run_async "' in contents
+
+    def test_alert_count_output_is_integer_validated(self, contents: str):
+        # A stray stdout log line after print(n) must not silently skip the seed.
+        assert '[[ "${ALERT_COUNT}" =~ ^[0-9]+$ ]]' in contents
+
+    def test_alert_count_failure_is_a_named_exit(self, contents: str):
+        assert "FATAL: alerts count probe" in contents
+        assert "refusing to guess the seed decision" in contents
+
+    def test_user_count_capture_is_failure_checked(self, contents: str):
+        assert 'if ! USER_COUNT=$(run_async "' in contents
+
+    def test_user_count_output_is_integer_validated(self, contents: str):
+        assert '[[ "${USER_COUNT}" =~ ^[0-9]+$ ]]' in contents
+
+    def test_user_count_failure_is_a_named_exit(self, contents: str):
+        assert "FATAL: user count probe" in contents
+        assert "refusing to guess the admin-seed decision" in contents

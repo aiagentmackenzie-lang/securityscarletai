@@ -50,3 +50,28 @@ class TestSeedShortCircuit:
         out = capsys.readouterr().out
         assert "DEMO_SEED_ENABLED is not true" in out
         assert "skipping demo seed" in out
+
+
+class TestSeedThreatIntelMetadataHygiene:
+    """AUD-070: THREAT_INTEL_ENTRIES[0] carried the key `" isp"` (leading
+    space) — the ISP value landed under a malformed key in the stored JSONB
+    metadata. Metadata keys must be clean identifiers, pinned here so a
+    future template edit cannot reintroduce the typo.
+    """
+
+    def test_threat_intel_metadata_keys_are_clean_identifiers(self):
+        import scripts.seed_demo_data as sdd
+
+        assert sdd.THREAT_INTEL_ENTRIES, "template list must exist"
+        for entry in sdd.THREAT_INTEL_ENTRIES:
+            metadata = entry.get("metadata", {})
+            for key in metadata:
+                assert key == key.strip(), f"metadata key has leading/trailing whitespace: {key!r}"
+                assert " " not in key, f"metadata key contains whitespace: {key!r}"
+                assert key, "empty metadata key"
+
+    def test_threat_intel_first_entry_carries_isp(self):
+        import scripts.seed_demo_data as sdd
+
+        # The fixed entry: ISP stored under the CORRECT key.
+        assert sdd.THREAT_INTEL_ENTRIES[0]["metadata"].get("isp") == "Example ISP"
