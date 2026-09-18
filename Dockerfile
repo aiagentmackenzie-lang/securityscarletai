@@ -1,23 +1,44 @@
-# Multi-stage build (Project C, 2026-09-04): the Poetry toolchain and its
-# dependency tail (cleo, build, cachecontrol, virtualenv, dulwich, keyring, …)
-# used to be installed straight into the runtime image, dragging ~20
-# build-only packages into site-packages. Stage 1 (builder) installs poetry +
-# the locked runtime dependency set into an in-project virtualenv
-# (/app/.venv); stage 2 copies ONLY that venv + the application tree. Poetry
-# itself never enters the runtime image.
+# Multi-stage, multi-target build.
+#
+# HISTORY (Project C, 2026-09-04): the Poetry toolchain and its dependency
+# tail (cleo, build, cachecontrol, virtualenv, dulwich, keyring, …) used to be
+# installed straight into the runtime image, dragging ~20 build-only packages
+# into site-packages. Stage 1 (builder) installs poetry + the locked runtime
+# dependency set into an in-project virtualenv (/app/.venv); the runtime stages
+# copy ONLY that venv + the application tree. Poetry itself never enters the
+# runtime image.
 #
 # Trivy evidence (2026-09-04): the two HIGH findings in the old image
 # (jaraco.context 5.3.0 CVE-2026-23949, wheel 0.45.1 CVE-2026-24049) came from
 # the _vendor/ copies inside the setuptools that SHIPS IN THE python:3.11-slim
 # BASE — not from poetry's tail (whose own jaraco.context 6.1.2 / wheel 0.46.3
 # were fixed versions with 0 findings). Evicting poetry alone therefore does
-# NOT clear the scan: the final stage upgrades setuptools (>=84 vendors
+# NOT clear the scan: the final stages upgrade setuptools (>=84 vendors
 # jaraco.context 6.1.0 + wheel 0.46.3, both fixed) as base hygiene.
 #
 # Size note (2026-09-04): the previous single-stage layout paid a hidden
 # ~620MB layer tax — `RUN chown -R appuser:appgroup /app` re-committed every
 # file it touched (no overlay metacopy on this builder). Ownership is now set
 # at COPY time via --chown, so no chown layer exists.
+#
+# MULTI-TARGET (AUD-014, 2026-09-18): the single shared image carried the full
+# Streamlit stack (streamlit/altair/autorefresh/pandas + 20 exclusive
+# transitives — pyarrow, tornado, gitpython, pillow, protobuf, …) for api and
+# mcp, which never import any of it. Dependency groups (pyproject
+# [dependency-groups].dashboard) + two builder variants now split the venv:
+#   builder           → main deps only           → feeds the `api` runtime
+#   builder-dashboard → main + dashboard groups  → feeds the `dashboard` runtime
+# The api/mcp image drops the whole Streamlit stack — MEASURED (colima/aarch64,
+# cold builds, 2026-09-18): 1.17GB→800MB disk / 249MB→166MB compressed content
+# (−33%) for api/mcp; the dashboard target stays at parity (1.17GB/249MB, the
+# same 99-distribution venv). Full numbers in docs/internal/CODEBASE_AUDIT.md
+# Fix Wave 11.
+# numpy/scikit-learn/joblib STAY in main deps for both: the API entrypoint
+# trains AlertTriageModel + UEBABaseline at boot (entrypoint steps 4-5).
+# `api` is the DEFAULT target (last stage): bare `docker build .` — and every
+# workflow step that builds without an explicit --target — produces the api
+# image, the primary shipped artifact (release.yml pushes it to ghcr).
+# The dashboard image is built explicitly (compose `target:`, ci.yml).
 
 FROM python:3.11-slim AS builder
 
@@ -35,13 +56,30 @@ ENV POETRY_VIRTUALENVS_IN_PROJECT=true
 WORKDIR /app
 COPY pyproject.toml poetry.lock ./
 
-# --without dev: the runtime image must NOT carry pytest/mypy/ruff/hypothesis.
-# --no-root: package-mode=false app (src-layout), not a distributable package.
-RUN poetry install --without dev --no-root --no-interaction --no-ansi \
+# API/MCP dependency set: everything EXCEPT the dashboard group.
+# (--without dev: no pytest/mypy/ruff/hypothesis. --no-root: package-mode=false
+# app (src-layout), not a distributable package.)
+RUN poetry install --without dev,dashboard --no-root --no-interaction --no-ansi \
     && rm -rf /app/.venv/lib/python3.11/site-packages/pip* /app/.venv/bin/pip*
 
-# ─── Stage 2: runtime ────────────────────────────────────────────────────────
-FROM python:3.11-slim
+# Dashboard builder: SAME lock, dashboard group ADDED on top of the main set.
+# Poetry installs only the missing group packages into the existing venv —
+# the main-group packages are already satisfied at their locked versions.
+# --without dev is REQUIRED here again: without it, this second install also
+# pulls the dev group (pytest/mypy/ruff/hypothesis) — poetry's default install
+# includes non-optional groups + dev — which would re-add the exact toolchain
+# tail the multi-stage build evicted (measured: +118MB / 13 dev dists).
+# (The inherited venv has pip stripped — poetry 2.x installs via its own
+# vendored installer, not the target venv's pip. Verified empirically:
+# the --with dashboard install succeeds on the pipless venv.)
+FROM builder AS builder-dashboard
+RUN poetry install --without dev --with dashboard --no-root --no-interaction --no-ansi \
+    && rm -rf /app/.venv/lib/python3.11/site-packages/pip* /app/.venv/bin/pip*
+
+# ─── Shared runtime base: OS hygiene + app tree + security posture ───────────
+# Everything IDENTICAL for both runtime images lives here exactly once — the
+# divergent venv/dashboard-source COPYs happen in the child stages.
+FROM python:3.11-slim AS runtime-base
 
 WORKDIR /app
 
@@ -90,21 +128,10 @@ RUN pip install --no-cache-dir --upgrade "setuptools>=84"
 # set ownership directly (--chown) — no post-hoc `chown -R` layer.
 RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 
-# The runtime dependency set, built in stage 1. Same path (/app/.venv) as in
-# the builder, so console-script shebangs and the python symlink stay valid.
-# Deliberately NOT copied: pyproject.toml / poetry.lock — nothing in the
-# runtime image reads them (host-mode dev uses the repo checkout).
-ENV VIRTUAL_ENV=/app/.venv
-ENV PATH="/app/.venv/bin:$PATH"
-COPY --from=builder --chown=appuser:appgroup /app/.venv /app/.venv
-
-# Copy application code
+# Copy application code (identical for both runtime targets)
 COPY --chown=appuser:appgroup src/ ./src/
 COPY --chown=appuser:appgroup rules/ ./rules/
 COPY --chown=appuser:appgroup config/ ./config/
-# Epic 10: copy the Streamlit dashboard so the `dashboard` compose
-# service can `streamlit run dashboard/main.py` from this same image.
-COPY --chown=appuser:appgroup dashboard/ ./dashboard/
 
 # Copy scripts/ (entrypoint + seeders used by demo-data step)
 COPY --chown=appuser:appgroup scripts/ ./scripts/
@@ -116,18 +143,53 @@ RUN chmod +x /app/scripts/entrypoint.sh
 RUN mkdir -p /app/data/dead_letter /app/models \
     && chown appuser:appgroup /app/data /app/models
 
+# Environment: never buffer Python output (log streaming in docker logs)
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# ─── Runtime target: dashboard (Streamlit UI) ────────────────────────────────
+# Full venv (main + dashboard groups) + the dashboard source tree.
+# `streamlit run dashboard/main.py` needs BOTH (charts import altair/pandas).
+FROM runtime-base AS dashboard
+
+ENV VIRTUAL_ENV=/app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
+COPY --from=builder-dashboard --chown=appuser:appgroup /app/.venv /app/.venv
+
+# Epic 10: the dashboard source, baked for prod (dev mounts ./dashboard over
+# it). Only the dashboard target carries it — api/mcp never read it.
+COPY --chown=appuser:appgroup dashboard/ ./dashboard/
+
+USER appuser
+
+# Expose dashboard port (compose overrides per service)
+EXPOSE 8501
+
+# Health check using Python stdlib — raises on HTTP >= 400, exits nonzero.
+# Streamlit's own health endpoint; the compose dashboard service keeps this
+# same probe (the shared-image-era check pinged :8000 and always failed).
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=8)" || exit 1
+
+CMD ["streamlit", "run", "dashboard/main.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
+
+# ─── Runtime target: api (DEFAULT — last stage) ─────────────────────────────
+# Also serves the mcp service (compose sets command + scoped-readonly env).
+# venv carries ONLY the main dependency group — no Streamlit stack (AUD-014).
+FROM runtime-base AS api
+
+ENV VIRTUAL_ENV=/app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
+COPY --from=builder --chown=appuser:appgroup /app/.venv /app/.venv
+
 USER appuser
 
 # Expose API port
 EXPOSE 8000
 
-# Environment: never buffer Python output (log streaming in docker logs)
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
-
 # Health check using Python stdlib — raises on HTTP >= 400, exits nonzero.
-# `python` resolves to the venv interpreter via PATH; the compose api and
-# dashboard services override this check with the same stdlib probe pattern.
+# `python` resolves to the venv interpreter via PATH; the compose api service
+# overrides this check with the same stdlib probe pattern.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=8)" || exit 1
 

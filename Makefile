@@ -66,8 +66,8 @@ lint: ## Ruff lint the product code (matches the CI gate: src + dashboard)
 lint-tests: ## Ruff lint the tests (informational — not gated by CI)
 	poetry run ruff check tests/
 
-format: ## Ruff format the product code
-	poetry run ruff format src/ tests/ scripts/
+format: ## Ruff format the product code (AUD-015: dashboard/ included — same scope the lint + CI format gate checks)
+	poetry run ruff format src/ tests/ scripts/ dashboard/
 
 mypy: ## Type-check the product code
 	poetry run mypy src
