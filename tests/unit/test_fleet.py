@@ -600,3 +600,22 @@ class TestIngestOsqueryEndpoint:
         body = r.json()
         assert body["accepted"] == 1
         assert body["rejected_quarantine"] == 1
+
+
+class TestFleetDocstringHonesty:
+    def test_no_phantom_rotate_endpoint(self):
+        """AUD-046: the module docstring used to advertise POST /fleet/rotate
+        — no such endpoint exists (rotation = re-enroll, audited as
+        fleet.rotate). Pinned: the old advertising LINE is gone, no such
+        route exists, and the real rotation path is documented."""
+        import src.api.fleet as fleet_module
+        from tests.unit._route_walker import iter_route_paths
+
+        # The exact old advertising line (the docstring still legitimately
+        # contains the words "rotate"/"fleet.rotate" when describing the
+        # re-enroll path).
+        assert "POST   /api/v1/fleet/rotate" not in fleet_module.__doc__
+        route_paths = list(iter_route_paths(fleet_module.router.routes))
+        assert not any("/fleet/rotate" in p for p in route_paths)
+        # the real rotation path is documented: enroll on an existing host
+        assert "re-enroll" in fleet_module.__doc__

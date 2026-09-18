@@ -175,8 +175,12 @@ def _rows_preview(rows: list[dict], max_rows: int = 5) -> str:
 
 
 async def _noop_audit(action: str, details: dict, actor: str) -> None:
-    """Default audit hook: structured log only. Wired paths pass the real
-    audit writer (src.api.audit.log_audit_action) -- tests inject a recorder."""
+    """Default audit hook: a debug-level structured log only — nothing is
+    persisted. Wired paths pass the real audit writer
+    (src.api.audit.log_audit_action); tests inject a recorder. (AUD-032: the
+    body used to be EMPTY while the docstring claimed "structured log only"
+    — the hook now actually emits the log line it documents.)"""
+    log.debug("agent_audit_unwired", action=action, actor=actor, **details)
 
 
 async def _load_alert_context(alert_id: int) -> dict | None:

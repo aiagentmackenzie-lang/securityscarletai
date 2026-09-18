@@ -126,10 +126,6 @@ class SSFError(Exception):
         super().__init__(f"{err}: {description}")
 
 
-def _config_sha256(path: Path) -> str:
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def _resolve_events(raw: Any, issuer: str) -> set[str]:
     """Config event names -> full URIs. Short names (session-revoked) and
     full URIs are both accepted; anything else is a config error."""
@@ -499,10 +495,6 @@ def severity_for_event(action: str, event_payload: dict) -> str:
     if action == EVENT_ACTION_IDENTITY_CREDENTIAL_CHANGE:
         return "high" if event_payload.get("change_type") in ("revoke", "delete") else "medium"
     return "info"
-
-
-def event_type_for_action(action: str) -> str:
-    return "info"  # identity lifecycle events are state changes, not starts/ends
 
 
 def new_jti() -> str:

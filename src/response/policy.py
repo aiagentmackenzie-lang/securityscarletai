@@ -57,7 +57,9 @@ def parse_policy_document(document: dict | None) -> dict[str, PolicyEntry]:
 
     Unknown/malformed entries are DROPPED (they become NEVER downstream,
     because the registry only executes action types with a known executor
-    AND a policy entry). The default_effect applies to anything absent.
+    AND a policy entry). Anything absent from the policy file is ALWAYS
+    NEVER (fail-closed, hardcoded — deliberately not operator-overridable;
+    AUD-057 removed the dead default_effect knob that pretended otherwise).
     """
     entries: dict[str, PolicyEntry] = {}
     if not isinstance(document, dict):
@@ -107,27 +109,22 @@ def load_policy_file(path: str) -> dict[str, PolicyEntry]:
     return parse_policy_document(document)
 
 
-def default_effect(document: dict | None) -> str:
-    """The file's declared default effect; NEVER unless explicitly set."""
-    if isinstance(document, dict):
-        policy = document.get("response_policy")
-        if isinstance(policy, dict) and policy.get("default_effect") in VALID_EFFECTS:
-            return str(policy["default_effect"])
-    return NEVER
-
-
 def evaluate_action(
     action_type: str,
     entries: dict[str, PolicyEntry],
     *,
     has_case: bool,
     actions_today: int,
-    default_effect: str = NEVER,
     today: datetime | None = None,
 ) -> PolicyDecision:
     """Pure policy decision. Given the parsed entries and the request
     context (does the action reference a case, how many actions of this
-    type have already been taken today), decide what may happen."""
+    type have already been taken today), decide what may happen.
+
+    An action type with NO policy entry is ALWAYS NEVER (fail-closed,
+    hardcoded — AUD-057: the unused default_effect parameter is gone; a
+    per-call default would have been an operator-overridable fail-open
+    switch on exactly the authority gate that must not widen)."""
     entry = entries.get(action_type)
     if entry is None:
         return PolicyDecision(

@@ -18,7 +18,10 @@
 
 response_policy:
   version: 1
-  default_effect: never
+  # AUD-057: the old `default_effect: never` key was dead config (parse
+  # ignored it; the dead policy.default_effect() reader was deleted). The
+  # fail-closed default for actions missing from this file is HARDCODED
+  # NEVER in evaluate_action — deliberately not operator-overridable.
 
   actions:
     # Allow tier -- informational, reversible, no system state change.

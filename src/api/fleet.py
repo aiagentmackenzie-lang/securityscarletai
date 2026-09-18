@@ -3,7 +3,10 @@
 POST   /api/v1/fleet/enroll        - enroll a host, returns the ONE-TIME token
 GET    /api/v1/fleet/hosts         - list enrollments (never token hashes)
 POST   /api/v1/fleet/revoke        - kill a host's token immediately
-POST   /api/v1/fleet/rotate        - replace a host's token (re-enroll alias)
+
+There is NO separate /rotate endpoint (AUD-046: the docstring used to
+advertise one). Rotation = re-enrolling an existing host — the enroll
+call replaces the token hash and is audited as fleet.rotate.
 
 Security properties:
 - Every endpoint requires the admin role (require_role("admin")).

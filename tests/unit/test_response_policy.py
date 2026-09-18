@@ -10,7 +10,6 @@ from src.response.policy import (
     APPROVAL_REQUIRED,
     NEVER,
     PolicyEntry,
-    default_effect,
     evaluate_action,
     load_policy_file,
     parse_policy_document,
@@ -79,19 +78,31 @@ class TestParsePolicyDocument:
         assert entries["notify_slack"].max_per_day == 0  # 0 -> disabled -> fail-closed
 
 
-class TestDefaultEffect:
-    def test_default_effect_never_when_absent(self):
-        assert default_effect(None) == NEVER
-        assert default_effect({}) == NEVER
-        assert default_effect({"response_policy": {}}) == NEVER
+class TestDefaultEffectRetired:
+    """AUD-057: the dead default_effect() reader and evaluate_action's unused
+    default_effect parameter are GONE. An action type missing from the policy
+    file is ALWAYS NEVER — hardcoded, deliberately not operator-overridable
+    (a per-call default would have been a fail-open switch on the authority
+    gate). evaluate_action no longer even ACCEPTS the parameter."""
 
-    def test_default_effect_honored_when_valid(self):
-        doc = {"response_policy": {"default_effect": "never"}}
-        assert default_effect(doc) == NEVER
+    def test_evaluate_action_rejects_default_effect_kwarg(self):
+        import pytest as _pytest
 
-    def test_default_effect_invalid_becomes_never(self):
-        doc = {"response_policy": {"default_effect": "yolo"}}
-        assert default_effect(doc) == NEVER
+        entries = parse_policy_document({"response_policy": {"actions": {}}})
+        with _pytest.raises(TypeError):
+            evaluate_action(
+                "anything",
+                entries,
+                has_case=True,
+                actions_today=0,
+                default_effect=ALLOW,  # type: ignore[call-arg]
+            )
+
+    def test_missing_action_is_hardcoded_never(self):
+        entries = parse_policy_document({"response_policy": {"actions": {}}})
+        decision = evaluate_action("unlisted_action", entries, has_case=True, actions_today=0)
+        assert decision.effect == NEVER
+        assert decision.allowed is False
 
 
 class TestShippedPolicyFile:
