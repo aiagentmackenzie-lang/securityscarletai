@@ -66,6 +66,14 @@ CLICKFIX_INTERPRETERS = (
     "msbuild",
 )
 
+# AUD-004 (step 1): per-detector result cap. The sweep runs every detector
+# over a 24h lookback with no LIMIT -- one noisy host (or one broad JOIN)
+# can return unbounded rows, and persistence + alerting then loop serially
+# per match. 200 per detector per sweep is far above real signal density
+# and bounds the worst case. A detector that reaches the cap logs
+# correlation_detector_result_cap so truncation is visible, never silent.
+DETECTOR_MAX_MATCHES = 200
+
 
 # ───────────────────────────────────────────────────────────────
 # Coalesced correlation trigger (F-10) -- the SINGLE shared entrypoint for
@@ -227,6 +235,22 @@ CORRELATION_RULES = {
 }
 
 
+def _warn_if_result_capped(rows: Any, rule: str, cap: int) -> None:
+    """Log loudly when a detector hits its result cap (AUD-004).
+
+    len(rows) == cap cannot distinguish "exactly at cap" from "truncated"
+    at this layer; the warning makes the operator look instead of silently
+    dropping evidence on a busy host.
+    """
+    if len(rows) >= cap:
+        log.warning(
+            "correlation_detector_result_cap",
+            rule=rule,
+            cap=cap,
+            hint="raise DETECTOR_MAX_MATCHES or narrow the detector window",
+        )
+
+
 # ───────────────────────────────────────────────────────────────
 # Per-rule correlation queries
 #
@@ -244,6 +268,7 @@ async def detect_brute_force_then_success(
     failed_threshold: int = 3,
     time_window_minutes: int = 5,
     lookback_hours: int = 24,
+    max_matches: int = DETECTOR_MAX_MATCHES,
 ) -> List[Dict[str, Any]]:
     """Detect: N failed logins followed by success from same source.
 
@@ -288,6 +313,7 @@ async def detect_brute_force_then_success(
     WHERE event_action = $5
       AND failed_count >= $6
     ORDER BY time DESC
+    LIMIT $7
     """
 
     rows = await conn.fetch(
@@ -298,7 +324,9 @@ async def detect_brute_force_then_success(
         lookback_hours,  # $4 -- lookback hours
         "auth_success",  # $5 -- exact success token
         failed_threshold,  # $6 -- threshold
+        max_matches,  # $7 -- per-detector result cap (AUD-004)
     )
+    _warn_if_result_capped(rows, "brute_force_success", max_matches)
     results = []
     for row in rows:
         d = dict(row)
@@ -322,8 +350,16 @@ async def detect_payload_callback(
     as_of: datetime,
     time_window_minutes: int = 10,
     lookback_hours: int = 24,
+    max_matches: int = DETECTOR_MAX_MATCHES,
 ) -> List[Dict[str, Any]]:
-    """Detect: Process from /tmp -> Network connection (dropped payload)."""
+    """Detect: Process from /tmp -> network connection to an EXTERNAL IP.
+
+    AUD-005: the connection leg excludes RFC1918 destinations -- the same
+    triple `NOT destination_ip <<=` gate the sibling detectors
+    (data_exfiltration, credential_theft_exfil, ai_process_egress) apply.
+    The description always said "external IP"; without the gate, routine
+    LAN traffic from a /tmp process fired critical alerts.
+    """
     sql = """
     WITH tmp_processes AS (
         SELECT
@@ -349,6 +385,11 @@ async def detect_payload_callback(
         WHERE event_category = 'network'
           AND event_type = 'connection'
           AND destination_ip IS NOT NULL
+          -- AUD-005: external IP only. Routine LAN traffic from a /tmp
+          -- process is not a C2 callback.
+          AND NOT destination_ip <<= $5::inet
+          AND NOT destination_ip <<= $6::inet
+          AND NOT destination_ip <<= $7::inet
           AND time > $1::timestamptz - INTERVAL '1 hour' * $3
           AND time <= $1::timestamptz
     )
@@ -366,6 +407,7 @@ async def detect_payload_callback(
         AND n.conn_time > t.proc_time
         AND n.conn_time < t.proc_time + INTERVAL '1 minute' * $4
     ORDER BY t.proc_time DESC
+    LIMIT $8
     """
 
     rows = await conn.fetch(
@@ -374,7 +416,12 @@ async def detect_payload_callback(
         "%/tmp/%",  # $2
         lookback_hours,  # $3
         time_window_minutes,  # $4
+        "10.0.0.0/8",  # $5 -- RFC1918 range 1 (AUD-005 external-IP gate)
+        "192.168.0.0/16",  # $6 -- RFC1918 range 2
+        "172.16.0.0/12",  # $7 -- RFC1918 range 3
+        max_matches,  # $8 -- per-detector result cap (AUD-004)
     )
+    _warn_if_result_capped(rows, "payload_callback", max_matches)
     results = []
     for row in rows:
         d = dict(row)
@@ -394,6 +441,7 @@ async def detect_persistence_activated(
     as_of: datetime,
     time_window_minutes: int = 30,
     lookback_hours: int = 24,
+    max_matches: int = DETECTOR_MAX_MATCHES,
 ) -> List[Dict[str, Any]]:
     """Detect: File creation in LaunchAgents -> launchctl load."""
     sql = """
@@ -433,6 +481,7 @@ async def detect_persistence_activated(
         AND l.load_time > a.creation_time
         AND l.load_time < a.creation_time + INTERVAL '1 minute' * $5
     ORDER BY a.creation_time DESC
+    LIMIT $6
     """
 
     rows = await conn.fetch(
@@ -442,7 +491,9 @@ async def detect_persistence_activated(
         lookback_hours,  # $3
         "%load%",  # $4
         time_window_minutes,  # $5
+        max_matches,  # $6 -- per-detector result cap (AUD-004)
     )
+    _warn_if_result_capped(rows, "persistence_activated", max_matches)
     results = []
     for row in rows:
         d = dict(row)
@@ -464,6 +515,7 @@ async def detect_data_exfiltration(
     connection_threshold: int = 50,  # burst path: connections to ONE external IP
     time_window_hours: int = 1,
     lookback_hours: int = 24,
+    max_matches: int = DETECTOR_MAX_MATCHES,
 ) -> List[Dict[str, Any]]:
     """Detect: Large outbound transfer / connection burst to external IP.
 
@@ -521,6 +573,7 @@ async def detect_data_exfiltration(
     UNION ALL
     SELECT * FROM connection_bursts
     ORDER BY total_bytes DESC, connection_count DESC
+    LIMIT $8
     """
 
     rows = await conn.fetch(
@@ -532,7 +585,9 @@ async def detect_data_exfiltration(
         lookback_hours,  # $5
         threshold_bytes,  # $6
         connection_threshold,  # $7
+        max_matches,  # $8 -- per-detector result cap (AUD-004)
     )
+    _warn_if_result_capped(rows, "data_exfiltration", max_matches)
     results = []
     for row in rows:
         d = dict(row)
@@ -566,6 +621,7 @@ async def detect_privilege_escalation_chain(
     as_of: datetime,
     time_window_minutes: int = 10,
     lookback_hours: int = 24,
+    max_matches: int = DETECTOR_MAX_MATCHES,
 ) -> List[Dict[str, Any]]:
     """Detect: Privilege escalation -> New process as root.
 
@@ -646,6 +702,7 @@ async def detect_privilege_escalation_chain(
         AND r.root_time > p.priv_time
         AND r.root_time < p.priv_time + INTERVAL '1 minute' * $3
     ORDER BY p.priv_time DESC
+    LIMIT $4
     """
 
     rows = await conn.fetch(
@@ -653,7 +710,9 @@ async def detect_privilege_escalation_chain(
         as_of,  # $1
         lookback_hours,  # $2
         time_window_minutes,  # $3
+        max_matches,  # $4 -- per-detector result cap (AUD-004)
     )
+    _warn_if_result_capped(rows, "privilege_escalation_chain", max_matches)
     results = []
     for row in rows:
         d = dict(row)
@@ -673,6 +732,7 @@ async def detect_credential_theft_exfil(
     as_of: datetime,
     time_window_minutes: int = 15,
     lookback_hours: int = 24,
+    max_matches: int = DETECTOR_MAX_MATCHES,
 ) -> List[Dict[str, Any]]:
     """Detect: SSH credential access -> Outbound connection.
 
@@ -750,6 +810,7 @@ async def detect_credential_theft_exfil(
         AND o.conn_time > c.access_time
         AND o.conn_time < c.access_time + INTERVAL '1 minute' * $6
     ORDER BY c.access_time DESC
+    LIMIT $7
     """
 
     rows = await conn.fetch(
@@ -760,7 +821,9 @@ async def detect_credential_theft_exfil(
         "192.168.0.0/16",  # $4
         "172.16.0.0/12",  # $5
         time_window_minutes,  # $6
+        max_matches,  # $7 -- per-detector result cap (AUD-004)
     )
+    _warn_if_result_capped(rows, "credential_theft_exfil", max_matches)
     results = []
     for row in rows:
         d = dict(row)
@@ -780,6 +843,7 @@ async def detect_ai_verdict_block_sustained(
     as_of: datetime,
     block_threshold: int = 10,
     time_window_minutes: int = 5,
+    max_matches: int = DETECTOR_MAX_MATCHES,
 ) -> List[Dict[str, Any]]:
     """Detect: sustained AI-firewall BLOCK verdicts from one tenant/source.
 
@@ -810,6 +874,7 @@ async def detect_ai_verdict_block_sustained(
     GROUP BY host_name, source, tenant_id
     HAVING COUNT(*) >= $3
     ORDER BY block_count DESC
+    LIMIT $4
     """
 
     rows = await conn.fetch(
@@ -817,7 +882,9 @@ async def detect_ai_verdict_block_sustained(
         as_of,  # $1 -- point-in-time upper bound
         time_window_minutes,  # $2 -- sustained-window minutes
         block_threshold,  # $3 -- minimum BLOCK verdicts in the window
+        max_matches,  # $4 -- per-detector result cap (AUD-004)
     )
+    _warn_if_result_capped(rows, "ai_verdict_block_sustained", max_matches)
     results = []
     for row in rows:
         d = dict(row)
@@ -843,6 +910,7 @@ async def detect_defense_evasion_cleanup(
     as_of: datetime,
     time_window_minutes: int = 30,
     lookback_hours: int = 24,
+    max_matches: int = DETECTOR_MAX_MATCHES,
 ) -> List[Dict[str, Any]]:
     """Detect: High-severity activity -> Log file deletion.
 
@@ -896,6 +964,7 @@ async def detect_defense_evasion_cleanup(
         AND l.deletion_time > s.alert_time
         AND l.deletion_time < s.alert_time + INTERVAL '1 minute' * $4
     ORDER BY s.alert_time DESC
+    LIMIT $5
     """
 
     rows = await conn.fetch(
@@ -904,7 +973,9 @@ async def detect_defense_evasion_cleanup(
         lookback_hours,  # $2
         "%var/log%",  # $3
         time_window_minutes,  # $4
+        max_matches,  # $5 -- per-detector result cap (AUD-004)
     )
+    _warn_if_result_capped(rows, "defense_evasion_cleanup", max_matches)
     results = []
     for row in rows:
         d = dict(row)
@@ -924,6 +995,7 @@ async def detect_clickfix_dropper_execution(
     as_of: datetime,
     time_window_minutes: int = 10,
     lookback_hours: int = 24,
+    max_matches: int = DETECTOR_MAX_MATCHES,
 ) -> List[Dict[str, Any]]:
     """Detect: payload dropped in a user-writable path -> interpreter execution.
 
@@ -1005,6 +1077,7 @@ async def detect_clickfix_dropper_execution(
         AND i.exec_time > d.drop_time
         AND i.exec_time < d.drop_time + INTERVAL '1 minute' * $19
     ORDER BY d.drop_time DESC
+    LIMIT $20
     """
 
     rows = await conn.fetch(
@@ -1028,7 +1101,9 @@ async def detect_clickfix_dropper_execution(
         "%/Users/%",  # $17 -- cmdline references to dropped user-dir paths
         r"%C:\\Users\\%",  # $18 -- cmdline references to Windows user paths
         time_window_minutes,  # $19
+        max_matches,  # $20 -- per-detector result cap (AUD-004)
     )
+    _warn_if_result_capped(rows, "clickfix_dropper_execution", max_matches)
     results = []
     for row in rows:
         d = dict(row)
@@ -1048,6 +1123,7 @@ async def detect_ai_process_egress(
     as_of: datetime,
     time_window_minutes: int = 15,
     lookback_hours: int = 24,
+    max_matches: int = DETECTOR_MAX_MATCHES,
 ) -> List[Dict[str, Any]]:
     """Detect: AI CLI process start -> outbound external connection.
 
@@ -1103,6 +1179,7 @@ async def detect_ai_process_egress(
         AND o.conn_time > a.start_time
         AND o.conn_time < a.start_time + INTERVAL '1 minute' * $8
     ORDER BY a.start_time DESC
+    LIMIT $9
     """
 
     rows = await conn.fetch(
@@ -1115,7 +1192,9 @@ async def detect_ai_process_egress(
         "172.16.0.0/12",  # $6
         lookback_hours,  # $7
         time_window_minutes,  # $8 -- join window (conn within N min of start)
+        max_matches,  # $9 -- per-detector result cap (AUD-004)
     )
+    _warn_if_result_capped(rows, "ai_process_egress", max_matches)
     results = []
     for row in rows:
         d = dict(row)
@@ -1213,6 +1292,50 @@ async def get_host_sessions(
 
 
 # ───────────────────────────────────────────────────────────────
+# Detector registry (AUD-039) -- the single source of truth mapping rule
+# names to detector functions. run_all_correlations AND the API's
+# single-rule endpoint both derive from THIS dict, so a new chain can
+# never drift out of POST /correlation/run/{rule} again (the old
+# hand-copied map 404'd three of the ten rules).
+#
+# NOTE for tests: the registry holds the function objects themselves.
+# To substitute a detector for a run, patch THIS dict (patch.dict) --
+# patching the module attribute does not change the dict entry.
+# ───────────────────────────────────────────────────────────────
+
+CORRELATION_DETECTORS: Dict[str, Callable[..., Awaitable[List[Dict[str, Any]]]]] = {
+    "brute_force_success": detect_brute_force_then_success,
+    "payload_callback": detect_payload_callback,
+    "persistence_activated": detect_persistence_activated,
+    "data_exfiltration": detect_data_exfiltration,
+    "privilege_escalation_chain": detect_privilege_escalation_chain,
+    "credential_theft_exfil": detect_credential_theft_exfil,
+    "defense_evasion_cleanup": detect_defense_evasion_cleanup,
+    "ai_verdict_block_sustained": detect_ai_verdict_block_sustained,
+    "clickfix_dropper_execution": detect_clickfix_dropper_execution,
+    "ai_process_egress": detect_ai_process_egress,
+}
+
+
+def _validate_registry() -> None:
+    """Import-time drift guard (fail-closed, AUD-039).
+
+    A rule with metadata but no detector would silently NEVER run. A loud
+    boot failure beats silent detection loss. Extracted as a function so
+    tests can exercise the divergence path without reload games.
+    """
+    if set(CORRELATION_DETECTORS) != set(CORRELATION_RULES):
+        raise RuntimeError(
+            "CORRELATION_DETECTORS / CORRELATION_RULES diverged: "
+            f"metadata-only={sorted(set(CORRELATION_RULES) - set(CORRELATION_DETECTORS))} "
+            f"detector-only={sorted(set(CORRELATION_DETECTORS) - set(CORRELATION_RULES))}"
+        )
+
+
+_validate_registry()
+
+
+# ───────────────────────────────────────────────────────────────
 # Run all correlations
 # ───────────────────────────────────────────────────────────────
 
@@ -1248,25 +1371,12 @@ async def run_all_correlations(
     if as_of is None:
         as_of = datetime.now(timezone.utc)
 
-    # P3.3: observe the duration of the full run (all 7 rules) in /metrics.
+    # P3.3: observe the duration of the full rule sweep in /metrics.
     import time as _time
 
     from src.api.metrics import correlation_run_duration
 
     _run_start = _time.monotonic()
-
-    correlation_funcs: Dict[str, Callable[..., Awaitable[List[Dict[str, Any]]]]] = {
-        "brute_force_success": detect_brute_force_then_success,
-        "payload_callback": detect_payload_callback,
-        "persistence_activated": detect_persistence_activated,
-        "data_exfiltration": detect_data_exfiltration,
-        "privilege_escalation_chain": detect_privilege_escalation_chain,
-        "credential_theft_exfil": detect_credential_theft_exfil,
-        "defense_evasion_cleanup": detect_defense_evasion_cleanup,
-        "ai_verdict_block_sustained": detect_ai_verdict_block_sustained,
-        "clickfix_dropper_execution": detect_clickfix_dropper_execution,
-        "ai_process_egress": detect_ai_process_egress,
-    }
 
     all_matches: List[Dict[str, Any]] = []
     per_rule: Dict[str, List[Dict[str, Any]]] = {}
@@ -1274,7 +1384,7 @@ async def run_all_correlations(
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        for rule_name, func in correlation_funcs.items():
+        for rule_name, func in CORRELATION_DETECTORS.items():
             try:
                 matches = await func(conn, as_of)
                 per_rule[rule_name] = matches
@@ -1387,7 +1497,7 @@ async def run_all_correlations(
     total_matches = len(all_matches)
     log.info(
         "all_correlations_complete",
-        rules_run=len(correlation_funcs),
+        rules_run=len(CORRELATION_DETECTORS),
         total_matches=total_matches,
         persisted=persisted_count,
         as_of=as_of.isoformat(),
@@ -1487,19 +1597,21 @@ async def persist_match(
         return None
 
 
-async def list_matches(
-    rule: Optional[str] = None,
-    severity: Optional[str] = None,
-    since: Optional[datetime] = None,
-    until: Optional[datetime] = None,
-    seen: Optional[bool] = None,
-    limit: int = 100,
-    offset: int = 0,
-) -> List[Dict[str, Any]]:
-    """List persisted correlation matches with optional filters."""
-    pool = await get_pool()
+def _match_filters_clause(
+    rule: Optional[str],
+    severity: Optional[str],
+    since: Optional[datetime],
+    until: Optional[datetime],
+    seen: Optional[bool],
+    params: List[Any],
+) -> str:
+    """Build the WHERE clause shared by list_matches and count_matches (AUD-049).
+
+    Appends bound params to `params` in order and returns the SQL fragment
+    ("" when no filter is set). ONE filter builder: the page query and the
+    count query can never disagree about what they filter.
+    """
     conditions = []
-    params: List[Any] = []
     idx = 1
 
     if rule:
@@ -1523,7 +1635,23 @@ async def list_matches(
         params.append(seen)
         idx += 1
 
-    where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    return ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+
+async def list_matches(
+    rule: Optional[str] = None,
+    severity: Optional[str] = None,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    seen: Optional[bool] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    """List persisted correlation matches with optional filters."""
+    pool = await get_pool()
+    params: List[Any] = []
+    where_clause = _match_filters_clause(rule, severity, since, until, seen, params)
+    limit_idx = len(params) + 1  # filter params first, then LIMIT/OFFSET
     params.extend([limit, offset])
     sql = f"""
         SELECT id, correlation_rule, severity, match_data, trigger_event_id,
@@ -1531,11 +1659,37 @@ async def list_matches(
         FROM correlation_matches
         {where_clause}
         ORDER BY created_at DESC
-        LIMIT ${idx} OFFSET ${idx + 1}
+        LIMIT ${limit_idx} OFFSET ${limit_idx + 1}
     """
     async with pool.acquire() as conn:
         rows = await conn.fetch(sql, *params)
     return [dict(row) for row in rows]
+
+
+async def count_matches(
+    rule: Optional[str] = None,
+    severity: Optional[str] = None,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    seen: Optional[bool] = None,
+) -> int:
+    """Filtered total for the matches endpoint (AUD-049).
+
+    `total` must be the filtered row COUNT, not the page length — clients
+    cannot paginate against a page length. Shares the filter builder with
+    list_matches so the two can never disagree.
+    """
+    pool = await get_pool()
+    params: List[Any] = []
+    where_clause = _match_filters_clause(rule, severity, since, until, seen, params)
+    sql = f"""
+        SELECT COUNT(*)
+        FROM correlation_matches
+        {where_clause}
+    """
+    async with pool.acquire() as conn:
+        total = await conn.fetchval(sql, *params)
+    return int(total or 0)
 
 
 async def mark_match_seen(match_id: int) -> bool:

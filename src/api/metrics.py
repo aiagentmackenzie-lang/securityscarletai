@@ -225,7 +225,7 @@ db_pool_size = METRICS.gauge(
 )
 correlation_run_duration = METRICS.histogram(
     "scarletai_correlation_run_duration_seconds",
-    "Duration of full correlation runs (all 7 rules).",
+    "Duration of full correlation rule sweeps.",
 )
 retention_rows_deleted = METRICS.counter(
     "scarletai_retention_rows_deleted_total", "Rows deleted by retention sweeps, per table."

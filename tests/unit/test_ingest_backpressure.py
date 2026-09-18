@@ -230,15 +230,13 @@ class TestCorrelationBounds:
         async def mock_detect_correlations_stub(*args, **kwargs):
             return []
 
+        # run_all resolves detectors through the module registry (AUD-039) —
+        # patch the REGISTRY; patch-by-name would silently not apply.
+        registry_override = {name: no_matches for name in corr.CORRELATION_DETECTORS}
+        registry_override["payload_callback"] = AsyncMock(return_value=[match])
         with (
             patch.object(corr, "get_pool", AsyncMock(return_value=pool)),
-            patch.object(corr, "detect_payload_callback", AsyncMock(return_value=[match])),
-            patch.object(corr, "detect_brute_force_then_success", no_matches),
-            patch.object(corr, "detect_persistence_activated", no_matches),
-            patch.object(corr, "detect_data_exfiltration", no_matches),
-            patch.object(corr, "detect_privilege_escalation_chain", no_matches),
-            patch.object(corr, "detect_credential_theft_exfil", no_matches),
-            patch.object(corr, "detect_defense_evasion_cleanup", no_matches),
+            patch.dict(corr.CORRELATION_DETECTORS, registry_override),
             patch.object(corr, "create_alert", AsyncMock()),
         ):
             result = await corr.run_all_correlations(
@@ -274,15 +272,13 @@ class TestCorrelationBounds:
 
         no_matches = AsyncMock(return_value=[])
 
+        # run_all resolves detectors through the module registry (AUD-039) —
+        # patch the REGISTRY; patch-by-name would silently not apply.
+        registry_override = {name: no_matches for name in corr.CORRELATION_DETECTORS}
+        registry_override["payload_callback"] = AsyncMock(return_value=[match])
         with (
             patch.object(corr, "get_pool", AsyncMock(return_value=pool)),
-            patch.object(corr, "detect_payload_callback", AsyncMock(return_value=[match])),
-            patch.object(corr, "detect_brute_force_then_success", no_matches),
-            patch.object(corr, "detect_persistence_activated", no_matches),
-            patch.object(corr, "detect_data_exfiltration", no_matches),
-            patch.object(corr, "detect_privilege_escalation_chain", no_matches),
-            patch.object(corr, "detect_credential_theft_exfil", no_matches),
-            patch.object(corr, "detect_defense_evasion_cleanup", no_matches),
+            patch.dict(corr.CORRELATION_DETECTORS, registry_override),
             patch.object(corr, "create_alert", AsyncMock()),
         ):
             result = await corr.run_all_correlations(
@@ -379,15 +375,13 @@ class TestDedupWindowCoversLookback:
         async def no_matches(*args, **kwargs):
             return []
 
+        # run_all resolves detectors through the module registry (AUD-039) —
+        # patch the REGISTRY; patch-by-name would silently not apply.
+        registry_override = {name: no_matches for name in corr.CORRELATION_DETECTORS}
+        registry_override["credential_theft_exfil"] = AsyncMock(return_value=[match])
         with (
             patch.object(corr, "get_pool", AsyncMock(return_value=pool)),
-            patch.object(corr, "detect_credential_theft_exfil", AsyncMock(return_value=[match])),
-            patch.object(corr, "detect_brute_force_then_success", no_matches),
-            patch.object(corr, "detect_persistence_activated", no_matches),
-            patch.object(corr, "detect_data_exfiltration", no_matches),
-            patch.object(corr, "detect_privilege_escalation_chain", no_matches),
-            patch.object(corr, "detect_defense_evasion_cleanup", no_matches),
-            patch.object(corr, "detect_ai_verdict_block_sustained", no_matches),
+            patch.dict(corr.CORRELATION_DETECTORS, registry_override),
             patch.object(corr, "create_alert", AsyncMock()),
         ):
             result = await corr.run_all_correlations(persist=True)
