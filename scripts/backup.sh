@@ -29,7 +29,10 @@ BACKUP_FILE="scarletai_${TIMESTAMP}.sql.gz"
 
 echo "Starting backup at $(date)"
 
-# H-19 fix: Capture exit code immediately after pg_dump, before the if block
+# H-19 fix: Capture exit code immediately after pg_dump, before the if block.
+# AUD-069 correction: under set -e a bare dump line never reaches that capture
+# — the exit code is captured on the `|| ` leg (see below), which set -e
+# treats as handled.
 PGDUMP_CMD="pg_dump"
 if [ ! -x "$(command -v pg_dump 2>/dev/null)" ] && [ -d "/opt/homebrew/opt/postgresql@17/bin" ]; then
     PGDUMP_CMD="/opt/homebrew/opt/postgresql@17/bin/pg_dump"
@@ -40,20 +43,35 @@ if ! command -v "$PGDUMP_CMD" &> /dev/null; then
     exit 1
 fi
 
-# Run backup and capture exit code before pipe
+# Run backup and capture exit code before pipe.
+# AUD-069: under `set -e`, the old `pg_dump ... > tmp 2>/dev/null` died at the
+# dump line on failure — the H-19 exit-code capture, the temp-file cleanup,
+# and the "Backup failed" message were all UNREACHABLE, and stderr was
+# discarded (2>/dev/null), so a failed backup left zero diagnostics. Now:
+# `|| PGDUMP_EXIT=$?` handles the failure (set -e never fires on the || leg),
+# stderr is captured to a side file and printed if the dump failed, and the
+# success path removes the side file.
 BACKUP_PATH="${BACKUP_DIR}/${BACKUP_FILE}"
-"$PGDUMP_CMD" -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" "$DB_NAME" > "${BACKUP_DIR}/_temp_backup.sql" 2>/dev/null
-PGDUMP_EXIT=$?
+PGDUMP_ERR="${BACKUP_DIR}/_temp_backup.err"
+PGDUMP_EXIT=0
+"$PGDUMP_CMD" -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" "$DB_NAME" \
+    > "${BACKUP_DIR}/_temp_backup.sql" 2>"$PGDUMP_ERR" || PGDUMP_EXIT=$?
 
-if [ $PGDUMP_EXIT -eq 0 ]; then
+if [ "$PGDUMP_EXIT" -eq 0 ]; then
+    rm -f "$PGDUMP_ERR" 2>/dev/null
     gzip "${BACKUP_DIR}/_temp_backup.sql"
     mv "${BACKUP_DIR}/_temp_backup.sql.gz" "$BACKUP_PATH"
     echo "✅ Backup successful: ${BACKUP_FILE}"
     ls -lh "$BACKUP_PATH"
 else
-    # Clean up temp file on failure
-    rm -f "${BACKUP_DIR}/_temp_backup.sql" 2>/dev/null
+    # Failure path is REACHABLE now (AUD-069): clean up, surface stderr, exit 1.
     echo "❌ Backup failed! pg_dump exit code: ${PGDUMP_EXIT}"
+    if [ -s "$PGDUMP_ERR" ]; then
+        echo "   pg_dump stderr:"
+        sed 's/^/     /' "$PGDUMP_ERR"
+    fi
+    rm -f "${BACKUP_DIR}/_temp_backup.sql" 2>/dev/null
+    rm -f "$PGDUMP_ERR" 2>/dev/null
     exit 1
 fi
 
