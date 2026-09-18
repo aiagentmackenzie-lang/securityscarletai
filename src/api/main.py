@@ -46,6 +46,7 @@ from src.api.users import router as users_router
 from src.api.websocket import router as websocket_router
 from src.config.logging import get_logger, setup_logging
 from src.config.settings import settings
+from src.config.version import APP_VERSION
 from src.db.connection import close_pool, get_pool
 from src.services.writer import writer
 
@@ -81,12 +82,14 @@ async def load_sigma_rules():
     Runs on every boot. Upserts by name: new disk rules are inserted (enabled
     unless the rule's frontmatter carries `enabled: false` — the W2.1 import
     extension that keeps promoted SigmaHQ rules from arming before an
-    operator arms them); existing rules have their content fields refreshed
+    operator arms them); CHANGED rules have their content fields refreshed
     (sigma_yaml, description, severity, mitre_*, run_interval, lookback,
     threshold) while operator-set state (enabled, last_run, last_match,
-    match_count) is preserved. DB rows not present on disk are left
-    untouched -- they may be operator-created via the rules API and cannot
-    be distinguished from disk rules that were removed.
+    match_count) is preserved. UNCHANGED rules (byte-identical sigma_yaml)
+    are not written at all — the boot no longer rewrites every row (nor its
+    updated_at) on every restart (AUD-012). DB rows not present on disk are
+    left untouched -- they may be operator-created via the rules API and
+    cannot be distinguished from disk rules that were removed.
     """
     from datetime import timedelta
 
@@ -99,13 +102,17 @@ async def load_sigma_rules():
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        # Count from set arithmetic, NOT asyncpg command tags: proven 2026-09-10
-        # on PG17 that INSERT ... ON CONFLICT (name) DO UPDATE returns the tag
-        # 'INSERT 0 1' even when the UPDATE path fires -- the old tag-based
-        # heuristic logged inserted=100/updated=0 on EVERY boot regardless of
-        # reality.
-        pre_names = {r["name"] for r in await conn.fetch("SELECT name FROM rules")}
+        # Pre-fetch name -> sigma_yaml. sigma_yaml is a sufficient proxy for
+        # "content unchanged": every refreshed field (description, severity,
+        # mitre_*, run_interval, lookback, threshold) is derived from the same
+        # YAML text, so byte-identical YAML means byte-identical fields.
+        pre: dict[str, str | None] = {
+            r["name"]: r["sigma_yaml"]
+            for r in await conn.fetch("SELECT name, sigma_yaml FROM rules")
+        }
         disk_names: set[str] = set()
+        batch: list[tuple] = []
+        unchanged = 0
         for rule_file in sorted(RULES_DIR.rglob("*.yml")):
             try:
                 yaml_content = rule_file.read_text()
@@ -114,6 +121,12 @@ async def load_sigma_rules():
                 name = data.get("title", rule_file.stem)
                 disk_names.add(name)
 
+                # AUD-012: skip byte-identical rules — no upsert, no
+                # updated_at churn, no write amplification on every boot.
+                if name in pre and pre[name] == yaml_content:
+                    unchanged += 1
+                    continue
+
                 tags = data.get("tags", [])
                 mitre_tactics, mitre_techniques = _extract_mitre_tags(tags)
 
@@ -121,7 +134,40 @@ async def load_sigma_rules():
                 if level not in _VALID_SEVERITIES:
                     level = "medium"
 
-                await conn.execute(
+                batch.append(
+                    (
+                        name,
+                        data.get("description", ""),
+                        yaml_content,
+                        level,
+                        # W2.1 import extension: a disk rule born `enabled: false`
+                        # (promoted SigmaHQ imports) inserts DISABLED — arming is
+                        # always an explicit operator decision. Shipped rules
+                        # carry no `enabled` key and default to True (unchanged).
+                        bool(data.get("enabled", True)),
+                        timedelta(seconds=60),
+                        # AUD-007: the DB lookback column is the rule's scan
+                        # window and the run path now compiles from it — keep it
+                        # in sync with the YAML timeframe instead of a hardcoded
+                        # 5 minutes, so the override is a no-op for shipped rules
+                        # (byte-identical) and honest for API rules.
+                        timedelta(seconds=_timeframe_to_seconds(data.get("timeframe"))),
+                        1,
+                        mitre_tactics,
+                        mitre_techniques,
+                    )
+                )
+            except Exception as e:
+                log.error("rule_load_failed", file=str(rule_file), error=str(e))
+
+        # AUD-012: ONE pipeline round-trip for the whole batch (was one
+        # sequential execute per rule, ~116 round-trips per boot). Per-row
+        # fallback preserves the old robustness contract: one malformed row
+        # costs its row, never the whole reconcile (the Wave-7
+        # cache_iocs_bulk shape).
+        if batch:
+            try:
+                await conn.executemany(
                     """
                     INSERT INTO rules (
                         name, description, sigma_yaml, severity, enabled,
@@ -138,37 +184,43 @@ async def load_sigma_rules():
                         mitre_techniques = EXCLUDED.mitre_techniques,
                         updated_at       = NOW()
                     """,
-                    name,
-                    data.get("description", ""),
-                    yaml_content,
-                    level,
-                    # W2.1 import extension: a disk rule born `enabled: false`
-                    # (promoted SigmaHQ imports) inserts DISABLED — arming is
-                    # always an explicit operator decision. Shipped rules
-                    # carry no `enabled` key and default to True (unchanged).
-                    bool(data.get("enabled", True)),
-                    timedelta(seconds=60),
-                    # AUD-007: the DB lookback column is the rule's scan
-                    # window and the run path now compiles from it — keep it
-                    # in sync with the YAML timeframe instead of a hardcoded
-                    # 5 minutes, so the override is a no-op for shipped rules
-                    # (byte-identical) and honest for API rules.
-                    timedelta(seconds=_timeframe_to_seconds(data.get("timeframe"))),
-                    1,
-                    mitre_tactics,
-                    mitre_techniques,
+                    batch,
                 )
-            except Exception as e:
-                log.error("rule_load_failed", file=str(rule_file), error=str(e))
+            except Exception:
+                log.warning("rules_reconcile_bulk_failed_falling_back_per_row", rows=len(batch))
+                for params in batch:
+                    try:
+                        await conn.execute(
+                            """
+                            INSERT INTO rules (
+                                name, description, sigma_yaml, severity, enabled,
+                                run_interval, lookback, threshold, mitre_tactics, mitre_techniques
+                            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                            ON CONFLICT (name) DO UPDATE SET
+                                description      = EXCLUDED.description,
+                                sigma_yaml       = EXCLUDED.sigma_yaml,
+                                severity         = EXCLUDED.severity,
+                                run_interval     = EXCLUDED.run_interval,
+                                lookback         = EXCLUDED.lookback,
+                                threshold        = EXCLUDED.threshold,
+                                mitre_tactics    = EXCLUDED.mitre_tactics,
+                                mitre_techniques = EXCLUDED.mitre_techniques,
+                                updated_at       = NOW()
+                            """,
+                            *params,
+                        )
+                    except Exception as e:
+                        log.error("rule_load_failed", rule=params[0], error=str(e))
 
         db_names = {r["name"] for r in await conn.fetch("SELECT name FROM rules")}
-        inserted = len(disk_names - pre_names)
-        updated = len(disk_names & pre_names)
+        inserted = len({p[0] for p in batch} - pre.keys())
+        updated = len(batch) - inserted
         orphaned = db_names - disk_names
         log.info(
             "rules_reconciled",
             inserted=inserted,
             updated=updated,
+            unchanged=unchanged,
             on_disk=len(disk_names),
             in_db=len(db_names),
             db_only=len(orphaned),
@@ -361,16 +413,20 @@ async def lifespan(app: FastAPI):
 
     close_geoip_reader()
 
-    await writer.stop()
     # W2.2: stop the durable consumer (if it was started) BEFORE the writer —
-    # un-ACKed pendings are reclaimed by the next boot's consumer.
+    # AUD-019: the code had drifted (writer stopped first); the comment's
+    # order is the correct drain: stop INGESTING first (in-flight claimed
+    # messages stay PEL and are reclaimed by the next boot's consumer),
+    # then flush the writer's remaining buffers with no competing writer.
     if durable_consumer_task is not None:
         durable_stop.set()
         try:
             await asyncio.wait_for(durable_consumer_task, timeout=10.0)
-        except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001 — shutdown must complete
+        except Exception as e:  # noqa: BLE001 — shutdown must complete
             durable_consumer_task.cancel()
             log.warning("durable_consumer_stop_forced", error=str(e))
+
+    await writer.stop()
     await close_pool()
     log.info("api_shutdown_complete")
 
@@ -380,7 +436,12 @@ _docs_url, _redoc_url, _openapi_url = _docs_urls()
 app = FastAPI(
     title="SecurityScarletAI",
     description="AI-Native SIEM -- Log Ingestion & Detection API",
-    version="0.2.0",  # matches the git tag (was stale 0.1.0 -- caught by read-through, not grep)
+    # AUD-010: the version is the single-sourced APP_VERSION (Wave-5 seam;
+    # pyproject-sync is CI-enforced by tests/unit/test_version.py). The old
+    # hardcoded "0.2.0" carried a comment claiming it "matches the git tag"
+    # while pyproject was at 0.8.0 — the comment was the lie, and OpenAPI
+    # served the stale version.
+    version=APP_VERSION,
     lifespan=lifespan,
     docs_url=_docs_url,
     redoc_url=_redoc_url,

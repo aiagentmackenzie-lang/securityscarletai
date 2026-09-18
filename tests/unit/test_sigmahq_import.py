@@ -465,7 +465,7 @@ class TestReconcilerEnabledFlag:
         from src.api.main import load_sigma_rules
 
         mock_conn = AsyncMock()
-        mock_conn.execute = AsyncMock(return_value="INSERT 0 1")
+        mock_conn.executemany = AsyncMock(return_value=None)
         mock_conn.fetch = AsyncMock(return_value=[])
 
         class AsyncCtx:
@@ -483,7 +483,9 @@ class TestReconcilerEnabledFlag:
             patch("src.api.main.RULES_DIR", Path(tmpdir)),
         ):
             await load_sigma_rules()
-        return mock_conn.execute.call_args_list[0]
+        # AUD-012: the batch rides ONE executemany call; row tuple index 4
+        # is the `enabled` positional.
+        return mock_conn.executemany.await_args.args[1][0]
 
     async def test_import_rule_inserts_disabled(self, tmp_path):
         call = await self._reconcile(
@@ -492,7 +494,7 @@ class TestReconcilerEnabledFlag:
             "detection:\n  selection:\n    process_name: x.exe\n  condition: selection\n"
             "enabled: false\n",
         )
-        assert call.args[5] is False  # the enabled positional
+        assert call[4] is False  # the enabled positional
 
     async def test_shipped_rule_defaults_enabled(self, tmp_path):
         call = await self._reconcile(
@@ -500,4 +502,4 @@ class TestReconcilerEnabledFlag:
             "title: Shipped Rule\nlogsource:\n  category: process\n"
             "detection:\n  selection:\n    process_name: x.exe\n  condition: selection\n",
         )
-        assert call.args[5] is True
+        assert call[4] is True
