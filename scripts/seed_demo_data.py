@@ -546,7 +546,7 @@ THREAT_INTEL_ENTRIES = [
         "source": "abuseipdb",
         "threat_type": "c2",
         "confidence": 95,
-        "metadata": {"country": "Unknown", " isp": "Example ISP", "total_reports": 1247},
+        "metadata": {"country": "Unknown", "isp": "Example ISP", "total_reports": 1247},
     },
     {
         "type": "ip",

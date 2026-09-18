@@ -99,29 +99,20 @@ async def count_users(pool) -> int:
 
 
 async def get_users(pool) -> list:
-    """Get all users with their password hashes."""
+    """Get all users with their account metadata (AUD-074: password_hash is
+    never read here — the migration flags ALL existing hashes for reset, it
+    does not inspect them; keeping the column out of the SELECT is the honest
+    contract)."""
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT id, username, password_hash, role, is_active FROM siem_users"
-        )
+        rows = await conn.fetch("SELECT id, username, role, is_active FROM siem_users")
         return [dict(r) for r in rows]
 
 
-def is_new_hash_format(password_hash: str) -> bool:
-    """Detect if a hash was created with SHA-256 pre-hash (new format).
-
-    We can't definitively tell from the hash alone, but we CAN test:
-    If bcrypt.checkpw(sha256("default_password"), hash) matches, it's new format.
-    Since we don't know the original password, we use a heuristic:
-    New hashes are bcrypt of a 64-char hex string (SHA-256 digest).
-    Old hashes are bcrypt of the raw password (variable length).
-
-    Since both produce valid bcrypt output, we can't distinguish them
-    programmatically. The safest approach: treat ALL existing hashes as old
-    and require password reset.
-    """
-    # All existing hashes are treated as old format — flag for reset
-    return False
+# AUD-074: is_new_hash_format() DELETED — it always returned False (its own
+# docstring conceded bcrypt(old) and bcrypt(sha256(x)) are indistinguishable
+# by inspection) and had zero callers. The honest contract it described lives
+# in run_migration's Step 3: treat ALL existing hashes as old and flag for
+# reset.
 
 
 async def run_migration(dry_run: bool = False):
