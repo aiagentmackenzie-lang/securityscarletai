@@ -324,3 +324,101 @@ detection:
     sql, params = sigma_to_sql(yaml_rule)
     assert "destination_port::text" in sql
     assert "4" in params
+
+
+# ───────────────────────────────────────────────────────────
+# AUD-013: LIKE metacharacters in rule values match literally
+# ───────────────────────────────────────────────────────────
+
+
+def test_like_value_metacharacters_escaped_not_widened():
+    """AUD-013: a rule value containing % or _ must match LITERALLY — the
+    old compiler passed it raw into LIKE, so `|contains: "api_key"` also
+    matched "apiXkey" (over-broad). Every LIKE now carries ESCAPE '\\' and
+    the bound value is backslash-escaped."""
+    yaml_rule = """
+title: Literal Underscore Test
+detection:
+    selection:
+        event_action|contains: "api_key"
+    condition: selection
+"""
+    sql, params = sigma_to_sql(yaml_rule)
+    assert "ESCAPE '\\'" in sql
+    # the BOUND value is escaped; the raw value never widens the pattern
+    assert "api\\_key" in params
+
+
+def test_like_value_backslash_and_percent_escaped():
+    yaml_rule = """
+title: Percent Literal Test
+detection:
+    selection:
+        user_name|startswith: "svc_%win"
+    condition: selection
+"""
+    sql, params = sigma_to_sql(yaml_rule)
+    # backslash first, then metacharacters: svc_%win -> svc_\%win
+    assert "svc\\_\\%win" in params
+
+
+def test_regex_modifier_value_not_escaped():
+    """The |re modifier compiles a REGEX — % is literal there, so the value
+    must NOT be LIKE-escaped (backslash-escaping would corrupt the pattern)."""
+    yaml_rule = """
+title: Regex Test
+detection:
+    selection:
+        process_cmdline|re: "100%(?i:cpu)"
+    condition: selection
+"""
+    _sql, params = sigma_to_sql(yaml_rule)
+    assert any("100%" in str(p) for p in params)  # raw regex value, unescaped
+    assert not any("100\\%" in str(p) for p in params)
+
+
+# ───────────────────────────────────────────────────────────
+# AUD-011 / AUD-007: projection + lookback override
+# ───────────────────────────────────────────────────────────
+
+
+def test_detection_query_projects_scalar_columns_not_jsonb():
+    """AUD-011: the detection SELECT carries the scalar ECS columns + id/time
+    — the heavy raw_data/normalized/enrichment JSONB blobs stay out of the
+    per-rule scan (the alert evidence carries the same normalized fields)."""
+    yaml_rule = """
+title: Projection Test
+detection:
+    selection:
+        event_type: "start"
+    condition: selection
+"""
+    sql, _params = sigma_to_sql(yaml_rule)
+    assert sql.startswith("SELECT id, time, host_name")
+    assert "raw_data" not in sql
+    assert "normalized" not in sql
+    assert "enrichment" not in sql
+    # the rule-matched columns are all present
+    assert "process_cmdline" in sql
+    assert "source_ip" in sql
+
+
+def test_lookback_override_replaces_yaml_timeframe():
+    """AUD-007: an explicit lookback override replaces the YAML timeframe as
+    the scan window (same SQL shape — the window is a bound parameter)."""
+    yaml_rule = """
+title: Override Test
+detection:
+    selection:
+        event_type: "start"
+    condition: selection
+timeframe: 5m
+"""
+    sql_default, params_default = sigma_to_sql(yaml_rule)
+    assert 300 in params_default  # YAML timeframe wins when no override
+
+    sql_override, params_override = sigma_to_sql(yaml_rule, lookback_seconds_override=86400)
+    # same SQL text (window is parameterized), different bound window
+    assert 86400 in params_override
+    assert 300 not in params_override
+    assert sql_override == sql_default

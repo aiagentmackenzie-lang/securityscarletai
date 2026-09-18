@@ -14,6 +14,17 @@ The legacy parser gives us:
   $N placeholder; INTERVAL is built as INTERVAL '1 second' * $N.
 - Column name validation against a whitelist.
 - AND / OR / AND-NOT / plain-AND conditions and Sigma aggregation (count by).
+
+SUPPORTED GRAMMAR (AUD-024, honest note): the legacy parser supports plain
+selections, `and` / `or` / `and not` conditions, the `|contains` /
+`|startswith` / `|endswith` / `|re` field modifiers, and the
+`| count(field) by group > N` aggregation. It does NOT support `1 of x` /
+`all of`, multi-modifier chains (`field|a|b`), or `count() > N` without
+`by`. Unsupported constructs fail SAFE to FALSE — the rule matches nothing
+and the parser collects a loud warning (which the backtester surfaces as
+"unmeasured" instead of a fake 0-hit result). Silent never-match is the
+accepted tradeoff for never over-firing; write rules within the supported
+grammar.
 """
 
 import ipaddress
@@ -31,6 +42,18 @@ log = get_logger("detection.sigma")
 # P2.8: hard cap on rows fetched per simple-detection run — a broad rule
 # on a chatty host used to pull unbounded rows into memory per evaluation.
 MAX_DETECTION_ROWS = 1000
+
+# AUD-011: the detection query projects the scalar ECS columns + id/time.
+# The heavy raw_data/normalized/enrichment JSONB columns (the audit's
+# "SELECT * pulls the heavy blobs for up to 1000 rows per rule run") stay
+# out of the detection path: alert evidence carries exactly these normalized
+# fields, and the raw originals remain in `logs` under retention.
+DETECTION_PROJECTION = (
+    "id, time, host_name, host_ip, source, event_category, event_type, "
+    "event_action, user_name, process_name, process_pid, process_cmdline, "
+    "process_path, source_ip, destination_ip, destination_port, file_path, "
+    "file_hash, severity"
+)
 
 # ───────────────────────────────────────────────────────────────
 # Column whitelist — used by both pySigma backend and legacy parser
@@ -101,6 +124,21 @@ class UnsupportedSigmaValue(ValueError):
 
 # Timeframe validation regex
 TIMEFRAME_PATTERN = re.compile(r"^(\d+)([mhd])$")
+
+# AUD-013: the LIKE-family modifiers take an escaped literal; `re` compiles a
+# regex and is intentionally NOT escaped (% is literal in a regex).
+_LIKE_MODIFIERS = frozenset({"contains", "startswith", "endswith"})
+
+
+def _escape_like(value: str) -> str:
+    """Escape SQL LIKE metacharacters in a rule's pattern value (AUD-013).
+
+    A rule value containing '%' or '_' must match LITERALLY — previously the
+    bound value rode into `LIKE` raw, so `|contains: "api_key"` also matched
+    "apiXkey" (over-broad, fail-open-ish at match level). Paired with the
+    ESCAPE '\\' clause on every LIKE the MODIFIERS build. Order matters:
+    backslash first, then the metacharacters."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 @dataclass
@@ -205,14 +243,6 @@ def parse_sigma_rule(yaml_content: str) -> SigmaRule:
     return parser.parse(yaml_content)
 
 
-def _extract_condition_string(detection: dict) -> str:
-    """Extract condition string from detection dict for backward compatibility."""
-    conditions = detection.get("condition", "selection")
-    if isinstance(conditions, list):
-        return " AND ".join(conditions)
-    return str(conditions)
-
-
 # ───────────────────────────────────────────────────────────────
 # Legacy parsing (fallback for rules that pySigma can't handle)
 # ───────────────────────────────────────────────────────────────
@@ -222,9 +252,12 @@ class SigmaParser:
     """Legacy Sigma YAML parser — used as fallback when pySigma fails."""
 
     MODIFIERS = {
-        "contains": lambda field, val: f"{field} LIKE '%' || {val} || '%'",
-        "endswith": lambda field, val: f"{field} LIKE '%' || {val}",
-        "startswith": lambda field, val: f"{field} LIKE {val} || '%'",
+        # AUD-013: every LIKE carries ESCAPE '\\' and the bound value is
+        # backslash-escaped (see _escape_like) — a rule value containing % or
+        # _ matches LITERALLY instead of silently widening the pattern.
+        "contains": lambda field, val: f"{field} LIKE '%' || {val} || '%' ESCAPE '\\'",
+        "endswith": lambda field, val: f"{field} LIKE '%' || {val} ESCAPE '\\'",
+        "startswith": lambda field, val: f"{field} LIKE {val} || '%' ESCAPE '\\'",
         "re": lambda field, val: f"{field} ~ {val}",
     }
 
@@ -319,22 +352,37 @@ class SigmaParser:
             where_clause = f"({' AND '.join(filters)}) AND ({where_clause})"
         return where_clause, self._params, None
 
-    def to_sql(self, rule: SigmaRule) -> tuple[str, list[Any]]:
-        """Convert Sigma rule to parameterized SQL query (legacy mode)."""
+    def to_sql(
+        self, rule: SigmaRule, *, lookback_seconds_override: Optional[int] = None
+    ) -> tuple[str, list[Any]]:
+        """Convert Sigma rule to parameterized SQL query (legacy mode).
+
+        lookback_seconds_override (AUD-007): the deployment's lookback knob —
+        when provided it REPLACES the YAML timeframe as the scan window.
+        The rules loader derives the DB value from the YAML timeframe, so
+        shipped rules compile identically and the operator knob governs
+        API-created rules without a YAML timeframe of their own.
+        """
         where_clause, _, agg = self.compile_where(rule)
         if agg is not None:
-            return self._build_aggregation_query(rule, where_clause, agg)
-        return self._build_simple_query(rule, where_clause)
+            return self._build_aggregation_query(rule, where_clause, agg, lookback_seconds_override)
+        return self._build_simple_query(
+            rule, where_clause, lookback_seconds_override=lookback_seconds_override
+        )
 
     def _build_aggregation_query(
-        self, rule, where_clause, agg: SigmaAggregation
+        self, rule, where_clause, agg: SigmaAggregation, lookback_seconds_override=None
     ) -> tuple[str, list[Any]]:
         """Build an aggregation (GROUP BY) SQL query."""
         group_by = agg.group_by
         count_field = agg.count_field or "*"
         threshold = agg.threshold
 
-        lookback_seconds = _timeframe_to_seconds(rule.timeframe)
+        lookback_seconds = (
+            lookback_seconds_override
+            if lookback_seconds_override is not None
+            else _timeframe_to_seconds(rule.timeframe)
+        )
         lookback_param = self._add_param(lookback_seconds)
         threshold_param = self._add_param(threshold)
 
@@ -349,20 +397,28 @@ class SigmaParser:
         return sql, self._params
 
     def _build_simple_query(
-        self, rule, where_clause, max_rows: Optional[int] = None
+        self, rule, where_clause, max_rows: Optional[int] = None, lookback_seconds_override=None
     ) -> tuple[str, list[Any]]:
         """Build a simple SELECT query.
 
         P2.8: every simple query carries a bounded LIMIT (MAX_DETECTION_ROWS,
         overridable per call) — a broad rule on a chatty host used to fetch
         unbounded rows into memory per run.
+        AUD-011: the projection is the scalar ECS columns + id/time — the
+        heavy raw_data/normalized/enrichment JSONB columns stay out of the
+        detection path (the alert's evidence carries the same normalized
+        fields; the raw originals remain in `logs` under retention).
         """
-        lookback_seconds = _timeframe_to_seconds(rule.timeframe)
+        lookback_seconds = (
+            lookback_seconds_override
+            if lookback_seconds_override is not None
+            else _timeframe_to_seconds(rule.timeframe)
+        )
         lookback_param = self._add_param(lookback_seconds)
         limit_param = self._add_param(max_rows or MAX_DETECTION_ROWS)
 
         sql = (  # noqa: S608 — WHERE clause built from parameterized _parse_condition()
-            f"SELECT * FROM logs "
+            f"SELECT {DETECTION_PROJECTION} FROM logs "
             f"WHERE {where_clause} "
             f"AND time > NOW() - INTERVAL '1 second' * {lookback_param} "
             f"ORDER BY time DESC "
@@ -428,26 +484,18 @@ class SigmaParser:
                             like_field = f"{sql_field}::text"
                         else:
                             like_field = sql_field
+
+                        pattern_param = self._pattern_param_builder(sql_field, modifier)
+
                         if isinstance(value, list):
-                            or_conditions = []
-                            for v in value:
-                                or_conditions.append(
-                                    self.MODIFIERS[modifier](
-                                        like_field,
-                                        self._add_param(
-                                            self._coerce_param(sql_field, v, usage="pattern")
-                                        ),
-                                    )
-                                )
+                            or_conditions = [
+                                self.MODIFIERS[modifier](like_field, pattern_param(v))
+                                for v in value
+                            ]
                             conditions.append(f"({' OR '.join(or_conditions)})")
                         else:
                             conditions.append(
-                                self.MODIFIERS[modifier](
-                                    like_field,
-                                    self._add_param(
-                                        self._coerce_param(sql_field, value, usage="pattern")
-                                    ),
-                                )
+                                self.MODIFIERS[modifier](like_field, pattern_param(value))
                             )
                     else:
                         log.warning("unknown_modifier", modifier=modifier, field=field)
@@ -501,6 +549,24 @@ class SigmaParser:
             return "FALSE"
 
         return " AND ".join(conditions)
+
+    def _pattern_param_builder(self, column: str, modifier: str):
+        """Build the param binder for one modifier application (B023-safe:
+        the loop variables are bound HERE, not in a closure inside the loop).
+
+        Coerces the value and — for the LIKE family only — escapes it
+        (AUD-013: '%' / '_' / '\\' in a rule value match literally, never as
+        wildcards). The regex modifier is intentionally untouched: its value
+        is a pattern, and % is literal in a regex.
+        """
+
+        def bind(v: Any) -> str:
+            coerced = self._coerce_param(column, v, usage="pattern")
+            if modifier in _LIKE_MODIFIERS:
+                return self._add_param(_escape_like(coerced))
+            return self._add_param(coerced)
+
+        return bind
 
     def _coerce_param(self, column: str, value: Any, *, usage: str = "eq") -> Any:
         """Coerce a Sigma selection value to the type asyncpg can bind.
@@ -578,7 +644,9 @@ class SigmaParser:
 # ───────────────────────────────────────────────────────────────
 
 
-def sigma_to_sql(yaml_content: str) -> tuple[str, list[Any]]:
+def sigma_to_sql(
+    yaml_content: str, *, lookback_seconds_override: Optional[int] = None
+) -> tuple[str, list[Any]]:
     """
     Convert Sigma YAML to parameterized SQL.
 
@@ -586,10 +654,13 @@ def sigma_to_sql(yaml_content: str) -> tuple[str, list[Any]]:
     PostgreSQLBackend produced invalid SQL (list-repr in WHERE) and dropped
     aggregation selections to TRUE; it is no longer on this path.
     Returns (sql, params) tuple.
+
+    lookback_seconds_override (AUD-007): replaces the YAML timeframe as the
+    scan window when provided (see SigmaParser.to_sql).
     """
     parser = SigmaParser()
     rule = parser.parse(yaml_content)
-    sql, params = parser.to_sql(rule)
+    sql, params = parser.to_sql(rule, lookback_seconds_override=lookback_seconds_override)
     log.debug("legacy_sql_generated", rule=rule.title)
     return sql, params
 
