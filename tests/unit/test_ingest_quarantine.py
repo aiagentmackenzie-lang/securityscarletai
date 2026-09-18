@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 from src.api.ingest import IngestEvent, ingest_events
 from src.services.writer import writer as writer_singleton
@@ -62,21 +63,33 @@ async def test_quarantined_host_events_refused():
 
 
 @pytest.mark.asyncio
-async def test_quarantine_lookup_failure_does_not_mask_the_write_failure():
-    """If the quarantine lookup itself fails (DB down), the refusal never
-    happens silently: the lookup is swallowed (empty list, nothing was
-    proven quarantined) and the write path fails loudly right after --
-    fail-loud, not fail-open into the pipeline."""
+async def test_quarantine_lookup_failure_refuses_batch_fail_closed():
+    """AUD-001: the REAL hazard — the quarantine lookup fails transiently
+    while the WRITER is healthy. The batch must be refused with 503
+    (fail-closed, same contract as /ingest/osquery): an unknown enforcement
+    state must never silently accept telemetry from possibly-quarantined
+    hosts. (The previous test forced the WRITER to fail too, so it only ever
+    proved "full DB outage fails loudly via the write path" — the fail-open
+    lookup swallow survived every CI run undetected.)"""
     pool = AsyncMock()
-    pool.acquire = AsyncMock(side_effect=RuntimeError("db down"))
+    conn = AsyncMock()
+    acq = AsyncMock()
+    acq.__aenter__ = AsyncMock(return_value=conn)
+    acq.__aexit__ = AsyncMock(return_value=False)
+    pool.acquire = MagicMock(return_value=acq)
+    conn.fetch.side_effect = RuntimeError("db down")  # the LOOKUP fails
 
+    write_mock = AsyncMock()
     with (
         patch("src.api.ingest.get_pool", return_value=pool),
-        patch("src.db.connection.get_pool", AsyncMock(side_effect=RuntimeError("no db"))),
-        patch.object(writer_singleton, "write", AsyncMock(side_effect=RuntimeError("no db"))),
+        patch.object(writer_singleton, "write", write_mock),
     ):
-        with pytest.raises(RuntimeError):
-            await ingest_events(make_test_request(), MagicMock(), [_event("h")], "token")
+        with pytest.raises(HTTPException) as exc_info:
+            await ingest_events(make_test_request(), MagicMock(), [_event("h1")], "token")
+
+    assert exc_info.value.status_code == 503
+    assert "quarantine enforcement unavailable" in exc_info.value.detail
+    assert write_mock.await_count == 0  # nothing entered the pipeline
 
 
 @pytest.mark.asyncio

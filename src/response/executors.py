@@ -120,9 +120,31 @@ class DisableSiemUserExecutor(Executor):
                 ok=False,
                 detail=f"siem user '{username}' not found; nothing changed",
             )
+        # AUD-050: deactivation alone leaves the user's ALREADY-ISSUED tokens
+        # valid until natural expiry (15 min access / 7 days refresh) — the
+        # account reads "disabled" while the session lives. The users.py PATCH
+        # path sets the Redis user_revoke marker on deactivation; containment
+        # MUST do the same. Best-effort and never blocking: a Redis outage
+        # cannot fail the deactivation itself, but the honest limitation is
+        # recorded in the execution detail (and so in the action's evidence).
+        try:
+            from src.api.users import _revoke_user_tokens
+
+            revoked = await _revoke_user_tokens(username)
+        except Exception as e:  # pragma: no cover — set_user_revoke_marker already swallows
+            log.warning("containment_token_revocation_failed", username=username, error=str(e))
+            revoked = False
+        revoke_note = (
+            "live tokens revoked (user_revoke marker set)"
+            if revoked
+            else (
+                "WARNING: token revocation unavailable (Redis down) — the account is "
+                "deactivated but existing JWTs remain valid until natural expiry"
+            )
+        )
         return ExecutionResult(
             ok=True,
-            detail=f"siem user '{username}' deactivated",
+            detail=f"siem user '{username}' deactivated; {revoke_note}",
             intended_state={"username": username, "is_active": False},
         )
 

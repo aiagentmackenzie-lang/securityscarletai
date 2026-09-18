@@ -21,11 +21,12 @@ from src.api.auth import get_ingest_client
 from src.api.rate_limit import LIMIT_INGEST, limiter
 from src.config.logging import get_logger
 from src.db.connection import get_pool
-from src.detection.correlation import (  # noqa: F401
-    CORRELATION_MAX_CONCURRENT,
-    _correlation_semaphore,
-    trigger_correlation_coalesced,
-)
+
+# AUD-016: CORRELATION_MAX_CONCURRENT / _correlation_semaphore were imported
+# here with a stale "kept for tests" noqa but referenced NOWHERE in this
+# file — the live cap lives inside correlation.py itself. Only the shared
+# trigger is needed.
+from src.detection.correlation import trigger_correlation_coalesced
 from src.ingestion.schemas import NormalizedEvent
 
 router = APIRouter(tags=["ingestion"])
@@ -191,8 +192,17 @@ async def ingest_events(
                 r["host_name"]
                 for r in await conn_q.fetch("SELECT host_name FROM quarantined_hosts")
             }
-    except Exception as e:  # pragma: no cover - defensive; DB down means no ingest anyway
+    except Exception as e:
+        # AUD-001 fail-closed: a DB outage leaves quarantine enforcement
+        # UNKNOWN — the batch is refused, exactly like /ingest/osquery below.
+        # The old behavior warned and accepted (fail-open): with the lookup
+        # down and the writer alive, a quarantined host's telemetry entered
+        # the pipeline silently. Containment enforcement never guesses.
         log.warning("quarantine_lookup_failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="quarantine enforcement unavailable; batch refused",
+        ) from e
 
     count = 0
     rejected_quarantine = 0

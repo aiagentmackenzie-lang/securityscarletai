@@ -80,6 +80,20 @@ def _mock_writer():
     )
 
 
+def _healthy_quarantine_pool():
+    """AUD-001: /ingest's quarantine lookup is fail-closed now — a 202 test
+    needs a healthy lookup (previously these tests relied on the fail-open
+    swallow of a deliberately-broken pool: the exact bug)."""
+    pool = AsyncMock()
+    conn = AsyncMock()
+    acq = AsyncMock()
+    acq.__aenter__ = AsyncMock(return_value=conn)
+    acq.__aexit__ = AsyncMock(return_value=False)
+    pool.acquire = MagicMock(return_value=acq)
+    conn.fetch.return_value = []  # empty quarantine list
+    return pool
+
+
 class TestIngestTokenOnIngestRouter:
     def test_scoped_token_accepted_on_ingest(self):
         client = _ingest_app()
@@ -87,6 +101,7 @@ class TestIngestTokenOnIngestRouter:
         with (
             wpatches[0],
             wpatches[1],
+            patch("src.api.ingest.get_pool", AsyncMock(return_value=_healthy_quarantine_pool())),
             patch(
                 "src.db.connection.get_pool",
                 AsyncMock(side_effect=RuntimeError("no db")),
@@ -111,6 +126,7 @@ class TestIngestTokenOnIngestRouter:
         with (
             wpatches[0],
             wpatches[1],
+            patch("src.api.ingest.get_pool", AsyncMock(return_value=_healthy_quarantine_pool())),
             patch(
                 "src.db.connection.get_pool",
                 AsyncMock(side_effect=RuntimeError("no db")),

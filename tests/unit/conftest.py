@@ -53,7 +53,18 @@ def _no_real_db(monkeypatch):
     that genuinely needs the source seam must opt out explicitly.
     """
 
-    def _refuse(*_args, **_kwargs):
+    # async def, DELIBERATELY (do not collapse to a sync raise): any module
+    # first-imported while this fixture is active binds _refuse as its
+    # get_pool (from-import copy). A SYNC _refuse made later patch() calls
+    # see a non-async target and build a MagicMock, so `await get_pool()` in
+    # the module-under-test returned a bare AsyncMock -> TypeError — an
+    # import-order landmine that flipped whole targeted suites red purely on
+    # which test imported src.api.response first (LRN-20260911-004 class).
+    # An ASYNC _refuse keeps every binding awaitable-shaped: patch() detects
+    # a coroutine function and builds the correct AsyncMock, and unpatched
+    # use still raises loudly (at the await, same failure, same message).
+
+    async def _refuse(*_args, **_kwargs):
         raise RuntimeError(
             "unit tests must not create a real DB pool -- patch the module-"
             "under-test's get_pool (see tests/unit/conftest.py _no_real_db)"

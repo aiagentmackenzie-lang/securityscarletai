@@ -250,6 +250,56 @@ class TestHitlGate:
         assert exc_info.value.status_code == 409
 
     @pytest.mark.asyncio
+    async def test_concurrent_decision_cas_loss_conflicts_409(self):
+        """AUD-042: two decisions race; the guarded UPDATE in
+        record_hitl_decision lets exactly one apply. The loser gets 409
+        quoting the winning state — and never writes its own audit record
+        (the audit fires only after the CAS wins)."""
+        from src.api.agents import HitlDecisionRequest, hitl_decision
+
+        body = HitlDecisionRequest(decision="confirmed", note="second reviewer, too late")
+        pool, conn = _pool_and_conn()
+        conn.fetchrow.side_effect = [
+            _run_row(),  # the state check: 'required'
+            None,  # CAS UPDATE: lost (hitl_state no longer 'required')
+            _run_row(hitl_state="rejected"),  # re-fetch: the winner's state
+        ]
+
+        with (
+            patch("src.api.agents.get_pool", AsyncMock(return_value=pool)),
+            patch("src.agents.investigator.get_pool", AsyncMock(return_value=pool)),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await hitl_decision(7, body, _user())
+
+        assert exc_info.value.status_code == 409
+        assert "'rejected'" in exc_info.value.detail
+        assert "concurrent decision won" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_cas_loss_run_deleted_reports_404(self):
+        """CAS loss where the run vanished between fetch and update is a
+        404, not a 409 — the re-fetch tells the two losses apart."""
+        from src.api.agents import HitlDecisionRequest, hitl_decision
+
+        body = HitlDecisionRequest(decision="confirmed", note="run deleted mid-flight")
+        pool, conn = _pool_and_conn()
+        conn.fetchrow.side_effect = [
+            _run_row(),  # the state check
+            None,  # CAS UPDATE: no row
+            None,  # re-fetch: gone
+        ]
+
+        with (
+            patch("src.api.agents.get_pool", AsyncMock(return_value=pool)),
+            patch("src.agents.investigator.get_pool", AsyncMock(return_value=pool)),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await hitl_decision(7, body, _user())
+
+        assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
     async def test_unknown_decision_token_rejected_by_schema(self):
         from pydantic import ValidationError
 

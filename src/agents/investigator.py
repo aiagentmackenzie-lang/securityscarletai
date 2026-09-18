@@ -737,8 +737,11 @@ async def record_hitl_decision(
     decision: 'confirmed' | 'rejected' -- the ONLY transitions the endpoint
     accepts; anything else is refused by the API layer. This records
     accountability for the draft; committing a verdict to a case stays the
-    existing human-only case-verdict path. Returns the updated run row or
-    None when the run does not exist.
+    existing human-only case-verdict path. Returns the updated run row, or
+    None when the run does not exist OR the compare-and-swap lost (the
+    hitl_state was no longer 'required' — another decision landed between
+    the caller's read and this guarded UPDATE; AUD-042). The caller
+    re-fetches to tell the two cases apart.
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -746,7 +749,7 @@ async def record_hitl_decision(
             """
             UPDATE agent_investigations
             SET hitl_state = $2, hitl_actor = $3, hitl_note = $4, updated_at = NOW()
-            WHERE id = $1
+            WHERE id = $1 AND hitl_state = 'required'
             RETURNING id, hitl_state, hitl_actor
             """,
             run_id,

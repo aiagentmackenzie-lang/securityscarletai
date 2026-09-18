@@ -89,7 +89,8 @@ class TestDisableSiemUserExecutor:
         ex = DisableSiemUserExecutor()
         # execute: fetchrow returns the UPDATE ... RETURNING row
         conn.fetchrow.return_value = {"username": "bob", "is_active": False}
-        result = await ex.execute({"username": "bob"})
+        with patch("src.api.users._revoke_user_tokens", AsyncMock(return_value=True)):
+            result = await ex.execute({"username": "bob"})
         assert result.ok is True
         assert result.intended_state == {"username": "bob", "is_active": False}
 
@@ -99,6 +100,47 @@ class TestDisableSiemUserExecutor:
         assert verification.verified is True
         assert verification.mode == "live"
         assert verification.after == {"username": "bob", "is_active": False}
+
+    @pytest.mark.asyncio
+    async def test_execute_sets_token_revoke_marker(self, exec_pool):
+        """AUD-050 regression: disabling a user via containment MUST set the
+        Redis user_revoke marker (the same seam users.py PATCH uses) —
+        deactivation alone leaves the user's live JWTs valid until natural
+        expiry (15 min access / 7 days refresh), so "disabled" would be a
+        lie while the session lives."""
+        _, conn = exec_pool
+        ex = DisableSiemUserExecutor()
+        conn.fetchrow.return_value = {"username": "bob", "is_active": False}
+        with patch("src.api.users._revoke_user_tokens", AsyncMock(return_value=True)) as revoke:
+            result = await ex.execute({"username": "bob"})
+        revoke.assert_awaited_once_with("bob")
+        assert result.ok is True
+        assert "user_revoke marker set" in result.detail
+
+    @pytest.mark.asyncio
+    async def test_execute_redis_down_reports_honest_limitation(self, exec_pool):
+        """A Redis outage must not fail the deactivation — but the execution
+        detail records honestly that existing JWTs stay valid until natural
+        expiry. Never a silent lie in the evidence package."""
+        _, conn = exec_pool
+        ex = DisableSiemUserExecutor()
+        conn.fetchrow.return_value = {"username": "bob", "is_active": False}
+        with patch("src.api.users._revoke_user_tokens", AsyncMock(return_value=False)):
+            result = await ex.execute({"username": "bob"})
+        assert result.ok is True
+        assert "token revocation unavailable" in result.detail
+        assert "natural expiry" in result.detail
+
+    @pytest.mark.asyncio
+    async def test_execute_unknown_user_skips_revocation(self, exec_pool):
+        _, conn = exec_pool
+        ex = DisableSiemUserExecutor()
+        conn.fetchrow.return_value = None
+        with patch("src.api.users._revoke_user_tokens", AsyncMock()) as revoke:
+            result = await ex.execute({"username": "ghost"})
+        assert result.ok is False
+        assert "not found" in result.detail
+        revoke.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_verify_reports_unverified_when_state_not_reached(self, exec_pool):

@@ -339,7 +339,13 @@ class TestFleetHostBinding:
     def test_correct_host_ingests(self):
         client = _ingest_app(fleet_host="s1")
         write_mock = AsyncMock()
+        # AUD-001: the quarantine lookup is fail-closed now — a healthy 202
+        # requires a healthy lookup. (This test previously relied on the
+        # fail-open swallow of a deliberately-broken pool: the exact bug.)
+        qpool, qconn = _mock_pool()
+        qconn.fetch.return_value = []  # empty quarantine list
         with (
+            patch("src.api.ingest.get_pool", AsyncMock(return_value=qpool)),
             patch(
                 "src.db.connection.get_pool",
                 AsyncMock(side_effect=RuntimeError("no db")),

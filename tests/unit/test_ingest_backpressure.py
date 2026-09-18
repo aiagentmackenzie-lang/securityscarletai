@@ -178,9 +178,13 @@ class TestCorrelationBounds:
         import inspect
 
         from src.api import ingest
+        from src.detection import correlation as corr
 
-        assert isinstance(ingest._correlation_semaphore, asyncio.Semaphore)
-        assert ingest.CORRELATION_MAX_CONCURRENT == 2
+        # AUD-016: ingest no longer re-exports the correlation guard — the
+        # cap lives ONCE in src.detection.correlation and the ingest path
+        # delegates to the shared trigger.
+        assert isinstance(corr._correlation_semaphore, asyncio.Semaphore)
+        assert corr.CORRELATION_MAX_CONCURRENT == 2
         assert isinstance(ingest._post_process_tasks, set)
         src = inspect.getsource(ingest)
         assert "_post_process_tasks.add(task)" in src  # F-17 strong ref
@@ -298,8 +302,10 @@ class TestSharedCoalescingTrigger:
         from src.api import ingest
         from src.detection import correlation as corr
 
-        assert ingest._correlation_semaphore is corr._correlation_semaphore
-        assert ingest.CORRELATION_MAX_CONCURRENT == corr.CORRELATION_MAX_CONCURRENT
+        # AUD-016: the sharing is now BY DELEGATION — ingest's trigger IS
+        # the correlation module's own (single inflight guard, single cap).
+        assert ingest.trigger_correlation_coalesced is corr.trigger_correlation_coalesced
+        assert isinstance(corr._correlation_semaphore, asyncio.Semaphore)
 
     @pytest.mark.asyncio
     async def test_second_call_while_inflight_is_coalesced(self):
