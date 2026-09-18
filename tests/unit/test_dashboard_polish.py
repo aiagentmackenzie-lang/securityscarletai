@@ -64,7 +64,10 @@ class TestLoadingStatePatterns:
     """Tests for loading state patterns in dashboard views."""
 
     def test_charts_all_functions_exist(self):
-        """All chart rendering functions should exist and be callable."""
+        """All chart rendering functions should exist and be callable.
+
+        AUD-063: render_top_hosts (zero callers) was deleted with Wave 6 —
+        it is intentionally absent here."""
         from dashboard.charts import (
             render_alert_trend,
             render_dashboard_metrics,
@@ -72,16 +75,22 @@ class TestLoadingStatePatterns:
             render_mitre_heatmap,
             render_severity_distribution,
             render_severity_sparklines,
-            render_top_hosts,
         )
 
         assert callable(render_severity_distribution)
         assert callable(render_alert_trend)
-        assert callable(render_top_hosts)
         assert callable(render_mitre_heatmap)
         assert callable(render_dashboard_metrics)
         assert callable(render_severity_sparklines)
         assert callable(render_host_risk_scores)
+
+    def test_cached_rules_exists_and_public(self):
+        """AUD-063: charts' rules cache had zero callers — it is now public
+        (cached_rules, matching cached_alerts naming) and wired into
+        main.py's overview and hunt_view."""
+        from dashboard.charts import cached_rules
+
+        assert callable(cached_rules)
 
     def test_view_functions_exist(self):
         """All dashboard view functions should exist and be callable."""
@@ -205,24 +214,39 @@ class TestBadgeSystem:
             html = status_badge(st)
             assert st.replace("_", " ").upper() in html
 
+    def test_case_statuses_badge(self):
+        """AUD-065: cases' open/in_progress fell through STATUS_CSS_MAP to
+        badge-closed — an OPEN case rendered in closed-case gray styling.
+        The map now carries the case statuses (STATUS_FLOW)."""
+        from dashboard.ui_utils import status_badge
+
+        assert 'class="badge badge-new"' in status_badge("open")
+        assert 'class="badge badge-investigating"' in status_badge("in_progress")
+        assert "OPEN" in status_badge("open")
+        assert "IN PROGRESS" in status_badge("in_progress")
+
     def test_badge_tokens_present(self):
         from dashboard.ui_utils import (
             SEV_CSS_MAP,
             SEVERITY_COLORS,
-            STATUS_COLORS,
             STATUS_CSS_MAP,
         )
 
         assert set(SEV_CSS_MAP.keys()) == {"critical", "high", "medium", "low", "info"}
+        # AUD-065: the case statuses (open/in_progress) joined the map.
         assert set(STATUS_CSS_MAP.keys()) == {
             "new",
             "investigating",
             "resolved",
             "false_positive",
             "closed",
+            "open",
+            "in_progress",
         }
         assert len(SEVERITY_COLORS) == 5
-        assert len(STATUS_COLORS) == 5
+        # Note (AUD-064, Wave 6): ui_utils.STATUS_COLORS was deleted with the
+        # dead colored_metric — no reader ever consumed it; charts.py keeps
+        # its own live SEVERITY_COLORS.
 
 
 class TestChartsThemeConfig:
@@ -332,20 +356,59 @@ class TestApiClientConvenience:
         assert "Cannot connect" in err.detail
 
 
-class TestKeyboardShortcuts:
-    """Tests for keyboard shortcut JavaScript."""
+class TestRefreshIntervalSlider:
+    """AUD-068: PAGE_REFRESH_MS['ai_chat'] = 0 reached select_slider as
+    value=min(0, 120) = 0 — not in the options [10..120] — raising
+    StreamlitAPIException and crashing the sidebar when auto-refresh was
+    toggled from the AI Chat page. The value now snaps to the nearest
+    option."""
 
-    def test_keyboard_shortcuts_js_exists(self):
-        from dashboard.main import KEYBOARD_SHORTCUTS_JS
+    def test_zero_snaps_to_minimum(self):
+        from dashboard.main import _nearest_refresh_option
 
-        assert "keydown" in KEYBOARD_SHORTCUTS_JS
-        assert "Overview" in KEYBOARD_SHORTCUTS_JS
-        assert "Live Logs" in KEYBOARD_SHORTCUTS_JS
+        assert _nearest_refresh_option(0) == 10
 
-    def test_keyboard_shortcuts_7_pages(self):
-        from dashboard.main import KEYBOARD_SHORTCUTS_JS
+    def test_valid_values_pass_through(self):
+        from dashboard.main import _REFRESH_OPTIONS, _nearest_refresh_option
 
-        assert "num >= 1 && num <= 7" in KEYBOARD_SHORTCUTS_JS
+        for secs in _REFRESH_OPTIONS:
+            assert _nearest_refresh_option(secs) == secs
+
+    def test_every_page_refresh_ms_snaps_to_an_option(self):
+        from dashboard.main import _REFRESH_OPTIONS, PAGE_REFRESH_MS, _nearest_refresh_option
+
+        for _page, ms in PAGE_REFRESH_MS.items():
+            assert _nearest_refresh_option(ms // 1000) in _REFRESH_OPTIONS
+
+    def test_oversized_snaps_to_maximum(self):
+        from dashboard.main import _nearest_refresh_option
+
+        assert _nearest_refresh_option(200) == 120
+
+    def test_tie_resolves_to_smaller(self):
+        from dashboard.main import _nearest_refresh_option
+
+        # 45s is equidistant between 30 and 60 — list order wins → 30.
+        assert _nearest_refresh_option(45) == 30
+
+    def test_between_options_snaps_to_nearest(self):
+        from dashboard.main import _nearest_refresh_option
+
+        assert _nearest_refresh_option(20) == 15
+        assert _nearest_refresh_option(25) == 30
+
+
+class TestFooterVersion:
+    """AUD-067: the footer hardcoded "v0.1.0" against pyproject 0.8.0 —
+    the same stale-version cluster as AUD-010/037. The string now comes
+    from src/config/version.py (the Wave-5 single source)."""
+
+    def test_footer_uses_single_source_version(self):
+        from dashboard.main import FOOTER_TEXT
+        from src.config.version import APP_VERSION
+
+        assert f"v{APP_VERSION}" in FOOTER_TEXT
+        assert "v0.1.0" not in FOOTER_TEXT
 
 
 class TestLoginPageStyling:

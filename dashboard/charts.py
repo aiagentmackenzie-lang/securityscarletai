@@ -338,63 +338,6 @@ def render_alert_trend(alerts: list | None = None):
             st.error(f"Unexpected error: {e}")
 
 
-def render_top_hosts(alerts: list | None = None):
-    """Render top hosts by alert count inside a card."""
-    api = get_api_client()
-
-    with st.spinner("Loading host data...", show_time=True):
-        try:
-            if alerts is None:
-                alerts = api.get_alerts(limit=500)
-            if not alerts:
-                st.info("No alerts to display")
-                return
-
-            host_counts = {}
-            for a in alerts:
-                host = a.get("host_name", "unknown")
-                host_counts[host] = host_counts.get(host, 0) + 1
-
-            df = pd.DataFrame(
-                [
-                    {"Host": k, "Alerts": v}
-                    for k, v in sorted(host_counts.items(), key=lambda x: x[1], reverse=True)[:10]
-                ]
-            )
-
-            if df.empty:
-                st.info("No host data available")
-                return
-
-            chart = (
-                alt.Chart(df)
-                .mark_bar(
-                    cornerRadiusTopLeft=3,
-                    cornerRadiusTopRight=3,
-                    color=ACCENT,
-                )
-                .encode(
-                    y=alt.Y(
-                        "Host:N",
-                        sort="-x",
-                        title=None,
-                        axis=alt.Axis(labelColor=TEXT_SECONDARY),
-                    ),
-                    x=alt.X(
-                        "Alerts:Q",
-                        title="Alerts",
-                        axis=alt.Axis(grid=True, tickMinStep=1),
-                    ),
-                    tooltip=["Host", "Alerts"],
-                )
-                .properties(title="Top Hosts by Alert Count", height=300)
-            )
-            _chart_container(chart, "Top Hosts")
-
-        except ApiError as e:
-            st.error(f"Failed to load host data: {e.detail}")
-
-
 def render_mitre_heatmap(rules: list[dict], coverage: dict | None = None):
     """Render MITRE ATT&CK technique coverage as metric cards + detail table.
 
@@ -574,13 +517,22 @@ def render_dashboard_metrics(alerts: list | None = None):
 
 
 @st.cache_data(ttl=60)
-def _cached_rules() -> list:
-    """Cached fetch for rules."""
+def cached_rules() -> list:
+    """Cached fetch for rules (ttl 60s).
+
+    AUD-063: this cache existed with zero callers -- main.py's overview and
+    hunt_view fetched api.get_rules() raw on every rerun. All rules fetches
+    on the overview/hunting pages now go through here (rules data is
+    role-independent, so the process-global cache is safe -- same caveat as
+    cached_alerts).
+
+    Unlike cached_alerts this does NOT swallow exceptions: both consumers
+    already wrap the call in `except ApiError` with honest fallback copy
+    ("Rule information unavailable" / "N/A"), and st.cache_data does not
+    cache exceptions, so a failed rerun retries the next one.
+    """
     api = get_api_client()
-    try:
-        return api.get_rules() or []
-    except Exception:
-        return []
+    return api.get_rules() or []
 
 
 def render_severity_sparklines(alerts: list | None = None):
