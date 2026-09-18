@@ -225,12 +225,15 @@ class TestApproveAction:
         # fetchrow sequence: (approve) action row, (execute UPDATE RETURNING),
         # (get_action final read)
         conn.fetchrow.side_effect = [requested, executed, executed]
-        conn.fetchval.return_value = False  # verify re-query: is_active False
+        # fetchval sequence: (approve CAS → id), (_execute_and_verify claim
+        # CAS → id), (verify re-query → is_active False). AUD-038.
+        conn.fetchval.side_effect = [1, 1, False]
 
         with (
             patch("src.api.response.get_pool", return_value=pool),
             patch("src.response.executors.get_pool", return_value=pool),
             patch("src.api.response.log_audit_action", new_callable=AsyncMock),
+            patch("src.api.users._revoke_user_tokens", new_callable=AsyncMock, return_value=True),
         ):
             result = await approve_action(
                 1,
@@ -322,12 +325,15 @@ class TestExecuteGuards:
         approved["evidence"] = json.dumps({"before": {"before_is_active": True}})
         verified = dict(approved, status="verified")
         conn.fetchrow.side_effect = [approved, approved, verified]
-        conn.fetchval.return_value = False  # verify re-query
+        # fetchval sequence: (_execute_and_verify claim CAS → id), (verify
+        # re-query → is_active False)
+        conn.fetchval.side_effect = [1, False]
 
         with (
             patch("src.api.response.get_pool", return_value=pool),
             patch("src.response.executors.get_pool", return_value=pool),
             patch("src.api.response.log_audit_action", new_callable=AsyncMock),
+            patch("src.api.users._revoke_user_tokens", new_callable=AsyncMock, return_value=True),
         ):
             result = await execute_action(1, user=_user("admin", "admin1"))
         assert result["outcome"]["status"] == "verified"
@@ -354,12 +360,102 @@ class TestExecuteGuards:
         approved["case_id"] = None
         verified = dict(approved, status="verified")
         conn.fetchrow.side_effect = [approved, approved, verified]
-        conn.fetchval.return_value = False
+        # fetchval sequence: (_execute_and_verify claim CAS → id), (verify
+        # re-query → is_active False)
+        conn.fetchval.side_effect = [1, False]
+
+        with (
+            patch("src.api.response.get_pool", return_value=pool),
+            patch("src.response.executors.get_pool", return_value=pool),
+            patch("src.api.response.log_audit_action", new_callable=AsyncMock),
+            patch("src.api.users._revoke_user_tokens", new_callable=AsyncMock, return_value=True),
+        ):
+            result = await execute_action(1, user=_user("admin", "admin1"))
+        assert result["outcome"]["status"] == "verified"
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Concurrent transition guards (AUD-038)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+class TestConcurrentTransitionGuards:
+    """AUD-038: every state transition is a compare-and-swap in SQL — the
+    read-time status checks are advisory. These tests drive the CAS losing
+    (0 rows updated) and assert the honest 409, the conflict audit record,
+    and (for the claim) that the containment executor never ran."""
+
+    @pytest.mark.asyncio
+    async def test_approve_losing_race_conflicts_409(self):
+        from src.api.response import ApproveRequest, approve_action
+
+        pool, conn = _pool_and_conn()
+        conn.fetchrow.return_value = _action_row(status="requested", requested_by="analyst1")
+        conn.fetchval.return_value = None  # CAS: another actor won the transition
+
+        audit_mock = AsyncMock()
+        with (
+            patch("src.api.response.get_pool", return_value=pool),
+            patch("src.api.response.log_audit_action", audit_mock),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await approve_action(1, ApproveRequest(note="late"), user=_user("admin", "admin1"))
+
+        assert exc_info.value.status_code == 409
+        assert "no longer 'requested'" in exc_info.value.detail
+        # The CAS guard is IN the SQL — the read-time check alone is advisory.
+        sql = conn.fetchval.call_args[0][0]
+        assert "AND status = 'requested'" in sql
+        # No false approval record: the loser audits the CONFLICT, never
+        # "response.approved" (the audit runs after the CAS wins).
+        actions = [c.kwargs["action"] for c in audit_mock.call_args_list]
+        assert "response.approved" not in actions
+        assert "response.transition_conflict" in actions
+
+    @pytest.mark.asyncio
+    async def test_execute_claim_race_conflicts_409_and_never_executes(self):
+        """The atomic claim is the double-execution gate: two concurrent
+        executes on an approved action meet at the guarded UPDATE and exactly
+        one wins. The loser 409s BEFORE the executor touches anything."""
+        from src.api.response import execute_action
+
+        pool, conn = _pool_and_conn()
+        approved = _action_row(status="approved")
+        approved["case_id"] = None
+        conn.fetchrow.side_effect = [approved]  # ONLY the initial read
+        conn.fetchval.return_value = None  # claim CAS lost
 
         with (
             patch("src.api.response.get_pool", return_value=pool),
             patch("src.response.executors.get_pool", return_value=pool),
             patch("src.api.response.log_audit_action", new_callable=AsyncMock),
         ):
-            result = await execute_action(1, user=_user("admin", "admin1"))
-        assert result["outcome"]["status"] == "verified"
+            with pytest.raises(HTTPException) as exc_info:
+                await execute_action(1, user=_user("admin", "admin1"))
+
+        assert exc_info.value.status_code == 409
+        assert "claimable for execution" in exc_info.value.detail
+        # The claim CAS is guarded on the two legal entry states.
+        sql = conn.fetchval.call_args[0][0]
+        assert "status IN ('requested','approved')" in sql
+        # The containment executor NEVER ran: only the read hit the DB.
+        assert conn.fetchrow.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_reject_losing_race_conflicts_409(self):
+        from src.api.response import RejectRequest, reject_action
+
+        pool, conn = _pool_and_conn()
+        conn.fetchrow.return_value = _action_row(status="requested")
+        conn.fetchval.return_value = None  # CAS: an approval won meanwhile
+
+        with (
+            patch("src.api.response.get_pool", return_value=pool),
+            patch("src.api.response.log_audit_action", new_callable=AsyncMock),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await reject_action(1, RejectRequest(reason="x"), user=_user("admin", "admin1"))
+
+        assert exc_info.value.status_code == 409
+        sql = conn.fetchval.call_args[0][0]
+        assert "AND status = 'requested'" in sql

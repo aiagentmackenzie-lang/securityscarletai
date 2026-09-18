@@ -156,7 +156,35 @@ async def _execute_and_verify(action_row: dict, approver: str | None) -> dict:
         )
         return {"status": "execution_failed"}
 
-    await _transition(pool, action_id, "executing", evidence=evidence, rollback_note=None)
+    # AUD-038: the atomic claim for execution. Every caller path (approve,
+    # execute, allow-tier auto-execution) funnels through this guarded
+    # UPDATE — the status checks in the endpoints are read-time advisory
+    # only. Two concurrent executions meet HERE and exactly one wins; a
+    # containment action executes exactly once. 0 rows = the action was
+    # claimed/transitioned concurrently → 409, nothing executes.
+    async with pool.acquire() as conn:
+        claimed = await conn.fetchval(
+            "UPDATE response_actions SET status = 'executing', evidence = $2::jsonb, "
+            "executed_at = COALESCE(executed_at, NOW()), updated_at = NOW() "
+            "WHERE id = $1 AND status IN ('requested','approved') RETURNING id",
+            action_id,
+            _json(evidence),
+        )
+    if claimed is None:
+        await log_audit_action(
+            actor=approver or "system",
+            action="response.transition_conflict",
+            target_type="response_action",
+            target_id=int(action_id),
+            new_values={"action_type": action_type, "attempted": "executing"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "action is no longer claimable for execution — a concurrent "
+                "approval/execution won the state transition"
+            ),
+        )
     exec_result = await executor_obj.execute(params)
 
     if not exec_result.ok:
@@ -534,6 +562,36 @@ async def approve_action(
                 ),
             )
 
+    # AUD-038: the approval write is a compare-and-swap, and it runs BEFORE
+    # the audit row — a losing racer must never leave "response.approved" in
+    # the append-only chain for an approval that did not happen. 0 rows =
+    # another admin (or an execution) transitioned the action between the
+    # read and the write → audited 409.
+    async with pool.acquire() as conn:
+        approved = await conn.fetchval(
+            "UPDATE response_actions SET status = 'approved', approved_by = $1, "
+            "approval_note = $2, updated_at = NOW() "
+            "WHERE id = $3 AND status = 'requested' RETURNING id",
+            username,
+            body.note,
+            action_id,
+        )
+    if approved is None:
+        await log_audit_action(
+            actor=username,
+            action="response.transition_conflict",
+            target_type="response_action",
+            target_id=action_id,
+            new_values={"attempted": "approve", "note": body.note},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "action is no longer 'requested' — a concurrent approval, "
+                "rejection, or execution won the transition"
+            ),
+        )
+
     await log_audit_action(
         actor=username,
         action="response.approved",
@@ -541,17 +599,6 @@ async def approve_action(
         target_id=action_id,
         new_values={"action_type": row["action_type"], "note": body.note},
     )
-
-    # Approve, then execute + verify (outside the approve transaction so an
-    # execution failure cannot roll the approval record back).
-    async with pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE response_actions SET status = 'approved', approved_by = $1, "
-            "approval_note = $2, updated_at = NOW() WHERE id = $3",
-            username,
-            body.note,
-            action_id,
-        )
     await _case_event_for_action(
         pool,
         dict(row),
@@ -575,6 +622,8 @@ async def reject_action(
     """Reject a requested action. The refusal is a decision record too."""
     username = user.get("sub", "unknown")
     pool = await get_pool()
+    # AUD-038: same compare-and-swap as approve — a rejection racing an
+    # approval must not double-apply after the read-time check.
     async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT * FROM response_actions WHERE id = $1", action_id)
         if not row:
@@ -584,11 +633,26 @@ async def reject_action(
                 status_code=400,
                 detail=f"action is '{row['status']}', only 'requested' actions can be rejected",
             )
-        await conn.execute(
+        rejected = await conn.fetchval(
             "UPDATE response_actions SET status = 'rejected', rejection_reason = $1, "
-            "updated_at = NOW() WHERE id = $2",
+            "updated_at = NOW() WHERE id = $2 AND status = 'requested' RETURNING id",
             body.reason,
             action_id,
+        )
+    if rejected is None:
+        await log_audit_action(
+            actor=username,
+            action="response.transition_conflict",
+            target_type="response_action",
+            target_id=action_id,
+            new_values={"attempted": "reject", "reason": body.reason},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "action is no longer 'requested' — a concurrent approval, "
+                "rejection, or execution won the transition"
+            ),
         )
 
     await log_audit_action(
@@ -634,13 +698,31 @@ async def execute_action(
                 ),
             )
         if row["status"] == "requested":
-            await conn.execute(
+            # AUD-038: the requested→approved promotion is also a CAS — two
+            # concurrent executes on an allow-tier action must not both pass
+            # the read-time gate and both proceed to the claim below.
+            promoted = await conn.fetchval(
                 "UPDATE response_actions SET status = 'approved', approved_by = $1, "
                 "approval_note = 'executed via execute endpoint (policy: allow)', "
-                "updated_at = NOW() WHERE id = $2",
+                "updated_at = NOW() WHERE id = $2 AND status = 'requested' RETURNING id",
                 username,
                 action_id,
             )
+            if promoted is None:
+                await log_audit_action(
+                    actor=username,
+                    action="response.transition_conflict",
+                    target_type="response_action",
+                    target_id=action_id,
+                    new_values={"attempted": "execute (requested→approved promotion)"},
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "action is no longer 'requested' — a concurrent "
+                        "approval/execution won the transition"
+                    ),
+                )
 
     await log_audit_action(
         actor=username,

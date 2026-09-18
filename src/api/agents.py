@@ -359,8 +359,21 @@ async def hitl_decision(
         note=body.note,
         audit=_audit_for(run_id, None),
     )
-    if updated is None:  # pragma: no cover -- raced delete; row existed above
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
+    if updated is None:
+        # AUD-042: the compare-and-swap in record_hitl_decision lost —
+        # another decision landed between the fetch above and the guarded
+        # UPDATE (or the run was deleted in between). Re-fetch and report
+        # which, honestly: the loser never writes its own audit row.
+        current = await _fetch_run(run_id)
+        if current is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"run hitl_state is '{current.get('hitl_state')}' -- only a "
+                "'required' draft can be confirmed or rejected (concurrent decision won)"
+            ),
+        )
     log.info(
         "agent_hitl_decided",
         run_id=run_id,
