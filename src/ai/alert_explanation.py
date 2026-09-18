@@ -24,7 +24,6 @@ from typing import Any, Dict, List, Optional
 from src.ai.cost_tracker import record_usage
 from src.ai.ollama_client import LLMResult, query_llm
 from src.ai.prompts import (
-    ALERT_EXPLANATION_PROMPT_VERSION,
     ALERT_EXPLANATION_SYSTEM,
     render_alert_explanation,
 )
@@ -34,11 +33,10 @@ from src.config.logging import get_logger
 log = get_logger("ai.alert_explanation")
 
 
-# Backward-compat re-exports — these used to live in this module.
-SYSTEM_PROMPT = ALERT_EXPLANATION_SYSTEM
-PROMPT_VERSION = ALERT_EXPLANATION_PROMPT_VERSION
-# FALLBACK_MESSAGE — also re-exported below for legacy callers
-FALLBACK_MESSAGE = "[AI unavailable — Ollama is not responding. Feature degraded gracefully.]"
+# AUD-029: the SYSTEM_PROMPT / PROMPT_VERSION / FALLBACK_MESSAGE re-exports
+# were deleted — zero importers anywhere (callers use src.ai.prompts
+# directly; the canonical FALLBACK_MESSAGE lives in ollama_client). Dead
+# re-exports made it look like this module owned those names.
 
 
 def _generic_fallback(

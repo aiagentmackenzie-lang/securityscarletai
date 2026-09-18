@@ -111,6 +111,9 @@ CREATE TABLE IF NOT EXISTS alerts (
     mitre_techniques TEXT[],
     evidence       JSONB NOT NULL DEFAULT '[]'::jsonb,  -- array of matching log excerpts
     ai_summary     TEXT,                    -- LLM-generated explanation (filled async)
+    ai_verdict     TEXT,                    -- AUD-030: LLM verdict (threat/suspicious/benign/false_positive)
+    ai_reasoning   TEXT,                    -- AUD-030: why the verdict was chosen
+    ai_response    JSONB,                   -- AUD-030: recommended response steps (array)
     risk_score     FLOAT,
     assigned_to    TEXT,
     resolved_at    TIMESTAMPTZ,
@@ -123,6 +126,14 @@ CREATE TABLE IF NOT EXISTS alerts (
 
 CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts (status, severity, time DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_host ON alerts (host_name, time DESC);
+
+-- AUD-030 (2026-09-18): persist the full LLM analysis, not just
+-- summary + score. enrich_alert (src/detection/ai_analyzer.py) now writes
+-- ai_verdict / ai_reasoning / ai_response; existing deployments get the
+-- columns via IF NOT EXISTS (the entrypoint re-runs this file idempotently).
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS ai_verdict TEXT;
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS ai_reasoning TEXT;
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS ai_response JSONB;
 
 -- Notes column for alert timeline (added by v2)
 -- JSONB array of {author, text, timestamp} objects
