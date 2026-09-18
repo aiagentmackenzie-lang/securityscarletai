@@ -13,7 +13,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import src.detection.scheduler as scheduler_mod
 from src.detection.scheduler import run_rule, schedule_rules, stop_scheduler
+
+
+@pytest.fixture(autouse=True)
+def _clear_compile_cache():
+    """AUD-002: the compile cache is process-global — clear it per test so
+    no cached entry bypasses a test's sigma_to_sql patch."""
+    scheduler_mod._compile_cache.clear()
+    yield
+    scheduler_mod._compile_cache.clear()
 
 
 class TestRunRule:
@@ -148,6 +158,174 @@ class TestRunRule:
             ):
                 # Should not raise, just log error
                 await run_rule(rule_id=1)
+
+    @pytest.mark.asyncio
+    async def test_threshold_gates_alerting(self):
+        """AUD-007: rules.threshold is 'minimum matches to trigger' — with
+        threshold=5 and 2 matching rows, NO alert is created; the match
+        stats still record the raw detection matches (the query matched;
+        alerting is what is gated)."""
+        mock_pool = AsyncMock()
+        mock_conn = AsyncMock()
+
+        rule_row = {
+            "id": 1,
+            "name": "SSH Brute Force",
+            "sigma_yaml": "title: Test",
+            "severity": "high",
+            "description": "Test rule",
+            "mitre_tactics": ["TA0006"],
+            "mitre_techniques": ["T1110"],
+            "lookback": timedelta(seconds=300),
+            "threshold": 5,
+        }
+        matched_rows = [
+            {"host_name": "server01"},
+            {"host_name": "server02"},
+        ]
+        mock_conn.fetchrow = AsyncMock(return_value=rule_row)
+        mock_conn.fetch = AsyncMock(return_value=matched_rows)
+        mock_conn.execute = AsyncMock(return_value=None)
+
+        acquirer = MagicMock()
+        acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
+        acquirer.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = MagicMock(return_value=acquirer)
+
+        with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
+            with patch(
+                "src.detection.scheduler.sigma_to_sql",
+                return_value=("SELECT 1", []),
+            ) as mock_compile:
+                with patch(
+                    "src.detection.scheduler.create_alert", new_callable=AsyncMock
+                ) as mock_create:
+                    await run_rule(rule_id=1)
+
+        mock_create.assert_not_called()
+        # stats: the 2 raw matches still count (match_count += 2, last_match set)
+        stats_sql = mock_conn.execute.call_args_list[-1].args[0]
+        assert "match_count = match_count + $1" in stats_sql
+        assert mock_conn.execute.call_args_list[-1].args[1] == 2
+
+    @pytest.mark.asyncio
+    async def test_threshold_met_alerts_fire(self):
+        """AUD-007: matches >= threshold behave exactly as before."""
+        mock_pool = AsyncMock()
+        mock_conn = AsyncMock()
+
+        rule_row = {
+            "id": 1,
+            "name": "SSH Brute Force",
+            "sigma_yaml": "title: Test",
+            "severity": "high",
+            "description": "Test rule",
+            "mitre_tactics": [],
+            "mitre_techniques": [],
+            "threshold": 1,
+        }
+        mock_conn.fetchrow = AsyncMock(return_value=rule_row)
+        mock_conn.fetch = AsyncMock(return_value=[{"host_name": "server01"}])
+        mock_conn.execute = AsyncMock(return_value=None)
+
+        acquirer = MagicMock()
+        acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
+        acquirer.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = MagicMock(return_value=acquirer)
+
+        with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
+            with patch(
+                "src.detection.scheduler.sigma_to_sql",
+                return_value=("SELECT 1", []),
+            ):
+                with patch(
+                    "src.detection.scheduler.create_alert", new_callable=AsyncMock
+                ) as mock_create:
+                    mock_create.return_value = 1
+                    with (
+                        patch("src.detection.ai_analyzer.analyze_alert", new_callable=AsyncMock),
+                        patch("src.detection.ai_analyzer.enrich_alert", new_callable=AsyncMock),
+                    ):
+                        await run_rule(rule_id=1)
+        assert mock_create.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_lookback_override_passed_to_compiler(self):
+        """AUD-007: the rules row's lookback (seconds) rides into the compile
+        as lookback_seconds_override — the operator knob governs."""
+        mock_pool = AsyncMock()
+        mock_conn = AsyncMock()
+
+        rule_row = {
+            "id": 1,
+            "name": "Windowed Rule",
+            "sigma_yaml": "title: Test",
+            "severity": "medium",
+            "description": "",
+            "mitre_tactics": [],
+            "mitre_techniques": [],
+            "lookback": timedelta(seconds=300),
+            "threshold": 1,
+        }
+        mock_conn.fetchrow = AsyncMock(return_value=rule_row)
+        mock_conn.fetch = AsyncMock(return_value=[])
+        mock_conn.execute = AsyncMock(return_value=None)
+
+        acquirer = MagicMock()
+        acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
+        acquirer.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = MagicMock(return_value=acquirer)
+
+        with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
+            with patch(
+                "src.detection.scheduler.sigma_to_sql", return_value=("SELECT 1", [])
+            ) as mock_compile:
+                await run_rule(rule_id=1)
+        mock_compile.assert_called_once_with("title: Test", lookback_seconds_override=300)
+
+    @pytest.mark.asyncio
+    async def test_compile_cache_hit_and_yaml_invalidation(self):
+        """AUD-002: the second run with the SAME yaml/lookback uses the cache
+        (sigma_to_sql called once); a YAML change recompiles."""
+        mock_pool = AsyncMock()
+        mock_conn = AsyncMock()
+
+        rule_row = {
+            "id": 1,
+            "name": "Cached Rule",
+            "sigma_yaml": "title: Test",
+            "severity": "medium",
+            "description": "",
+            "mitre_tactics": [],
+            "mitre_techniques": [],
+        }
+        mock_conn.fetchrow = AsyncMock(return_value=rule_row)
+        mock_conn.fetch = AsyncMock(return_value=[])
+        mock_conn.execute = AsyncMock(return_value=None)
+
+        acquirer = MagicMock()
+        acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
+        acquirer.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = MagicMock(return_value=acquirer)
+
+        with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
+            with patch(
+                "src.detection.scheduler.sigma_to_sql", return_value=("SELECT 1", [])
+            ) as mock_compile:
+                await run_rule(rule_id=1)
+                await run_rule(rule_id=1)
+                assert mock_compile.call_count == 1  # cache hit on run 2
+
+                # YAML change -> new content key -> recompile
+                rule_row["sigma_yaml"] = "title: Test v2"
+                await run_rule(rule_id=1)
+                assert mock_compile.call_count == 2
+
+                # lookback change -> new key -> recompile
+                rule_row["lookback"] = timedelta(seconds=600)
+                await run_rule(rule_id=1)
+                assert mock_compile.call_count == 3
+                mock_compile.assert_called_with("title: Test v2", lookback_seconds_override=600)
 
 
 class TestScheduleRules:

@@ -18,7 +18,9 @@ every connection held awaiting another one, the pool dead-locked forever
      fails the rule (fail-closed, logged) instead of wedging the tick.
 """
 
+import hashlib
 import os
+from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -37,6 +39,39 @@ RULE_QUERY_TIMEOUT_SECONDS = 60
 _ENRICH_MAX_CONCURRENT = 2
 _enrich_semaphore = None  # created lazily inside the running loop
 _enrich_tasks: set = set()  # F-17: keep fire-and-forget tasks GC-alive
+
+# AUD-002: content-addressed compile cache. Keyed per rule id on
+# (yaml sha256, effective lookback seconds) — ANY change to a rule's YAML or
+# its lookback override produces a new key on the next run, so correctness
+# rides the content hash and no invalidation hook is needed (the rules API's
+# reload_rules() reschedules jobs; deleted rules leave at most one stale
+# entry each). Replaces ~118 full YAML safe_load + regex parses per 60s
+# sweep with one compile per rule edit.
+_compile_cache: dict[int, tuple[str, Optional[int], str, list]] = {}
+
+
+def _compile_rule_cached(rule) -> tuple[str, list]:
+    """Compile a rule's detection SQL at most once per (YAML, lookback).
+
+    The scheduler's 60s-interval runs previously re-parsed the Sigma YAML
+    (safe_load + condition regex + SQL build) EVERY run for EVERY rule.
+    """
+    rule_id = rule["id"]
+    yaml_hash = hashlib.sha256(rule["sigma_yaml"].encode()).hexdigest()
+    # AUD-007: the rules row's lookback (INTERVAL — kept in sync with the
+    # YAML timeframe by load_sigma_rules) overrides the compile window.
+    # Absent (test rows / legacy callers) -> None -> YAML timeframe, unchanged.
+    lookback = rule.get("lookback")
+    lookback_seconds = int(lookback.total_seconds()) if lookback is not None else None
+
+    cached = _compile_cache.get(rule_id)
+    if cached and cached[0] == yaml_hash and cached[1] == lookback_seconds:
+        return cached[2], cached[3]
+
+    sql, params = sigma_to_sql(rule["sigma_yaml"], lookback_seconds_override=lookback_seconds)
+    _compile_cache[rule_id] = (yaml_hash, lookback_seconds, sql, params)
+    return sql, params
+
 
 # W1.8 scheduled-report config (fail-closed: missing file = no jobs).
 SCHEDULES_CONFIG_PATH = os.path.join(
@@ -107,8 +142,10 @@ async def run_rule(rule_id: int) -> None:
         return
 
     try:
-        # Parse Sigma and generate SQL
-        sql, params = sigma_to_sql(rule["sigma_yaml"])
+        # AUD-002: compile once per (YAML, lookback) content — the cache
+        # absorbs the per-interval re-parses. AUD-007: the DB lookback
+        # overrides the compile window; threshold gates alerting below.
+        sql, params = _compile_rule_cached(rule)
 
         # Execute detection query -- bounded: a slow/heavy query fails THIS
         # rule (fail-closed) instead of wedging a connection for minutes.
@@ -117,13 +154,28 @@ async def run_rule(rule_id: int) -> None:
                 conn.fetch(sql, *params), timeout=RULE_QUERY_TIMEOUT_SECONDS
             )
 
-        if rows:
+        # AUD-007: rules.threshold — "minimum matches to trigger" (schema
+        # comment). Default 1 is a no-op; an operator-set N gates the alert
+        # storm until N rows match. Match stats below still count the raw
+        # detection matches (the query DID match; alerting is what's gated).
+        rule_threshold = rule.get("threshold")
+        alertable = rows
+        if rule_threshold is not None and len(rows) < rule_threshold:
+            log.info(
+                "rule_threshold_not_met",
+                rule_id=rule_id,
+                matches=len(rows),
+                threshold=rule_threshold,
+            )
+            alertable = []
+
+        if alertable:
             log.info("rule_matched", rule_id=rule_id, matches=len(rows))
 
             # Create alerts WITHOUT holding a connection: create_alert
             # acquires its own; enrichment is fire-and-forget (bounded). A
             # tick with many matching rules must never starve the pool.
-            for row in rows:
+            for row in alertable:
                 try:
                     alert_id = await create_alert(
                         rule_id=rule_id,
