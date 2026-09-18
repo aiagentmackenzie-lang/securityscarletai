@@ -20,6 +20,7 @@ import pytest
 from fastapi import HTTPException
 
 from src.api.correlation import _parse_as_of
+from src.detection.correlation import CORRELATION_DETECTORS
 
 
 class TestParseAsOf:
@@ -148,15 +149,51 @@ class TestSingleRuleEndpoint:
             await run_single_correlation(rule_name="nonexistent", user=user)
         assert exc_info.value.status_code == 404
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("rule_name", sorted(CORRELATION_DETECTORS.keys()))
+    async def test_every_registry_rule_is_runnable_single(self, rule_name):
+        """AUD-039: the API's single-rule map IS the engine registry.
+
+        Parametrized over the registry itself, so a future chain can never
+        regress to 404-on-single-rule while run_all_correlations covers it
+        (the old hand-copied map missed the three V0.6b chains).
+        """
+        from src.api import correlation as api_corr
+        from src.api.correlation import run_single_correlation
+
+        user = {"sub": "test", "role": "analyst"}
+        with patch.object(api_corr, "get_pool", new_callable=AsyncMock) as mock_pool:
+            mock_conn = AsyncMock()
+            mock_conn.fetch = AsyncMock(return_value=[])
+            acquirer = MagicMock()
+            acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
+            acquirer.__aexit__ = AsyncMock(return_value=None)
+            mock_pool.return_value.acquire = MagicMock(return_value=acquirer)
+
+            response = await run_single_correlation(
+                rule_name=rule_name,
+                as_of="2026-05-31T22:00:00Z",
+                user=user,
+            )
+
+        assert response["rule_name"] == rule_name
+        assert response["match_count"] == 0
+        assert response["matches"] == []
+
 
 class TestListMatchesEndpoint:
+    # The matches endpoint now calls BOTH list_matches (the page) and
+    # count_matches (the filtered total, AUD-049) — every test patches both.
     @pytest.mark.asyncio
     async def test_no_filters(self):
         from src.api import correlation as api_corr
         from src.api.correlation import get_correlation_matches
 
         user = {"sub": "test", "role": "viewer"}
-        with patch.object(api_corr, "list_matches", new_callable=AsyncMock) as mock_list:
+        with (
+            patch.object(api_corr, "list_matches", new_callable=AsyncMock) as mock_list,
+            patch.object(api_corr, "count_matches", new_callable=AsyncMock) as mock_count,
+        ):
             mock_list.return_value = [
                 {
                     "id": 1,
@@ -165,9 +202,13 @@ class TestListMatchesEndpoint:
                     "created_at": datetime(2026, 5, 31, tzinfo=timezone.utc),
                 },
             ]
+            mock_count.return_value = 7
             response = await get_correlation_matches(user=user)
 
-        assert response.total == 1
+        # AUD-049: total is the filtered COUNT, not the page length —
+        # one row on this page, but the full filtered set is 7.
+        assert response.total == 7
+        assert len(response.matches) == 1
         assert response.limit == 100
         assert response.offset == 0
         # datetime should be serialized to ISO string
@@ -179,8 +220,12 @@ class TestListMatchesEndpoint:
         from src.api.correlation import get_correlation_matches
 
         user = {"sub": "test", "role": "viewer"}
-        with patch.object(api_corr, "list_matches", new_callable=AsyncMock) as mock_list:
+        with (
+            patch.object(api_corr, "list_matches", new_callable=AsyncMock) as mock_list,
+            patch.object(api_corr, "count_matches", new_callable=AsyncMock) as mock_count,
+        ):
             mock_list.return_value = []
+            mock_count.return_value = 0
             await get_correlation_matches(
                 rule="brute_force_success",
                 severity="high",
@@ -189,6 +234,14 @@ class TestListMatchesEndpoint:
                 user=user,
             )
 
+        # The count query must receive the SAME filter kwargs as the page
+        # query — otherwise total and page can silently disagree (AUD-049).
+        # (limit/offset are page-only by design.)
+        count_kwargs = dict(mock_count.call_args.kwargs)
+        list_kwargs = dict(mock_list.call_args.kwargs)
+        for paging_key in ("limit", "offset"):
+            list_kwargs.pop(paging_key, None)
+        assert count_kwargs == list_kwargs
         call = mock_list.call_args
         assert call.kwargs["rule"] == "brute_force_success"
         assert call.kwargs["severity"] == "high"
@@ -201,8 +254,12 @@ class TestListMatchesEndpoint:
         from src.api.correlation import get_correlation_matches
 
         user = {"sub": "test", "role": "viewer"}
-        with patch.object(api_corr, "list_matches", new_callable=AsyncMock) as mock_list:
+        with (
+            patch.object(api_corr, "list_matches", new_callable=AsyncMock) as mock_list,
+            patch.object(api_corr, "count_matches", new_callable=AsyncMock) as mock_count,
+        ):
             mock_list.return_value = []
+            mock_count.return_value = 0
             await get_correlation_matches(
                 since="2026-05-01T00:00:00Z",
                 until="2026-06-01T00:00:00Z",
@@ -212,6 +269,33 @@ class TestListMatchesEndpoint:
         call = mock_list.call_args
         assert call.kwargs["since"] is not None
         assert call.kwargs["until"] is not None
+        # count gets the same parsed datetimes
+        assert mock_count.call_args.kwargs["since"] == call.kwargs["since"]
+        assert mock_count.call_args.kwargs["until"] == call.kwargs["until"]
+
+    @pytest.mark.asyncio
+    async def test_total_comes_from_count_not_page_length(self):
+        """AUD-049 regression: total is the filtered COUNT, not len(page)."""
+        from src.api import correlation as api_corr
+        from src.api.correlation import get_correlation_matches
+
+        user = {"sub": "test", "role": "viewer"}
+        with (
+            patch.object(api_corr, "list_matches", new_callable=AsyncMock) as mock_list,
+            patch.object(api_corr, "count_matches", new_callable=AsyncMock) as mock_count,
+        ):
+            # Page of 2 (limit) against a filtered total of 250.
+            mock_list.return_value = [
+                {"id": 1, "correlation_rule": "r", "created_at": datetime(2026, 5, 31)},
+                {"id": 2, "correlation_rule": "r", "created_at": datetime(2026, 5, 30)},
+            ]
+            mock_count.return_value = 250
+            response = await get_correlation_matches(limit=2, offset=4, user=user)
+
+        assert response.total == 250
+        assert len(response.matches) == 2
+        assert response.limit == 2
+        assert response.offset == 4
 
     @pytest.mark.asyncio
     async def test_serializes_jsonb_match_data(self):
@@ -220,10 +304,14 @@ class TestListMatchesEndpoint:
         from src.api.correlation import get_correlation_matches
 
         user = {"sub": "test", "role": "viewer"}
-        with patch.object(api_corr, "list_matches", new_callable=AsyncMock) as mock_list:
+        with (
+            patch.object(api_corr, "list_matches", new_callable=AsyncMock) as mock_list,
+            patch.object(api_corr, "count_matches", new_callable=AsyncMock) as mock_count,
+        ):
             mock_list.return_value = [
                 {"id": 1, "match_data": '{"foo": "bar"}'},
             ]
+            mock_count.return_value = 1
             response = await get_correlation_matches(user=user)
 
         # The string JSON should be parsed

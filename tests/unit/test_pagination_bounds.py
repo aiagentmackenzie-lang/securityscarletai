@@ -102,8 +102,13 @@ class TestCorrelationMatchesPaginationBounds:
 
     def test_limit_at_cap_accepted(self):
         client = _make_client(correlation_router)
-        # the handler delegates to the correlation engine — patch it, not get_pool
-        with patch("src.api.correlation.list_matches", AsyncMock(return_value=[])):
+        # the handler delegates to the correlation engine — patch it, not get_pool.
+        # AUD-049: the handler now calls BOTH list_matches (page) and
+        # count_matches (filtered total) — both seams must be stubbed.
+        with (
+            patch("src.api.correlation.list_matches", AsyncMock(return_value=[])),
+            patch("src.api.correlation.count_matches", AsyncMock(return_value=0)),
+        ):
             r = client.get("/api/v1/correlation/matches", params={"limit": 1000})
         assert r.status_code == 200
 

@@ -211,15 +211,14 @@ async def test_run_all_correlations_persist_creates_alerts_for_matches():
     async def _none(conn, as_of, **kw):
         return []
 
+    # run_all resolves detectors through the module registry (AUD-039) —
+    # patch the REGISTRY, not the module attributes: the dict holds the
+    # original function objects, so patch-by-name silently doesn't apply.
+    registry_override = {name: _none for name in corr.CORRELATION_DETECTORS}
+    registry_override["payload_callback"] = _one_match
     with (
         patch("src.detection.correlation.get_pool", return_value=pool),
-        patch("src.detection.correlation.detect_payload_callback", _one_match),
-        patch("src.detection.correlation.detect_brute_force_then_success", _none),
-        patch("src.detection.correlation.detect_persistence_activated", _none),
-        patch("src.detection.correlation.detect_data_exfiltration", _none),
-        patch("src.detection.correlation.detect_privilege_escalation_chain", _none),
-        patch("src.detection.correlation.detect_credential_theft_exfil", _none),
-        patch("src.detection.correlation.detect_defense_evasion_cleanup", _none),
+        patch.dict(corr.CORRELATION_DETECTORS, registry_override),
         patch("src.detection.correlation.create_alert", new=AsyncMock()) as mock_create,
     ):
         result = await corr.run_all_correlations(as_of=AS_OF, persist=True)

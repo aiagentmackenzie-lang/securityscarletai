@@ -14,7 +14,7 @@ the live engine is the SQL in src/detection/correlation.py.)
 """
 
 from datetime import datetime, timezone
-from typing import Annotated, Any, Awaitable, Callable, Dict, List, Optional
+from typing import Annotated, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -23,13 +23,8 @@ from src.api.auth import get_current_user, require_role
 from src.config.logging import get_logger
 from src.db.connection import get_pool
 from src.detection.correlation import (
-    detect_brute_force_then_success,
-    detect_credential_theft_exfil,
-    detect_data_exfiltration,
-    detect_defense_evasion_cleanup,
-    detect_payload_callback,
-    detect_persistence_activated,
-    detect_privilege_escalation_chain,
+    CORRELATION_DETECTORS,
+    count_matches,
     get_correlation_rule_info,
     list_correlation_rules,
     list_matches,
@@ -203,18 +198,14 @@ async def run_single_correlation(
     as_of: Optional[str] = Query(None, description="ISO-8601 timestamp"),
     user: dict = Depends(require_role("analyst")),
 ):
-    """Run a single correlation rule by name."""
-    rule_funcs: Dict[str, Callable[..., Awaitable[List[Dict[str, Any]]]]] = {
-        "brute_force_success": detect_brute_force_then_success,
-        "payload_callback": detect_payload_callback,
-        "persistence_activated": detect_persistence_activated,
-        "data_exfiltration": detect_data_exfiltration,
-        "privilege_escalation_chain": detect_privilege_escalation_chain,
-        "credential_theft_exfil": detect_credential_theft_exfil,
-        "defense_evasion_cleanup": detect_defense_evasion_cleanup,
-    }
+    """Run a single correlation rule by name.
 
-    if rule_name not in rule_funcs:
+    AUD-039: the rule map IS the engine registry (CORRELATION_DETECTORS) —
+    every detector is runnable here, so a new chain can never 404 on
+    single-rule runs while run_all_correlations covers it (the old
+    hand-copied map missed the three V0.6b chains).
+    """
+    if rule_name not in CORRELATION_DETECTORS:
         raise HTTPException(
             status_code=404,
             detail=f"Correlation rule '{rule_name}' not found",
@@ -223,7 +214,7 @@ async def run_single_correlation(
     parsed_as_of = _parse_as_of(as_of)
     pool = await get_pool()
     async with pool.acquire() as conn:
-        matches = await rule_funcs[rule_name](conn, parsed_as_of)
+        matches = await CORRELATION_DETECTORS[rule_name](conn, parsed_as_of)
     info = get_correlation_rule_info(rule_name)
 
     return {
@@ -278,6 +269,17 @@ async def get_correlation_matches(
 
     since_dt = _parse_as_of(since) if since else None
     until_dt = _parse_as_of(until) if until else None
+    # AUD-049: `total` is the filtered COUNT (full result set), not the
+    # page length — clients cannot paginate against a page length. The
+    # count and the page share the same filter builder so they can never
+    # disagree about what is being filtered.
+    total = await count_matches(
+        rule=rule,
+        severity=severity,
+        since=since_dt,
+        until=until_dt,
+        seen=seen,
+    )
     rows = await list_matches(
         rule=rule,
         severity=severity,
@@ -307,7 +309,7 @@ async def get_correlation_matches(
                 log.exception("correlation_match_data_parse_failed", error=str(e))
         serialized.append(s)
     return CorrelationMatchSummary(
-        total=len(serialized),
+        total=total,
         limit=limit,
         offset=offset,
         matches=serialized,

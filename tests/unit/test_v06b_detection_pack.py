@@ -142,7 +142,9 @@ class TestClickfixDropperExecutionChain:
         assert "T1204.004" in meta["mitre_techniques"]
 
     @pytest.mark.asyncio
-    async def test_query_binds_19_params_and_enriches_matches(self):
+    async def test_query_binds_20_params_and_enriches_matches(self):
+        """The SQL binds exactly the params it references ($1..$20: 19 detector
+        params + the AUD-004 per-detector result cap)."""
         mock_conn = _mock_conn_fetch_rows(
             [
                 {
@@ -160,7 +162,8 @@ class TestClickfixDropperExecutionChain:
         results = await corr.detect_clickfix_dropper_execution(
             mock_conn, datetime(2026, 9, 14, 13, 0, 0, tzinfo=timezone.utc)
         )
-        # The SQL binds exactly the params it references ($1..$19).
+        # The SQL binds exactly the params it references ($1..$20: 19
+        # detector params + the AUD-004 result cap).
         sql = mock_conn.fetch.call_args.args[0]
         params = list(mock_conn.fetch.call_args.args[1:])
         referenced = {
@@ -168,8 +171,10 @@ class TestClickfixDropperExecutionChain:
             for tok in sql.split("$")[1:]
             if (non_digit := next((c for c in tok if not c.isdigit()), None))
         } | {int(tok) for tok in sql.split("$")[1:] if tok.isdigit()}
-        assert len(params) == 19
-        assert referenced == set(range(1, 20))
+        assert len(params) == 20
+        assert referenced == set(range(1, 21))
+        # The AUD-004 result cap is the LAST bound param.
+        assert params[-1] == corr.DETECTOR_MAX_MATCHES
         assert len(results) == 1
         match = results[0]
         assert match["correlation_rule"] == "clickfix_dropper_execution"
@@ -191,7 +196,8 @@ class TestAiProcessEgressChain:
         assert meta["mitre_tactics"] == ["TA0010"]
 
     @pytest.mark.asyncio
-    async def test_query_binds_8_params_and_enriches_matches(self):
+    async def test_query_binds_9_params_and_enriches_matches(self):
+        """8 detector params + the AUD-004 result cap = 9 bound params."""
         mock_conn = _mock_conn_fetch_rows(
             [
                 {
@@ -210,9 +216,11 @@ class TestAiProcessEgressChain:
         )
         sql = mock_conn.fetch.call_args.args[0]
         params = list(mock_conn.fetch.call_args.args[1:])
-        assert len(params) == 8
+        assert len(params) == 9
         # The AI process list is bound as the $2 array.
         assert list(params[1]) == list(AI_PROCESS_NAMES)
+        # The AUD-004 result cap is the LAST bound param.
+        assert params[-1] == corr.DETECTOR_MAX_MATCHES
         assert len(results) == 1
         assert results[0]["correlation_rule"] == "ai_process_egress"
 
