@@ -470,7 +470,14 @@ class ApiClient:
     # ───────────────────────────────────────────────────────────
 
     def export_alerts_csv(self, status: str | None = None, severity: str | None = None) -> str:
-        """Export alerts as CSV."""
+        """Export alerts as CSV (returns the raw CSV text, not JSON).
+
+        AUD-060: this was the only client method using r.raise_for_status()
+        (raw httpx.HTTPStatusError) and the only one without a
+        TimeoutException -> ApiError wrapper, so a failed export escaped the
+        views' `except ApiError` handlers as a raw traceback page. The error
+        contract now matches _handle_response: every failure raises ApiError.
+        """
         params: dict[str, Any] = {}
         if status:
             params["status"] = status
@@ -483,10 +490,19 @@ class ApiClient:
                 params=params,
                 timeout=REQUEST_TIMEOUT,
             )
-            r.raise_for_status()
-            return r.text
         except httpx.ConnectError:
             raise ApiError(0, "Cannot connect to API server.") from None
+        except httpx.TimeoutException:
+            raise ApiError(0, "API request timed out") from None
+        if r.status_code in (200, 201):
+            return r.text
+        # Same detail extraction as _handle_response (CSV endpoint returns
+        # text, so the JSON body may be absent).
+        try:
+            detail = r.json().get("detail", r.text[:200])
+        except Exception:
+            detail = r.text[:200]
+        raise ApiError(r.status_code, detail)
 
     # ───────────────────────────────────────────────────────────
     # Rules

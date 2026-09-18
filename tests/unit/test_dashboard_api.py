@@ -368,6 +368,78 @@ class TestApiClientConvenience:
             assert result["status"] == "healthy"
 
 
+class TestExportAlertsCsv:
+    """AUD-060: export_alerts_csv was the only client method using
+    r.raise_for_status() (raw httpx.HTTPStatusError) and the only one
+    without a TimeoutException -> ApiError wrapper, so a failed export
+    escaped the views' `except ApiError` handlers as a raw traceback page.
+    The error contract now matches the rest of the client."""
+
+    @pytest.fixture
+    def client(self):
+        return ApiClient()
+
+    @staticmethod
+    def _resp(status_code=200, text="id,rule_name\n1,Test\n", body=None):
+        m = MagicMock()
+        m.status_code = status_code
+        m.text = text
+        if body is not None:
+            m.json.return_value = body
+        else:
+            m.json.side_effect = Exception("not json")
+        return m
+
+    def test_success_returns_csv_text(self, client):
+        with patch("httpx.get", return_value=self._resp()) as mock_get:
+            result = client.export_alerts_csv()
+        assert result == "id,rule_name\n1,Test\n"
+        call_args = mock_get.call_args
+        url = call_args.args[0] if call_args.args else call_args[0][0]
+        assert url.endswith("/alerts/export/csv")
+
+    def test_filter_params_forwarded(self, client):
+        with patch("httpx.get", return_value=self._resp()) as mock_get:
+            client.export_alerts_csv(status="new", severity="high")
+        call_args = mock_get.call_args
+        params = call_args.kwargs.get("params") or call_args[1].get("params")
+        assert params == {"status": "new", "severity": "high"}
+
+    def test_http_error_raises_api_error(self, client):
+        resp = self._resp(status_code=500, text="boom", body={"detail": "DB down"})
+        with patch("httpx.get", return_value=resp):
+            with pytest.raises(ApiError) as exc_info:
+                client.export_alerts_csv()
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.detail == "DB down"
+
+    def test_http_error_without_json_uses_text(self, client):
+        resp = self._resp(status_code=502, text="Bad Gateway")
+        with patch("httpx.get", return_value=resp):
+            with pytest.raises(ApiError) as exc_info:
+                client.export_alerts_csv()
+        assert exc_info.value.status_code == 502
+        assert "Bad Gateway" in exc_info.value.detail
+
+    def test_timeout_raises_api_error(self, client):
+        import httpx
+
+        with patch("httpx.get", side_effect=httpx.TimeoutException("Timed out")):
+            with pytest.raises(ApiError) as exc_info:
+                client.export_alerts_csv()
+        assert exc_info.value.status_code == 0
+        assert "timed out" in exc_info.value.detail.lower()
+
+    def test_connect_error_raises_api_error(self, client):
+        import httpx
+
+        with patch("httpx.get", side_effect=httpx.ConnectError("refused")):
+            with pytest.raises(ApiError) as exc_info:
+                client.export_alerts_csv()
+        assert exc_info.value.status_code == 0
+        assert "connect" in exc_info.value.detail.lower()
+
+
 class TestAuthSessionState:
     """Tests for authentication session state management."""
 
