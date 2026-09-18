@@ -336,7 +336,9 @@ server for the analyst's agents, and AI usage as a detection domain.
   `GET /agent/runs[/{id}]`, `POST /agent/runs/{id}/hitl` (the HITL gate).
   Runs persist to `agent_investigations`; every step rides the audit
   chain.
-- `scarletai-mcp` — the MCP server (same image, `python -m src.mcp_server`,
+- `scarletai-mcp` — the MCP server (same api-target image as the API; the
+  dashboard target adds the Streamlit stack on top — AUD-014 split,
+  `python -m src.mcp_server`,
   loopback-only `127.0.0.1:8002` in local production). Runs AS
   `scarletai_readonly` (scoped read-only DB role). Tools: `investigate`,
   `hunt`, `explain` — read-only, always.

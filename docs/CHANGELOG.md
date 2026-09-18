@@ -1,5 +1,44 @@
 # CHANGELOG
 
+## Unreleased — codebase quality audit campaign (2026-09-17 → 2026-09-18)
+
+**A full codebase quality audit (83 findings, AUD-001..083) executed across 11 fix
+waves; 81 FIXED, 2 open by design (AUD-004 concurrent-detectors remainder — needs
+per-detector connections; AUD-023 per-event serial enrichment — noted for scale).
+Full receipts: `docs/internal/CODEBASE_AUDIT.md` (internal). Suite 2,335 → 2,483
+passed / 0 failed. Headline behavior changes an operator sees:**
+
+- **Ingest fail-closed (AUD-001):** a quarantine-enforcement lookup failure now
+  refuses the whole `POST /ingest` batch with 503 (was: warn-and-accept).
+- **Alerts API honesty (AUD-040/041):** PUT/PATCH on a nonexistent alert returns
+  404 BEFORE any write (was TypeError → 500 with a phantom audit row); linking an
+  already-linked alert returns 409 and writes the full timeline/audit parity set.
+- **Correlation (AUD-004 step 1, AUD-005):** every detector result is capped;
+  the payload-callback detector excludes RFC1918 destinations as documented.
+- **Sigma corpus 118 → 116:** two identical-detection rules merged/deleted
+  (AUD-078 `ntlm_relay_attempt` merged into `pass_the_hash_smb`; AUD-081
+  `suspicious_dns` deleted as a compiled duplicate); `scp_exfil_external`
+  reworked to `scp_sftp_rsync_transfer` (AUD-079); `c2_beaconing` now actually
+  groups by destination IP (AUD-076); RFC1918 shortcut lists made per-octet
+  exact (AUD-077) — public 172.32–39/172.200+ no longer suppressed.
+- **NL→SQL (AUD-026/036):** the validator accepts `WITH`/CTEs (was: rejected
+  every CTE the prompt invited); `UPDATE` added to the forbidden patterns; LIMIT
+  regex fixed.
+- **Dashboard (Wave 6):** dead keyboard shortcuts removed, cases status filter
+  fixed (was TypeError under `except Exception`), expander-fetch storms TTL-
+  cached, markdown-injection choke point on all ingest-fed renders, footer
+  version from the single APP_VERSION source.
+- **Multi-target Docker build (AUD-014):** `api`/`mcp` image without the
+  Streamlit stack — **1.17GB → 800MB disk / 249MB → 166MB content (−33%)**;
+  `dashboard` target at parity; compose pins `target:` per service; CI builds,
+  boots and trivy-scans BOTH targets; ghcr releases push the api target.
+- **Hygiene:** make format covers `dashboard/` (AUD-015); `markupsafe` +
+  `jinja2` declared as direct deps (AUD-034/083); dead code deleted (mitre.py
+  + its tests, dead TI functions, dead notifier, dead re-exports, default_effect
+  reader/param/YAML key); entrypoint count probes and backup/demo-schema failure
+  paths fail loudly (Wave 9); shipper survives non-UTF-8 bytes with raw-byte
+  offsets (AUD-006); TI refresh uses one bulk upsert (AUD-051).
+
 ## v0.8.0 — first receipted release (2026-09-17)
 
 **The "we ship what we prove" release leg went live: every v0.8.0 image

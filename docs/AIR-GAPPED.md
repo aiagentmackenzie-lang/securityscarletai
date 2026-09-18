@@ -78,8 +78,14 @@ Alternatively load your own private intel into `threat_intel` directly
 
 1. **On a connected host**, prepare the artifacts:
    - `docker pull` the images (postgres:17-alpine, redis:7-alpine, the
-     SecurityScarletAI API + dashboard images) and `docker save` them, OR
+     SecurityScarletAI image) and `docker save` them, OR
      push them to your air-gapped registry with `skopeo copy`.
+     NOTE (2026-09-18): ghcr.io publishes the **api/mcp target** only. The
+     dashboard runs from a SEPARATE image (the `dashboard` Docker target with
+     the Streamlit stack) — build it on the connected host with
+     `docker build --target dashboard -t securityscarletai-dashboard .` (or
+     `docker compose build dashboard`) before `docker save`, and load it on
+     the air-gapped side.
    - `ollama pull mistral:7b` on the host that will run Ollama (it caches to
      `~/.ollama/models`).
    - Download the MaxMind GeoLite2-City mmdb (MaxMind account, one-time) and
