@@ -329,6 +329,11 @@ class TestMcpEndpoint:
             listing = await app_module.mcp_endpoint(_authed(_rpc("tools/list")))
 
         assert json.loads(init.body)["result"]["serverInfo"]["name"] == "securityscarletai"
+        # AUD-037: the version must come from the single source, not a stale
+        # literal (the old surface said 0.1.0 against pyproject 0.8.0).
+        from src.config.version import APP_VERSION
+
+        assert json.loads(init.body)["result"]["serverInfo"]["version"] == APP_VERSION
         tools = json.loads(listing.body)["result"]["tools"]
         assert [t["name"] for t in tools] == ["investigate", "hunt", "explain"]
 

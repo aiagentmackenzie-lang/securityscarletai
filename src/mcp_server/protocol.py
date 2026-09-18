@@ -15,7 +15,9 @@ INVALID_REQUEST = -32600
 METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
-TOOL_UNAVAILABLE = -32001  # server-defined: auth disabled / DB scope drift
+# AUD-031: TOOL_UNAVAILABLE (-32001) was deleted — defined but referenced
+# nowhere (auth-disabled is HTTP 401 + INVALID_REQUEST; scope drift is an
+# isError RESULT with TOOL_DENIED).
 TOOL_DENIED = -32002  # server-defined: unknown tool / denied call
 
 SUPPORTED_PROTOCOL_VERSION = "2025-06-18"
