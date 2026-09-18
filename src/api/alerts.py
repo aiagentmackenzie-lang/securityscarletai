@@ -232,6 +232,18 @@ async def update_alert(
 ):
     """Update alert status and assignment. Requires analyst role or above."""
     username = user.get("sub", "unknown")
+
+    # AUD-040: verify the alert EXISTS before touching it. update_alert_status
+    # silently no-ops on a missing id (the UPDATE's WHERE matches nothing), so
+    # the old flow wrote a phantom audit row + timeline note for an alert that
+    # does not exist, then `dict(row)` on a None row raised TypeError → 500
+    # instead of 404.
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval("SELECT EXISTS(SELECT 1 FROM alerts WHERE id = $1)", alert_id)
+    if not exists:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
     await update_alert_status(
         alert_id=alert_id,
         status=update.status,
@@ -251,9 +263,12 @@ async def update_alert(
         new_values={"status": update.status, "assigned_to": update.assigned_to},
     )
 
-    pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT * FROM alerts WHERE id = $1", alert_id)
+        # TOCTOU guard: deleted between the existence check and the update —
+        # 404, never a TypeError on dict(None).
+        if not row:
+            raise HTTPException(status_code=404, detail="Alert not found")
         return dict(row)
 
 
@@ -318,6 +333,7 @@ async def link_to_case(
     then link the alert to it.
     """
     from src.api.audit import log_audit_action
+    from src.api.cases import _record_case_event
 
     pool = await get_pool()
     username = user.get("sub", "unknown")
@@ -336,26 +352,50 @@ async def link_to_case(
             if not case_row:
                 raise HTTPException(status_code=404, detail="Case not found")
 
-            # Update alert.case_id
-            await conn.execute(
-                "UPDATE alerts SET case_id = $1, updated_at = NOW() WHERE id = $2",
-                body.case_id,
-                alert_id,
-            )
-
-            # Append alert to case's alert_ids array (P2-35: atomic array_append
-            # with a NOT-ANY guard — no read-modify-write race).
-            await conn.execute(
+            # AUD-041: parity with POST /cases/{id}/alerts — the SAME three
+            # governance steps, in the same order:
+            # 1. the P2-35 atomic array_append WITH its already-linked guard
+            #    ENFORCED ("UPDATE 0" → 409, not a silent no-op),
+            # 2. the durable case timeline (evidence_linked case_event),
+            # 3. an audit row (same action name as the case-side endpoint).
+            result = await conn.execute(
                 """UPDATE cases
                    SET alert_ids = array_append(alert_ids, $1), updated_at = NOW()
                    WHERE id = $2 AND NOT ($1 = ANY(alert_ids))""",
                 alert_id,
                 body.case_id,
             )
+            if result == "UPDATE 0":
+                # Case exists (checked above) but the alert is already linked.
+                raise HTTPException(status_code=409, detail="Alert already linked to this case")
 
-            result = await conn.fetchrow("SELECT * FROM alerts WHERE id = $1", alert_id)
+            # Update alert.case_id
+            await conn.execute(
+                "UPDATE alerts SET case_id = $1, updated_at = NOW() WHERE id = $2",
+                body.case_id,
+                alert_id,
+            )
+            # Durable timeline: evidence linkage is an event (same as case-side).
+            await _record_case_event(
+                conn,
+                body.case_id,
+                "evidence_linked",
+                username,
+                {"alert_id": alert_id},
+                alert_id=alert_id,
+            )
+
+            await log_audit_action(
+                actor=username,
+                action="case.link_alert",
+                target_type="case",
+                target_id=body.case_id,
+                new_values={"alert_id": alert_id},
+            )
+
+            final = await conn.fetchrow("SELECT * FROM alerts WHERE id = $1", alert_id)
             log.info("alert_linked_to_case", alert_id=alert_id, case_id=body.case_id, user=username)
-            return dict(result)
+            return dict(final)
 
         else:
             # Create a new case inline
@@ -379,6 +419,24 @@ async def link_to_case(
                 new_case_id,
                 alert_id,
             )
+            # AUD-041: the case is born WITH its evidence — record the same
+            # timeline events POST /cases records for a case created with
+            # alert_ids (evidence_linked per alert, then the created event).
+            await _record_case_event(
+                conn,
+                new_case_id,
+                "evidence_linked",
+                username,
+                {"alert_id": alert_id},
+                alert_id=alert_id,
+            )
+            await _record_case_event(
+                conn,
+                new_case_id,
+                "created",
+                username,
+                {"title": title, "severity": severity},
+            )
 
             await log_audit_action(
                 actor=username,
@@ -388,14 +446,14 @@ async def link_to_case(
                 new_values={"title": title, "alert_id": alert_id},
             )
 
-            result = await conn.fetchrow("SELECT * FROM alerts WHERE id = $1", alert_id)
+            final = await conn.fetchrow("SELECT * FROM alerts WHERE id = $1", alert_id)
             log.info(
                 "case_created_from_alert",
                 alert_id=alert_id,
                 case_id=new_case_id,
                 user=username,
             )
-            return dict(result)
+            return dict(final)
 
 
 # ───────────────────────────────────────────────────────────────
