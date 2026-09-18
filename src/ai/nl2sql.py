@@ -205,8 +205,13 @@ def _extract_table_refs(sql: str) -> tuple[set[str], set[str]]:
 # Uses negative lookbehind (?<![a-z_]) instead of \b so pg_ functions like
 # pg_sleep, pg_read_file, pg_ls_dir, lo_import/lo_export are caught.
 # Without this, \bpg_\b only matches standalone "pg_" which is useless.
+# AUD-026: UPDATE rides here with a trailing \b — bare "UPDATE" would
+# false-positive on the alerts.updated_at column ("updated" has no
+# boundary), while the missing keyword let a data-modifying CTE
+# (WITH x AS (UPDATE ...) SELECT ...) slip through the WITH-accepting
+# validator: the old startswith("SELECT") gate had blocked it by accident.
 FORBIDDEN_PATTERNS = re.compile(
-    r"(?<![a-z_])(DROP|ALTER|CREATE|TRUNCATE|INSERT|DELETE|GRANT|REVOKE|COPY|"
+    r"(?<![a-z_])(DROP|ALTER|CREATE|TRUNCATE|INSERT|DELETE|UPDATE\b|GRANT|REVOKE|COPY|"
     r"EXEC(UTE)?|EXECUTE\s|INTO\s+OUTFILE|LOAD_FILE|BENCHMARK|SLEEP|WAITFOR|"
     r"pg_\w+|information_schema\.|pg_catalog\.|pg_toast\.|lo_import|lo_export)",
     re.IGNORECASE,
@@ -632,10 +637,20 @@ def validate_sql_structure(sql: str) -> tuple[bool, str]:
     if statement_type and statement_type.upper() != "SELECT":
         return False, f"Only SELECT queries are allowed, got {statement_type}"
 
-    # Check first keyword is SELECT
-    sql_upper = sql.strip().upper()
-    if not sql_upper.startswith("SELECT"):
+    # Check the first top-level keyword is SELECT or WITH.
+    # AUD-026: the prompt (rule 9) invites CTEs, the table-allowlist
+    # extractor returns cte_names to allow them, and add_safety_limits has
+    # the CTE path — but this gate rejected every WITH query, making the
+    # CTE plumbing unreachable. sqlparse's get_type() already reports
+    # 'SELECT' for the WITH form, so only the first-keyword gate needed
+    # relaxing. Data-modifying CTEs (WITH x AS (INSERT/DELETE/UPDATE ...)
+    # SELECT ...) are still rejected by FORBIDDEN_PATTERNS below, which
+    # scans the whole statement — sqlparse cannot catch those (it reports
+    # 'SELECT' for them too).
+    if not re.match(r"\s*(SELECT|WITH)\b", sql.strip(), re.IGNORECASE):
         return False, "Only SELECT queries are allowed"
+
+    sql_upper = sql.strip().upper()
 
     # Check for forbidden patterns
     forbidden_match = FORBIDDEN_PATTERNS.search(sql_upper)
@@ -689,58 +704,42 @@ def add_safety_limits(sql: str) -> str:
     """
     Add safety limits to SQL query if not already present.
 
-    - Ensures LIMIT clause exists (default 500)
-    - Adds MAX(query result) safeguards
-    - M-08: Handles CTEs (WITH ... AS) correctly — inserts LIMIT before
-      the final SELECT, not after the CTE definition.
+    - Ensures a LIMIT clause exists (default 500)
+    - Caps every LIMIT at MAX_RESULT_ROWS (tighter inner limits preserved)
+    - M-08 / AUD-036: handles CTEs (WITH ... AS) correctly — the LIMIT is
+      appended at the very END of the statement, where it applies to the
+      top-level main query. The previous implementation searched for the
+      last ') SELECT' boundary and could insert the LIMIT into an inner
+      subquery (broken SQL); appending at the statement end is correct for
+      every SELECT/WITH statement this pipeline produces.
+
+    String literals are redacted before the LIMIT checks so a quoted word
+    (e.g. a '%limit%' ILIKE pattern) or a column named row_limit cannot
+    suppress the cap (the AUD-036 substring-check miss).
     """
-    sql_upper = sql.upper().strip().rstrip(";")
+    limit_default = min(500, MAX_RESULT_ROWS)
 
-    # M-08: Detect CTE — if query starts with WITH, find the final SELECT
-    has_cte = sql_upper.startswith("WITH ")
+    literal_spans = [(m.start(), m.end()) for m in re.finditer(r"'[^']*'", sql)]
 
-    # Add LIMIT if missing
-    if "LIMIT" not in sql_upper:
-        if has_cte:
-            # Find the last top-level SELECT (the main query after all CTEs)
-            # Strategy: find the last ') SELECT' (allowing any whitespace between
-            # the ')' and SELECT, P2-19 — was a literal ') SELECT' that missed
-            # ')	SELECT' / ')  SELECT' / ')\nSELECT').
-            paren_select_match = list(re.finditer(r"\)\s+SELECT", sql, re.IGNORECASE))
-            if paren_select_match:
-                # Insert LIMIT after the final SELECT's ORDER BY or before end
-                insert_pos = paren_select_match[-1].end() - len("SELECT")  # at SELECT start
-                remainder = sql[insert_pos:].strip()
-                if "ORDER BY" in remainder.upper():
-                    # Find end of ORDER BY clause and insert LIMIT after it
-                    ob_match = re.search(r"ORDER\s+BY\s+[^;]+", remainder, re.IGNORECASE)
-                    if ob_match:
-                        end_pos = insert_pos + ob_match.end()
-                        sql = sql[:end_pos] + f" LIMIT {min(500, MAX_RESULT_ROWS)}" + sql[end_pos:]
-                    else:
-                        sql = f"{sql.rstrip(';')} LIMIT {min(500, MAX_RESULT_ROWS)}"
-                else:
-                    sql = f"{sql.rstrip(';')} LIMIT {min(500, MAX_RESULT_ROWS)}"
-            else:
-                # No clear CTE boundary — append at end as fallback
-                sql = f"{sql.rstrip(';')} LIMIT {min(500, MAX_RESULT_ROWS)}"
-        else:
-            # No CTE — simple append
-            sql = f"{sql.rstrip(';')} LIMIT {min(500, MAX_RESULT_ROWS)}"
+    def _in_literal(pos: int) -> bool:
+        return any(start <= pos < end for start, end in literal_spans)
 
-    # Ensure LIMIT is within bounds
-    limit_match = re.search(r"LIMIT\s+(\d+)", sql, re.IGNORECASE)
-    if limit_match:
-        limit_val = int(limit_match.group(1))
-        if limit_val > MAX_RESULT_ROWS:
-            sql = re.sub(
-                r"LIMIT\s+\d+",
-                f"LIMIT {MAX_RESULT_ROWS}",
-                sql,
-                flags=re.IGNORECASE,
-            )
+    # AUD-036: detect a REAL LIMIT keyword on a literal-stripped copy, not a
+    # bare substring of the raw SQL.
+    if re.search(r"\bLIMIT\b", re.sub(r"'[^']*'", "''", sql), flags=re.IGNORECASE) is None:
+        stripped = sql.rstrip(" \t\n;")
+        sql = f"{stripped} LIMIT {limit_default}"
+        literal_spans = [(m.start(), m.end()) for m in re.finditer(r"'[^']*'", sql)]
 
-    return sql
+    # Cap every LIMIT above MAX_RESULT_ROWS; matches inside string literals
+    # are data values, not clauses — leave them alone.
+    def _cap(match: re.Match[str]) -> str:
+        if _in_literal(match.start()):
+            return match.group(0)
+        val = int(match.group(1))
+        return f"LIMIT {min(val, MAX_RESULT_ROWS)}"
+
+    return re.sub(r"LIMIT\s+(\d+)", _cap, sql, flags=re.IGNORECASE)
 
 
 async def estimate_query_cost(sql: str) -> tuple[int, str]:
@@ -1024,13 +1023,17 @@ Return ONLY the SQL query. No explanation, no markdown code blocks, no comments.
     sql = sql.split("\n\n")[0] if "\n\n" in sql else sql
     sql = sql.strip().rstrip(";")
 
-    # Basic sanity check — must start with SELECT
-    if not sql.upper().startswith("SELECT"):
+    # Basic sanity check — must start with SELECT or WITH.
+    # AUD-026: CTEs are part of the prompt contract; the old find("SELECT")
+    # fallback would slice a WITH query at its first INNER select and
+    # corrupt the statement, so the fallback now searches for either
+    # top-level keyword.
+    if not re.match(r"\s*(SELECT|WITH)\b", sql, re.IGNORECASE):
         log.warning("nl2sql_llm_not_select", sql_preview=sql[:100])
-        # Try to find the SELECT statement in the response
-        select_idx = sql.upper().find("SELECT")
-        if select_idx >= 0:
-            sql = sql[select_idx:]
+        # Try to find the first SELECT/WITH keyword in the response
+        kw = re.search(r"\b(SELECT|WITH)\b", sql, re.IGNORECASE)
+        if kw:
+            sql = sql[kw.start() :]
         else:
             return None
 
