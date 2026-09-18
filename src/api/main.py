@@ -92,7 +92,7 @@ async def load_sigma_rules():
 
     import yaml
 
-    from src.detection.sigma import _extract_mitre_tags
+    from src.detection.sigma import _extract_mitre_tags, _timeframe_to_seconds
 
     # alert_severity enum values; clamp unknown Sigma levels to 'medium'.
     _VALID_SEVERITIES = {"info", "low", "medium", "high", "critical"}
@@ -148,7 +148,12 @@ async def load_sigma_rules():
                     # carry no `enabled` key and default to True (unchanged).
                     bool(data.get("enabled", True)),
                     timedelta(seconds=60),
-                    timedelta(minutes=5),
+                    # AUD-007: the DB lookback column is the rule's scan
+                    # window and the run path now compiles from it — keep it
+                    # in sync with the YAML timeframe instead of a hardcoded
+                    # 5 minutes, so the override is a no-op for shipped rules
+                    # (byte-identical) and honest for API rules.
+                    timedelta(seconds=_timeframe_to_seconds(data.get("timeframe"))),
                     1,
                     mitre_tactics,
                     mitre_techniques,
