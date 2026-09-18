@@ -25,7 +25,8 @@ Most security dashboards show you charts. This one shows you **receipts**:
 - **Verified detections, not vibes.** A built-in purple-team loop fires the
   full correlation matrix through the real pipeline — shipper → parser →
   Postgres → Sigma → correlation — and scores every run. The latest committed
-  run: **10/10 chains fired (score 1.0), 43 alerts, 16 MITRE ATT&CK
+  run (2026-09-18, post-audit, on the multi-target images): **10/10 chains
+  fired (score 1.0), 28 alerts, 25 distinct rules, 16 MITRE ATT&CK
   techniques hit**, with the full run history and a machine-readable
   fix-feedback artifact committed under [`runs/`](runs/). Runs are also
   self-scored against the published MITRE ATT&CK Evaluations Enterprise 2026
@@ -384,8 +385,10 @@ against the code (no auto-updating badge):
   tests (live Postgres) — CI-green on every push (2026-09-18); coverage
   measured **87%** (9,873 statements, 2026-09-18).
 - **Live-fire:** the full 10-chain correlation matrix scored 10/10 through
-  the real pipeline (2026-09-14: 43 alerts, 25 distinct rules, 16 ATT&CK
-  techniques); purple-loop runs committed under [`runs/`](runs/) with the
+  the real pipeline (latest: 2026-09-18 — 28 alerts, 25 distinct rules, 16
+  ATT&CK techniques, re-run after the audit's rule-corpus corrections landed;
+  prior 2026-09-14 run: 43 alerts); purple-loop runs committed under
+  [`runs/`](runs/) with the
   full iteration history (7/8 → 8/8 → 10/10) preserved; NeuralGuard ingest
   verified end-to-end (2026-09-05); fleet enrollment + raw-line ingest +
   TimescaleDB migration (zero data loss) + Linux agent live-fire verified
