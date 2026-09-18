@@ -206,9 +206,13 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
                     role = user.get("role")
                     user = user.get("sub") or user.get("user")
 
-                # Fire-and-forget the DB write. If it fails, the response is
-                # already on the wire, and we'd rather log the failure than
-                # crash the request.
+                # The DB write is AWAITED inline — one serial INSERT per
+                # mutating request (AUD-045: the old comment claimed
+                # "fire-and-forget", which the code never was). That latency
+                # is the accepted cost of audit durability: the row is
+                # written before dispatch returns, and a failure here logs
+                # instead of breaking the request (the response is already
+                # committed).
                 try:
                     from src.api.audit import log_request_audit
 

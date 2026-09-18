@@ -26,9 +26,9 @@ BATCH_SIZE = 100
 FLUSH_INTERVAL = 2.0  # seconds — flush even if batch isn't full
 # P1-E: cap the in-memory buffer so a slow/down DB can't grow it unbounded
 # to OOM. When the buffer hits the cap, write() flushes first (backpressure —
-# the ingest caller slows down rather than piling up events in RAM). 10x the
-# batch size = up to ~1000 events buffered under pressure before flushing.
-MAX_BUFFER = 10 * BATCH_SIZE
+# the ingest caller slows down rather than piling up events in RAM). The cap
+# is 10× the instance's batch_size (AUD-022: derived per-writer, not a fixed
+# module constant that ignored the instance's batch_size).
 DEAD_LETTER_DIR = Path("data/dead_letter")
 DEAD_LETTER_MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB per daily file
 DEAD_LETTER_RETENTION_DAYS = 30
@@ -42,7 +42,10 @@ class LogWriter:
         self._buffer: list[NormalizedEvent] = []
         self._batch_size = batch_size
         self._flush_interval = flush_interval
-        self._max_buffer = MAX_BUFFER
+        # AUD-022: the cap derives from THIS writer's batch_size (10× its
+        # batch), not the module default — a writer constructed with a
+        # different batch_size used to silently keep the default cap.
+        self._max_buffer = 10 * batch_size
         self._lock = asyncio.Lock()
         self._flush_task: Optional[asyncio.Task] = None
 

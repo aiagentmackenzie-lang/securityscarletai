@@ -443,3 +443,25 @@ class TestRecordHitlDecision:
             )
 
         assert updated is None
+
+
+class TestNoopAudit:
+    def test_noop_audit_actually_logs(self):
+        """AUD-032: the default audit hook's body is no longer empty — it
+        emits the debug-level structured event its docstring documents."""
+        from src.agents.investigator import _noop_audit
+
+        events: list[tuple] = []
+
+        class _Recorder:
+            @staticmethod
+            def debug(event, **kw):
+                events.append((event, kw))
+
+        import asyncio
+
+        with patch("src.agents.investigator.log", _Recorder()):
+            asyncio.run(_noop_audit("agent.step", {"step": "plan"}, "agent"))
+
+        assert events, "the noop audit hook must emit its debug event"
+        assert events[0][0] == "agent_audit_unwired"

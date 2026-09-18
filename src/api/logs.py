@@ -34,8 +34,6 @@ async def list_logs(
         host: Filter by host_name (substring match).
         time_minutes: Only return logs from the last N minutes.
     """
-    pool = await get_pool()
-
     conditions = []
     params: list[Any] = []
     idx = 1

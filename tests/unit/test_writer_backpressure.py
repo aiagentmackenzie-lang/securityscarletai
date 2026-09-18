@@ -71,3 +71,14 @@ class TestWriterBackpressure:
         assert flush_calls == 9  # 95 // 10 = 9 batch flushes
         # Buffer stayed small.
         assert len(writer._buffer) < writer._batch_size
+
+
+class TestWriterCapDerivation:
+    def test_max_buffer_derives_from_instance_batch_size(self):
+        """AUD-022: the cap is 10× THIS writer's batch_size — not a fixed
+        module constant that ignored the instance's batch_size."""
+        from src.db.writer import LogWriter
+
+        assert LogWriter()._max_buffer == 10 * 100
+        assert LogWriter(batch_size=10)._max_buffer == 100
+        assert LogWriter(batch_size=10_000)._max_buffer == 100_000

@@ -818,3 +818,217 @@ class TestConcurrentAlertCreation:
             assert lock_acquire_count[0] >= 2, (
                 f"Expected >=2 advisory lock acquisitions, got {lock_acquire_count[0]}"
             )
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# AUD-040: update_alert 404 contract
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+class TestUpdateAlert404Contract:
+    """PUT/PATCH /alerts/{id} on a nonexistent alert must be 404 — never a
+    phantom update+audit row followed by dict(None) → TypeError → 500."""
+
+    @staticmethod
+    def _mock_pool(mock_conn: AsyncMock) -> AsyncMock:
+        class AsyncCtx:
+            async def __aenter__(self):
+                return mock_conn
+
+            async def __aexit__(self, *args):
+                pass
+
+        pool = AsyncMock()
+        pool.acquire = MagicMock(return_value=AsyncCtx())
+        return pool
+
+    @pytest.mark.asyncio
+    async def test_update_nonexistent_alert_is_404(self):
+        from fastapi import HTTPException
+
+        from src.api.alerts import AlertUpdate, update_alert
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchval = AsyncMock(return_value=False)  # existence probe
+
+        with (
+            patch(
+                "src.api.alerts.get_pool",
+                AsyncMock(return_value=self._mock_pool(mock_conn)),
+            ),
+            patch("src.api.alerts.update_alert_status", AsyncMock()) as upd,
+            patch("src.api.audit.log_audit_action", AsyncMock()) as audit,
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await update_alert(
+                    9999,
+                    AlertUpdate(status="investigating"),
+                    user={"sub": "analyst1", "role": "analyst"},
+                )
+
+        assert exc_info.value.status_code == 404
+        # No phantom update, no phantom audit row, no timeline note.
+        upd.assert_not_awaited()
+        audit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_update_existing_alert_returns_updated_row(self):
+        from src.api.alerts import AlertUpdate, update_alert
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchval = AsyncMock(return_value=True)  # exists
+        mock_conn.fetchrow = AsyncMock(return_value={"id": 1, "status": "resolved"})
+
+        with (
+            patch(
+                "src.api.alerts.get_pool",
+                AsyncMock(return_value=self._mock_pool(mock_conn)),
+            ),
+            patch("src.api.alerts.update_alert_status", AsyncMock()) as upd,
+            patch("src.api.audit.log_audit_action", AsyncMock()) as audit,
+        ):
+            result = await update_alert(
+                1,
+                AlertUpdate(status="resolved", resolution_note="done"),
+                user={"sub": "analyst1", "role": "analyst"},
+            )
+
+        assert result["status"] == "resolved"
+        upd.assert_awaited_once()
+        audit.assert_awaited_once()
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# AUD-041: alert-side case-link governance parity
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+class TestLinkToCaseGovernanceParity:
+    """POST /alerts/{id}/case (link-existing) must match POST /cases/{id}/alerts
+    governance: the already-linked guard ENFORCED (409), the durable case
+    timeline (evidence_linked), and an audit row with the case-side action
+    name. The new-case path records the same timeline events POST /cases
+    records for a case born with alert_ids."""
+
+    @staticmethod
+    def _mock_pool(mock_conn: AsyncMock) -> AsyncMock:
+        class AsyncCtx:
+            async def __aenter__(self):
+                return mock_conn
+
+            async def __aexit__(self, *args):
+                pass
+
+        pool = AsyncMock()
+        pool.acquire = MagicMock(return_value=AsyncCtx())
+        return pool
+
+    @pytest.mark.asyncio
+    async def test_already_linked_is_409_not_silent(self):
+        from fastapi import HTTPException
+
+        from src.api.alerts import LinkCaseRequest, link_to_case
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow = AsyncMock(
+            side_effect=[{"id": 1, "severity": "high"}, {"id": 5, "alert_ids": [1]}]
+        )
+        mock_conn.execute = AsyncMock(return_value="UPDATE 0")  # already linked
+
+        with (
+            patch(
+                "src.api.alerts.get_pool",
+                AsyncMock(return_value=self._mock_pool(mock_conn)),
+            ),
+            patch("src.api.cases._record_case_event", AsyncMock()) as case_event,
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await link_to_case(
+                    alert_id=1,
+                    body=LinkCaseRequest(case_id=5),
+                    user={"sub": "analyst1", "role": "analyst"},
+                )
+
+        assert exc_info.value.status_code == 409
+        assert "already linked" in exc_info.value.detail
+        # The guard short-circuits BEFORE the alert.case_id update.
+        assert mock_conn.execute.await_count == 1
+        case_event.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_link_existing_records_case_event_and_audit(self):
+        from src.api.alerts import LinkCaseRequest, link_to_case
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow = AsyncMock(
+            side_effect=[
+                {"id": 1, "severity": "high"},
+                {"id": 5, "alert_ids": [3, 4]},
+                {"id": 1, "status": "investigating"},
+            ]
+        )
+        mock_conn.execute = AsyncMock(return_value="UPDATE 1")
+
+        with (
+            patch(
+                "src.api.alerts.get_pool",
+                AsyncMock(return_value=self._mock_pool(mock_conn)),
+            ),
+            patch("src.api.cases._record_case_event", AsyncMock()) as case_event,
+            patch("src.api.audit.log_audit_action", AsyncMock()) as audit,
+        ):
+            result = await link_to_case(
+                alert_id=1,
+                body=LinkCaseRequest(case_id=5),
+                user={"sub": "analyst1", "role": "analyst"},
+            )
+
+        assert result is not None
+        case_event.assert_awaited_once()
+        # evidence_linked, on the linked case, naming the alert
+        kwargs = case_event.await_args
+        assert kwargs.args[2] == "evidence_linked"
+        assert kwargs.args[1] == 5
+        assert kwargs.kwargs.get("alert_id") == 1
+        # same audit action as the case-side endpoint
+        audit.assert_awaited_once()
+        assert audit.await_args.kwargs["action"] == "case.link_alert"
+        assert audit.await_args.kwargs["target_id"] == 5
+
+    @pytest.mark.asyncio
+    async def test_new_case_records_timeline_events(self):
+        from src.api.alerts import LinkCaseRequest, link_to_case
+
+        mock_conn = AsyncMock()
+        created_case = {"id": 7, "title": "Investigation: Alert #1"}
+        mock_conn.fetchrow = AsyncMock(
+            side_effect=[
+                {"id": 1, "severity": "high"},  # alert exists
+                created_case,  # INSERT ... RETURNING *
+                {"id": 1, "status": "new"},  # final select
+            ]
+        )
+        mock_conn.execute = AsyncMock(return_value="UPDATE 1")
+
+        with (
+            patch(
+                "src.api.alerts.get_pool",
+                AsyncMock(return_value=self._mock_pool(mock_conn)),
+            ),
+            patch("src.api.cases._record_case_event", AsyncMock()) as case_event,
+            patch("src.api.audit.log_audit_action", AsyncMock()) as audit,
+        ):
+            result = await link_to_case(
+                alert_id=1,
+                body=LinkCaseRequest(title="Investigation: Alert #1"),
+                user={"sub": "analyst1", "role": "analyst"},
+            )
+
+        assert result is not None
+        # evidence_linked for the founding alert, then the created event —
+        # the same timeline contract as POST /cases with alert_ids.
+        assert case_event.await_count == 2
+        assert case_event.await_args_list[0].args[2] == "evidence_linked"
+        assert case_event.await_args_list[1].args[2] == "created"
+        audit.assert_awaited_once()
+        assert audit.await_args.kwargs["action"] == "case.create_from_alert"
