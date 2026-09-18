@@ -10,16 +10,48 @@ import streamlit as st
 
 from dashboard.api_client import ApiError
 from dashboard.auth import can_write, get_api_client, is_admin
-from dashboard.ui_utils import BG_SURFACE, BORDER_SUBTLE, esc, sev_badge, status_badge
+from dashboard.ui_utils import BG_SURFACE, BORDER_SUBTLE, esc, esc_md, sev_badge, status_badge
 
 # Status flow: open → in_progress → resolved → closed
 STATUS_FLOW = ["open", "in_progress", "resolved", "closed"]
-STATUS_BADGES = {
-    "open": "badge-new",
-    "in_progress": "badge-investigating",
-    "resolved": "badge-resolved",
-    "closed": "badge-closed",
-}
+
+
+def _case_query_params(status_filter: str, severity_filter: str) -> dict:
+    """Build the get_cases query params (AUD-058).
+
+    ApiClient.get_cases' Python parameter is `status` (the client maps it to
+    the wire param `status_filter` itself). The view used to pass
+    params["status_filter"] -- get_cases(**params) raised TypeError on EVERY
+    non-"All" status selection, and the view's broad except masked it as a
+    generic "Unexpected error" banner.
+    """
+    params: dict = {}
+    if status_filter != "All":
+        params["status"] = status_filter.lower().replace(" ", "_")
+    if severity_filter != "All":
+        params["severity"] = severity_filter.lower()
+    return params
+
+
+# AUD-059: Streamlit executes expander bodies on EVERY rerun regardless of
+# collapse state, so _render_case_card fetched get_case + get_case_notes for
+# EVERY case on every filter click / auto-refresh tick. TTL-cached fetchers
+# bound it to one fetch per case per 60s; every write path clears the caches
+# before st.rerun so this session's own writes are never swallowed by the
+# TTL (other sessions' writes appear within the TTL -- the same accepted
+# cross-session caveat as charts.cached_alerts). ApiError propagates
+# (st.cache_data does not cache exceptions) so callers keep their failure
+# handling.
+@st.cache_data(ttl=60)
+def _cached_case(case_id: int) -> dict:
+    api = get_api_client()
+    return api.get_case(case_id)
+
+
+@st.cache_data(ttl=60)
+def _cached_case_notes(case_id: int) -> list[dict]:
+    api = get_api_client()
+    return api.get_case_notes(case_id)
 
 
 def render_cases_view():
@@ -56,11 +88,7 @@ def _render_case_list(api):
         if st.button("Refresh", key="refresh_cases_btn"):
             st.rerun()
 
-    params: dict = {}
-    if status_filter != "All":
-        params["status_filter"] = status_filter.lower().replace(" ", "_")
-    if severity_filter != "All":
-        params["severity"] = severity_filter.lower()
+    params = _case_query_params(status_filter, severity_filter)
 
     with st.spinner("Loading cases...", show_time=True):
         try:
@@ -114,7 +142,7 @@ def _render_case_card(case: dict, api):
     with st.expander(expander_title, expanded=False):
         with st.spinner("Loading case details...", show_time=True):
             try:
-                case_detail = api.get_case(case_id)
+                case_detail = _cached_case(case_id)
                 linked_alerts = case_detail.get("linked_alerts", [])
             except ApiError as e:
                 st.error(f"Failed to load case details: {e.detail}")
@@ -130,9 +158,10 @@ def _render_case_card(case: dict, api):
                 unsafe_allow_html=True,
             )
             if case_detail.get("lessons_learned"):
-                st.markdown(f"**Lessons Learned:** {case_detail['lessons_learned']}")
+                # AUD-061: analyst free text in plain markdown — escaped.
+                st.markdown(f"**Lessons Learned:** {esc_md(case_detail['lessons_learned'])}")
             if case_detail.get("resolution_note"):
-                st.markdown(f"**Resolution Note:** {case_detail['resolution_note']}")
+                st.markdown(f"**Resolution Note:** {esc_md(case_detail['resolution_note'])}")
 
         with col_info2:
             st.markdown(
@@ -175,9 +204,11 @@ def _render_case_card(case: dict, api):
                 a_sev = a.get("severity", "info")
                 a_icon = sev_badge(a_sev)
                 a_status = a.get("status", "new")
+                # AUD-061: rule_name/host_name are INGEST-FED (attacker-
+                # influenced via /ingest) and this line is plain markdown.
                 st.markdown(
-                    f"{a_icon} **Alert #{a['id']}** — {a.get('rule_name', 'Unknown')} "
-                    f"— {a.get('host_name', '')} — *{a_status}*"
+                    f"{a_icon} **Alert #{a['id']}** — {esc_md(a.get('rule_name', 'Unknown'))} "
+                    f"— {esc_md(a.get('host_name', ''))} — *{esc_md(a_status)}*"
                 )
         else:
             st.info("No alerts linked to this case yet.")
@@ -194,6 +225,8 @@ def _render_case_card(case: dict, api):
             if st.button("Close & Archive Case", key=f"delete_case_{case_id}", type="secondary"):
                 try:
                     api.delete_case(case_id)
+                    _cached_case.clear()  # AUD-059: invalidate before rerun
+                    _cached_case_notes.clear()
                     st.toast("Case archived")
                     st.success("Case has been closed and archived.")
                     st.rerun()
@@ -258,6 +291,8 @@ def _render_status_management(case_id: int, case_status: str, case_detail: dict,
                 kwargs["resolution_note"] = resolution_note.strip()
 
             api.update_case(case_id, **kwargs)
+            _cached_case.clear()  # AUD-059: invalidate before rerun
+            _cached_case_notes.clear()
             st.toast(f"Case status updated to {new_status}")
             st.success(f"Case status updated to {new_status}.")
             st.rerun()
@@ -283,6 +318,8 @@ def _render_alert_linking(case_id: int, case_detail: dict, linked_alerts: list, 
         if st.button("Link Alert", key=f"link_btn_{case_id}"):
             try:
                 api.link_alert_to_case(case_id, link_alert_id)
+                _cached_case.clear()  # AUD-059: invalidate before rerun
+                _cached_case_notes.clear()
                 st.toast("Alert linked to case")
                 st.success(f"Alert #{link_alert_id} linked to case #{case_id}.")
                 st.rerun()
@@ -296,6 +333,8 @@ def _render_alert_linking(case_id: int, case_detail: dict, linked_alerts: list, 
                 if st.button(f"Unlink Alert #{aid}", key=f"unlink_{case_id}_{aid}"):
                     try:
                         api.unlink_alert_from_case(case_id, aid)
+                        _cached_case.clear()  # AUD-059: invalidate before rerun
+                        _cached_case_notes.clear()
                         st.toast("Alert unlinked")
                         st.rerun()
                     except ApiError as e:
@@ -335,7 +374,7 @@ def _render_case_notes(case_id: int, api):
 
     with st.spinner("Loading notes...", show_time=True):
         try:
-            notes = api.get_case_notes(case_id) or []
+            notes = _cached_case_notes(case_id) or []
         except ApiError:
             notes = []
 
@@ -362,6 +401,8 @@ def _render_case_notes(case_id: int, api):
                 if new_note and new_note.strip():
                     try:
                         api.add_case_note(case_id, new_note.strip())
+                        _cached_case.clear()  # AUD-059: invalidate before rerun
+                        _cached_case_notes.clear()
                         st.toast("Note added")
                         st.rerun()
                     except ApiError as e:

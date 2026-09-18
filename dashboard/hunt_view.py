@@ -16,6 +16,8 @@ import streamlit as st
 
 from dashboard.api_client import ApiError
 from dashboard.auth import can_write, get_api_client
+from dashboard.charts import cached_rules
+from dashboard.ui_utils import esc_md
 
 
 def _group_templates(templates: list[dict]) -> dict[str, list[dict]]:
@@ -148,7 +150,7 @@ def render_hunt_view():
         with col2:
             with st.spinner("Loading rule coverage...", show_time=True):
                 try:
-                    rules = api.get_rules()
+                    rules = cached_rules()  # AUD-063: ttl-cached, was raw per rerun
                     rule_techniques = set()
                     for r in rules:
                         for t in r.get("mitre_techniques", []) or []:
@@ -207,8 +209,11 @@ def render_hunt_view():
                         status.update(label=f"Found {len(hunts)} suggested hunts", state="complete")
                         st.toast(f"Found {len(hunts)} hunt suggestions")
                         for hunt in hunts:
-                            with st.expander(f"{hunt.get('name', 'Unknown')}"):
-                                st.write(f"**Description:** {hunt.get('description', '')}")
+                            # AUD-061: llm_suggestions name/description are LLM
+                            # output; the expander label and st.write both render
+                            # markdown — escaped so links can't be injected.
+                            with st.expander(f"{esc_md(hunt.get('name', 'Unknown'))}"):
+                                st.write(f"**Description:** {esc_md(hunt.get('description', ''))}")
                                 # Template matches carry matched_mitre; LLM
                                 # suggestions are name/description only.
                                 techniques = (
@@ -257,7 +262,9 @@ def execute_and_display(hunt_id: str, api):
             analysis = result.get("analysis", "")
             if analysis:
                 with st.expander("AI Analysis"):
-                    st.markdown(analysis)
+                    # AUD-061: hunt analysis is LLM output rendered as plain
+                    # markdown — escaped.
+                    st.markdown(esc_md(analysis))
 
         except ApiError as e:
             status.update(label="Hunt execution failed", state="error")

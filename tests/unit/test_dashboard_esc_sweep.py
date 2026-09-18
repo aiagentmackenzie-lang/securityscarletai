@@ -3,9 +3,14 @@
 Rule under test: EVERY value that originates from API/session data inside any
 ``st.markdown(..., unsafe_allow_html=True)`` passes through esc() — either at
 the helper choke point (charts._colored_metric, ui_utils.badge,
-ui_utils.colored_metric, cases_view._note_card_html) or at the interpolation
-site. Streamlit renders Streamlit-internals, so these tests assert on the HTML
-strings handed to st.markdown (the layer where execution would happen).
+cases_view._note_card_html) or at the interpolation site. Streamlit renders
+Streamlit-internals, so these tests assert on the HTML strings handed to
+st.markdown (the layer where execution would happen).
+
+AUD-061 (Wave 6) extends the doctrine to PLAIN markdown surfaces (no
+unsafe_allow_html): HTML is inert there, but markdown LINK/heading/emphasis
+syntax still renders — the TestMarkdownEscapes class pins the esc_md choke
+point those surfaces now route through.
 
 Order-robustness note: test_dashboard_api_token.py stubs sys.modules["streamlit"]
 with a MagicMock and deliberately never restores it, and it re-imports
@@ -176,16 +181,62 @@ class TestColoredMetricEscapes:
         charts._colored_metric("evilhost</p><svg onload=alert(1)>", "62 · High")
         assert captured and "<svg" not in captured[0]
 
-    def test_ui_utils_colored_metric_escapes(self, monkeypatch):
-        # ui_utils.colored_metric imports streamlit at CALL time, so patch via
-        # the sys.modules-resolved target (same object the call site sees).
-        from dashboard import ui_utils
+    # Note (AUD-064, Wave 6): the former test_ui_utils_colored_metric_escapes
+    # was deleted WITH ui_utils.colored_metric itself — zero production
+    # callers made it a test of dead code; the live path
+    # (charts._colored_metric) carries the same choke-point guarantee and is
+    # pinned by the three tests above.
 
-        captured: list[str] = []
-        monkeypatch.setattr("streamlit.markdown", lambda html, **kw: captured.append(html))
-        ui_utils.colored_metric("<img src=x onerror=alert(1)>", "<script>x</script>")
-        assert captured and "<img" not in captured[0]
-        assert "<script>" not in captured[0]
+
+class TestMarkdownEscapes:
+    """AUD-061: esc_md neutralizes markdown injection in PLAIN
+    st.markdown/st.write/st.caption surfaces. HTML was already inert there
+    (no unsafe_allow_html), but [text](url) rendered a clickable link inside
+    the SIEM and headings/rules restructured the page. Escaped ASCII
+    punctuation renders as the literal character, so display round-trips."""
+
+    def test_link_injection_inert(self):
+        from dashboard.ui_utils import esc_md
+
+        out = esc_md("[Click here](http://evil.example/steal)")
+        assert "](http" not in out
+        # Every punctuation char is escaped (including : / . inside the URL).
+        assert out == r"\[Click here\]\(http\:\/\/evil\.example\/steal\)"
+
+    def test_image_injection_inert(self):
+        from dashboard.ui_utils import esc_md
+
+        out = esc_md("![x](http://evil.example/pixel)")
+        assert "![x]" not in out
+        assert out == r"\!\[x\]\(http\:\/\/evil\.example\/pixel\)"
+
+    def test_heading_and_rule_inert(self):
+        from dashboard.ui_utils import esc_md
+
+        out = esc_md("# Incident Response Plan\n---")
+        assert out.startswith("\\#")
+        assert "\\-\\-\\-" in out
+
+    def test_plain_text_punctuation_escaped(self):
+        from dashboard.ui_utils import esc_md
+
+        # The escaped form renders back as the original text (CommonMark:
+        # escaped punctuation displays as the character itself).
+        assert esc_md("Investigating SSH brute-force from 10.0.1.50") == (
+            "Investigating SSH brute\\-force from 10\\.0\\.1\\.50"
+        )
+
+    def test_backslash_preserved(self):
+        from dashboard.ui_utils import esc_md
+
+        # A literal backslash becomes a double backslash (which renders back
+        # as one backslash); the colon is escaped like any punctuation.
+        assert esc_md("C:\\temp") == "C\\:\\\\temp"
+
+    def test_none_is_empty(self):
+        from dashboard.ui_utils import esc_md
+
+        assert esc_md(None) == ""
 
 
 class TestLogoutBaseUrl:

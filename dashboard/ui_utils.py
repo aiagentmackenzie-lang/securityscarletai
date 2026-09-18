@@ -9,6 +9,7 @@ injected once at app startup.
 """
 
 import html as html_module
+import string
 
 # ─── Design Tokens ────────────────────────────────────────────
 
@@ -38,14 +39,6 @@ SEVERITY_COLORS = {
     "info": "#78909c",
 }
 
-STATUS_COLORS = {
-    "new": "#ff3860",
-    "investigating": "#ff8f00",
-    "resolved": "#00e676",
-    "false_positive": "#78909c",
-    "closed": "#5a6578",
-}
-
 SEV_CSS_MAP = {
     "critical": "badge-critical",
     "high": "badge-high",
@@ -55,11 +48,17 @@ SEV_CSS_MAP = {
 }
 
 STATUS_CSS_MAP = {
+    # Alert statuses
     "new": "badge-new",
     "investigating": "badge-investigating",
     "resolved": "badge-resolved",
     "false_positive": "badge-false_positive",
     "closed": "badge-closed",
+    # Case statuses (cases_view STATUS_FLOW: open → in_progress → resolved
+    # → closed). open/in_progress previously fell through to badge-closed —
+    # an OPEN case rendered in closed-case gray styling (AUD-065).
+    "open": "badge-new",
+    "in_progress": "badge-investigating",
 }
 
 
@@ -144,38 +143,25 @@ def esc(text: str) -> str:
     return html_module.escape(str(text))
 
 
-def colored_metric(label: str, value, color: str | None = None):
-    """Render a metric card with an optional colored value.
+# Every ASCII punctuation char is backslash-escapable in CommonMark, and an
+# escaped punctuation char renders as the literal character — so escaping ALL
+# of them displays the original text faithfully while making every markdown
+# construct inert. Single-pass translate table; the backslash entry maps to a
+# double backslash so a literal backslash in the input is preserved literally.
+_MD_ESCAPE_TABLE = {ord(c): "\\" + c for c in string.punctuation}
 
-    Must be called inside a Streamlit column or container.
-    Label and value are escaped before interpolation — data-derived strings
-    (host names come from ingested events) are untrusted (esc sweep, F-02).
-    """
-    import streamlit as st
 
-    val_style = f"color:{color};" if color else f"color:{TEXT_PRIMARY};"
-    html = f"""
-    <div style="
-        background:{BG_SURFACE};
-        border:1px solid {BORDER_SUBTLE};
-        border-radius:0.5rem;
-        padding:0.75rem 1rem;
-        margin-bottom:0.5rem;
-    ">
-        <p style="
-            color:{TEXT_SECONDARY};
-            font-size:0.72rem;
-            font-weight:600;
-            text-transform:uppercase;
-            letter-spacing:0.05em;
-            margin:0 0 0.35rem 0;
-        ">{esc(label)}</p>
-        <p style="
-            font-size:1.5rem;
-            font-weight:700;
-            margin:0;
-            {val_style}
-        ">{esc(value)}</p>
-    </div>
+def esc_md(text: str) -> str:
+    """Escape markdown-significant punctuation for plain st.markdown() text.
+
+    HTML stays inert without unsafe_allow_html, but markdown LINK syntax is
+    still rendered: [text](http://evil) inside hunt suggestions, triage
+    reasoning, AI chat output, or ingest-fed names produces a clickable link
+    inside the SIEM (phishing-from-inside), and headings/rules/emphasis
+    restructure the page. AUD-061 choke point: every untrusted string going
+    into a plain st.markdown/st.write/st.caption/st.expander-label passes
+    through HERE, the way HTML-bound strings pass through esc().
     """
-    st.markdown(html, unsafe_allow_html=True)
+    if text is None:
+        return ""
+    return str(text).translate(_MD_ESCAPE_TABLE)
