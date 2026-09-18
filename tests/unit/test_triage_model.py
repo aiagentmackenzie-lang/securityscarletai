@@ -276,11 +276,13 @@ class TestTrain:
         mock_pool = AsyncMock()
         mock_pool.acquire = MagicMock(return_value=AsyncCtx())
 
-        # Mock extract_features to return valid features
-        mock_features = [0.5] * 11
+        # Mock the BATCHED extractor (AUD-025) to return valid features
+        mock_features_by_id = {i: [0.5] * 11 for i in range(60)}
         with (
             patch("src.ai.alert_triage.get_pool", AsyncMock(return_value=mock_pool)),
-            patch.object(model, "extract_features", AsyncMock(return_value=mock_features)),
+            patch.object(
+                model, "extract_features_batch", AsyncMock(return_value=mock_features_by_id)
+            ),
         ):
             result = await model.train(min_samples=50)
             assert result is False
@@ -308,10 +310,12 @@ class TestTrain:
         mock_pool = AsyncMock()
         mock_pool.acquire = MagicMock(return_value=AsyncCtx())
 
-        mock_features = [0.5] * 11
+        mock_features_by_id = {i: [0.5] * 11 for i in range(60)}
         with (
             patch("src.ai.alert_triage.get_pool", AsyncMock(return_value=mock_pool)),
-            patch.object(model, "extract_features", AsyncMock(return_value=mock_features)),
+            patch.object(
+                model, "extract_features_batch", AsyncMock(return_value=mock_features_by_id)
+            ),
             patch.object(model, "_save_model"),
         ):
             result = await model.train(min_samples=50)
@@ -343,15 +347,13 @@ class TestTrain:
         mock_pool = AsyncMock()
         mock_pool.acquire = MagicMock(return_value=AsyncCtx())
 
-        # Most feature extractions return None
-        async def mock_extract(alert_id):
-            if alert_id % 3 == 0:
-                return None
-            return [0.5] * 11
-
+        # The batched extractor (AUD-025) misses every third alert.
+        mock_features_by_id = {i: ([0.5] * 11 if i % 3 != 0 else None) for i in range(60)}
         with (
             patch("src.ai.alert_triage.get_pool", AsyncMock(return_value=mock_pool)),
-            patch.object(model, "extract_features", mock_extract),
+            patch.object(
+                model, "extract_features_batch", AsyncMock(return_value=mock_features_by_id)
+            ),
         ):
             result = await model.train(min_samples=50)
             # May fail if not enough features
@@ -582,7 +584,11 @@ class TestGetPriorityQueue:
 
         with (
             patch("src.ai.alert_triage.get_pool", AsyncMock(return_value=mock_pool)),
-            patch.object(model, "extract_features", AsyncMock(return_value=mock_features)),
+            patch.object(
+                model,
+                "extract_features_batch",
+                AsyncMock(return_value={1: mock_features, 2: mock_features}),
+            ),
         ):
             result = await model.get_priority_queue(limit=10)
 
@@ -590,6 +596,48 @@ class TestGetPriorityQueue:
         # Should be sorted by priority_score
         if len(result) > 1:
             assert result[0]["priority_score"] >= result[1]["priority_score"]
+
+    @pytest.mark.asyncio
+    async def test_priority_queue_extracts_in_one_batch(self):
+        """AUD-025: the queue must extract ALL alerts' features in ONE
+        batched call — the old shape called predict() per row (7 queries
+        × N alerts)."""
+        from sklearn.ensemble import RandomForestClassifier
+
+        model = AlertTriageModel()
+        X = np.array(
+            [
+                [1.0, 0.5, 0.3, 0.2, 0.6, 0.4, 0.8, 1.0, 0.7, 0.5, 0.3],
+                [0.2, 0.5, 0.1, 0.1, 0.2, 0.0, 0.1, 0.0, 0.2, 0.8, 0.1],
+            ]
+        )
+        y = np.array([1, 0])
+        model.model = RandomForestClassifier(n_estimators=10, random_state=42)
+        model.model.fit(X, y)
+        model.is_trained = True
+
+        rows = [
+            {"id": i, "rule_name": "R", "severity": "high", "host_name": "h", "time": "t"}
+            for i in range(25)
+        ]
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(return_value=rows)
+        acquirer = MagicMock()
+        acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
+        acquirer.__aexit__ = AsyncMock(return_value=None)
+        mock_pool = AsyncMock()
+        mock_pool.acquire = MagicMock(return_value=acquirer)
+
+        batch_mock = AsyncMock(return_value={i: [0.5] * 11 for i in range(25)})
+        with (
+            patch("src.ai.alert_triage.get_pool", AsyncMock(return_value=mock_pool)),
+            patch.object(model, "extract_features_batch", batch_mock),
+        ):
+            result = await model.get_priority_queue(limit=50)
+
+        assert len(result) == 25
+        # ONE batch call covering every row id — never a per-alert loop.
+        batch_mock.assert_awaited_once_with(list(range(25)))
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -757,3 +805,160 @@ class TestModelSaveLoad:
                 triage_mod.HASH_PATH = orig_hash_path
                 triage_mod.META_PATH = orig_meta_path
                 triage_mod.MODEL_DIR = orig_model_dir
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# AUD-025: batched feature extraction (the N+1 kill)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+def _pool_for_conn(mock_conn):
+    """A pool mock whose acquire() yields mock_conn (house pattern)."""
+
+    class Ctx:
+        async def __aenter__(self):
+            return mock_conn
+
+        async def __aexit__(self, *args):
+            pass
+
+    mock_pool = AsyncMock()
+    mock_pool.acquire = MagicMock(return_value=Ctx())
+    return mock_pool
+
+
+class TestExtractFeaturesBatch:
+    """AUD-025: the N+1 kill — the WHOLE batch is served with 7 grouped
+    queries over ONE pool acquisition (the per-alert path issued 7 queries
+    PER ALERT: a 1,000-alert train was ~7,000 sequential round-trips)."""
+
+    @pytest.mark.asyncio
+    async def test_batch_uses_seven_grouped_queries(self):
+        from datetime import datetime as dt
+
+        model = AlertTriageModel(load=False)
+
+        alert_rows = [
+            {
+                "id": 1,
+                "severity": "high",
+                "time": dt(2024, 6, 15, 14, 30, 0),
+                "rule_id": 5,
+                "host_name": "h1",
+                "mitre_techniques": ["T1078"],
+                "evidence": None,
+            },
+            {
+                "id": 2,
+                "severity": "low",
+                "time": dt(2024, 6, 15, 10, 0, 0),
+                "rule_id": 5,
+                "host_name": "h2",
+                "mitre_techniques": [],
+                "evidence": None,
+            },
+        ]
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(
+            side_effect=[
+                # 1. alert rows
+                alert_rows,
+                # 2. rule hits
+                [{"rule_id": 5, "c": 30}],
+                # 3. host alert counts (24h)
+                [{"host_name": "h1", "c": 3}, {"host_name": "h2", "c": 1}],
+                # 4. last similar
+                [
+                    {"alert_id": 1, "last_similar": dt(2024, 6, 15, 12, 0, 0)},
+                    {"alert_id": 2, "last_similar": None},
+                ],
+                # 5. process names (LATERAL per host)
+                [
+                    {"host_name": "h1", "process_name": "bash"},
+                    {"host_name": "h1", "process_name": "python3"},
+                ],
+                # 6. session spans
+                [
+                    {
+                        "host_name": "h1",
+                        "first_event": dt(2024, 6, 15, 8, 0, 0),
+                        "last_event": dt(2024, 6, 15, 14, 0, 0),
+                    }
+                ],
+                # 7. typical login hours
+                [{"host_name": "h1", "typical_hour": 9}],
+            ]
+        )
+        mock_conn.fetchval = AsyncMock(side_effect=AssertionError("no per-alert fetchval allowed"))
+
+        with patch(
+            "src.ai.alert_triage.get_pool", AsyncMock(return_value=_pool_for_conn(mock_conn))
+        ):
+            features = await model.extract_features_batch([1, 2])
+
+        # Exactly SEVEN queries for the whole batch — not 7 per alert.
+        assert mock_conn.fetch.await_count == 7
+        mock_conn.fetchrow.assert_not_awaited()
+
+        assert set(features.keys()) == {1, 2}
+        assert len(features[1]) == 11
+        assert len(features[2]) == 11
+
+        # Alert 1: severity 0.8, hour 14/24, rule 30/100, host 3/20,
+        # mitre 1/5, time-since 2.5h/168, no TI, session 6h/24,
+        # deviation |14-9|/12.
+        assert features[1][0] == pytest.approx(0.8)
+        assert features[1][2] == pytest.approx(0.3)
+        assert features[1][3] == pytest.approx(0.15)
+        assert features[1][5] == pytest.approx(0.2)
+        assert features[1][6] == pytest.approx(2.5 / 168)
+        assert features[1][7] == 0.0
+        assert features[1][9] == pytest.approx(6 / 24)
+        assert features[1][10] == pytest.approx(5 / 12)
+
+        # Alert 2: low severity; never seen before (168h cap → 1.0);
+        # no session/auth history → 0.0 span, deviation from 9 AM.
+        assert features[2][0] == pytest.approx(0.2)
+        assert features[2][6] == pytest.approx(1.0)
+        assert features[2][9] == 0.0
+        assert features[2][10] == pytest.approx(1 / 12)
+
+    @pytest.mark.asyncio
+    async def test_batch_empty_input(self):
+        model = AlertTriageModel(load=False)
+        features = await model.extract_features_batch([])
+        assert features == {}
+
+    @pytest.mark.asyncio
+    async def test_single_path_and_batch_share_the_math(self):
+        """The single-alert path and the batch path must agree on a
+        DB-free scenario (both delegate to _features_from_rows)."""
+        from datetime import datetime as dt
+
+        alert_row = {
+            "id": 1,
+            "severity": "high",
+            "time": dt(2024, 6, 15, 14, 30, 0),
+            "rule_id": 5,
+            "host_name": "h1",
+            "mitre_techniques": ["T1078", "T1021"],
+            "evidence": {"threat_intel": {"match": True}},
+        }
+        common = dict(
+            rule_hits=50,
+            host_alerts=10,
+            last_similar=dt(2024, 6, 15, 13, 30, 0),
+            process_names=["bash", "bash", "python3", None],
+            session_first=dt(2024, 6, 15, 8, 0, 0),
+            session_last=dt(2024, 6, 15, 14, 0, 0),
+            typical_hour=9,
+        )
+        single = AlertTriageModel._features_from_rows(alert_row=alert_row, **common)
+        batch = AlertTriageModel._features_from_rows(alert_row=dict(alert_row), **common)
+        assert single == batch
+        assert len(single) == 11
+        assert single[0] == pytest.approx(0.8)
+        assert single[7] == 1.0  # threat_intel in evidence
+        # Entropy over the non-null process names (the caller dedupes).
+        assert single[8] == pytest.approx(_shannon_entropy(["bash", "bash", "python3"]))

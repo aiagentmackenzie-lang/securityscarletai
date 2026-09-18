@@ -354,24 +354,87 @@ class RiskScorer:
 
     @staticmethod
     async def get_top_risk_users(limit: int = 10) -> List[Dict]:
-        """Get highest risk users."""
+        """Get highest risk users.
+
+        AUD-025: one grouped query for the whole batch (the M-13 shape
+        get_top_risk_assets already uses) instead of calculate_user_risk
+        per user (2 queries × up to 50 users). The scoring math below is
+        lifted verbatim from calculate_user_risk so both paths stay
+        identical.
+        """
         pool = await get_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 """
-                SELECT DISTINCT user_name
-                FROM logs
-                WHERE user_name IS NOT NULL
-                  AND time > NOW() - INTERVAL '24 hours'
-                LIMIT 50
-                """
+                WITH active_users AS (
+                    SELECT DISTINCT user_name
+                    FROM logs
+                    WHERE user_name IS NOT NULL
+                      AND time > NOW() - INTERVAL '24 hours'
+                    LIMIT 50
+                ),
+                user_hosts AS (
+                    SELECT l.user_name, l.host_name
+                    FROM logs l
+                    WHERE l.user_name IN (SELECT user_name FROM active_users)
+                      AND l.time > NOW() - INTERVAL '1 hour' * $1
+                    GROUP BY l.user_name, l.host_name
+                ),
+                alert_stats AS (
+                    SELECT h.user_name,
+                           COUNT(a.id) FILTER (WHERE a.severity = 'critical') AS critical,
+                           COUNT(a.id) FILTER (WHERE a.severity = 'high') AS high,
+                           COUNT(a.id) FILTER (WHERE a.status = 'new') AS open_count
+                    FROM user_hosts h
+                    LEFT JOIN alerts a
+                        ON a.host_name = h.host_name
+                        AND a.time > NOW() - INTERVAL '1 hour' * $1
+                    GROUP BY h.user_name
+                ),
+                sudo_stats AS (
+                    SELECT l.user_name, COUNT(*) AS sudo_count
+                    FROM logs l
+                    WHERE l.user_name IN (SELECT user_name FROM active_users)
+                      AND (l.normalized->>'process_cmdline' ILIKE '%sudo%'
+                           OR l.process_name = 'sudo')
+                      AND l.time > NOW() - INTERVAL '1 hour' * $1
+                    GROUP BY l.user_name
+                )
+                SELECT u.user_name,
+                       COALESCE(s.critical, 0) AS critical,
+                       COALESCE(s.high, 0) AS high,
+                       COALESCE(s.open_count, 0) AS open_count,
+                       COALESCE(sd.sudo_count, 0) AS sudo_count
+                FROM active_users u
+                LEFT JOIN alert_stats s ON s.user_name = u.user_name
+                LEFT JOIN sudo_stats sd ON sd.user_name = u.user_name
+                """,
+                24,
             )
-            users = [r["user_name"] for r in rows]
 
         scored = []
-        for user in users:
-            score = await RiskScorer.calculate_user_risk(user)
-            scored.append(score)
+        for r in rows:
+            critical = r["critical"] or 0
+            high = r["high"] or 0
+            sudo_count = r["sudo_count"] or 0
+
+            severity_score = min((critical * 1.0 + high * 0.5) / 5, 1.0)
+            priv_score = min(sudo_count / 20, 1.0) if sudo_count else 0.0
+
+            risk_score = (severity_score * 0.6 + priv_score * 0.4) * 100
+
+            scored.append(
+                {
+                    "username": r["user_name"],
+                    "risk_score": round(risk_score, 2),
+                    "risk_level": RiskScorer._get_level(risk_score),
+                    "factors": {
+                        "alert_severity": round(severity_score, 2),
+                        "privilege_escalation": round(priv_score, 2),
+                    },
+                    "open_alerts": r["open_count"] or 0,
+                }
+            )
 
         scored.sort(key=lambda x: x["risk_score"], reverse=True)
         return scored[:limit]

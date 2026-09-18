@@ -278,24 +278,27 @@ class TestAgreementStats:
                 "verdict_draft": '{"verdict": "false_positive"}',
             },
         ]
-        outcomes = {
-            3: {"alert_id": 3, "disposition": "true_positive"},
-            4: {"alert_id": 4, "disposition": "false_positive"},
+        dispositions = {
+            3: "true_positive",
+            4: "false_positive",
         }
         conn = AsyncMock()
         conn.fetch = AsyncMock(return_value=runs)
 
-        async def _outcome(alert_id):
-            return outcomes.get(alert_id)
-
         with (
             patch("src.agents.memory.get_pool", return_value=_pool_mock(conn)),
-            patch("src.agents.memory.outcome_for_alert", AsyncMock(side_effect=_outcome)),
+            patch(
+                "src.agents.memory._dispositions_for_alerts",
+                AsyncMock(return_value=dispositions),
+            ) as mock_dispositions,
         ):
             stats = await agreement_stats(720)
         assert stats["measured"] == 2
         assert stats["agreed"] == 2
         assert stats["agreement_rate"] == 1.0
+        # AUD-025: the dispositions for ALL runs' alerts arrive in ONE
+        # batched call — not one outcome_for_alert round-trip per run.
+        mock_dispositions.assert_awaited_once_with([3, 4])
 
 
 class TestOutcomeEndpoint:

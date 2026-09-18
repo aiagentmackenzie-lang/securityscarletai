@@ -211,21 +211,19 @@ class TestUEBABaselineTrain:
         acquirer.__aexit__ = AsyncMock(return_value=None)
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
-        # Mock extract_user_features to return realistic data
-        baseline.extract_user_features = AsyncMock(
-            side_effect=[
-                {
-                    "login_hour_of_day": 9.0,
-                    "unique_processes_count": 5.0,
-                    "command_diversity": 0.7,
-                    "network_connections_count": 10.0,
-                    "unique_destination_ips": 3.0,
-                    "file_access_count": 20.0,
-                    "sudo_usage_count": 2.0,
-                    "session_duration_minutes": 480.0,
-                }
-                for _ in range(10)
-            ]
+        # Mock the BATCHED extractor (AUD-025) to return realistic data
+        features = {
+            "login_hour_of_day": 9.0,
+            "unique_processes_count": 5.0,
+            "command_diversity": 0.7,
+            "network_connections_count": 10.0,
+            "unique_destination_ips": 3.0,
+            "file_access_count": 20.0,
+            "sudo_usage_count": 2.0,
+            "session_duration_minutes": 480.0,
+        }
+        baseline.extract_user_features_batch = AsyncMock(
+            return_value={f"user_{i}": dict(features) for i in range(10)}
         )
 
         with patch("src.ai.ueba.get_pool", return_value=mock_pool):
@@ -298,3 +296,88 @@ class TestGetUebaSingleton:
             assert engine.is_trained is False
             assert mock_train.await_count == 0  # NO side effect
         ueba_mod._ueba = None
+
+
+# ──────────────────────────────────────────────────────────
+# AUD-025: batched UEBA feature extraction (the N+1 kill)
+# ──────────────────────────────────────────────────────────
+
+
+class TestExtractUserFeaturesBatch:
+    """AUD-025: the WHOLE user batch is served with 8 grouped queries
+    (the per-user path issued 7 queries PER USER: a train over N users
+    was 7×N sequential round-trips)."""
+
+    @pytest.mark.asyncio
+    async def test_batch_uses_eight_grouped_queries(self):
+        from datetime import datetime as dt
+
+        baseline = UEBABaseline()  # no model files in CI → loads nothing
+
+        users = ["alice", "bob"]
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(
+            side_effect=[
+                # 1. login hours (MODE per user)
+                [{"user_name": "alice", "typical_hour": 22}],
+                # 2. unique process counts
+                [{"user_name": "alice", "c": 4}, {"user_name": "bob", "c": 1}],
+                # 3. process names for entropy (LATERAL per user)
+                [
+                    {"user_name": "alice", "process_name": "zsh"},
+                    {"user_name": "alice", "process_name": "curl"},
+                ],
+                # 4. network counts
+                [{"user_name": "alice", "c": 12}],
+                # 5. unique destination IPs
+                [{"user_name": "alice", "c": 5}],
+                # 6. file counts
+                [{"user_name": "bob", "c": 2}],
+                # 7. sudo counts
+                [{"user_name": "alice", "c": 3}],
+                # 8. session spans
+                [
+                    {
+                        "user_name": "alice",
+                        "first_event": dt(2024, 6, 15, 8, 0, 0),
+                        "last_event": dt(2024, 6, 15, 16, 0, 0),
+                    }
+                ],
+            ]
+        )
+
+        class Ctx:
+            async def __aenter__(self):
+                return mock_conn
+
+            async def __aexit__(self, *args):
+                pass
+
+        mock_pool = AsyncMock()
+        mock_pool.acquire = MagicMock(return_value=Ctx())
+
+        with patch("src.ai.ueba.get_pool", AsyncMock(return_value=mock_pool)):
+            features = await baseline.extract_user_features_batch(["alice", "bob", "alice"], days=7)
+
+        # Deduplicated input; exactly EIGHT queries for the whole batch.
+        assert mock_conn.fetch.await_count == 8
+        assert set(features.keys()) == {"alice", "bob"}
+        assert mock_conn.fetchval.await_count == 0
+
+        # alice: real login hour 22, no default; 8h activity span → 480 min.
+        assert features["alice"]["login_hour_of_day"] == 22.0
+        assert features["alice"]["unique_processes_count"] == 4.0
+        assert features["alice"]["network_connections_count"] == 12.0
+        assert features["alice"]["unique_destination_ips"] == 5.0
+        assert features["alice"]["sudo_usage_count"] == 3.0
+        assert features["alice"]["session_duration_minutes"] == pytest.approx(480.0)
+
+        # bob: no auth data → 9 AM default; no session rows → 0.0 span.
+        assert features["bob"]["login_hour_of_day"] == 9.0
+        assert features["bob"]["file_access_count"] == 2.0
+        assert features["bob"]["session_duration_minutes"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_empty_user_list(self):
+        baseline = UEBABaseline()
+        assert await baseline.extract_user_features_batch([]) == {}
