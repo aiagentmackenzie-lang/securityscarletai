@@ -1,18 +1,17 @@
-title: DNS Tunneling Indicators
+title: DNS Activity Indicator (port 53)
 id: 2217693f-72cf-5a17-87eb-86674d8fee0c
-status: stable
-description: Detects DNS queries with suspicious patterns that may indicate DNS tunneling for data exfiltration
+status: experimental
+description: Coarse DNS-activity signal — matches DNS-shaped events (destination_port 53, event_action containing "dns"). A placeholder, honestly scoped (AUD-081, reworked 2026/09/18 from the duplicated "Suspicious DNS Query" twin) — this deployment has no DNS-resolver query telemetry today (future source), so the selection can NOT assess tunneling patterns or domain reputation. Treat a match as a lead for a resolver-log-backed hunt, not a confirmed tunnel. The impossible event_type start requirement was dropped — network-category rows are connection/end, never start, so the old selection could never match.
 author: SecurityScarletAI
 date: 2026/05/03
 logsource:
     category: network
 detection:
     selection:
-        event_type: start
         event_action|contains: dns
         destination_port: 53
     condition: selection
-level: medium
+level: low
 tags:
     - attack.command_and_control
     - attack.ta0011

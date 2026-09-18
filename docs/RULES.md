@@ -1,12 +1,12 @@
 # Detection Rules Reference
 
-SecurityScarletAI ships with **118 Sigma rules** and **10 event-driven correlation rules**, covering authentication, process, network, file, macOS, cloud, AI-firewall, deception, identity, and AI-CLI/2026-technique attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL by the legacy `SigmaParser` + custom PostgreSQL backend in `src/detection/sigma.py`. (A pySigma-backed `PostgreSQLBackend` is retained as a unit-tested module but is off the production detection path — see P0-01/P0-04.)
+SecurityScarletAI ships with **116 Sigma rules** and **10 event-driven correlation rules**, covering authentication, process, network, file, macOS, cloud, AI-firewall, deception, identity, and AI-CLI/2026-technique attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL by the legacy `SigmaParser` + custom PostgreSQL backend in `src/detection/sigma.py`. (A pySigma-backed `PostgreSQLBackend` is retained as a unit-tested module but is off the production detection path — see P0-01/P0-04.)
 
 ---
 
-## Sigma Rule Catalog (118 total)
+## Sigma Rule Catalog (116 total)
 
-118 rules distributed across 9 categories. Each rule is a YAML file under `rules/sigma/<category>/`. Generated from the rule frontmatter — regenerate rather than hand-editing.
+116 rules distributed across 9 categories. Each rule is a YAML file under `rules/sigma/<category>/`. The catalog below is kept in sync BY HAND with the rule frontmatter — there is no generator; verify against `rules/sigma/` when editing.
 
 ### Authentication (16 rules)
 
@@ -55,7 +55,7 @@ SecurityScarletAI ships with **118 Sigma rules** and **10 event-driven correlati
 | 20 | Renamed System Binary (Masquerading) | Medium | Defense Evasion (TA0005) | T1036 | Detects renamed copies of system utilities executing from non-standard paths |
 | 21 | Reverse Shell Pattern Detected | Medium | Execution (TA0002) | T1059 | Detects common reverse shell patterns in command lines indicating a compromised host calling back to attacker |
 | 22 | Scheduled Task Creation | Medium | Persistence (TA0003) | T1053 | Detects creation of a scheduled task (persistence) |
-| 23 | SCP Transfer to External Host | Medium | Exfiltration (TA0010) | T1048 | Detects scp/sftp transferring data to an external host (exfiltration) |
+| 23 | SCP/SFTP/Rsync File Transfer Execution | Medium | Exfiltration (TA0010) | T1048 | Detects scp/sftp/rsync execution — review the transfer destination; the cmdline destination is not parsed into network context (AUD-079 rework) |
 | 24 | Script Interpreter from Unexpected Location | Medium | Execution (TA0002) | T1059 | Detects script interpreters (python, perl, ruby, node) running from unexpected directories like /tmp or /va... |
 | 25 | Secure File Deletion (shred) | Medium | Defense Evasion (TA0005) | T1070 | Detects use of shred to securely delete files (artifact destruction) |
 | 26 | Security Tool Disabled | Medium | Defense Evasion (TA0005) | T1562 | Detects commands disabling security tooling (defense evasion) |
@@ -75,27 +75,25 @@ SecurityScarletAI ships with **118 Sigma rules** and **10 event-driven correlati
 | 40 | Cloudflared Tunnel Process | High | C2 / Exfiltration (TA0010, TA0011) | T1572 | Detects the cloudflared tunnel client executing on a host — the 2026 blend-with-legitimate-egress exfil chokepoint (V0.6b) |
 | 41 | AI CLI Tool Credential or Shell Abuse | Medium | Execution / Credential Access (TA0006) | T1059, T1552 | Detects AI CLI/coding-agent tools touching credential material or spawning shell/network one-liners (OWASP ASI02 process-level shape; QUIETVAULT pattern; V0.6b) |
 
-### Network (17 rules)
+### Network (15 rules)
 
 | # | Rule Name | Severity | MITRE Tactic | MITRE Technique | Description |
 |---|-----------|----------|--------------|-----------------|-------------|
 | 1 | ADMIN$ / IPC$ Share Access | Medium | Lateral Movement (TA0008) | T1021 | Detects access to administrative SMB shares (lateral movement indicator) |
 | 2 | Bulk Transfer to External IP | Medium | Exfiltration (TA0010) | T1041 | Detects an elevated count of outbound connections to a single external IP (exfil) |
-| 3 | C2 Beaconing Pattern | Medium | Command and Control (TA0011) | T1071 | Detects potential C2 beaconing through regular interval outbound connections to the same IP |
+| 3 | C2 Beaconing Pattern | Medium | Command and Control (TA0011) | T1071 | Detects a high volume of outbound connections to a single destination IP within the timeframe (C2 beaconing indicator; per-destination volume — interval regularity is not measured) |
 | 4 | Data Exfiltration Volume | Medium | Exfiltration (TA0010) | T1048 | Detects large outbound data transfers that may indicate data exfiltration |
-| 5 | DNS Tunneling Indicators | Medium | Command and Control (TA0011) | T1071 | Detects DNS queries with suspicious patterns that may indicate DNS tunneling for data exfiltration |
+| 5 | DNS Activity Indicator (port 53) | Low | Command and Control (TA0011) | T1071 | Coarse DNS-activity signal — a placeholder for resolver-log-based detection; cannot assess tunneling patterns or domain reputation without resolver-query telemetry (AUD-081 merge) |
 | 6 | High-Volume DNS (Exfil Indicator) | Medium | Exfiltration (TA0010) | T1048 | Detects a host issuing an elevated volume of DNS queries (possible DNS exfil channel) |
 | 7 | Internal Lateral Movement | Medium | Lateral Movement (TA0008) | T1021 | Detects internal host-to-host connections on management ports that may indicate lateral movement |
 | 8 | Large Outbound HTTPS Transfer | Medium | Exfiltration (TA0010) | T1048 | Detects a large outbound HTTPS data transfer (possible exfiltration) |
-| 9 | NTLM Relay Attempt | Medium | Credential Access (TA0006) | T1557 | Detects SMB/NTLM authentication to an unexpected internal destination (relay indicator) |
-| 10 | Outbound Connection to Rare/C2 Port | Medium | Command and Control (TA0011) | T1071 | Detects outbound connections to non-standard ports commonly associated with C2 and malware |
-| 11 | Outbound RDP to Unknown Host | Medium | Lateral Movement (TA0008) | T1021 | Detects outbound RDP sessions (lateral movement / exfil indicator) |
-| 12 | Outbound SSH (Lateral Movement Indicator) | Medium | Lateral Movement (TA0008) | T1021 | Detects outbound SSH connections worth investigating for lateral movement |
-| 13 | Pass-the-Hash SMB Authentication | Medium | Lateral Movement (TA0008) | T1550 | Detects SMB authentication with an NTLM hash (pass-the-hash indicator) |
-| 14 | SMTP Exfiltration | Medium | Exfiltration (TA0010) | T1048 | Detects outbound SMTP sessions (email-based exfiltration channel) |
-| 15 | Suspicious DNS Query | Medium | Command and Control (TA0011) | T1071 | Detects DNS queries to suspicious or known-malicious domains |
-| 16 | Tor Exit Node Connection | Medium | Command and Control (TA0011) | T1090 | Detects connections to known Tor exit node ports indicating potential Tor usage or C2 via Tor |
-| 17 | WinRM Remote Execution | Medium | Lateral Movement (TA0008) | T1021 | Detects WinRM-based remote command execution (lateral movement) |
+| 9 | Outbound Connection to Rare/C2 Port | Medium | Command and Control (TA0011) | T1071 | Detects outbound connections to non-standard ports commonly associated with C2 and malware |
+| 10 | Outbound RDP to Unknown Host | Medium | Lateral Movement (TA0008) | T1021 | Detects outbound RDP sessions (lateral movement / exfil indicator) |
+| 11 | Outbound SSH (Lateral Movement Indicator) | Medium | Lateral Movement (TA0008) | T1021 | Detects outbound SSH connections worth investigating for lateral movement |
+| 12 | Pass-the-Hash SMB Authentication | Medium | Lateral Movement / Credential Access (TA0008, TA0006) | T1550, T1557 | Detects NTLM authentication over SMB (port 445) — consistent with pass-the-hash or NTLM-relay behavior; the merged AUD-078 detection carries both hypotheses |
+| 13 | SMTP Exfiltration | Medium | Exfiltration (TA0010) | T1048 | Detects outbound SMTP sessions (email-based exfiltration channel) |
+| 14 | Tor Exit Node Connection | Medium | Command and Control (TA0011) | T1090 | Detects connections to known Tor exit node ports indicating potential Tor usage or C2 via Tor |
+| 15 | WinRM Remote Execution | Medium | Lateral Movement (TA0008) | T1021 | Detects WinRM-based remote command execution (lateral movement) |
 
 ### File (17 rules)
 
@@ -322,7 +320,7 @@ print(sql)       # Parameterized SQL (no string interpolation)
 print(params)    # Bound parameters
 ```
 
-Unit tests under `tests/unit/test_sigma.py` exercise the compiler across all 100 bundled rules.
+Unit tests under `tests/unit/test_sigma.py`, `tests/unit/test_sigma_rules_all.py` and `tests/unit/test_rule_library.py` exercise the compiler across the whole bundled corpus (compile shape, parameterization, and the no-duplicate-detection guard in `tests/unit/test_rule_corpus_wave8.py`).
 
 ---
 
