@@ -61,7 +61,7 @@ If Ollama is unreachable, `LLMResult.source == "template_library"` and `fallback
 The NL→SQL engine (`src/ai/nl2sql.py`) converts plain English security questions into safe, parameterized SQL queries:
 
 1. **Input sanitization** — Strips prompt injection patterns before sending to the LLM
-2. **LLM translation** — Sends the question to Ollama with a strict system prompt requiring SELECT-only output
+2. **LLM translation** — Sends the question to Ollama with a strict system prompt requiring read-only output (SELECT/WITH; DML is structurally forbidden downstream)
 3. **Structural validation** — `sqlparse` rejects any non-SELECT statement
 4. **Pattern rejection** — Regex check forbids DDL, DML, and system table access
 5. **Cost estimation** — `EXPLAIN` estimates scan rows; rejects queries exceeding 10,000 rows

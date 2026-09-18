@@ -6,9 +6,10 @@ Uses Ollama LLM with multi-layer validation to prevent SQL injection.
 
 Security layers:
 1. Input sanitization — strips prompt injection patterns before LLM
-2. LLM with strict system prompt — SELECT-only instruction
-3. sqlparse structural validation — rejects non-SELECT statements
-4. FORBIDDEN_PATTERN regex check — no DDL/DML/system tables
+2. LLM with strict system prompt — read-only instruction (SELECT/WITH; no DDL/DML)
+3. sqlparse structural validation — rejects non-SELECT/WITH statements
+4. FORBIDDEN_PATTERN regex check — no DDL/DML keywords (data-modifying CTEs
+   included), no system schemas
 5. EXPLAIN cost estimation — rejects queries scanning >10K rows
 6. Result size limit — max 1000 rows returned
 7. Execution timeout — 5 seconds max per query
