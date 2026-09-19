@@ -52,6 +52,13 @@ KNOWN_TOKENS = {
     vocabulary.EVENT_ACTION_ACCOUNT_CREATED,  # windows_events 4720 (V0.6b)
     vocabulary.EVENT_ACTION_AUTH_FAILED,
     vocabulary.EVENT_ACTION_VERDICT_BLOCK,
+    # NeuralGuard verdict family (fleet producer contract, 2026-09-19)
+    vocabulary.EVENT_ACTION_VERDICT_ALLOW,
+    vocabulary.EVENT_ACTION_VERDICT_ESCALATE,
+    vocabulary.EVENT_ACTION_VERDICT_SANITIZE,
+    vocabulary.EVENT_ACTION_VERDICT_QUARANTINE,
+    vocabulary.EVENT_ACTION_VERDICT_RATE_LIMIT,
+    vocabulary.EVENT_ACTION_BLOCK_RATE_SPIKE,
     # AI-usage domain (V0.4/5 item 3)
     vocabulary.EVENT_ACTION_AI_AGENT_RUN,
     vocabulary.EVENT_ACTION_MCP_TOOL_CALL,

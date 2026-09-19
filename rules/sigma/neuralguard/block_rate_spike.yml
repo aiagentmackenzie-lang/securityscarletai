@@ -1,0 +1,31 @@
+title: NeuralGuard Block-Rate Spike
+id: 7B53AEF8-E0BA-4631-AF88-3F0F77227EB5
+status: stable
+description: >
+  NeuralGuard's edge-triggered BLOCK-rate spike alert reached the SIEM -- a
+  sustained attack storm crossed the firewall's sliding-window threshold
+  (default 100-event window, 50% block ratio, 300s cooldown; one alert per
+  episode, no storms). This is the per-episode escalation lens: the
+  sustained-block correlation (ai_verdict_block_sustained) sees the
+  per-verdict shape, this rule fires on the spike event itself. OWASP
+  Agentic Top 10 2026: a spike is sustained adversarial pressure on a
+  guarded agent surface (ASI01/ASI02/ASI10 shapes at volume). Nearest
+  ATT&CK neighbor: T1499 endpoint denial of service -- documented as
+  approximate, the primary mapping is the OWASP Agentic pressure lens.
+  Producer contract: src/neuralguard/siem.py (source=neuralguard,
+  category=intrusion_detection, block_rate_spike -> critical).
+author: SecurityScarletAI
+date: 2026/09/19
+logsource:
+    category: intrusion_detection
+detection:
+    selection:
+        source: neuralguard
+        event_action: block_rate_spike
+    condition: selection
+timeframe: 15m
+level: critical
+tags:
+    - attack.impact
+    - attack.ta0040
+    - attack.t1499

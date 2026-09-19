@@ -54,7 +54,7 @@ Most security dashboards show you charts. This one shows you **receipts**:
 | Release | **v0.8.0** (2026-09-17) — first receipted release: SBOM + attestation bundles on the release page, cosign-verified image in GHCR (public), buyer commands in SECURITY.md |
 |---|---|
 | Tests | **2,483 unit** (mocked DB) + **40 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **87%** |
-| Detections | **116 Sigma rules** (vocabulary-gated in CI; 118 pre-audit — the 2026-09-18 audit wave merged/deleted two identical-detection rules) · **10 correlation chains** — all 10 live-fire verified through the real pipeline (purple-loop score 1.0, 2026-09-14) |
+| Detections | **118 Sigma rules** (vocabulary-gated in CI; 116 post-audit + 2 NeuralGuard producer rules, 2026-09-19 fleet wave — compile-pinned, live-fire pending the fleet exercise) · **10 correlation chains** — all 10 live-fire verified through the real pipeline (purple-loop score 1.0, 2026-09-14) |
 | Agentic | Read-only investigator · SIEM **MCP server** (3 tools over a scoped read-only DB role) · AI-usage detection domain |
 | Response | 6 action types — 3 live-verified on the reference deployment, 3 capability-gated fail-closed |
 | Pipeline | Real osqueryd telemetry → Sigma alerts in production since 2026-09-04 · FIM file telemetry · fleet ingest (macOS/Linux/Windows agents; Windows auth via Security eventid 4624/4625) · TimescaleDB store |
@@ -94,10 +94,11 @@ Most security dashboards show you charts. This one shows you **receipts**:
 ## Features
 
 **Detection & telemetry**
-- 116 Sigma rules — authentication, process, network, file, macOS, cloud, AI,
-  AI-usage, deception, and identity categories, MITRE ATT&CK-mapped
+- 118 Sigma rules — authentication, process, network, file, macOS, cloud, AI,
+  AI-usage, deception, identity, and neuralguard categories, MITRE ATT&CK-mapped
   ([docs/RULES.md](docs/RULES.md); 118 before the 2026-09-18 audit wave removed
-  two identical-detection rules)
+  two identical-detection rules, 116 after it, 118 again with the 2026-09-19
+  NeuralGuard producer rules)
 - 10 event-driven correlation chains: brute force → success, payload → C2,
   persistence activation, data exfiltration, privilege escalation, credential
   theft + exfil, defense evasion, sustained AI-firewall blocks, ClickFix drop →
@@ -109,7 +110,10 @@ Most security dashboards show you charts. This one shows you **receipts**:
   113 Sigma rules + 10 correlation chains at measurement; 116 after W1.5's
   deception rules; 118 with the identity rules; 116 after the 2026-09-18
   audit wave merged two identical-detection pairs — deception reports
-  DORMANT-BY-SOURCE until its shipper is enabled)
+  DORMANT-BY-SOURCE until its shipper is enabled). The 2026-09-19 NeuralGuard
+  producer rules (rules/sigma/neuralguard/) report DORMANT until real
+  NeuralGuard verdicts flow via the fleet compose (armed the moment they do,
+  same machinery that armed the sustained-block correlation)
 - Rule backtesting (`POST /detection/backtest`): "would this rule have fired
   in the last N days, on how many rows, at what false-positive cost?" — any
   draft or enabled rule compiles through the production Sigma→SQL compiler
