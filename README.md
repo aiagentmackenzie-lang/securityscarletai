@@ -111,9 +111,10 @@ Most security dashboards show you charts. This one shows you **receipts**:
   deception rules; 118 with the identity rules; 116 after the 2026-09-18
   audit wave merged two identical-detection pairs — deception reports
   DORMANT-BY-SOURCE until its shipper is enabled). The 2026-09-19 NeuralGuard
-  producer rules (rules/sigma/neuralguard/) report DORMANT until real
-  NeuralGuard verdicts flow via the fleet compose (armed the moment they do,
-  same machinery that armed the sustained-block correlation)
+  producer rules (rules/sigma/neuralguard/) were ARMED the same day by the
+  fleet live-fire exercise — real NeuralGuard verdicts flowed via the fleet
+  compose and both rules armed (97/128 on the reference fleet), the same
+  machinery that armed the sustained-block correlation)
 - Rule backtesting (`POST /detection/backtest`): "would this rule have fired
   in the last N days, on how many rows, at what false-positive cost?" — any
   draft or enabled rule compiles through the production Sigma→SQL compiler
@@ -301,6 +302,57 @@ Dev mode (API outside Docker): `poetry install` → apply
 [`/api/v1/health`](http://localhost:8000/api/v1/health) (there is no root
 `/health`).
 
+## Fleet deployment — running with NeuralGuard
+
+SecurityScarletAI ships with a **co-resident fleet deployment**: NeuralGuard
+(the sibling 4-layer AI firewall) and this SIEM run as ONE compose project,
+every integration pipe wired — one `up` command from the NeuralGuard repo
+(`deploy/fleet/docker-compose.fleet.yml`; the full runbook lives in the
+NeuralGuard repo:
+[docs/runbooks/fleet_deployment.md](https://github.com/aiagentmackenzie-lang/NeuralGuard-AI-Firewall/blob/main/docs/runbooks/fleet_deployment.md)).
+
+Three pipes, all operational:
+
+- **The SIEM pipe** — every NeuralGuard verdict audit event (SHA-256
+  chain hash + optional Ed25519 signature intact) lands via `POST /ingest`
+  with the scoped `INGEST_BEARER_TOKEN`. The producer maps the audit
+  event's tenant into `user_name` (the actor slot) and emits `ai`-category
+  COMPANION events in the SAME POST: `ai_prompt_injection` for
+  injection-shaped verdicts (T-PI-D / T-PI-I / T-JB) and
+  `mcp_tool_denied` for MCP-gate denials (the denied tool in
+  `process_name`). Companions are flat-field selectable — that is what
+  makes single NeuralGuard detections alertable through the Sigma
+  compiler (raw_data is not).
+- **The MCP gateway** — NeuralGuard's `POST /v1/mcp` fronts this repo's
+  closed 3-tool MCP server (investigate / hunt / explain) with a
+  server-side bearer token (`NEURALGUARD_MCP_UPSTREAM_AUTH_TOKEN` =
+  `MCP_BEARER_TOKEN`); gateway callers can NEVER override the upstream
+  Authorization — the server-side token wins.
+- **The detections** — `prompt_injection_attempt` and
+  `mcp_tool_denial_burst` consume the companion events (they key on
+  `event_category`+`event_action`, deliberately producer-agnostic); the
+  dedicated `rules/sigma/neuralguard/` rules add `block_rate_spike`
+  (critical) and `confirmed_ai_attack_block` (critical); the
+  `ai_verdict_block_sustained` correlation chains on the raw verdict
+  shape (≥10 blocks / 5 min per host+tenant).
+
+**Live-fire receipt — 2026-09-19, fleet compose, run-stamped host
+`neuralguard-fleet-w5` (all green):**
+
+- 95/95 injection probes **BLOCKED** (0.95 confidence → the critical tier);
+  12/12 MCP-gate refusals (403, pre-forward — nothing executed).
+- Alerts fired end-to-end: **AI Prompt Injection Attempt** (high),
+  **NeuralGuard Confirmed AI Attack Block** (critical), **MCP Tool Denial
+  Burst** (high), **NeuralGuard Block-Rate Spike** (critical) — plus the
+  **ai_verdict_block_sustained** correlation (high).
+- Evidence-driven coverage: **97/128 armed** — both producer rules ARMED
+  the moment real NeuralGuard verdicts flowed.
+
+The two repos must sit side-by-side (the fleet compose includes this
+repo's compose unchanged); secrets are generated into `deploy/fleet/.env`
+(never committed), with the shared ingest/MCP tokens agreeing on both
+sides. Teardown, sizing, and the read-only smoke are in the runbook.
+
 ## Telemetry sources
 
 - **osquery (host telemetry)** — the API tails osquery's results log through
@@ -319,7 +371,10 @@ Dev mode (API outside Docker): `poetry install` → apply
   streams every audit verdict (block/allow/quarantine/…) into this SIEM with
   its SHA-256 chain hash + Ed25519 signature intact, so AI-firewall
   detections land in the same pipeline — Sigma rules, correlation, NL→SQL
-  included. Verified end-to-end 2026-09-05.
+  included. The producer contract (tenant actor slot, ai-category
+  companion events in the same POST, the MCP gateway fronting this repo's
+  MCP server with server-side auth) is **live-fire verified 2026-09-19** —
+  see *Fleet deployment* above.
 
 ## The API
 
