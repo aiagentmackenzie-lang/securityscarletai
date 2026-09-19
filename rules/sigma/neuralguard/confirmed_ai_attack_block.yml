@@ -1,0 +1,37 @@
+title: NeuralGuard Confirmed AI Attack Block
+id: 4152FDA7-F151-4EED-AA35-DE2E1EC86CD0
+status: stable
+description: >
+  NeuralGuard quarantined a caller, or BLOCKed one at the highest
+  confidence tier (>= 0.9 detector confidence maps to critical on the
+  firewall's severity ladder) -- a single confirmed attack against a
+  guarded AI surface, alertable without waiting for the sustained-block
+  correlation's 10-in-5min threshold. Includes canary-leak blocks (the
+  minted canary surfaced in model output) and MCP-gate blocks that carry
+  critical severity; the ai-category companions (ai_prompt_injection /
+  mcp_tool_denied) ride separately at their producer mapping. OWASP
+  Agentic Top 10 2026: ASI01 agent goal hijack and ASI02 tool misuse at
+  confirmed certainty. Nearest ATT&CK neighbor: T1190 exploit of a
+  public-facing application -- documented as approximate, the AI surface
+  is the application being probed. Producer contract:
+  src/neuralguard/siem.py (source=neuralguard, category=intrusion_detection,
+  severity ladder: block to high, critical at >=0.9 confidence;
+  quarantine to critical).
+author: SecurityScarletAI
+date: 2026/09/19
+logsource:
+    category: intrusion_detection
+detection:
+    selection_action:
+        event_action:
+            - verdict_block
+            - verdict_quarantine
+    selection_severity:
+        severity: critical
+    condition: selection_action and selection_severity
+timeframe: 15m
+level: critical
+tags:
+    - attack.initial_access
+    - attack.ta0001
+    - attack.t1190

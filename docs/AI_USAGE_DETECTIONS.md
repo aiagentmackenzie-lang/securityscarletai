@@ -28,7 +28,28 @@ Producers map INTO these tokens; anything else is rejected by
 `build_ai_usage_event` (fail-closed: an unknown kind is never guessed into
 a token). NeuralGuard verdicts continue to ride ingest as `verdict_block`;
 a NeuralGuard prompt-injection verdict maps into `ai_prompt_injection` at
-its producer.
+its producer (shipped 2026-09-19, NeuralGuard `map_to_scarletai_batch`:
+user_name = the audit event's tenant_id — the actor slot; companions ride
+the SAME ingest POST as their parent verdict, so they inherit its routing,
+including the allow-filter).
+
+## NeuralGuard verdict family (fleet producer contract, 2026-09-19)
+
+The firewall's full event_action vocabulary is now declared in
+`src/ingestion/schemas.py`: `verdict_allow` / `verdict_block` /
+`verdict_sanitize` / `verdict_escalate` / `verdict_quarantine` /
+`verdict_rate_limit` + `block_rate_spike` (edge-triggered block storm,
+critical). Two rules consume it directly (`rules/sigma/neuralguard/`):
+
+| Rule | Detects | ASI mapping (primary) | ATT&CK tag (approximate) |
+|---|---|---|---|
+| `block_rate_spike` | The firewall's edge-triggered block-storm alert (one critical event per episode) | sustained ASI01/ASI02/ASI10 pressure at volume | T1499 (denial of service) |
+| `confirmed_ai_attack_block` | A single confirmed attack: `verdict_block` or `verdict_quarantine` at critical severity (>=0.9-confidence blocks, quarantines, canary-leak blocks) — no 10-in-5min threshold needed | ASI01 agent goal hijack, ASI02 tool misuse (confirmed certainty) | T1190 |
+
+Both rules key on `source: neuralguard` + `event_category:
+intrusion_detection` (the flat-column compiler path) and report DORMANT in
+the coverage map until real NeuralGuard verdicts flow via the fleet
+compose — armed the moment they do.
 
 ## Sigma rules (rules/sigma/ai/)
 

@@ -29,9 +29,12 @@ def test_every_rule_file_exists_and_count():
     files = _all_rule_files()
     assert files, "no Sigma rules found under rules/sigma/"
     # Guard against silent rule deletion; update this count when rules are
+    # Guard against silent rule deletion; update this count when rules are
     # intentionally added/removed. Wave 8 (AUD-078/081): two duplicate-detection
     # merges removed ntlm_relay_attempt.yml and suspicious_dns.yml (118 -> 116).
-    assert len(files) == 116, f"expected 116 Sigma rules, found {len(files)}"
+    # Fleet producer wave (2026-09-19): +2 NeuralGuard rules (block_rate_spike,
+    # confirmed_ai_attack_block) -> 118.
+    assert len(files) == 118, f"expected 118 Sigma rules, found {len(files)}"
 
 
 def test_no_rule_produces_list_repr_or_true_where():

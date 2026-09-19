@@ -198,6 +198,20 @@ EVENT_ACTION_ACCOUNT_CREATED = "account_created"  # windows_events 4720 (V0.6b)
 # macOS/Linux.
 EVENT_ACTION_AUTH_FAILED = "auth_failed"  # auth shipper / windows_events 4625
 EVENT_ACTION_VERDICT_BLOCK = "verdict_block"  # NeuralGuard AI-firewall verdicts
+# NeuralGuard verdict family (fleet producer contract, 2026-09-19): the
+# remaining verdict discriminators + the edge-triggered block-rate-spike
+# alert, produced by src/neuralguard/siem.py (source=neuralguard,
+# category=intrusion_detection). Companions ride the ai-category tokens
+# below (ai_prompt_injection / mcp_tool_denied) — mapped at the producer
+# per docs/AI_USAGE_DETECTIONS.md. Severity ladder rides the events:
+# block→high (critical at >=0.9 confidence), quarantine→critical,
+# spike→critical.
+EVENT_ACTION_VERDICT_ALLOW = "verdict_allow"
+EVENT_ACTION_VERDICT_ESCALATE = "verdict_escalate"
+EVENT_ACTION_VERDICT_SANITIZE = "verdict_sanitize"
+EVENT_ACTION_VERDICT_QUARANTINE = "verdict_quarantine"
+EVENT_ACTION_VERDICT_RATE_LIMIT = "verdict_rate_limit"
+EVENT_ACTION_BLOCK_RATE_SPIKE = "block_rate_spike"  # edge-triggered block storm
 
 # AI-usage domain (V0.4/5 "Agentic SOC", item 3): the SIEM watches its own
 # AI agents. Emitted by src/ingestion/ai_usage.py (the shape contract shared
