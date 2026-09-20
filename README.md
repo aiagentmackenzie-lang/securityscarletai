@@ -11,7 +11,7 @@
 [![TimescaleDB](https://img.shields.io/badge/TimescaleDB-hypertable-E58E33)](https://www.timescale.com)
 [![Streamlit](https://img.shields.io/badge/dashboard-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io)
 [![Ollama](https://img.shields.io/badge/LLM-Ollama_(local)-111111)](https://ollama.com)
-[![Sigma](https://img.shields.io/badge/Sigma-116%20rules-orange)](docs/RULES.md)
+[![Sigma](https://img.shields.io/badge/Sigma-120%20rules-orange)](docs/RULES.md)
 [![MITRE ATT&CK](https://img.shields.io/badge/MITRE-ATT%26CK%20mapped-B31E1E)](https://attack.mitre.org)
 
 SecurityScarletAI is an open-source, self-hosted SIEM for macOS, Linux, and
@@ -54,7 +54,7 @@ Most security dashboards show you charts. This one shows you **receipts**:
 | Release | **v0.8.0** (2026-09-17) — first receipted release: SBOM + attestation bundles on the release page, cosign-verified image in GHCR (public), buyer commands in SECURITY.md |
 |---|---|
 | Tests | **2,483 unit** (mocked DB) + **40 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **87%** |
-| Detections | **118 Sigma rules** (vocabulary-gated in CI; 116 post-audit + 2 NeuralGuard producer rules, 2026-09-19 fleet wave — compile-pinned, live-fire pending the fleet exercise) · **10 correlation chains** — all 10 live-fire verified through the real pipeline (purple-loop score 1.0, 2026-09-14) |
+| Detections | **120 Sigma rules** (vocabulary-gated in CI; 116 post-audit + 2 NeuralGuard producer rules 2026-09-19 + 2 NeuralStrike red-team-exercise rules 2026-09-20 — compile-pinned, DORMANT until a fleet exercise emits) · **10 correlation chains** — all 10 live-fire verified through the real pipeline (purple-loop score 1.0, 2026-09-14) |
 | Agentic | Read-only investigator · SIEM **MCP server** (3 tools over a scoped read-only DB role) · AI-usage detection domain |
 | Response | 6 action types — 3 live-verified on the reference deployment, 3 capability-gated fail-closed |
 | Pipeline | Real osqueryd telemetry → Sigma alerts in production since 2026-09-04 · FIM file telemetry · fleet ingest (macOS/Linux/Windows agents; Windows auth via Security eventid 4624/4625) · TimescaleDB store |
@@ -84,7 +84,7 @@ Most security dashboards show you charts. This one shows you **receipts**:
 |---|---|---|
 | Ingestion | FastAPI + asyncpg | Bearer-token HTTP ingest (≤1,000 events/batch, rate-limited), checkpointed osquery file shipper, raw-line fleet endpoint with server-side parsing, fire-and-forget enrichment |
 | Storage | TimescaleDB (PostgreSQL 17) + Redis 7 | Hypertable with 1-day chunks, compression + 30-day retention; Redis for rate-limit state and the JWT blocklist |
-| Detection | Sigma → parameterized SQL + correlation engine | 118 rules across 9 categories; 10 event-driven correlation chains with `as_of` time binding and persisted matches |
+| Detection | Sigma → parameterized SQL + correlation engine | 120 rules across 11 rule folders; 10 event-driven correlation chains with `as_of` time binding and persisted matches |
 | Enrichment | GeoIP2 + DNS + threat intel | MaxMind GeoIP, PTR lookup, AbuseIPDB/OTX/URLhaus IOC match with severity boost |
 | AI/ML | Ollama (mistral:7b) + scikit-learn | Calibrated Random-Forest triage, Isolation-Forest UEBA, NL→SQL with 7-layer injection defense, LLM explanations with template fallback, per-call cost tracking |
 | Response | Policy engine + executors | Notification channels (Slack / HMAC-signed webhook / PagerDuty / email, per-severity routing + retry + audited), SIEM-user disable, host quarantine (+3 capability-gated); every outcome re-queried and recorded |
@@ -94,11 +94,13 @@ Most security dashboards show you charts. This one shows you **receipts**:
 ## Features
 
 **Detection & telemetry**
-- 118 Sigma rules — authentication, process, network, file, macOS, cloud, AI,
-  AI-usage, deception, identity, and neuralguard categories, MITRE ATT&CK-mapped
+- 120 Sigma rules — authentication, process, network, file, macOS, cloud, AI,
+  AI-usage, deception, identity, neuralguard, and neuralstrike categories,
+  MITRE ATT&CK-mapped
   ([docs/RULES.md](docs/RULES.md); 118 before the 2026-09-18 audit wave removed
-  two identical-detection rules, 116 after it, 118 again with the 2026-09-19
-  NeuralGuard producer rules)
+  two identical-detection rules, 116 after it, 118 with the 2026-09-19
+  NeuralGuard producer rules, 120 with the 2026-09-20 NeuralStrike
+  red-team-exercise rules)
 - 10 event-driven correlation chains: brute force → success, payload → C2,
   persistence activation, data exfiltration, privilege escalation, credential
   theft + exfil, defense evasion, sustained AI-firewall blocks, ClickFix drop →
