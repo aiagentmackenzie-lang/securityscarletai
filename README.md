@@ -350,6 +350,24 @@ Three pipes, all operational:
 - Evidence-driven coverage: **97/128 armed** — both producer rules ARMED
   the moment real NeuralGuard verdicts flowed.
 
+**The third pipe — NeuralStrike (2026-09-20, live-fire verified):** the
+offensive third joined the fleet. The sibling NeuralStrike checkout runs as a
+PROFILE-GATED one-shot service (`profiles: [bench]` — `up -d` still brings
+only the 6 production containers): its exercises fire the attack chain
+through NeuralGuard AND report to THIS SIEM's ingest (the closed
+red-team-exercise vocabulary: `exercise_start` / `probe_succeeded` /
+`probe_resisted` / `probe_inconclusive` / `exercise_end`, source=
+`neuralstrike`, run-stamped host). Both `rules/sigma/neuralstrike/` rules
+FIRED on real exercise traffic on 2026-09-20 (Probe Succeeded high +
+Exercise Lifecycle low, keyed on the run-stamped host), and NeuralStrike's
+`purple-report` command joins its local run receipt with this SIEM's
+`/alerts` + `/logs` (admin-class read token, read-only) to emit the
+detection-coverage report — the UNDETECTED-SUCCEEDED list is the real
+defense-gap list. Live receipt: 8 attacks, 6 caught by the full-stack NG
+(catch rate 75%), both NeuralStrike rules FIRED, coverage 99/130 armed, gap
+list AC-WEAP-002 + AC-POST-002 — full receipts in the NeuralGuard repo
+(`deploy/fleet/receipts/`).
+
 The two repos must sit side-by-side (the fleet compose includes this
 repo's compose unchanged); secrets are generated into `deploy/fleet/.env`
 (never committed), with the shared ingest/MCP tokens agreeing on both
