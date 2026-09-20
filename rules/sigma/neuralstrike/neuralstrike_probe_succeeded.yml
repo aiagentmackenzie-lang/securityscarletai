@@ -1,0 +1,34 @@
+title: NeuralStrike Probe Succeeded Against Deployed Controls
+id: 4E7A1C92-8D54-4B6E-9F31-A2C7B5D08E64
+status: stable
+description: >
+  A red-team probe SUCCEEDED against the target under test -- reported by
+  the NeuralStrike producer during a PLANNED, AUTHORIZED exercise
+  (source=neuralstrike, category=ai, deterministic canary/predicate/schema
+  oracles -- the advisory Judge never flips these). This is exercise
+  telemetry, not live attack traffic. Its defensive meaning: the attack
+  beat the deployed controls. When the exercise drove the same payload
+  through a live NeuralGuard firewall, a succeeded probe here means the
+  payload either bypassed the screen or the screen allowed it -- cross-
+  reference the exercise window (user_name tenant + timeframe) for the
+  firewall verdicts. OWASP mapping -- the probe corpus is tagged ASI01-10
+  and LLM01-10 per scenario (raw_data carries the ids); the ATT&CK tag is
+  the nearest-neighbor used by the ai-category injection rule, documented
+  as approximate. Producer contract -- src/neuralstrike/integrations/
+  scarletai.py; vocabulary -- src/ingestion/schemas.py (2026-09-20
+  reviewed per-token decision).
+author: SecurityScarletAI
+date: 2026/09/20
+logsource:
+    category: ai
+detection:
+    selection:
+        source: neuralstrike
+        event_action: probe_succeeded
+    condition: selection
+timeframe: 15m
+level: high
+tags:
+    - attack.initial_access
+    - attack.ta0001
+    - attack.t1190

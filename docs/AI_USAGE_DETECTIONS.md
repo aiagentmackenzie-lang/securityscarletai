@@ -51,6 +51,33 @@ intrusion_detection` (the flat-column compiler path) and report DORMANT in
 the coverage map until real NeuralGuard verdicts flow via the fleet
 compose — armed the moment they do.
 
+## NeuralStrike red-team exercise family (fleet producer contract, 2026-09-20)
+
+The offensive third of the local stack (NeuralStrike drives the attacks,
+NeuralGuard defends, this SIEM detects and measures) reports PLANNED,
+AUTHORIZED red-team exercises through POST /ingest (source=`neuralstrike`,
+category=`ai`). The vocabulary is a reviewed per-token decision in
+`src/ingestion/schemas.py`: `exercise_start` / `exercise_end` /
+`probe_succeeded` / `probe_resisted` / `probe_inconclusive`. The probe_*
+tokens are NeuralStrike's own deterministic-oracle verdicts (canary /
+predicate / schema oracles — the advisory Judge never flips them); canary
+token VALUES never leave the producer (events carry a hashed id only).
+Two rules consume the family (`rules/sigma/neuralstrike/`):
+
+| Rule | Detects | Level | ASI mapping (primary) | ATT&CK tag (approximate) |
+|---|---|---|---|---|
+| `neuralstrike_probe_succeeded` | A probe SUCCEEDED against the target under test — with the firewall in path this is defense-gap evidence (the attack beat the deployed controls) | high | per-scenario ASI/LLM tags ride raw_data; lens: ASI01/ASI02 | T1190 (same nearest-neighbor as `prompt_injection_attempt`) |
+| `neuralstrike_exercise_lifecycle` | The exercise bookends (one start + one end per exercise) — the window the purple-report join walks; also the operator's receipt that planned testing ran | low | n/a (bookend, not an incident) | T1190 (documented approximation) |
+
+Attribution: the exercise drives the SAME payloads through a live
+NeuralGuard with a run-scoped tenant (`neuralstrike-<runid>`), so the
+firewall's verdict events carry that tenant in `user_name` — the join key
+with these exercise events is (user_name, exercise window). The producer
+is NeuralStrike itself; probe_succeeded severity high is the honest
+signal: a red-team success against deployed controls is what the purple
+loop exists to surface, and the lifecycle rule keeps the receipt without
+noise. DORMANT until a fleet exercise emits — armed the moment one does.
+
 ## Sigma rules (rules/sigma/ai/)
 
 | Rule | Detects | Threshold / window | ASI mapping (primary) | ATT&CK tag (documented approximation) |

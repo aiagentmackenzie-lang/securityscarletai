@@ -1,0 +1,33 @@
+title: NeuralStrike Red-Team Exercise Lifecycle
+id: 6B3F2E47-C918-45AD-8E62-D4F0A7C31B58
+status: stable
+description: >
+  A NeuralStrike red-team exercise started or ended on this SIEM --
+  the lifecycle bookends emitted by the producer at exercise_start and
+  exercise_end (one of each per exercise, source=neuralstrike,
+  category=ai). This is the low-noise attribution lens -- the bookends
+  define the exercise window that the purple-report join walks to
+  associate NeuralGuard firewall verdicts and Scarlet alerts with the
+  exercise that drove them (join key -- user_name tenant + window).
+  Also the operator's receipt that planned offensive testing ran
+  against a target in the window. ATT&CK tag is the nearest-neighbor
+  for the simulated technique class (prompt injection), documented as
+  approximate; the rule is a bookend, not an incident. Producer
+  contract -- src/neuralstrike/integrations/scarletai.py.
+author: SecurityScarletAI
+date: 2026/09/20
+logsource:
+    category: ai
+detection:
+    selection:
+        source: neuralstrike
+        event_action:
+            - exercise_start
+            - exercise_end
+    condition: selection
+timeframe: 15m
+level: low
+tags:
+    - attack.initial_access
+    - attack.ta0001
+    - attack.t1190

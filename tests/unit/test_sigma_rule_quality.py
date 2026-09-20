@@ -71,6 +71,13 @@ KNOWN_TOKENS = {
     # Identity domain (W1.4: SSF/CAEP SETs from configured IdP transmitters)
     vocabulary.EVENT_ACTION_IDENTITY_SESSION_REVOKED,
     vocabulary.EVENT_ACTION_IDENTITY_CREDENTIAL_CHANGE,
+    # Red-team exercise domain (2026-09-20 -- the NeuralStrike producer,
+    # fleet campaign Wave 1; exercise signals, not live attack telemetry)
+    vocabulary.EVENT_ACTION_EXERCISE_START,
+    vocabulary.EVENT_ACTION_EXERCISE_END,
+    vocabulary.EVENT_ACTION_PROBE_SUCCEEDED,
+    vocabulary.EVENT_ACTION_PROBE_RESISTED,
+    vocabulary.EVENT_ACTION_PROBE_INCONCLUSIVE,
 }
 
 # Legal event_type values per category -- a rule demanding event_type=start

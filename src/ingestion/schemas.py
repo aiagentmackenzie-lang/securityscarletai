@@ -227,6 +227,28 @@ EVENT_ACTION_DECEPTION_SERVICE_PROBE = "deception_service_probe"
 EVENT_ACTION_DECEPTION_CANARY_ACCESS = "deception_canary_access"
 EVENT_ACTION_DECEPTION_TOKEN_USE = "deception_token_use"  # noqa: S105 -- vocabulary token, not a credential
 
+# Red-team exercise domain (2026-09-20, reviewed per-token decision): the
+# NeuralStrike producer (aiagentmackenzie-lang/NeuralStrike) reports a PLANNED,
+# AUTHORIZED red-team exercise through POST /ingest (source=neuralstrike,
+# category=ai). These are exercise signals, NOT live attack telemetry: the
+# probe_* tokens are NeuralStrike's own deterministic-oracle verdicts
+# (canary / predicate / schema oracles -- the Judge is advisory and never
+# flips them). probe_succeeded against a DEFENDED target is defense-gap
+# evidence: the attack beat the deployed controls. The exercise lifecycle
+# bookends the window for the attribution join with the NeuralGuard verdicts
+# the SAME exercise drove through the firewall (purple-loop join key:
+# user_name tenant + exercise window -- the fleet plan's Wave 3). Shape
+# contract: src/neuralstrike/integrations/scarletai.py (producer, Wave 2);
+# consumer rules: rules/sigma/neuralstrike/. Severity discipline rides the
+# events -- probe_succeeded maps high (defense-gap evidence), lifecycle maps
+# info (low-noise bookend, one start + one end per exercise), inconclusive
+# and resisted map info (coverage data, not incidents).
+EVENT_ACTION_EXERCISE_START = "exercise_start"
+EVENT_ACTION_EXERCISE_END = "exercise_end"
+EVENT_ACTION_PROBE_SUCCEEDED = "probe_succeeded"
+EVENT_ACTION_PROBE_RESISTED = "probe_resisted"
+EVENT_ACTION_PROBE_INCONCLUSIVE = "probe_inconclusive"
+
 # Identity-signal domain (W1.4): SSF/CAEP SETs from configured IdP
 # transmitters (src/ingestion/ssf.py). High-fidelity by construction: the
 # IdP cryptographically asserts the identity event.

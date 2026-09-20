@@ -1,12 +1,12 @@
 # Detection Rules Reference
 
-SecurityScarletAI ships with **116 Sigma rules** and **10 event-driven correlation rules**, covering authentication, process, network, file, macOS, cloud, AI-firewall, deception, identity, and AI-CLI/2026-technique attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL by the legacy `SigmaParser` + custom PostgreSQL backend in `src/detection/sigma.py`. (A pySigma-backed `PostgreSQLBackend` is retained as a unit-tested module but is off the production detection path — see P0-01/P0-04.)
+SecurityScarletAI ships with **120 Sigma rules** and **10 event-driven correlation rules**, covering authentication, process, network, file, macOS, cloud, AI-firewall, deception, identity, red-team-exercise, and AI-CLI/2026-technique attack patterns. All rules are MITRE ATT&CK mapped and written in the Sigma YAML specification, compiled to safe parameterized SQL by the legacy `SigmaParser` + custom PostgreSQL backend in `src/detection/sigma.py`. (A pySigma-backed `PostgreSQLBackend` is retained as a unit-tested module but is off the production detection path — see P0-01/P0-04.)
 
 ---
 
 ## Sigma Rule Catalog (116 total)
 
-116 rules distributed across 9 categories. Each rule is a YAML file under `rules/sigma/<category>/`. The catalog below is kept in sync BY HAND with the rule frontmatter — there is no generator; verify against `rules/sigma/` when editing.
+120 rules distributed across 11 rule folders. Each rule is a YAML file under `rules/sigma/<category>/`. The catalog below is kept in sync BY HAND with the rule frontmatter — there is no generator; verify against `rules/sigma/` when editing.
 
 ### Authentication (16 rules)
 
@@ -176,6 +176,26 @@ Producer contract: [src/ingestion/deception.py](../src/ingestion/deception.py) (
 | 2 | Identity Signal Credential Revoked or Deleted | High | Credential Access (TA0006) | T1552 (approx.) | A credential-change SET with change_type revoke or delete (mapped to the high-severity leg by the producer's severity contract) — creations/updates stay medium and deliberately do NOT select |
 
 Producer contract: [src/ingestion/ssf.py](../src/ingestion/ssf.py) (RFC 8935 push receiver, `source=ssf`, `category=identity`; closed CAEP vocabulary, SET-signature authentication). Wire contract + config: `config/ssf.yaml` (both legs off by default); runbook: [docs/PRODUCTION.md](PRODUCTION.md) §10. ATT&CK mappings are nearest-neighbor, documented as approximate in the rule descriptions.
+
+---
+
+### NeuralGuard (2 rules)
+
+| # | Rule Name | Severity | MITRE Tactic | MITRE Technique | Description |
+|---|-----------|----------|--------------|-----------------|-------------|
+| 1 | NeuralGuard Block-Rate Spike | Critical | Impact (TA0040) | T1499 (approx.) | The firewall's edge-triggered BLOCK-rate spike alert — a sustained attack storm crossed the sliding-window threshold (one critical event per episode) |
+| 2 | NeuralGuard Confirmed AI Attack Block | Critical | Initial Access (TA0001) | T1190 (approx.) | A single confirmed attack — `verdict_block` or `verdict_quarantine` at critical severity (>=0.9-confidence blocks, quarantines, canary-leak blocks) — no sustained threshold needed |
+
+Producer contract: [NeuralGuard `src/neuralguard/siem.py`](../../NeuralGuard-AI-Firewall/src/neuralguard/siem.py) (fleet compose, `source=neuralguard`, `category=intrusion_detection`; companion events ride the ai category — see [docs/AI_USAGE_DETECTIONS.md](AI_USAGE_DETECTIONS.md)). DORMANT until real NeuralGuard verdicts flow via the fleet compose.
+
+### NeuralStrike (2 rules)
+
+| # | Rule Name | Severity | MITRE Tactic | MITRE Technique | Description |
+|---|-----------|----------|--------------|-----------------|-------------|
+| 1 | NeuralStrike Probe Succeeded Against Deployed Controls | High | Initial Access (TA0001) | T1190 (approx.) | A red-team probe SUCCEEDED during a PLANNED, AUTHORIZED NeuralStrike exercise — with the firewall in path this is defense-gap evidence; deterministic oracles, not Judge flips |
+| 2 | NeuralStrike Red-Team Exercise Lifecycle | Low | Initial Access (TA0001) | T1190 (approx.) | The exercise bookends (exercise_start / exercise_end) — the window the purple-report join walks; the operator's receipt that planned testing ran |
+
+Producer contract: [NeuralStrike `src/neuralstrike/integrations/scarletai.py`](../../NeuralStrike/src/neuralstrike/integrations/scarletai.py) (fleet compose, `source=neuralstrike`, `category=ai`; vocabulary block 2026-09-20). DORMANT until a fleet exercise emits — armed the moment one does.
 
 ---
 
