@@ -951,33 +951,6 @@ wrapt = ">=1.10,<3"
 dev = ["PyTest", "PyTest-Cov", "bump2version (<1)", "setuptools ; python_version >= \"3.12\"", "tox"]
 
 [[package]]
-name = "diskcache"
-version = "5.6.3"
-description = "Disk Cache -- Disk and file backed persistent cache."
-optional = false
-python-versions = ">=3"
-groups = ["main"]
-files = [
-    {file = "diskcache-5.6.3-py3-none-any.whl", hash = "sha256:5e31b2d5fbad117cc363ebaf6b689474db18a1f6438bc82358b024abd4c2ca19"},
-    {file = "diskcache-5.6.3.tar.gz", hash = "sha256:2c3a3fa2743d8535d832ec61c2054a1641f41775aa7c556758a109941e33e4fc"},
-]
-
-[[package]]
-name = "diskcache-stubs"
-version = "5.6.3.6.20240818"
-description = "diskcache stubs"
-optional = false
-python-versions = ">=3"
-groups = ["main"]
-files = [
-    {file = "diskcache_stubs-5.6.3.6.20240818-py3-none-any.whl", hash = "sha256:e1db90940b344140730976abe79f57f5b43ca296cbb43fa95da0c69b12d5de4f"},
-    {file = "diskcache_stubs-5.6.3.6.20240818.tar.gz", hash = "sha256:b6eb43899e906b3167a20ac09a9a226f30267a306a96542ea720ebbfc3282796"},
-]
-
-[package.dependencies]
-typing-extensions = ">=4.4.0"
-
-[[package]]
 name = "ecdsa"
 version = "0.19.2"
 description = "ECDSA cryptographic signature library (pure python)"
@@ -2829,44 +2802,6 @@ files = [
 windows-terminal = ["colorama (>=0.4.6)"]
 
 [[package]]
-name = "pyparsing"
-version = "3.3.2"
-description = "pyparsing - Classes and methods to define and execute parsing grammars"
-optional = false
-python-versions = ">=3.9"
-groups = ["main"]
-files = [
-    {file = "pyparsing-3.3.2-py3-none-any.whl", hash = "sha256:850ba148bd908d7e2411587e247a1e4f0327839c40e2e5e6d05a007ecc69911d"},
-    {file = "pyparsing-3.3.2.tar.gz", hash = "sha256:c777f4d763f140633dcb6d8a3eda953bf7a214dc4eff598413c070bcdc117cbc"},
-]
-
-[package.extras]
-diagrams = ["jinja2", "railroad-diagrams"]
-
-[[package]]
-name = "pysigma"
-version = "1.3.3"
-description = "Sigma rule processing and conversion tools"
-optional = false
-python-versions = "<4.0,>=3.10"
-groups = ["main"]
-files = [
-    {file = "pysigma-1.3.3-py3-none-any.whl", hash = "sha256:3771aeaf4bc65dc372a754d67607964d8beb0431d438cc76ae380b89d91f261b"},
-    {file = "pysigma-1.3.3.tar.gz", hash = "sha256:5c66b35a0a72ffcfc9e4e4d7519e10d43a0eec154baa2d35fe12d8a6ff48072f"},
-]
-
-[package.dependencies]
-diskcache = ">=5.6.3,<6.0.0"
-diskcache-stubs = ">=5.6.3.6.20240818,<6.0.0.0.0"
-jinja2 = ">=3.1.6,<4.0.0"
-packaging = ">=26.0,<27.0"
-pyparsing = ">=3.2.5,<4.0.0"
-pyyaml = ">=6.0.3,<7.0.0"
-requests = ">=2.32.5,<3.0.0"
-types-pyyaml = ">=6.0.12.20250915,<7.0.0.0"
-typing-extensions = ">=4.15.0,<5.0.0"
-
-[[package]]
 name = "pytest"
 version = "9.1.1"
 description = "pytest: simple powerful testing with Python"
@@ -3698,18 +3633,6 @@ files = [
 ]
 
 [[package]]
-name = "types-pyyaml"
-version = "6.0.12.20260408"
-description = "Typing stubs for PyYAML"
-optional = false
-python-versions = ">=3.10"
-groups = ["main"]
-files = [
-    {file = "types_pyyaml-6.0.12.20260408-py3-none-any.whl", hash = "sha256:fbc42037d12159d9c801ebfcc79ebd28335a7c13b08a4cfbc6916df78fee9384"},
-    {file = "types_pyyaml-6.0.12.20260408.tar.gz", hash = "sha256:92a73f2b8d7f39ef392a38131f76b970f8c66e4c42b3125ae872b7c93b556307"},
-]
-
-[[package]]
 name = "typing-extensions"
 version = "4.15.0"
 description = "Backported and Experimental Type Hints for Python 3.9+"
@@ -4362,4 +4285,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<4.0"
-content-hash = "9ac73e5148b777bdd14f75e92b096fcce5d4785d40c8981cffde5b2801955420"
+content-hash = "2e0e80487323a3343e6e100908e4cd39d28640f49d9303aee2cfcf05d2579790"

@@ -1,11 +1,12 @@
 """
 Tests for the Sigma -> SQL value/condition conversion — the parameterized-SQL
 security core. Since P0-01/P0-04 the production path is the legacy SigmaParser
-(src/detection/sigma.py); the pySigma PostgreSQLBackend (src/detection/backends)
-remains as a standalone unit-tested module (see TestBackendConditionMethods
-below for its direct coverage). These tests exercise sigma_to_sql (legacy) to
-lock in safe parameterized output: values land as $N placeholders carried in
-params, never interpolated into SQL.
+(src/detection/sigma.py); the pySigma PostgreSQLBackend was DELETED (W5-G: it
+was off-path, its docstring claimed an enforced whitelist that only warned,
+and it carried a fail-open WHERE TRUE fallback — the opposite of this
+codebase's fail-safe-FALSE doctrine). These tests exercise sigma_to_sql
+(legacy) to lock in safe parameterized output: values land as $N placeholders
+carried in params, never interpolated into SQL.
 """
 
 import pytest
@@ -85,136 +86,15 @@ def test_sql_injection_in_startswith_value_is_parameterized():
 
 def test_unknown_field_is_rejected_not_silently_dropped():
     # The legacy parser validates field names against ALLOWED_COLUMNS and raises
-    # ValueError for unknown fields (stricter than the backend's warn-and-pass;
-    # a malformed rule is rejected at load rather than over-firing as TRUE).
+    # ValueError for unknown fields (a malformed rule is rejected at load rather
+    # than over-firing as TRUE).
     with pytest.raises(ValueError):
         sigma_to_sql(_rule('        bogus_unknown_field: "value"'))
 
 
-def test_validate_field_known_column_passes():
-    from src.detection.backends.postgresql import PostgreSQLBackend
-
-    b = PostgreSQLBackend()
-    assert b._validate_field("source_ip") == "source_ip"
-    assert b._validate_field("process_name") == "process_name"
-
-
-def test_validate_field_unknown_column_warns_but_returns():
-    from src.detection.backends.postgresql import PostgreSQLBackend
-
-    b = PostgreSQLBackend()
-    # not in FIELD_MAPPING -> returns the raw name (with a warning), no raise
-    result = b._validate_field("not_a_real_column")
-    assert result == "not_a_real_column"
-
-
-def test_add_param_increments_counter_and_returns_placeholder():
-    from src.detection.backends.postgresql import PostgreSQLBackend
-
-    b = PostgreSQLBackend()
-    b._reset_state()
-    assert b._add_param("a") == "$1"
-    assert b._add_param("b") == "$2"
-    assert b._params == ["a", "b"]
-
-
-def test_reset_state_clears_params():
-    from src.detection.backends.postgresql import PostgreSQLBackend
-
-    b = PostgreSQLBackend()
-    b._add_param("x")
-    assert b._params == ["x"]
-    b._reset_state()
-    assert b._params == []
-    assert b._param_counter == 0
-
-
-class TestBackendConditionMethods:
-    """Directly exercise the convert_condition_* overrides (the parameterized
-    SQL generators). pySigma's pipeline routes some modifiers through eq, so
-    these methods are unit-tested in isolation to lock in their behavior."""
-
-    def _backend(self):
-        from src.detection.backends.postgresql import PostgreSQLBackend
-
-        b = PostgreSQLBackend()
-        b._reset_state()
-        return b
-
-    def test_eq_without_wildcard_uses_equals_token(self):
-        from sigma.conversion.state import ConversionState
-        from sigma.types import SigmaString
-
-        b = self._backend()
-        st = ConversionState()
-        placeholder = b.convert_value_str(SigmaString("1.2.3.4"), st)
-        assert b.convert_condition_eq("source_ip", placeholder, st) == "source_ip = $1"
-        assert b._params == ["1.2.3.4"]
-
-    def test_eq_with_wildcard_uses_like(self):
-        from sigma.conversion.state import ConversionState
-        from sigma.types import SigmaString
-
-        b = self._backend()
-        st = ConversionState()
-        placeholder = b.convert_value_str(SigmaString("ab*cd"), st)
-        assert b.convert_condition_eq("process_name", placeholder, st) == "process_name LIKE $1"
-        assert b._params == ["ab%cd"]
-
-    def test_not_eq(self):
-        from sigma.conversion.state import ConversionState
-
-        b = self._backend()
-        assert b.convert_condition_not_eq("source_ip", "$1", ConversionState()) == "source_ip != $1"
-
-    def test_contains(self):
-        from sigma.conversion.state import ConversionState
-
-        b = self._backend()
-        assert (
-            b.convert_condition_contains("process_name", "$1", ConversionState())
-            == "process_name LIKE $1"
-        )
-
-    def test_startswith(self):
-        from sigma.conversion.state import ConversionState
-
-        b = self._backend()
-        assert (
-            b.convert_condition_startswith("process_name", "$1", ConversionState())
-            == "process_name LIKE $1"
-        )
-
-    def test_endswith(self):
-        from sigma.conversion.state import ConversionState
-
-        b = self._backend()
-        assert (
-            b.convert_condition_endswith("file_path", "$1", ConversionState())
-            == "file_path LIKE $1"
-        )
-
-    def test_regex(self):
-        from sigma.conversion.state import ConversionState
-
-        b = self._backend()
-        assert (
-            b.convert_condition_re("process_name", "$1", ConversionState()) == "process_name ~ $1"
-        )
-
-    def test_in(self):
-        from sigma.conversion.state import ConversionState
-
-        b = self._backend()
-        result = b.convert_condition_in("source_ip", ["1.1.1.1", "2.2.2.2"], ConversionState())
-        assert result == "source_ip IN ($1, $2)"
-        assert b._params == ["1.1.1.1", "2.2.2.2"]
-
-    def test_convert_value_str_plain(self):
-        from sigma.conversion.state import ConversionState
-        from sigma.types import SigmaString
-
-        b = self._backend()
-        out = b.convert_value_str(SigmaString("hello"), ConversionState())
-        assert out == "$1"
-        assert b._params == ["hello"]
+def test_backends_module_stays_gone():
+    # W5-G: the pySigma PostgreSQLBackend was deleted (off-path dead code
+    # with a lying docstring — warn-only whitelist, fail-open WHERE TRUE,
+    # eq->LIKE underscore widening). This pin keeps it from returning.
+    with pytest.raises(ImportError):
+        import src.detection.backends  # noqa: F401

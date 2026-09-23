@@ -5,9 +5,11 @@ Sigma rule parser and SQL generator.
 ARCHITECTURE: Rules are parsed and converted to parameterized SQL by our own
 legacy SigmaParser. The pySigma-backed PostgreSQLBackend (src/detection/backends)
 was the primary path but produced invalid/semantically-wrong SQL (Python
-list-repr injected into WHERE, aggregation selections dropped to TRUE); it is
-retained only as a standalone, unit-tested module and is no longer on the
-production detection path (P0-01/P0-04).
+list-repr injected into WHERE, aggregation selections dropped to TRUE); it was
+DELETED (W5-G — off-path dead code: its docstring claimed an enforced column
+whitelist that only warned, it carried a fail-open WHERE TRUE fallback, and
+eq->LIKE silently widened underscore values). The pysigma dependency is gone
+with it.
 
 The legacy parser gives us:
 - Safe parameterized queries (no SQL injection possible) — every value is a

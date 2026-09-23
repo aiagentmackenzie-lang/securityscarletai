@@ -1,21 +1,13 @@
 """
-Tests for modules with lower coverage — enrichment pipeline, threat intel,
-postgresql backend, and ingestion shipper.
+Tests for modules with lower coverage — threat intel, and ingestion shipper.
+(The PostgreSQL backend tests were removed with the backend itself — W5-G:
+src/detection/backends was off-path dead code with a lying docstring, deleted
+along with the pysigma dependency.)
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-
-def _can_import(module_name: str) -> bool:
-    """Check if a module can be imported without actually importing it."""
-    try:
-        __import__(module_name)
-        return True
-    except ImportError:
-        return False
-
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Ingestion Shipper Tests
@@ -56,38 +48,6 @@ class TestFileShipper:
         with patch("src.ingestion.shipper.CHECKPOINT_FILE", checkpoint):
             shipper = FileShipper("/tmp/nonexistent.log", writer)
             assert shipper._events_shipped == 0
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Postgresql Backend Tests
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-
-class TestPostgreSQLBackend:
-    """Test PostgreSQL detection backend."""
-
-    @pytest.mark.skipif(
-        not _can_import("sigma"),
-        reason="pysigma package not installed",
-    )
-    def test_backend_importable(self):
-        """PostgreSQL backend module should be importable."""
-        from src.detection.backends.postgresql import PostgreSQLBackend
-
-        backend = PostgreSQLBackend()
-        assert backend is not None
-
-    @pytest.mark.skipif(
-        not _can_import("sigma"),
-        reason="pysigma package not installed",
-    )
-    def test_backend_is_pysigma_backend(self):
-        """Backend should be a pySigma backend that can convert Sigma rules."""
-        from src.detection.backends.postgresql import PostgreSQLBackend
-
-        backend = PostgreSQLBackend()
-        assert backend is not None
-        assert hasattr(backend, "convert_rule") or hasattr(backend, "convert")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
