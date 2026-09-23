@@ -776,6 +776,21 @@ def _feed_status_for(source: str, api_key: str | None) -> str:
 # ───────────────────────────────────────────────────────────────
 
 _async_scheduler = None
+# W2-E/B6: F-17 — the initial feed refresh keeps its task reference in this
+# module set until it completes. The done-callback discards the entry AND
+# retrieves the exception: an unretrieved exception is event-loop noise
+# ("Task exception was never retrieved"), and a GC'd task swallows it
+# entirely.
+_initial_refresh_tasks: set["asyncio.Task[dict[str, int]]"] = set()
+
+
+def _on_initial_refresh_done(task: "asyncio.Task[dict[str, int]]") -> None:
+    """Done-callback for the initial feed refresh: discard + retrieve."""
+    _initial_refresh_tasks.discard(task)
+    if not task.cancelled():
+        exc = task.exception()
+        if exc is not None:
+            log.error("threat_intel_initial_refresh_failed", error=str(exc))
 
 
 async def start_threat_intel_scheduler():
@@ -814,7 +829,12 @@ async def start_threat_intel_scheduler():
     # external HTTP to URLhaus/AbuseIPDB/OTX on a cold/no-network boot). Fire it
     # as a background task so the health check passes immediately; the
     # scheduled 6h refresh keeps it current.
-    asyncio.create_task(refresh_all_feeds())
+    # W2-E/B6: the reference is kept (F-17 doctrine) and the exception is
+    # retrieved on completion — a fire-and-forget task with no reference can
+    # be GC'd mid-flight and its failure never surfaces.
+    task = asyncio.create_task(refresh_all_feeds())
+    _initial_refresh_tasks.add(task)
+    task.add_done_callback(_on_initial_refresh_done)
 
     _async_scheduler.start()
     log.info("threat_intel_scheduler_started", interval_hours=FEED_REFRESH_INTERVAL_HOURS)
