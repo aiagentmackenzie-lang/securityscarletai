@@ -726,7 +726,12 @@ async def export_alerts_csv(hours: int = 24, status_filter: Optional[str] = None
 
     output = io.StringIO()
     if rows:
-        writer = csv.DictWriter(output, fieldnames=rows[0].keys())
+        # RT-003: asyncpg Record.keys() is a ONE-SHOT tuple_iterator —
+        # DictWriter.writeheader() zips it against itself (consuming it while
+        # pairing adjacent columns) and then set-differences against the
+        # exhausted iterator: ValueError on every non-empty export.
+        # Materialize ONCE; the header must survive writeheader + rows.
+        writer = csv.DictWriter(output, fieldnames=list(rows[0].keys()))
         writer.writeheader()
         for row in rows:
             writer.writerow({k: _csv_formula_safe(v) for k, v in dict(row).items()})

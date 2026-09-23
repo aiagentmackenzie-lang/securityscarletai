@@ -130,27 +130,50 @@ Task Management re-registers plists that remain in `~/Library/LaunchAgents`
 ### 1.4 Verify the pipe end-to-end
 
 ```bash
-launchctl print gui/$(id -u)/com.scarletai.osqueryd | grep -E "state|pid"
+launchctl print system/com.scarletai.osqueryd | grep -E "state|pid"
 wc -l data/osquery/osqueryd.results.log                      # grows every tick
 docker exec scarletai-db psql -U scarletai -d scarletai -tAc \
   "SELECT source, count(*) FROM logs WHERE source LIKE 'osquery:%' GROUP BY source;"
-# Fire a labeled detection event through the REAL pipe:
-python scripts/generate_osquery_events.py --path data/osquery/osqueryd.results.log
-docker exec scarletai-db psql -U scarletai -d scarletai -tAc \
-  "SELECT severity, rule_name FROM alerts ORDER BY created_at DESC LIMIT 1;"
-# expect: critical|Reverse Shell Pattern Detected (within ~70s)
 ```
 
-The detection event is a labeled synthetic (`TEST-NET-3` destination) appended
-to the real log — the only synthetic in an otherwise real stream.
+**Root-daemon era (since §1.3, 2026-09-11): the results log is ROOT-OWNED**
+(`root:staff 0644`). The shipper reads it fine (644 is world-readable), but a
+user-space append — what the labeled-event step below does — hits
+PermissionError. Two ways to fire a labeled detection event:
+
+```bash
+# Option A (needs sudo — the file re-roots after every rotation/reboot, so
+# this is a per-boot step, not a one-time fix):
+sudo chown "$(id -u):staff" data/osquery/osqueryd.results.log
+python scripts/generate_osquery_events.py --path data/osquery/osqueryd.results.log
+
+# Option B (NO sudo — proven 2026-09-23, purple matrix 10/10 through it):
+# POST the raw labeled lines to the fleet ingest surface with the INGEST
+# token; the server parses them with the SAME parse_osquery_line as the
+# shipper (one ECS truth). The matrix generator's --matrix mode still
+# appends for OSQUERY chains, so Option B is a direct POST of those lines:
+#   POST /api/v1/ingest/osquery  {"lines": ["<raw osquery result JSON>", ...]}
+# The proven driver (faithful to run_matrix, incl. the defense_evasion 75s
+# scheduler-tick wait) ships with the Wave E run report:
+#   runs/runtime-20260923T2140Z/ · purple_driver.py pattern
+
+docker exec scarletai-db psql -U scarletai -d scarletai -tAc \
+  "SELECT severity, rule_name FROM alerts ORDER BY created_at DESC LIMIT 1;"
+# expect: critical|Reverse Shell Pattern Detected
+```
+
+The detection event is a labeled synthetic (`TEST-NET-3` destination) — the
+only synthetic in an otherwise real stream.
 
 ### 1.5 Scope honesty
 
-This is a **user-level agent** (LaunchAgent, your uid): it sees your processes,
-your sockets, your shell history, plus system-wide listener and launchd tables.
-A root LaunchDaemon (official pkg `installer`, needs sudo) would add full
-system-wide socket/process visibility — same config, different launch scope,
-and is a documented upgrade, not a requirement.
+Since the §1.3 cutover (validated 2026-09-11) this is a **root LaunchDaemon**
+(system domain, `/Library/osquery/osquery.app`): system-wide process/socket
+visibility and EndpointSecurity (process + FIM events), bypassing user TCC.
+The old user-space LaunchAgent reading in this section was superseded — the
+daemon sees everything a user agent saw PLUS root-scope telemetry, and the
+user agent is deliberately booted out (`launchctl print gui/$(id -u)/...
+→ no such process` is the expected state).
 
 ## 2. Secrets & posture (Phase 2)
 

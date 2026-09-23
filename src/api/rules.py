@@ -384,4 +384,13 @@ async def get_rule_by_id(rule_id: int) -> Optional[dict]:
             if d.get(dt_field):
                 val = d[dt_field]
                 d[dt_field] = val.isoformat() if hasattr(val, "isoformat") else str(val)
+        # RT-002: INTERVAL columns arrive as timedelta; RuleResponse declares
+        # run_interval/lookback as str (P1-15, d9f447a). Serialize here so
+        # EVERY caller of this helper (create/get/patch/put routes) emits the
+        # shape the response model declares — not just the list route, which
+        # serializes via RuleResponse.from_row.
+        for interval_field in ("run_interval", "lookback"):
+            val = d.get(interval_field)
+            if val is not None and hasattr(val, "total_seconds"):
+                d[interval_field] = str(val)
         return d

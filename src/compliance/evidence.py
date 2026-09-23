@@ -65,7 +65,7 @@ async def build_evidence_pack(alert_id: int, as_of: Optional[datetime] = None) -
             SELECT id, time, rule_id, rule_name, severity, status, host_name,
                    description, mitre_tactics, mitre_techniques, evidence,
                    risk_score, assigned_to, resolved_at, resolution_note,
-                   case_id, created_at, updated_at
+                   case_id, created_at, updated_at, notes
             FROM alerts WHERE id = $1
             """,
             alert_id,

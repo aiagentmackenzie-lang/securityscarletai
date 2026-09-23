@@ -39,6 +39,82 @@ class TestEvidencePackBuilder:
             assert await build_evidence_pack(999, AS_OF) is None
 
     @pytest.mark.asyncio
+    async def test_evidence_sql_fetches_notes_column(self):
+        """RT-001 FAIL-proof: the alert SELECT must fetch the notes column.
+
+        Runtime live-fire 2026-09-23: build_evidence_pack read alert["notes"]
+        while its own SELECT never fetched the column — every call 500'd with
+        KeyError (born broken v0.7 ee49e8e; the old mocks supplied a notes key
+        the real row never had). The pin reads the real SQL shape, the layer
+        the old mocks could not see.
+        """
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(return_value=None)
+        captured_sql: list[str] = []
+
+        async def fetchrow_side_effect(sql, *params):
+            captured_sql.append(sql)
+            return None
+
+        conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+        with patch("src.compliance.evidence.get_pool", return_value=_pool_mock(conn)):
+            await build_evidence_pack(1, AS_OF)
+
+        assert captured_sql, "the alert fetchrow must run"
+        select_block = captured_sql[0].split("FROM alerts")[0]
+        # The selected column list must include the column the pack body reads.
+        assert "notes" in select_block, (
+            "evidence pack SELECT must fetch alerts.notes — "
+            f"selected columns: {select_block.strip()}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_pack_carries_alert_notes(self):
+        """The pack body reflects the alert's notes list (regulator-facing)."""
+        alert_time = AS_OF - timedelta(hours=5)
+        notes = [
+            {
+                "text": "Alert created (severity: critical)",
+                "time": alert_time.isoformat(),
+                "author": "system",
+            },
+            {
+                "text": "triaged by livefire_analyst",
+                "time": (alert_time + timedelta(minutes=2)).isoformat(),
+                "author": "livefire_analyst",
+            },
+        ]
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": 7,
+                "time": alert_time,
+                "rule_id": 1,
+                "rule_name": "Reverse Shell Pattern Detected",
+                "severity": "critical",
+                "status": "investigating",
+                "host_name": "web-01",
+                "description": "Detection: reverse shell",
+                "mitre_tactics": ["TA0002"],
+                "mitre_techniques": ["T1059"],
+                "evidence": "{}",
+                "risk_score": 0.9,
+                "assigned_to": None,
+                "resolved_at": None,
+                "resolution_note": None,
+                "case_id": None,
+                "created_at": alert_time,
+                "updated_at": alert_time,
+                "notes": notes,
+            }
+        )
+        conn.fetch = AsyncMock(return_value=[])
+        with patch("src.compliance.evidence.get_pool", return_value=_pool_mock(conn)):
+            pack = await build_evidence_pack(7, AS_OF)
+
+        assert pack["incident"]["notes"] == notes
+
+    @pytest.mark.asyncio
     async def test_pack_shape_and_cadence_dates(self):
         alert_time = AS_OF - timedelta(hours=10)
         conn = AsyncMock()
