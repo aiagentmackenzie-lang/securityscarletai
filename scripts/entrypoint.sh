@@ -317,11 +317,19 @@ fi
 # 7. Hand off to uvicorn
 # ───────────────────────────────────────────────────────────────
 echo "[entrypoint] Starting uvicorn on 0.0.0.0:8000"
-# F-07: trust proxy headers ONLY from private/docker networks. Behind Caddy
-# (prod overlay) this makes slowapi rate-limit keys and audit_logs.ip reflect
-# the REAL client (X-Forwarded-For) instead of the proxy IP — without it, all
-# clients share one rate-limit bucket and audit_rows.ip is useless. Private
-# ranges only: a non-proxied direct client cannot spoof XFF into the key.
+# F-07: trust proxy headers ONLY from the Docker compose network range.
+# Behind Caddy (prod overlay) this makes slowapi rate-limit keys and
+# audit_logs.ip reflect the REAL client (X-Forwarded-For) instead of the
+# proxy IP — without it, all clients share one rate-limit bucket and
+# audit_rows.ip is useless. W5-D: the default is 172.16.0.0/12 — the
+# Docker compose network space (Caddy lives there in every shipped
+# posture). 10.0.0.0/8 and 192.168.0.0/16 were DROPPED: those RFC1918
+# ranges are LAN space, and the dev/demo compose publishes 0.0.0.0:8000 —
+# a 192.168.x or 10.x LAN peer IS in those ranges, so trusting them let
+# any LAN client spoof X-Forwarded-For (per-IP rate-limit bypass, the
+# unauthenticated /metrics localhost check, audit_logs.ip poisoning).
+# LAN peers must never be trusted proxies. Operators whose ingress sits
+# on another subnet override UVICORN_FORWARDED_ALLOW_IPS.
 exec uvicorn src.api.main:app --host 0.0.0.0 --port 8000 \
   --proxy-headers \
-  --forwarded-allow-ips "${UVICORN_FORWARDED_ALLOW_IPS:-172.16.0.0/12,10.0.0.0/8,192.168.0.0/16}"
+  --forwarded-allow-ips "${UVICORN_FORWARDED_ALLOW_IPS:-172.16.0.0/12}"

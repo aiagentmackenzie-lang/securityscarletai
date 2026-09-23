@@ -308,14 +308,23 @@ redis password-less (localhost-only). Generate with
 ## Proxy headers (F-07)
 
 The entrypoint starts uvicorn with `--proxy-headers
---forwarded-allow-ips=$UVICORN_FORWARDED_ALLOW_IPS` (default: docker
-private ranges). Behind Caddy this is what makes slowapi rate-limit keys
-and `audit_logs.ip` carry the REAL client (X-Forwarded-For) instead of the
-proxy IP. Without it, one abusive client 429s the whole organization
-(one global bucket) and the audit trail's ip column is useless. Only
-private ranges are trusted by default; a client that bypasses Caddy
-cannot spoof XFF into the key. Override the default with
-`UVICORN_FORWARDED_ALLOW_IPS` if your ingress sits elsewhere.
+--forwarded-allow-ips=$UVICORN_FORWARDED_ALLOW_IPS` (default:
+`172.16.0.0/12` — the Docker compose network space, where Caddy lives in
+every shipped posture). Behind Caddy this is what makes slowapi
+rate-limit keys and `audit_logs.ip` carry the REAL client
+(X-Forwarded-For) instead of the proxy IP. Without it, one abusive
+client 429s the whole organization (one global bucket) and the audit
+trail's ip column is useless.
+
+The default deliberately does NOT trust the other RFC1918 ranges
+(10.0.0.0/8, 192.168.0.0/16): those are LAN space, and the dev/demo
+compose publishes `0.0.0.0:8000` — a LAN peer inside those ranges could
+spoof `X-Forwarded-For` (per-IP rate-limit bypass, the unauthenticated
+`/metrics` localhost check, audit ip poisoning). A client that bypasses
+Caddy cannot spoof XFF into the key; LAN peers are never trusted
+proxies. If your ingress sits on another subnet (host nginx at
+172.17.0.1, a 10.x LB), override the default with
+`UVICORN_FORWARDED_ALLOW_IPS`.
 
 ## Container hardening (container hygiene)
 
