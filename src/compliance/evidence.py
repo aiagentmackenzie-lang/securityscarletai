@@ -75,7 +75,7 @@ async def build_evidence_pack(alert_id: int, as_of: Optional[datetime] = None) -
 
         correlation_matches = await _correlation_matches(conn, alert)
         case_block = await _case_block(conn, alert["case_id"], alert_id)
-        audit_receipts = await _audit_receipts(
+        audit_receipts, audit_truncated = await _audit_receipts(
             conn,
             alert_id=alert_id,
             case_id=alert["case_id"],
@@ -129,6 +129,9 @@ async def build_evidence_pack(alert_id: int, as_of: Optional[datetime] = None) -
         "correlation": correlation_matches,
         "case": case_block,
         "audit_receipts": audit_receipts,
+        # W4-C: say when the bounded slice cut anything (the pack is
+        # regulator-facing; a silently-dropped section is a lie by omission).
+        "audit_receipts_truncated": audit_truncated,
     }
     return pack
 
@@ -188,7 +191,14 @@ async def _correlation_matches(conn, alert) -> list[dict]:
 
 async def _case_block(conn, case_id: Optional[int], alert_id: int) -> dict:
     if case_id is None:
-        return {"case": None, "timeline": [], "response_actions": [], "quarantine": []}
+        return {
+            "case": None,
+            "timeline": [],
+            "timeline_truncated": False,
+            "response_actions": [],
+            "response_actions_truncated": False,
+            "quarantine": [],
+        }
     case = await conn.fetchrow(
         """
         SELECT id, title, description, status, severity, assigned_to,
@@ -198,13 +208,24 @@ async def _case_block(conn, case_id: Optional[int], alert_id: int) -> dict:
         case_id,
     )
     if not case:
-        return {"case": None, "timeline": [], "response_actions": [], "quarantine": []}
+        return {
+            "case": None,
+            "timeline": [],
+            "timeline_truncated": False,
+            "response_actions": [],
+            "response_actions_truncated": False,
+            "quarantine": [],
+        }
+    # W4-C: newest-first (DESC). A regulator pack must carry the NEWEST
+    # evidence — the verdict lives at the end of the timeline, and the old
+    # ASC LIMIT silently dropped it out of the pack on a big case. The
+    # *_truncated flags say so when the slice cut anything.
     events = await conn.fetch(
         """
         SELECT id, event_type, actor, actor_kind, payload, alert_id, action_id, created_at
         FROM case_events
         WHERE case_id = $1
-        ORDER BY created_at
+        ORDER BY created_at DESC
         LIMIT $2
         """,
         case_id,
@@ -217,7 +238,7 @@ async def _case_block(conn, case_id: Optional[int], alert_id: int) -> dict:
                executed_at, verified_at, evidence, rollback_note, created_at, updated_at
         FROM response_actions
         WHERE case_id = $1
-        ORDER BY created_at
+        ORDER BY created_at DESC
         LIMIT $2
         """,
         case_id,
@@ -257,6 +278,7 @@ async def _case_block(conn, case_id: Optional[int], alert_id: int) -> dict:
             }
             for e in events
         ],
+        "timeline_truncated": len(events) == _PACK_LIMITS["max_case_events"],
         "response_actions": [
             {
                 "id": a["id"],
@@ -276,6 +298,7 @@ async def _case_block(conn, case_id: Optional[int], alert_id: int) -> dict:
             }
             for a in actions
         ],
+        "response_actions_truncated": len(actions) == _PACK_LIMITS["max_response_actions"],
         "quarantine": [
             {
                 "host_name": q["host_name"],
@@ -303,26 +326,31 @@ def _pack_targets(
 
 async def _audit_receipts(
     conn, alert_id: int, case_id: Optional[int], action_ids: list[int]
-) -> list[dict]:
+) -> tuple[list[dict], bool]:
     """Audit-chain receipts for the incident's objects (bounded).
 
     The audit chain is the tamper-evident record; these receipts let the
     regulator's reviewer find the chain rows without knowing the ids.
+    W4-C: newest-first per target (DESC) — the old ASC LIMIT dropped the
+    newest audit rows out of the pack; returns (receipts, truncated).
     """
     receipts: list[dict] = []
+    truncated = False
     for ttype, ids in _pack_targets(alert_id, case_id, action_ids).items():
         rows = await conn.fetch(
             """
             SELECT id, actor, action, target_type, target_id, created_at
             FROM audit_log
             WHERE target_type = $1 AND target_id = ANY($2::int[])
-            ORDER BY created_at
+            ORDER BY created_at DESC
             LIMIT $3
             """,
             ttype,
             ids,
             _PACK_LIMITS["max_audit_receipts"],
         )
+        if len(rows) == _PACK_LIMITS["max_audit_receipts"]:
+            truncated = True
         receipts.extend(
             {
                 "audit_id": r["id"],
@@ -335,7 +363,7 @@ async def _audit_receipts(
             }
             for r in rows
         )
-    return receipts
+    return receipts, truncated
 
 
 def _safe_evidence(evidence: Any) -> Any:

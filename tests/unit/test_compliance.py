@@ -216,6 +216,166 @@ class TestEvidencePackBuilder:
         receipts = pack["audit_receipts"]
         assert receipts and receipts[0]["action"] == "response.approve"
 
+    @pytest.mark.asyncio
+    async def test_big_case_newest_first_with_truncation_flags(self):
+        # W4-C: pack limits slice NEWEST-first and say so when they cut —
+        # the old ASC LIMIT silently dropped the newest evidence (including
+        # the verdict) out of a regulator-facing document.
+        alert_time = AS_OF - timedelta(days=1)
+        conn = AsyncMock()
+
+        async def fetchrow_side_effect(sql, *params):
+            if "FROM cases" in sql:
+                return {
+                    "id": 3,
+                    "title": "Big Case",
+                    "description": "",
+                    "status": "open",
+                    "severity": "critical",
+                    "assigned_to": None,
+                    "lessons_learned": None,
+                    "resolution_note": None,
+                    "resolved_at": None,
+                    "created_at": alert_time,
+                    "updated_at": alert_time,
+                }
+            return {
+                "id": 11,
+                "time": alert_time,
+                "rule_id": 1,
+                "rule_name": "r",
+                "severity": "critical",
+                "status": "new",
+                "host_name": "h",
+                "description": None,
+                "mitre_tactics": None,
+                "mitre_techniques": None,
+                "evidence": None,
+                "risk_score": None,
+                "assigned_to": None,
+                "resolved_at": None,
+                "resolution_note": None,
+                "case_id": 3,
+                "created_at": alert_time,
+                "updated_at": alert_time,
+                "notes": None,
+            }
+
+        conn.fetchrow = fetchrow_side_effect
+
+        async def fetch_side_effect(sql, *params):
+            if "FROM case_events" in sql:
+                assert "ORDER BY created_at DESC" in sql
+                return [
+                    {
+                        "id": i,
+                        "event_type": "created",
+                        "actor": "a",
+                        "actor_kind": "human",
+                        "payload": {},
+                        "alert_id": None,
+                        "action_id": None,
+                        "created_at": alert_time,
+                    }
+                    for i in range(200)  # == max_case_events
+                ]
+            if "FROM response_actions" in sql:
+                assert "ORDER BY created_at DESC" in sql
+                return [
+                    {
+                        "id": i,
+                        "action_type": "quarantine_host",
+                        "params": {},
+                        "policy_effect": "approval_required",
+                        "status": "requested",
+                        "requested_by": "r",
+                        "justification": None,
+                        "approved_by": None,
+                        "approval_note": None,
+                        "rejection_reason": None,
+                        "executed_at": None,
+                        "verified_at": None,
+                        "evidence": None,
+                        "rollback_note": None,
+                        "created_at": alert_time,
+                        "updated_at": alert_time,
+                    }
+                    for i in range(50)  # == max_response_actions
+                ]
+            if "FROM audit_log" in sql:
+                assert "ORDER BY created_at DESC" in sql
+                return [
+                    {
+                        "id": i,
+                        "actor": "a",
+                        "action": "case.create",
+                        "target_type": "case",
+                        "target_id": 3,
+                        "created_at": alert_time,
+                    }
+                    for i in range(100)  # == max_audit_receipts
+                ]
+            return []
+
+        conn.fetch = AsyncMock(side_effect=fetch_side_effect)
+        with patch("src.compliance.evidence.get_pool", return_value=_pool_mock(conn)):
+            pack = await build_evidence_pack(11, AS_OF)
+
+        assert pack["case"]["timeline_truncated"] is True
+        assert pack["case"]["response_actions_truncated"] is True
+        assert pack["audit_receipts_truncated"] is True
+
+    @pytest.mark.asyncio
+    async def test_small_case_has_no_truncation_flags(self):
+        alert_time = AS_OF - timedelta(days=1)
+        conn = AsyncMock()
+
+        async def fetchrow_side_effect(sql, *params):
+            if "FROM cases" in sql:
+                return {
+                    "id": 3,
+                    "title": "Small Case",
+                    "description": None,
+                    "status": "open",
+                    "severity": "low",
+                    "assigned_to": None,
+                    "lessons_learned": None,
+                    "resolution_note": None,
+                    "resolved_at": None,
+                    "created_at": alert_time,
+                    "updated_at": alert_time,
+                }
+            return {
+                "id": 11,
+                "time": alert_time,
+                "rule_id": 1,
+                "rule_name": "r",
+                "severity": "low",
+                "status": "new",
+                "host_name": "h",
+                "description": None,
+                "mitre_tactics": None,
+                "mitre_techniques": None,
+                "evidence": None,
+                "risk_score": None,
+                "assigned_to": None,
+                "resolved_at": None,
+                "resolution_note": None,
+                "case_id": 3,
+                "created_at": alert_time,
+                "updated_at": alert_time,
+                "notes": None,
+            }
+
+        conn.fetchrow = fetchrow_side_effect
+        conn.fetch = AsyncMock(return_value=[])
+        with patch("src.compliance.evidence.get_pool", return_value=_pool_mock(conn)):
+            pack = await build_evidence_pack(11, AS_OF)
+
+        assert pack["case"]["timeline_truncated"] is False
+        assert pack["case"]["response_actions_truncated"] is False
+        assert pack["audit_receipts_truncated"] is False
+
 
 class TestFrameworkMappingsLoader:
     def test_parse_valid_document(self):
