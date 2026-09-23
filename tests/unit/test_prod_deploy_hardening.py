@@ -106,6 +106,14 @@ class TestProdOverlay:
         pg_section = s.split("services:")[1]
         assert "ports: !reset []" in s
 
+    def test_prod_overlay_reset_mcp_ports(self):
+        # W5-C: the base compose publishes 0.0.0.0:8002 for mcp; the internet
+        # overlay must revoke it — only Caddy publishes (80/443). The
+        # local-prod overlay keeps its explicit 127.0.0.1:8002 MCP publish.
+        s = _PROD.read_text()
+        mcp_section = s.split("  mcp:", 1)[1].split("\n  caddy:", 1)[0]
+        assert "ports: !reset []" in mcp_section
+
     def test_no_platform_pins_anywhere(self):
         for f in (_BASE, _PROD):
             assert "platform: linux/arm64" not in f.read_text(), (

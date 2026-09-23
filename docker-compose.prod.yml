@@ -70,6 +70,18 @@ services:
         limits:
           memory: 512m
 
+  mcp:
+    # W5-C: the base compose publishes 0.0.0.0:8002 (dev posture). In this
+    # internet-facing overlay NOTHING publishes but Caddy (80/443) — the MCP
+    # server serves the analyst's agents host-locally (its own docstring),
+    # so a 0.0.0.0 publish here was an unintended internet-facing MCP
+    # endpoint. The local-prod overlay keeps its 127.0.0.1:8002 publish.
+    ports: !reset []
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
   caddy:
     image: caddy:2-alpine
     container_name: scarletai-caddy
