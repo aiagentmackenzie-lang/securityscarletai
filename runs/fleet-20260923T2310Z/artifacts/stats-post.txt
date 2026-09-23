@@ -1,0 +1,8 @@
+neuralguard-ai-firewall-neuralguard-1 0.13% 772.5MiB / 1GiB
+neuralguard-ai-firewall-postgres-1 0.00% 55.43MiB / 512MiB
+neuralguard-ai-firewall-redis-1 0.51% 8.227MiB / 128MiB
+scarletai-api 0.21% 242.7MiB / 1GiB
+scarletai-dashboard 0.39% 101.3MiB / 512MiB
+scarletai-db 0.92% 288.4MiB / 7.738GiB
+scarletai-mcp 0.13% 88.86MiB / 512MiB
+scarletai-redis 0.54% 8.84MiB / 7.738GiB
