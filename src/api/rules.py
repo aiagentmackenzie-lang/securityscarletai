@@ -144,19 +144,22 @@ async def create_rule(
 
         log.info("rule_created", rule_id=rule_id, name=rule.name, user=user.get("sub"))
 
-        # P2-23: audit rule mutations (previously only structlog, never audit_log).
-        await log_audit_action(
-            actor=user.get("sub", "unknown"),
-            action="rule.create",
-            target_type="rule",
-            target_id=rule_id,
-            new_values={"name": rule.name, "severity": rule.severity, "enabled": rule.enabled},
-        )
+    # W4-E: audit + scheduler reload + the re-fetch each acquire their own
+    # pool connection — they run OUTSIDE the acquire block (hold-one-need-two
+    # deadlocks a saturated pool: concurrent admin mutations each hold one
+    # connection while waiting for two more). patch_rule's shape.
+    await log_audit_action(
+        actor=user.get("sub", "unknown"),
+        action="rule.create",
+        target_type="rule",
+        target_id=rule_id,
+        new_values={"name": rule.name, "severity": rule.severity, "enabled": rule.enabled},
+    )
 
-        # Reload scheduler to pick up new rule
-        await reload_rules()
+    # Reload scheduler to pick up new rule
+    await reload_rules()
 
-        return await get_rule_by_id(rule_id)
+    return await get_rule_by_id(rule_id)
 
 
 @router.get("", response_model=List[RuleResponse])
@@ -239,23 +242,24 @@ async def update_rule(
 
         log.info("rule_updated", rule_id=rule_id, user=user.get("sub"))
 
-        # P2-23: audit rule mutations.
-        await log_audit_action(
-            actor=user.get("sub", "unknown"),
-            action="rule.update",
-            target_type="rule",
-            target_id=rule_id,
-            new_values={
-                "name": updates.name,
-                "enabled": updates.enabled,
-                "severity": updates.severity,
-            },
-        )
+    # W4-E: audit + scheduler reload + the re-fetch run OUTSIDE the acquire
+    # block — see create_rule (hold-one-need-two deadlock pattern).
+    await log_audit_action(
+        actor=user.get("sub", "unknown"),
+        action="rule.update",
+        target_type="rule",
+        target_id=rule_id,
+        new_values={
+            "name": updates.name,
+            "enabled": updates.enabled,
+            "severity": updates.severity,
+        },
+    )
 
-        # Reload scheduler
-        await reload_rules()
+    # Reload scheduler
+    await reload_rules()
 
-        return await get_rule_by_id(rule_id)
+    return await get_rule_by_id(rule_id)
 
 
 @router.patch("/{rule_id}", response_model=RuleResponse)
@@ -352,18 +356,20 @@ async def delete_rule(
         if result == "DELETE 0":
             raise HTTPException(status_code=404, detail="Rule not found")
 
-        log.info("rule_deleted", rule_id=rule_id, user=user.get("sub"))
+    # W4-E: audit + scheduler reload run OUTSIDE the acquire block — see
+    # create_rule (hold-one-need-two deadlock pattern).
+    log.info("rule_deleted", rule_id=rule_id, user=user.get("sub"))
 
-        # P2-23: audit rule mutations.
-        await log_audit_action(
-            actor=user.get("sub", "unknown"),
-            action="rule.delete",
-            target_type="rule",
-            target_id=rule_id,
-        )
+    # P2-23: audit rule mutations.
+    await log_audit_action(
+        actor=user.get("sub", "unknown"),
+        action="rule.delete",
+        target_type="rule",
+        target_id=rule_id,
+    )
 
-        # Reload scheduler
-        await reload_rules()
+    # Reload scheduler
+    await reload_rules()
 
 
 async def get_rule_by_id(rule_id: int) -> Optional[dict]:
