@@ -611,6 +611,79 @@ class TestSuppressionRules:
 
 class TestExportAlerts:
     @pytest.mark.asyncio
+    async def test_export_csv_keys_are_materialized_not_one_shot(self):
+        """RT-003 FAIL-proof: fieldnames must be a MATERIALIZED list.
+
+        Live-fire 2026-09-23: asyncpg Record.keys() (0.31) returns a ONE-SHOT
+        tuple_iterator. DictWriter.writeheader() internally does
+        dict(zip(self.fieldnames, self.fieldnames)) — with a single shared
+        iterator that consumes it while PAIRING ADJACENT COLUMNS
+        ({id: time, rule_name: severity, status: host_name,
+        description: assigned_to}), then set-differences against the now
+        exhausted iterator: ValueError 'dict contains fields not in
+        fieldnames: description, status, id, rule_name' — a 500 on every
+        non-empty export. The old mocks passed plain dicts, whose keys view
+        survives double-zip, so the suite could not see it.
+        """
+
+        columns = [
+            "id",
+            "time",
+            "rule_name",
+            "severity",
+            "status",
+            "host_name",
+            "description",
+            "assigned_to",
+            "risk_score",
+        ]
+        values = {
+            "id": 1,
+            "time": "2024-01-01",
+            "rule_name": "Test",
+            "severity": "high",
+            "status": "new",
+            "host_name": "ws-01",
+            "description": "Desc",
+            "assigned_to": None,
+            "risk_score": 75.0,
+        }
+
+        class FakeAsyncpgRecord:
+            """Mirrors asyncpg 0.31 Record: keys() is a one-shot iterator."""
+
+            def keys(self):
+                return iter(tuple(columns))  # one-shot, like the real Record
+
+            def __getitem__(self, key):
+                return values[key]
+
+            def items(self):
+                return ((k, values[k]) for k in columns)
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(return_value=[FakeAsyncpgRecord()])
+
+        class AsyncCtx:
+            async def __aenter__(self):
+                return mock_conn
+
+            async def __aexit__(self, *args):
+                pass
+
+        mock_pool = AsyncMock()
+        mock_pool.acquire = MagicMock(return_value=AsyncCtx())
+
+        with patch("src.detection.alerts.get_pool", AsyncMock(return_value=mock_pool)):
+            result = await export_alerts_csv(hours=24)
+
+        lines = result.splitlines()
+        assert lines[0] == ",".join(columns), f"header misaligned: {lines[0]!r}"
+        # Every data row carries all 9 fields (the writerow must not raise).
+        assert len(lines) == 2
+        assert len(lines[1].split(",")) == len(columns)
+
+    @pytest.mark.asyncio
     async def test_export_csv(self):
         mock_rows = [
             {
