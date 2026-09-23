@@ -52,6 +52,30 @@ Out of scope:
 These do **not** make a deployment invulnerable. Review `docs/DEPLOYMENT.md`
 for the production hardening checklist before exposing the API to a network.
 
+## Known residual risks (written down)
+
+- **Four-eyes approval is identity-based, not person-based.** The response
+  workflow's approve gate rejects `requested_by == approver`, but identities
+  are tokens: ONE operator holding BOTH the static admin bearer token and a
+  personal admin JWT can request-with-token and approve-with-JWT, satisfying
+  the gate alone. Service accounts are not a second pair of eyes. Inherent to
+  token-based auth; the real mitigation is operational separation (the
+  requester's human credential must not sit in the same secret store as the
+  static token).
+- **MCP `/healthz` is unauthenticated and not terse.** It returns boot-time
+  scope-check details (table/privilege names from `information_schema`).
+  The MCP server is deployed loopback-only, which bounds this; make the
+  endpoint terse without a bearer if you expose it further.
+- **The MCP endpoint has no rate limit.** `_tool_semaphore` caps CONCURRENCY
+  (2 in-flight tool calls), not request rate. The investigate tool is a
+  multi-LLM-call loop; a token holder can drive load. The API's LLM limiter
+  is NOT ported here — trust model is the bearer holder, same as the API's
+  admin bearer.
+- **Logout is per-session, not global.** `POST /auth/logout` always revokes
+  the presented access token's jti; the 7-day refresh token is revoked ONLY
+  when its own token string is presented in the logout body (opt-in).
+  Password change remains the revoke-every-session path.
+
 ## Release verification (supply chain)
 
 Every tagged release produced by `.github/workflows/release.yml` (trigger:

@@ -259,6 +259,48 @@ class TestUEBABaselineScoreUser:
             assert result["anomaly_score"] is None
             assert result["is_anomaly"] is False
 
+    @pytest.mark.asyncio
+    async def test_score_user_uses_trained_window(self):
+        """W2-C/B4: score_user aggregates the model's TRAINED window, not a
+        fixed days=1 — the training/scoring distribution mismatch made every
+        user skew anomaly-low."""
+        baseline = UEBABaseline()
+        baseline.is_trained = True
+        baseline.trained_window_days = (
+            9  # non-default: proves it reads the model, not a magic number
+        )
+        extractor = AsyncMock(return_value=None)
+        with patch.object(baseline, "extract_user_features", extractor):
+            await baseline.score_user("user1")
+        assert extractor.await_args.kwargs.get("days") == 9
+
+    @pytest.mark.asyncio
+    async def test_get_high_risk_users_uses_trained_window(self):
+        """W2-C/B4: get_high_risk_users sweeps candidates AND aggregates
+        features over the model's TRAINED window."""
+        baseline = UEBABaseline()
+        baseline.is_trained = True
+        baseline.trained_window_days = 9
+
+        mock_pool = AsyncMock()
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(return_value=[{"user_name": "u1"}])
+        acquirer = MagicMock()
+        acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
+        acquirer.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = MagicMock(return_value=acquirer)
+
+        batch = AsyncMock(return_value={})
+        with (
+            patch("src.ai.ueba.get_pool", return_value=mock_pool),
+            patch.object(baseline, "extract_user_features_batch", batch),
+        ):
+            await baseline.get_high_risk_users()
+
+        assert batch.await_args.kwargs.get("days") == 9
+        # The candidate sweep must match too ($1 = window days).
+        assert mock_conn.fetch.await_args.args[1] == 9
+
 
 class TestUEBAModelIntegrity:
     """Test model file integrity checks."""
@@ -277,6 +319,53 @@ class TestUEBAModelIntegrity:
         result = UEBABaseline._sha256_file(test_file)
         assert isinstance(result, str)
         assert len(result) == 64  # SHA256 hex digest length
+
+    def test_trained_window_persists_in_metadata(self, tmp_path):
+        """W2-C/B4: the trained window survives save/load — a restarted
+        process must score on the window the model was actually trained on
+        (fallback 7 = the documented default min_days)."""
+        import src.ai.ueba as ueba_mod
+
+        baseline = UEBABaseline()
+        baseline.model = {"mock": "model"}  # pickleable stand-in
+        baseline.scaler = {"mock": "scaler"}
+        baseline.trained_at = 1.0
+        baseline.training_samples = 5
+        baseline.trained_window_days = 9
+
+        with (
+            patch.object(ueba_mod, "MODEL_PATH", tmp_path / "m.joblib"),
+            patch.object(ueba_mod, "SCALER_PATH", tmp_path / "s.joblib"),
+            patch.object(ueba_mod, "META_PATH", tmp_path / "meta.joblib"),
+            patch.object(ueba_mod, "HASH_PATH", tmp_path / "m.sha256"),
+        ):
+            baseline._save_model()
+
+            fresh = UEBABaseline()  # __init__ loads from the patched paths
+            assert fresh.is_trained is True
+            assert fresh.trained_window_days == 9
+
+    def test_trained_window_fallback_for_legacy_metadata(self, tmp_path):
+        """W2-C/B4: a pre-W2-C metadata file (no trained_window_days key)
+        falls back to 7 — the documented default training window."""
+        import joblib
+
+        import src.ai.ueba as ueba_mod
+
+        with (
+            patch.object(ueba_mod, "MODEL_PATH", tmp_path / "m.joblib"),
+            patch.object(ueba_mod, "SCALER_PATH", tmp_path / "s.joblib"),
+            patch.object(ueba_mod, "META_PATH", tmp_path / "meta.joblib"),
+            patch.object(ueba_mod, "HASH_PATH", tmp_path / "m.sha256"),
+        ):
+            joblib.dump({"mock": "model"}, tmp_path / "m.joblib")
+            joblib.dump({"mock": "scaler"}, tmp_path / "s.joblib")
+            (tmp_path / "m.sha256").write_text(UEBABaseline._sha256_file(tmp_path / "m.joblib"))
+            joblib.dump({"trained_at": 1.0, "training_samples": 3}, tmp_path / "meta.joblib")
+
+            fresh = UEBABaseline()
+            assert fresh.is_trained is True
+            assert fresh.trained_window_days == 7  # legacy metadata → default
 
 
 class TestGetUebaSingleton:

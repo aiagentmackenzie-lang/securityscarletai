@@ -217,3 +217,57 @@ class TestAirGappedScheduler:
                                 "max_instances": 1,
                             }
                         )
+
+
+class TestInitialRefreshTaskRef:
+    """W2-E/B6 — the initial feed refresh is no longer an unreferenced
+    fire-and-forget task: the module keeps the reference (F-17) and the
+    done-callback discards + retrieves the exception."""
+
+    @pytest.mark.asyncio
+    async def test_initial_refresh_retained_and_exception_surfaced(self, monkeypatch):
+        """Ref retained while in flight; a failing refresh LOGS its exception
+        (retrieved — not swallowed, not 'never retrieved' loop noise) and the
+        set entry is discarded on completion."""
+        import asyncio
+
+        from src.intel import threat_intel
+
+        threat_intel._async_scheduler = None
+        threat_intel._initial_refresh_tasks.clear()
+
+        async def failing_refresh():
+            await asyncio.sleep(0.01)
+            raise RuntimeError("feed refresh exploded")
+
+        events: list[tuple] = []
+
+        class _Rec:
+            @staticmethod
+            def error(event, **kw):
+                events.append((event, kw))
+
+            @staticmethod
+            def info(event, **kw):
+                pass
+
+        monkeypatch.setattr(threat_intel, "log", _Rec())
+        mock_sched = MagicMock()
+
+        with (
+            patch.object(threat_intel.settings, "threat_intel_enabled", True),
+            patch("apscheduler.schedulers.asyncio.AsyncIOScheduler", return_value=mock_sched),
+            patch.object(threat_intel, "refresh_all_feeds", failing_refresh),
+        ):
+            await threat_intel.start_threat_intel_scheduler()
+            assert len(threat_intel._initial_refresh_tasks) == 1  # ref RETAINED
+
+            await asyncio.sleep(0.1)  # let the task fail + done-callback run
+
+        assert events == [
+            (
+                "threat_intel_initial_refresh_failed",
+                {"error": "feed refresh exploded"},
+            )
+        ]  # exception SURFACED, not swallowed
+        assert len(threat_intel._initial_refresh_tasks) == 0  # discarded after done

@@ -174,18 +174,30 @@ async def enrich_dns_reverse_async(ip: str) -> dict[str, Any]:
     )
 
 
-async def enrich_with_threat_intel(ip: str) -> dict[str, Any]:
-    """Enrich an IP with threat intel data from cache and live APIs."""
+async def enrich_with_threat_intel(
+    ip: str, prefetched: dict[str, dict[str, Any] | None] | None = None
+) -> dict[str, Any]:
+    """Enrich an IP with threat intel data from cache and live APIs.
+
+    W2-D/B5: ``prefetched`` is a batch-level {ip: cached-row-or-nothing}
+    map from ONE check_ioc_matches query (see write_back_enrichment). When
+    the ip is a key in the map, its cache verdict comes from the batch
+    query — the per-IP cache round-trip is skipped. A miss still falls
+    through to the live path (negative cache + budget), exactly like the
+    single-IP path. ``None`` keeps the historical per-IP lookup.
+    """
     from src.intel.threat_intel import enrich_ip_with_threat_intel
 
     try:
-        return await enrich_ip_with_threat_intel(ip)
+        return await enrich_ip_with_threat_intel(ip, prefetched=prefetched)
     except Exception as e:
         log.warning("threat_intel_enrichment_failed", ip=ip, error=str(e))
         return {}
 
 
-async def enrich_event(event) -> dict[str, Any]:
+async def enrich_event(
+    event, ti_prefetch: dict[str, dict[str, Any] | None] | None = None
+) -> dict[str, Any]:
     """
     Run all enrichments for an event.
 
@@ -195,6 +207,8 @@ async def enrich_event(event) -> dict[str, Any]:
 
     Args:
         event: A LogEvent or similar object with source_ip, destination_ip attributes.
+        ti_prefetch: W2-D/B5 batch-level {ip: cached-row-or-nothing} from ONE
+            check_ioc_matches query — skips the per-IP cache round-trip.
     """
     enrichment: dict[str, Any] = {}
 
@@ -211,7 +225,7 @@ async def enrich_event(event) -> dict[str, Any]:
             enrichment.update(dns)
 
         # Threat Intel
-        ti = await enrich_with_threat_intel(event.source_ip)
+        ti = await enrich_with_threat_intel(event.source_ip, prefetched=ti_prefetch)
         if ti:
             enrichment.update(ti)
 
@@ -230,7 +244,7 @@ async def enrich_event(event) -> dict[str, Any]:
             dest_enrichment.update(dns)
 
         # Threat Intel
-        ti = await enrich_with_threat_intel(event.destination_ip)
+        ti = await enrich_with_threat_intel(event.destination_ip, prefetched=ti_prefetch)
         if ti:
             dest_enrichment.update(ti)
 
@@ -261,21 +275,39 @@ async def write_back_enrichment(events: list) -> None:
     natural key plus BOTH endpoint ips (F-18: the tuple-only UPDATE could
     land one event's enrichment on a later, different-IP event sharing the
     same natural key — the inputs to enrichment ARE the ips). Best-effort:
-    a failure here never affects ingestion."""
+    a failure here never affects ingestion.
+
+    W2-D/B5: the cached-TI lookups are BATCHED — distinct public IPs across
+    the batch are resolved with ONE check_ioc_matches query (per-IP cache
+    round-trips previously scaled with the batch: a 1000-event batch cost
+    up to 2000 fetchrows just to read the cache).
+    """
     import json as _json
 
     from src.db.connection import get_pool
+    from src.intel.threat_intel import check_ioc_matches
     from src.services.writer import writer
 
     # Persist the just-written batch so the enrichment write-back below
     # can find the rows.
     await writer.flush()
 
+    # W2-D/B5: one batched cache query for all distinct public IPs in the
+    # batch; the per-event path reads its verdicts from this map.
+    distinct_ips: set[str] = set()
+    for event_data in events:
+        for ip in (event_data.source_ip, event_data.destination_ip):
+            if ip and is_public_ip(ip):
+                distinct_ips.add(ip)
+    ti_prefetch = await check_ioc_matches("ip", sorted(distinct_ips))
+
     pool = await get_pool()
     async with pool.acquire() as conn:
         for event_data in events:
             try:
-                enrichment = await enrich_event_dict(event_data.model_dump(by_alias=True))
+                enrichment = await enrich_event_dict(
+                    event_data.model_dump(by_alias=True), ti_prefetch=ti_prefetch
+                )
                 if enrichment:
                     await conn.execute(
                         """UPDATE logs SET enrichment = $1::jsonb
@@ -309,7 +341,9 @@ async def write_back_enrichment(events: list) -> None:
                 )
 
 
-async def enrich_event_dict(event_data: dict) -> dict[str, Any]:
+async def enrich_event_dict(
+    event_data: dict, ti_prefetch: dict[str, dict[str, Any] | None] | None = None
+) -> dict[str, Any]:
     """
     Enrich an event from a dict (used when LogEvent object not available).
 
@@ -326,4 +360,4 @@ async def enrich_event_dict(event_data: dict) -> dict[str, Any]:
             self.destination_ip = destination_ip
 
     event = _Event(source_ip, destination_ip)
-    return await enrich_event(event)
+    return await enrich_event(event, ti_prefetch=ti_prefetch)

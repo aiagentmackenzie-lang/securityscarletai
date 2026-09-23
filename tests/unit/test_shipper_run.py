@@ -59,6 +59,7 @@ class TestReadNewLines:
         log_file.write_text(_osquery_line(pid="1") + "\n" + _osquery_line(pid="2") + "\n")
         writer = MagicMock(spec=LogWriter)
         writer.write = AsyncMock()
+        writer.flush = AsyncMock()
         shipper = _make_shipper(log_file, writer, offset=0)
 
         await shipper._read_new_lines()
@@ -73,6 +74,7 @@ class TestReadNewLines:
         log_file.write_text("\n" + _osquery_line(pid="1") + "\n\n\n")
         writer = MagicMock(spec=LogWriter)
         writer.write = AsyncMock()
+        writer.flush = AsyncMock()
         shipper = _make_shipper(log_file, writer, offset=0)
 
         await shipper._read_new_lines()
@@ -85,12 +87,91 @@ class TestReadNewLines:
         log_file.write_text("not json {{{\n" + _osquery_line(pid="1") + "\n")
         writer = MagicMock(spec=LogWriter)
         writer.write = AsyncMock()
+        writer.flush = AsyncMock()
         shipper = _make_shipper(log_file, writer, offset=0)
 
         await shipper._read_new_lines()
 
         # only the valid line is written; the malformed one is skipped, not fatal
         assert writer.write.await_count == 1
+
+    async def test_confirmed_checkpoint_persists_after_flush(self, tmp_path, ckpt):
+        """W1-B/B2: the persisted checkpoint is the CONFIRMED offset — writer.flush()
+        is awaited BEFORE the checkpoint file is written, so the file never
+        contains bytes the writer hasn't landed."""
+        log_file = tmp_path / "osq.log"
+        log_file.write_text(_osquery_line(pid="1") + "\n" + _osquery_line(pid="2") + "\n")
+        writer = MagicMock(spec=LogWriter)
+        writer.write = AsyncMock()
+        writer.flush = AsyncMock()
+        shipper = _make_shipper(log_file, writer, offset=0)
+
+        await shipper._read_new_lines()
+
+        assert writer.flush.await_count == 1
+        assert shipper._confirmed_offset == shipper._offset
+        assert ckpt.read_text() == str(shipper._confirmed_offset)
+
+    async def test_flush_failure_leaves_checkpoint_lagging(self, tmp_path, ckpt):
+        """W1-B/B2: an unexpected flush failure must NOT persist the parse cursor —
+        the confirmed checkpoint lags, trading crash-loss for bounded re-read."""
+        log_file = tmp_path / "osq.log"
+        log_file.write_text(_osquery_line(pid="1") + "\n" + _osquery_line(pid="2") + "\n")
+        writer = MagicMock(spec=LogWriter)
+        writer.write = AsyncMock()
+        writer.flush = AsyncMock(side_effect=RuntimeError("unexpected flush failure"))
+        shipper = _make_shipper(log_file, writer, offset=0)
+
+        await shipper._read_new_lines()
+
+        # Parse cursor advanced past the chunk (in-process retry is the
+        # writer's problem), but the checkpoint file still holds the old
+        # confirmed offset.
+        assert shipper._offset == log_file.stat().st_size
+        assert shipper._confirmed_offset == 0
+        assert not ckpt.exists()
+
+    async def test_crash_window_re_read_is_bounded(self, tmp_path, ckpt):
+        """W1-B/B2: crash during the unconfirmed window → restart re-reads
+        exactly the unconfirmed bytes (duplicates bounded by one flush window)
+        instead of trusting a checkpoint that ran past lost events."""
+        log_file = tmp_path / "osq.log"
+        log_file.write_text(_osquery_line(pid="1") + "\n" + _osquery_line(pid="2") + "\n")
+        failing = MagicMock(spec=LogWriter)
+        failing.write = AsyncMock()
+        failing.flush = AsyncMock(side_effect=RuntimeError("boom"))
+        shipper = _make_shipper(log_file, failing, offset=0)
+        await shipper._read_new_lines()  # flush fails → checkpoint stays 0
+
+        # Simulate crash + restart: a fresh shipper loads the CONFIRMED
+        # checkpoint (0) and re-reads the whole unconfirmed window.
+        healthy = MagicMock(spec=LogWriter)
+        healthy.write = AsyncMock()
+        healthy.flush = AsyncMock()
+        restarted = FileShipper(str(log_file), healthy)
+        assert restarted._offset == 0
+        await restarted._read_new_lines()
+
+        assert healthy.write.await_count == 2  # the window is re-ingested
+        assert restarted._confirmed_offset == log_file.stat().st_size
+        assert ckpt.read_text() == str(log_file.stat().st_size)
+
+    async def test_poison_only_chunk_still_advances_checkpoint(self, tmp_path, ckpt):
+        """W1-B/B2 × W1-C interplay: a chunk with only poison lines buffers no
+        events; the flush is a harmless no-op and the checkpoint still advances
+        (the W1-C wedge fix must not regress under the confirmed-offset gate)."""
+        log_file = tmp_path / "osq.log"
+        log_file.write_text("not json {{{\n")
+        writer = MagicMock(spec=LogWriter)
+        writer.write = AsyncMock()
+        writer.flush = AsyncMock()
+        shipper = _make_shipper(log_file, writer, offset=0)
+
+        await shipper._read_new_lines()
+
+        assert writer.write.await_count == 0
+        assert shipper._confirmed_offset == log_file.stat().st_size
+        assert ckpt.read_text() == str(log_file.stat().st_size)
 
     async def test_resumes_from_offset(self, tmp_path, ckpt):
         first = _osquery_line(pid="1") + "\n"
@@ -99,6 +180,7 @@ class TestReadNewLines:
         log_file.write_text(first + second)
         writer = MagicMock(spec=LogWriter)
         writer.write = AsyncMock()
+        writer.flush = AsyncMock()
         shipper = _make_shipper(log_file, writer, offset=len(first))
 
         await shipper._read_new_lines()
@@ -135,6 +217,7 @@ class TestRunLoop:
         log_file.write_text(_osquery_line(pid="1") + "\n")
         writer = MagicMock(spec=LogWriter)
         writer.write = AsyncMock()
+        writer.flush = AsyncMock()
         shipper = _make_shipper(log_file, writer, offset=0)
 
         async def stop_sleep(*_a, **_k):
@@ -162,6 +245,7 @@ class TestRunLoop:
         log_file.write_text(_osquery_line(pid="1") + "\n")
         writer = MagicMock(spec=LogWriter)
         writer.write = AsyncMock()
+        writer.flush = AsyncMock()
         # Pretend the shipper last saw a different inode -> rotation on first poll
         shipper = _make_shipper(log_file, writer, offset=999, inode=424242)
 
@@ -180,6 +264,7 @@ class TestRunLoop:
         log_file.write_text(_osquery_line(pid="1") + "\n")
         writer = MagicMock(spec=LogWriter)
         writer.write = AsyncMock()
+        writer.flush = AsyncMock()
         # same inode but the stored offset is beyond the current file size -> shrink
         shipper = _make_shipper(log_file, writer, offset=99999, inode=log_file.stat().st_ino)
 

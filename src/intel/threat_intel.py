@@ -541,6 +541,31 @@ async def check_ioc_match(ioc_type: str, ioc_value: str) -> Optional[Dict]:
         return None
 
 
+async def check_ioc_matches(ioc_type: str, values: list[str]) -> Dict[str, Optional[Dict]]:
+    """Batch variant of check_ioc_match (W2-D/B5): ONE query for ALL values.
+
+    Returns {ioc_value: best_row} using the same best-row contract as the
+    single lookup (highest confidence, then most recent). The batched lookup
+    is the ONLY new query — the cache table and row shape are shared with
+    check_ioc_match (no second cache path). Empty input short-circuits to {}.
+    """
+    if not values:
+        return {}
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT DISTINCT ON (ioc_value) *
+            FROM threat_intel
+            WHERE ioc_type = $1 AND ioc_value = ANY($2)
+            ORDER BY ioc_value, confidence DESC, last_seen DESC
+            """,
+            ioc_type,
+            list(values),
+        )
+    return {r["ioc_value"]: dict(r) for r in rows}
+
+
 # ───────────────────────────────────────────────────────────────
 # P2.5 — AbuseIPDB quota protection (negative cache + hourly budget)
 # ───────────────────────────────────────────────────────────────
@@ -607,18 +632,28 @@ async def _abuseipdb_budget_consume() -> bool:
         return True
 
 
-async def enrich_ip_with_threat_intel(ip: str) -> Dict[str, Any]:
+async def enrich_ip_with_threat_intel(
+    ip: str, prefetched: Dict[str, Optional[Dict]] | None = None
+) -> Dict[str, Any]:
     """
     Enrich an IP address with threat intel data.
 
     Checks local cache first, then falls back to the AbuseIPDB API if
     available — BEHIND the P2.5 quota protection (negative cache + hourly
     budget). Returns enrichment dict to merge into the event.
+
+    W2-D/B5: ``prefetched`` is a batch-level {ip: row-or-None} map from ONE
+    check_ioc_matches query. When ip is a key in it, the cached verdict
+    comes from the batch query (no per-IP fetchrow); misses fall through to
+    the live path exactly as before. ``None`` = legacy per-IP cache lookup.
     """
     enrichment: Dict[str, Any] = {}
 
-    # Check local cache first
-    cached = await check_ioc_match("ip", ip)
+    # Check local cache first (W2-D/B5: batch prefetch skips the round-trip)
+    if prefetched is not None and ip in prefetched:
+        cached = prefetched[ip]
+    else:
+        cached = await check_ioc_match("ip", ip)
     if cached:
         enrichment["threat_intel"] = {
             "match": True,
@@ -741,6 +776,21 @@ def _feed_status_for(source: str, api_key: str | None) -> str:
 # ───────────────────────────────────────────────────────────────
 
 _async_scheduler = None
+# W2-E/B6: F-17 — the initial feed refresh keeps its task reference in this
+# module set until it completes. The done-callback discards the entry AND
+# retrieves the exception: an unretrieved exception is event-loop noise
+# ("Task exception was never retrieved"), and a GC'd task swallows it
+# entirely.
+_initial_refresh_tasks: set["asyncio.Task[dict[str, int]]"] = set()
+
+
+def _on_initial_refresh_done(task: "asyncio.Task[dict[str, int]]") -> None:
+    """Done-callback for the initial feed refresh: discard + retrieve."""
+    _initial_refresh_tasks.discard(task)
+    if not task.cancelled():
+        exc = task.exception()
+        if exc is not None:
+            log.error("threat_intel_initial_refresh_failed", error=str(exc))
 
 
 async def start_threat_intel_scheduler():
@@ -779,7 +829,12 @@ async def start_threat_intel_scheduler():
     # external HTTP to URLhaus/AbuseIPDB/OTX on a cold/no-network boot). Fire it
     # as a background task so the health check passes immediately; the
     # scheduled 6h refresh keeps it current.
-    asyncio.create_task(refresh_all_feeds())
+    # W2-E/B6: the reference is kept (F-17 doctrine) and the exception is
+    # retrieved on completion — a fire-and-forget task with no reference can
+    # be GC'd mid-flight and its failure never surfaces.
+    task = asyncio.create_task(refresh_all_feeds())
+    _initial_refresh_tasks.add(task)
+    task.add_done_callback(_on_initial_refresh_done)
 
     _async_scheduler.start()
     log.info("threat_intel_scheduler_started", interval_hours=FEED_REFRESH_INTERVAL_HOURS)

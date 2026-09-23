@@ -46,6 +46,12 @@ log = get_logger("api.ingest")
 # established ingest-path names.
 
 _post_process_tasks: set["asyncio.Task[None]"] = set()
+# W2-D/B5: cap CONCURRENT post-process tasks (correlation got F-10
+# coalescing; enrichment had no cap). Each task runs the full per-event
+# GeoIP/DNS/TI pipeline — an ingest burst spawning one task per batch
+# saturated the DNS pool and the TI cache round-trips. Same cap as the
+# detection-enrichment semaphore (2).
+_POST_PROCESS_SEMAPHORE = asyncio.Semaphore(2)
 
 
 async def _trigger_correlation_coalesced() -> None:
@@ -288,26 +294,30 @@ async def ingest_events(
                 await _trigger_correlation_coalesced()
 
             async def _post_process():
-                try:
-                    # P2.4: broadcast the persisted batch off the hot path.
-                    # Best-effort (P1-13) — a failure here never affects
-                    # ingestion, and broadcast_event itself time-caps each
-                    # send (slow clients get evicted, not waited on).
-                    for event in batch_events:
-                        try:
-                            from src.api.websocket import broadcast_event
+                # W2-D/B5: the concurrency cap lives around the whole task
+                # body — at most 2 post-process tasks run at once, so a
+                # burst of batches queues instead of stampeding enrichment.
+                async with _POST_PROCESS_SEMAPHORE:
+                    try:
+                        # P2.4: broadcast the persisted batch off the hot path.
+                        # Best-effort (P1-13) — a failure here never affects
+                        # ingestion, and broadcast_event itself time-caps each
+                        # send (slow clients get evicted, not waited on).
+                        for event in batch_events:
+                            try:
+                                from src.api.websocket import broadcast_event
 
-                            await broadcast_event(event)
-                        except Exception as e:  # pragma: no cover — defensive
-                            log.debug("ws_broadcast_failed", error=str(e))
-                    await _enrich_and_writeback()
-                    # Correlation seam (Agent A owns correlation.py; this call
-                    # is the integration point). Runs across all rules and
-                    # persists matches as alerts — under the F-10 gate.
-                    if hosts_in_batch:
-                        await _run_correlation_coalesced()
-                except Exception as e:  # pragma: no cover — defensive
-                    log.warning("ingest_post_processing_failed", error=str(e))
+                                await broadcast_event(event)
+                            except Exception as e:  # pragma: no cover — defensive
+                                log.debug("ws_broadcast_failed", error=str(e))
+                        await _enrich_and_writeback()
+                        # Correlation seam (Agent A owns correlation.py; this call
+                        # is the integration point). Runs across all rules and
+                        # persists matches as alerts — under the F-10 gate.
+                        if hosts_in_batch:
+                            await _run_correlation_coalesced()
+                    except Exception as e:  # pragma: no cover — defensive
+                        log.warning("ingest_post_processing_failed", error=str(e))
 
             task = asyncio.create_task(_post_process())
             _post_process_tasks.add(task)

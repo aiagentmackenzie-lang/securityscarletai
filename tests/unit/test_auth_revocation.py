@@ -174,6 +174,130 @@ class TestLogout:
         await logout(payload)
         assert await is_jti_blocked(payload["jti"])
 
+    @pytest.mark.asyncio
+    async def test_logout_with_refresh_token_revokes_refresh(self):
+        """W1-D/B1: logout with the session's refresh_token in the body blocklists
+        the refresh jti too — a stolen refresh token must not survive logout."""
+        from jose import jwt as jose_jwt
+
+        from src.api.auth import JWT_ALGORITHM, create_jwt, create_refresh_token
+        from src.api.auth_login import LogoutRequest, logout
+        from src.api.redis_client import is_jti_blocked
+        from src.config.settings import settings
+
+        access = create_jwt("user1", "analyst")
+        refresh = create_refresh_token("user1", "analyst")
+        refresh_jti = jose_jwt.decode(
+            refresh, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+        )["jti"]
+        access_jti = jose_jwt.decode(
+            access, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+        )["jti"]
+
+        access_payload = jose_jwt.decode(
+            access, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+        )
+        await logout(access_payload, LogoutRequest(refresh_token=refresh))
+
+        assert await is_jti_blocked(access_jti)
+        assert await is_jti_blocked(refresh_jti)
+
+    @pytest.mark.asyncio
+    async def test_logout_wrong_type_refresh_token_refused_and_logged(self, monkeypatch):
+        """W1-D/B1: an ACCESS token presented as refresh_token is refused (not
+        blocklisted), a warning is logged, and logout still completes (the
+        access jti IS blocklisted — the optional part never breaks logout)."""
+        from jose import jwt as jose_jwt
+
+        from src.api.auth import JWT_ALGORITHM, create_jwt
+        from src.api.auth_login import LogoutRequest, logout
+        from src.api.redis_client import is_jti_blocked
+        from src.config.settings import settings
+
+        access = create_jwt("user1", "analyst")
+        decoy = create_jwt("user1", "analyst")  # type=access, not refresh
+        decoy_jti = jose_jwt.decode(
+            decoy, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+        )["jti"]
+        access_payload = jose_jwt.decode(
+            access, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+        )
+
+        calls: list[tuple] = []
+
+        class _Recorder:
+            @staticmethod
+            def warning(event, **kw):
+                calls.append((event, kw))
+
+            @staticmethod
+            def info(event, **kw):
+                pass
+
+        monkeypatch.setattr("src.api.auth_login.log", _Recorder())
+
+        await logout(access_payload, LogoutRequest(refresh_token=decoy))
+
+        assert not await is_jti_blocked(decoy_jti)
+        assert calls == [
+            (
+                "logout_refresh_token_rejected",
+                {
+                    "username": "user1",
+                    "reason": "invalid_type_or_subject_mismatch",
+                },
+            )
+        ]
+
+    @pytest.mark.asyncio
+    async def test_logout_refresh_token_subject_mismatch_refused(self):
+        """W1-D/B1: a VALID refresh token for a DIFFERENT user is not blocklisted —
+        per-session logout can't revoke another user's refresh token."""
+        from jose import jwt as jose_jwt
+
+        from src.api.auth import JWT_ALGORITHM, create_jwt, create_refresh_token
+        from src.api.auth_login import LogoutRequest, logout
+        from src.api.redis_client import is_jti_blocked
+        from src.config.settings import settings
+
+        access = create_jwt("user1", "analyst")
+        other_refresh = create_refresh_token("user2", "admin")
+        other_jti = jose_jwt.decode(
+            other_refresh, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+        )["jti"]
+        access_payload = jose_jwt.decode(
+            access, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+        )
+
+        await logout(access_payload, LogoutRequest(refresh_token=other_refresh))
+        assert not await is_jti_blocked(other_jti)
+
+    @pytest.mark.asyncio
+    async def test_logout_without_body_unchanged(self):
+        """W1-D/B1: no-body logout keeps the pre-W1-D contract — access jti
+        blocklisted, nothing else touched, no error."""
+        from jose import jwt as jose_jwt
+
+        from src.api.auth import JWT_ALGORITHM, create_jwt, create_refresh_token
+        from src.api.auth_login import logout
+        from src.api.redis_client import is_jti_blocked
+        from src.config.settings import settings
+
+        access = create_jwt("user1", "analyst")
+        refresh = create_refresh_token("user1", "analyst")
+        refresh_jti = jose_jwt.decode(
+            refresh, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+        )["jti"]
+        access_payload = jose_jwt.decode(
+            access, settings.api_secret_key.get_secret_value(), algorithms=[JWT_ALGORITHM]
+        )
+
+        await logout(access_payload)  # no body — old call shape
+
+        access_jti = access_payload["jti"]
+        assert await is_jti_blocked(access_jti)
+        assert not await is_jti_blocked(refresh_jti)
+
 
 # ───────────────────────────────────────────────────────────────
 # User revoke (password change) tests

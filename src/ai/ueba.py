@@ -64,6 +64,10 @@ class UEBABaseline:
         self.is_trained = False
         self.trained_at: Optional[float] = None
         self.training_samples: int = 0
+        # W2-C: the window the model was TRAINED on. Scoring must aggregate
+        # the SAME window (daily counts are ~1/7 of a 7-day aggregate — the
+        # old fixed days=1 scoring made every user skew anomaly-low).
+        self.trained_window_days: int = 7
 
         # Try to load existing model
         self._load_model()
@@ -102,6 +106,9 @@ class UEBABaseline:
                     meta = joblib.load(META_PATH)
                     self.trained_at = meta.get("trained_at")
                     self.training_samples = meta.get("training_samples", 0)
+                    # W2-C: scoring reads the TRAINED window (7 = the default
+                    # min_days for models trained before this was recorded).
+                    self.trained_window_days = int(meta.get("trained_window_days", 7))
 
                 log.info("ueba_model_loaded", samples=self.training_samples)
                 return True
@@ -122,6 +129,7 @@ class UEBABaseline:
                 "training_samples": self.training_samples,
                 "contamination": self.contamination,
                 "features": UEBA_FEATURES,
+                "trained_window_days": self.trained_window_days,  # W2-C
             }
             joblib.dump(meta, META_PATH)
 
@@ -572,6 +580,7 @@ class UEBABaseline:
         self.is_trained = True
         self.trained_at = time.time()
         self.training_samples = len(feature_vectors)
+        self.trained_window_days = min_days  # W2-C: scoring must match this window
         self._save_model()
 
         log.info("ueba_training_complete", users=len(feature_vectors))
@@ -580,6 +589,14 @@ class UEBABaseline:
     async def score_user(self, user_name: str) -> Dict[str, Any]:
         """
         Score a user's current behavior for anomalies.
+
+        W2-C: aggregates the model's TRAINED window (was a fixed days=1 while
+        train() aggregates 7 days — the mismatch made every user skew
+        anomaly-low, since daily counts are ~1/7 of the training
+        distribution). Honest tradeoff: a genuine 1-day activity burst now
+        dilutes across the full window, so detection reacts SLOWER to a
+        single-day spike — the aligned window buys distributional validity
+        at the cost of day-level sensitivity.
 
         Returns:
             Dict with anomaly_score, is_anomaly, and feature_values
@@ -591,7 +608,7 @@ class UEBABaseline:
                 "error": "Model not trained",
             }
 
-        features = await self.extract_user_features(user_name, days=1)
+        features = await self.extract_user_features(user_name, days=self.trained_window_days)
         if not features:
             return {
                 "anomaly_score": None,
@@ -613,7 +630,12 @@ class UEBABaseline:
         """Get users with high anomaly scores.
 
         AUD-025: one batched feature extraction (8 queries total) instead of
-        score_user per user (7 queries each)."""
+        score_user per user (7 queries each).
+
+        W2-C: the candidate sweep AND the feature aggregation both use the
+        model's TRAINED window (was a fixed 1 day for both — same
+        distribution mismatch as score_user).
+        """
         if not self.is_trained:
             return []
         pool = await get_pool()
@@ -623,12 +645,15 @@ class UEBABaseline:
                 SELECT DISTINCT user_name
                 FROM logs
                 WHERE user_name IS NOT NULL
-                  AND time > NOW() - INTERVAL '1 day'
-                """
+                  AND time > NOW() - INTERVAL '1 day' * $1
+                """,
+                self.trained_window_days,
             )
             user_names = [r["user_name"] for r in rows]
 
-        features_by_user = await self.extract_user_features_batch(user_names, days=1)
+        features_by_user = await self.extract_user_features_batch(
+            user_names, days=self.trained_window_days
+        )
 
         high_risk: List[Dict] = []
         for user, features in features_by_user.items():
@@ -659,6 +684,7 @@ class UEBABaseline:
             "training_samples": self.training_samples,
             "contamination": self.contamination,
             "features": UEBA_FEATURES,
+            "trained_window_days": self.trained_window_days,  # W2-C
             "model_type": "IsolationForest",
             "model_path": str(MODEL_PATH) if MODEL_PATH.exists() else None,
         }

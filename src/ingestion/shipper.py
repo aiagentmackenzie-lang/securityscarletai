@@ -4,6 +4,13 @@ Log shipper -- tails osquery result logs and feeds them to the ingestion pipelin
 Polls the result log every ~1s (seek/tell based, not a file-watcher) and stores a
 checkpoint (byte offset) so restarts don't re-ingest old data. (P2-07: the
 earlier docstring claimed watchfiles, but the implementation is polling.)
+
+W1-B crash semantics: the checkpoint persists a CONFIRMED offset — the parse
+cursor only advances past bytes the writer has actually flushed. A hard crash
+therefore re-reads at most one flush window: already-flushed events re-ingest
+as DUPLICATES (bounded, at-least-once) instead of the old at-most-once LOSS,
+where the checkpoint advanced past events still sitting in the writer buffer.
+This matches the durable Redis path's documented at-least-once semantics.
 """
 
 import asyncio
@@ -49,6 +56,10 @@ class FileShipper:
             raise ValueError(f"unsupported shipper format: {format!r}")
         self.format = format
         self._offset = self._load_checkpoint()
+        # W1-B: the offset PERSISTED to the checkpoint file. Lags _offset by at
+        # most one writer flush — _offset is the parse cursor, _confirmed_offset
+        # is what a restart trusts. Only equal after writer.flush() succeeds.
+        self._confirmed_offset = self._offset
         self._inode = self._get_inode()  # H-15: track inode for rotation detection
         self._running = False
         self._events_shipped = 0
@@ -83,6 +94,9 @@ class FileShipper:
                         new_inode=current_inode,
                     )
                     self._offset = 0
+                    # W1-B: both cursors move together on rotation — the new
+                    # file's bytes are unconsumed by definition.
+                    self._confirmed_offset = 0
                     self._inode = current_inode
                 elif current_size < self._offset:
                     log.info(
@@ -92,6 +106,7 @@ class FileShipper:
                         reason="file_shrank",
                     )
                     self._offset = 0
+                    self._confirmed_offset = 0
 
                 if current_size > self._offset:
                     await self._read_new_lines()
@@ -155,6 +170,22 @@ class FileShipper:
                 await self.writer.write(event)
                 self._events_shipped += 1
         self._offset += len(consumed)
+        # W1-B: the checkpoint persists only what the writer CONFIRMED flushed.
+        # Old code persisted the parse cursor immediately after buffering — a
+        # hard crash in the writer's batch/2s-flush window lost those events
+        # with the checkpoint already past them (at-most-once). Now: flush
+        # first, then persist. A crash before confirmation re-reads at most
+        # one flush window (bounded duplicates — at-least-once).
+        try:
+            await self.writer.flush()
+        except Exception as e:
+            # Unexpected flush failure (PostgresError/OSError are already
+            # dead-lettered inside LogWriter). Don't persist — the confirmed
+            # checkpoint lags, so a restart re-reads this window instead of
+            # trusting bytes the writer never landed.
+            log.error("shipper_flush_confirm_failed", error=str(e))
+            return
+        self._confirmed_offset = self._offset
         self._save_checkpoint()
 
     def _load_checkpoint(self) -> int:
@@ -165,14 +196,19 @@ class FileShipper:
             return 0
 
     def _save_checkpoint(self) -> None:
-        """Persist the current byte offset.
+        """Persist the CONFIRMED byte offset (W1-B).
+
+        Only called after writer.flush() confirmed the batch landed, so the
+        file never contains an offset the writer hasn't flushed. Callers set
+        ``_confirmed_offset = _offset`` first — the parse cursor may already
+        be further ahead (that gap is the bounded re-read window).
 
         M-20 fix: Use atomic write via temp file + os.replace()
         to prevent corruption from crash mid-write.
         """
         temp_file = self.checkpoint_path.with_suffix(".tmp")
         try:
-            temp_file.write_text(str(self._offset))
+            temp_file.write_text(str(self._confirmed_offset))
             os.replace(temp_file, self.checkpoint_path)
         except OSError as e:
             log.error("checkpoint_save_failed", error=str(e))

@@ -86,7 +86,7 @@ Most security dashboards show you charts. This one shows you **receipts**:
 | Storage | TimescaleDB (PostgreSQL 17) + Redis 7 | Hypertable with 1-day chunks, compression + 30-day retention; Redis for rate-limit state and the JWT blocklist |
 | Detection | Sigma → parameterized SQL + correlation engine | 120 rules across 11 rule folders; 10 event-driven correlation chains with `as_of` time binding and persisted matches |
 | Enrichment | GeoIP2 + DNS + threat intel | MaxMind GeoIP, PTR lookup, AbuseIPDB/OTX/URLhaus IOC match with severity boost |
-| AI/ML | Ollama (mistral:7b) + scikit-learn | Calibrated Random-Forest triage, Isolation-Forest UEBA, NL→SQL with 7-layer injection defense, LLM explanations with template fallback, per-call cost tracking |
+| AI/ML | Ollama (mistral:7b) + scikit-learn | Calibrated Random-Forest triage, UEBA behavioral baselines (Isolation Forest, scoring aligned to the trained window — a rough heuristic at small fleet sizes, not a statistically robust detector), NL→SQL with 7-layer injection defense, LLM explanations with template fallback, per-call cost tracking |
 | Response | Policy engine + executors | Notification channels (Slack / HMAC-signed webhook / PagerDuty / email, per-severity routing + retry + audited), SIEM-user disable, host quarantine (+3 capability-gated); every outcome re-queried and recorded |
 | Dashboard | Streamlit + WebSocket | Real-time alerts, cases, hunting, AI chat; JWT or service-bearer auth |
 | Audit | DB-enforced middleware | Every state-changing request → `audit_logs`; two-role deploy makes UPDATE/DELETE/TRUNCATE impossible for the app role |
@@ -191,8 +191,16 @@ case in create_alert; probes alert + notify. Near-zero-FP doctrine:
 - NL→SQL hunting in plain English behind 7 layers of defense: input
   sanitization, read-only system prompt (SELECT/WITH output; DML forbidden),
   sqlparse structural validation, forbidden-pattern check, EXPLAIN cost gate
-  (10K rows), 1,000-row result cap, 5-second timeout
-- UEBA behavioral baselines (Isolation Forest) with per-user fingerprints
+  (advisory — it flags expensive plans, it does not hard-guarantee a row
+  ceiling; the two bounds that follow are the real limits), 1,000-row result
+  cap, 5-second timeout
+- UEBA behavioral baselines (Isolation Forest) with per-user fingerprints —
+  training and scoring use the SAME window (7 days by default, recorded in
+  the model metadata); honest limits: per-user aggregates are a rough
+  heuristic at small fleet sizes, and a genuine 1-day activity burst dilutes
+  across the scoring window (slower reaction, fewer false "quiet" scores).
+  ⚠️ Ops: models trained BEFORE the window-alignment fix must be retrained
+  once after deploying this release so the recorded window matches training.
 - LLM alert explanation + AI chat with a structured `LLMResult` contract,
   versioned prompts, per-call cost tracking, and untrusted-log data-fencing
   (OWASP LLM01) + per-user quotas (LLM10)
@@ -416,7 +424,10 @@ serve a 404 there by design).
 ## Security posture
 
 - **Auth** — JWT with per-token `jti`, refresh rotation, Redis-backed logout
-  blocklist, password-change invalidation, bcrypt + enforced pepper, three
+  blocklist (per-session: logout revokes the access token always, the 7-day
+  refresh token when it is PRESENTED in the logout body — password change
+  remains the revoke-every-session path), password-change invalidation,
+  bcrypt + enforced pepper, three
   roles (admin/analyst/viewer), account lockout, rate limiting
   (`/auth/login` 5/min/IP, `/ingest` 100/min/IP) with fail-open fallback
 - **Audit** — every state-changing request → `audit_logs`; the two-role deploy

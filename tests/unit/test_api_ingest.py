@@ -289,3 +289,62 @@ def test_ingest_event_valid_ip_passthrough():
     )
     assert event.source_ip == "127.0.0.1"
     assert event.destination_ip == "10.0.0.1"
+
+
+class TestPostProcessConcurrencyCap:
+    """W2-D/B5 — at most _POST_PROCESS_SEMAPHORE-cap post-process tasks run
+    concurrently: unbounded, an ingest burst spawned one full per-event
+    GeoIP/DNS/TI pipeline per batch (DNS-pool saturation + TI round-trip
+    storm). Correlation already had F-10 coalescing; enrichment gets the cap."""
+
+    async def test_concurrent_batches_capped_at_semaphore(self):
+        from src.api.ingest import ingest_events
+        from src.services.writer import writer as writer_singleton
+        from tests.unit._test_request import make_test_request
+
+        event = IngestEvent(
+            **{"@timestamp": datetime.now(tz=timezone.utc).isoformat()},
+            host_name="cap-host",
+            source="syslog",
+            event_category="process",
+            event_type="start",
+        )
+
+        state = {"in_flight": 0, "max": 0, "completed": 0}
+
+        async def slow_write_back(events):
+            state["in_flight"] += 1
+            state["max"] = max(state["max"], state["in_flight"])
+            await asyncio.sleep(0.05)  # real yield: other batches pile up here
+            state["in_flight"] -= 1
+            state["completed"] += 1
+
+        pool = AsyncMock()
+        conn = AsyncMock()
+        acq = AsyncMock()
+        acq.__aenter__ = AsyncMock(return_value=conn)
+        acq.__aexit__ = AsyncMock(return_value=False)
+        pool.acquire = MagicMock(return_value=acq)
+        conn.fetch.return_value = []  # empty quarantine list
+
+        with (
+            patch("src.api.ingest.get_pool", return_value=pool),
+            patch.object(writer_singleton, "write", AsyncMock()),
+            patch.object(writer_singleton, "flush", AsyncMock()),
+            patch("src.db.connection.get_pool", AsyncMock(side_effect=RuntimeError("no db"))),
+            patch("src.api.ingest.trigger_correlation_coalesced", AsyncMock()),
+            patch("src.api.websocket.broadcast_event", AsyncMock()),
+            patch("src.enrichment.pipeline.write_back_enrichment", slow_write_back),
+        ):
+            await asyncio.gather(
+                *[
+                    ingest_events(make_test_request(), MagicMock(), [event], "token")
+                    for _ in range(6)
+                ]
+            )
+            # Real wall-clock drain: 6 tasks / cap 2 × 0.05s ≈ 0.15s worst case.
+            for _ in range(40):
+                await asyncio.sleep(0.02)
+
+        assert state["completed"] == 6  # every batch was post-processed
+        assert state["max"] <= 2  # THE CAP
