@@ -130,3 +130,12 @@ the 1.03 GB rotated telemetry replay-or-discard · no code fixes made (finding w
 - L2: `pytest tests/unit/ -q --cov=src --cov-fail-under=80` → **2,598 passed, 0 failed, exit 0, 88.29%** (52.8s)
 - Secret scan: no code diffs this session (evidence-only changes: runs/ + memory logs); tokens handled via .env reads into process vars, never printed or committed
 - No push, no merge — this report is committed to a local branch for Raphael's review
+## ADDENDUM — P1 dispositions (fix session, same day, Raphael's go: "lets make those fixes")
+
+| RT | Disposition | Commit |
+|---|---|---|
+| RT-001 | SHIPPED on branch — SELECT gains notes + real-SQL FAIL-proof pin | 95f95cd |
+| RT-002 | SHIPPED on branch — get_rule_by_id serializes intervals; helper + TestClient pins FAIL-proven | 3f0a002 |
+| RT-003 | SHIPPED on branch — fieldnames materialized (root cause: asyncpg 0.31 Record.keys() is a one-shot iterator; writeheader's internal dict(zip(it, it)) consumes+pairs it); FakeAsyncpgRecord pin FAIL-proven | 50c7f7b |
+
+L2 at branch tip fix/runtime-wave-e-p1s (3 fix commits over 97550bf): **2,603 passed / 0 failed / exit 0 / coverage 88.32%** · ruff · format --check (256 files) · mypy (103 files) · secret scan of diff: clean. Live endpoint verification pending the merge + unified rebuild (containers still run 97550bf).
