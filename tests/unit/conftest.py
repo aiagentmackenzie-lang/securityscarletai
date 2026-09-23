@@ -94,6 +94,25 @@ def _reset_shared_http_clients():
 
 
 @pytest.fixture(autouse=True)
+def _reset_shared_scheduler():
+    """Fresh shared APScheduler per test (C4/B6b consolidation).
+
+    The ONE scheduler (src/services/shared_scheduler.py) is a module global;
+    pytest-asyncio gives each test a fresh function-scoped loop, and an
+    AsyncIOScheduler bound to a dead loop raises RuntimeError on re-use. Same
+    per-loop discipline as _reset_shared_http_clients: every test gets its
+    own instance bound to its own loop. No shutdown attempt in teardown —
+    shutting down across loop boundaries is exactly the failure this closes;
+    the instance is simply dropped.
+    """
+    from src.services import shared_scheduler as _ss
+
+    _ss._scheduler = None  # noqa: SLF001 — the registry IS the fixture seam
+    yield
+    _ss._scheduler = None
+
+
+@pytest.fixture(autouse=True)
 def _inmem_rate_limit_storage():
     """Force the rate limiter to use in-memory storage for the duration of one test.
 

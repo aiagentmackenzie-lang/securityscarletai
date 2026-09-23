@@ -167,56 +167,51 @@ class TestAirGappedScheduler:
     @pytest.mark.asyncio
     async def test_scheduler_enabled_starts_and_refreshes(self):
         """When enabled (default), the scheduler starts and the initial
-        refresh fires as a background task (existing behaviour preserved)."""
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler  # noqa: F401
+        refresh fires as a background task (existing behaviour preserved).
 
+        C4: TI no longer OWNS a scheduler — its job rides the shared
+        instance (default jobstore, NOT the reload-scoped detection one).
+        """
         from src.intel import threat_intel
+        from src.services import shared_scheduler as shared_mod
 
         threat_intel._async_scheduler = None  # reset
-        mock_sched = MagicMock()
-        mock_sched.add_job = MagicMock()
-        mock_sched.start = MagicMock()
+        mock_shared = MagicMock()
+        mock_shared.running = False
 
         with patch.object(threat_intel.settings, "threat_intel_enabled", True):
-            with patch(
-                "apscheduler.schedulers.asyncio.AsyncIOScheduler",
-                return_value=mock_sched,
-            ):
+            with patch.object(shared_mod, "_scheduler", mock_shared):
                 with patch.object(threat_intel, "refresh_all_feeds", AsyncMock()) as mock_refresh:
-                    with patch.object(threat_intel.asyncio, "create_task") as mock_create_task:
+                    with patch.object(threat_intel.asyncio, "create_task"):
                         await threat_intel.start_threat_intel_scheduler()
-                        mock_sched.add_job.assert_called_once()
-                        mock_sched.start.assert_called_once()
-                        mock_create_task.assert_called_once()
+                        mock_shared.add_job.assert_called_once()
+                        call = mock_shared.add_job.call_args
+                        assert call.kwargs["id"] == "threat_intel_refresh"
+                        # ops jobs use the DEFAULT store — a detection reload
+                        # (which clears only the detection store) must never
+                        # wipe the TI refresh.
+                        assert call.kwargs.get("jobstore") is None
+                        mock_shared.start.assert_called_once()
                         mock_refresh.assert_not_awaited()  # create_task wraps it
 
     @pytest.mark.asyncio
     async def test_scheduler_constructed_with_misfire_job_defaults(self):
-        """W1-G: APScheduler's default misfire_grace_time (~1s) silently
-        SKIPPED TI refreshes under a busy loop — a 60s grace + coalesce +
-        max_instances=1 turns a transient misfire into a catch-up run."""
-        from src.intel import threat_intel
+        """W1-G (C4 home): the ONE shared scheduler carries the misfire
+        defaults — the three per-module constructions are gone."""
+        from unittest.mock import ANY
 
-        threat_intel._async_scheduler = None  # reset
-        mock_sched = MagicMock()
-        mock_sched.add_job = MagicMock()
-        mock_sched.start = MagicMock()
+        from src.services import shared_scheduler as shared_mod
 
-        with patch.object(threat_intel.settings, "threat_intel_enabled", True):
-            with patch(
-                "apscheduler.schedulers.asyncio.AsyncIOScheduler",
-                return_value=mock_sched,
-            ) as mock_cls:
-                with patch.object(threat_intel, "refresh_all_feeds", AsyncMock()):
-                    with patch.object(threat_intel.asyncio, "create_task"):
-                        await threat_intel.start_threat_intel_scheduler()
-                        mock_cls.assert_called_once_with(
-                            job_defaults={
-                                "misfire_grace_time": 60,
-                                "coalesce": True,
-                                "max_instances": 1,
-                            }
-                        )
+        with (
+            patch.object(shared_mod, "_scheduler", None),
+            patch.object(shared_mod, "AsyncIOScheduler") as mock_cls,
+        ):
+            sched = shared_mod.get_shared_scheduler()
+            mock_cls.assert_called_once_with(
+                jobstores={"detection": ANY},
+                job_defaults={"misfire_grace_time": 60, "coalesce": True, "max_instances": 1},
+            )
+            assert sched is shared_mod._scheduler
 
 
 class TestInitialRefreshTaskRef:
@@ -252,11 +247,11 @@ class TestInitialRefreshTaskRef:
                 pass
 
         monkeypatch.setattr(threat_intel, "log", _Rec())
-        mock_sched = MagicMock()
 
+        # C4: no global AsyncIOScheduler patch — TI adds its job to the REAL
+        # shared scheduler (fresh per test via the conftest reset).
         with (
             patch.object(threat_intel.settings, "threat_intel_enabled", True),
-            patch("apscheduler.schedulers.asyncio.AsyncIOScheduler", return_value=mock_sched),
             patch.object(threat_intel, "refresh_all_feeds", failing_refresh),
         ):
             await threat_intel.start_threat_intel_scheduler()

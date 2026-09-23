@@ -404,7 +404,7 @@ class TestScheduleRules:
         mock_scheduler.add_job = MagicMock()
 
         with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
-            with patch("src.detection.scheduler.scheduler", mock_scheduler):
+            with patch("src.services.shared_scheduler._scheduler", mock_scheduler):
                 result = await schedule_rules()
                 # 2 rule jobs + auto_train_check + correlation_sweep (P2-25 + F-10 sweep)
                 assert mock_scheduler.add_job.call_count == 4
@@ -430,7 +430,7 @@ class TestScheduleRules:
         mock_scheduler = MagicMock()
 
         with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
-            with patch("src.detection.scheduler.scheduler", mock_scheduler):
+            with patch("src.services.shared_scheduler._scheduler", mock_scheduler):
                 await schedule_rules()
         job_ids = [c.kwargs.get("id") for c in mock_scheduler.add_job.call_args_list]
         assert "correlation_sweep" in job_ids
@@ -463,7 +463,7 @@ class TestScheduleRules:
         mock_scheduler = MagicMock()
 
         with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
-            with patch("src.detection.scheduler.scheduler", mock_scheduler):
+            with patch("src.services.shared_scheduler._scheduler", mock_scheduler):
                 # Must NOT raise (old code: AttributeError -> lifespan boot fails)
                 await schedule_rules()
 
@@ -488,7 +488,7 @@ class TestScheduleRules:
         mock_scheduler = MagicMock()
 
         with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
-            with patch("src.detection.scheduler.scheduler", mock_scheduler):
+            with patch("src.services.shared_scheduler._scheduler", mock_scheduler):
                 await schedule_rules()
                 # No rules, but the maintenance jobs still schedule (P2-25 + F-10 sweep)
                 assert mock_scheduler.add_job.call_count == 2
@@ -501,11 +501,22 @@ class TestStopScheduler:
 
     @pytest.mark.asyncio
     async def test_stop_scheduler(self):
-        """Should call scheduler.shutdown()."""
-        mock_scheduler = MagicMock()
-        with patch("src.detection.scheduler.scheduler", mock_scheduler):
+        """Should shut down the SHARED scheduler (C4: one instance for all
+        three domains — detection's stop is the same shutdown retention/TI
+        call, so main.py's stop order doesn't matter)."""
+        mock_shared = MagicMock()
+        mock_shared.running = True
+        with patch("src.services.shared_scheduler._scheduler", mock_shared):
             await stop_scheduler()
-            mock_scheduler.shutdown.assert_called_once()
+            mock_shared.shutdown.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_stop_scheduler_idempotent(self):
+        """C4: a second stop (or a stop after another domain already shut the
+        shared scheduler down) must not raise."""
+        with patch("src.services.shared_scheduler._scheduler", None):
+            await stop_scheduler()  # nothing registered — no raise
+        await stop_scheduler()  # already stopped — no raise
 
 
 class TestReloadRules:
@@ -529,7 +540,7 @@ class TestReloadRules:
         mock_pool.acquire = MagicMock(return_value=acquirer)
 
         with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
-            with patch("src.detection.scheduler.scheduler", mock_scheduler):
+            with patch("src.services.shared_scheduler._scheduler", mock_scheduler):
                 from src.detection.scheduler import reload_rules
 
                 await reload_rules()
@@ -543,7 +554,16 @@ class TestJobDefaults:
     catch-up run instead of a silent detection hole."""
 
     def test_scheduler_carries_misfire_job_defaults(self):
-        from src.detection.scheduler import scheduler
+        """W1-G: explicit job_defaults — APScheduler's defaults silently SKIP a
+        job whose slot was missed by more than ~1s (busy loop, slow sweep). A
+        60s grace + coalesce + max_instances=1 turns a transient misfire into
+        a catch-up run instead of a silent detection hole.
+
+        C4: the defaults live on the ONE shared scheduler now — detection has
+        no own instance anymore."""
+        from src.services.shared_scheduler import get_shared_scheduler
+
+        scheduler = get_shared_scheduler()
 
         assert scheduler._job_defaults["misfire_grace_time"] == 60
         assert scheduler._job_defaults["coalesce"] is True
