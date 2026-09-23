@@ -17,7 +17,6 @@ osquery result log format (one JSON object per line):
 
 import json
 import re
-import socket
 from datetime import datetime, timezone
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Optional
@@ -153,10 +152,24 @@ def parse_osquery_line(raw_line: str) -> Optional[NormalizedEvent]:
         # (found by code read 2026-09-14, V0.6b).
         process_name = _basename_any_platform(columns.get("path"))
 
+    # W1-L/B7: attribution fails CLOSED. A missing, empty, whitespace, null,
+    # or non-string hostIdentifier NEVER inherits the SIEM's own hostname
+    # (silent misattribution — agent events would pose as the SIEM's local
+    # telemetry and host-keyed rules would key on the wrong host), NEVER
+    # fails validation (a null hostIdentifier used to raise on
+    # host_name: str and DROP the event in the shipper), and NEVER lands as
+    # an invisible empty string. The event is always KEPT and stamped
+    # "unknown" — a loud, greppable misconfigured-agent bucket in dashboards.
+    raw_host = data.get("hostIdentifier")
+    if isinstance(raw_host, str) and raw_host.strip():
+        host_name = raw_host.strip()
+    else:
+        host_name = "unknown"
+
     return NormalizedEvent(
         **{
             "@timestamp": ts,
-            "host_name": data.get("hostIdentifier", socket.gethostname()),
+            "host_name": host_name,
             "event_category": ecs_mapping["event_category"],
             "event_type": event_type,
             "event_action": event_action,
