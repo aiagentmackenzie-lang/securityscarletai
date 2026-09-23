@@ -1,6 +1,13 @@
 """Model benchmark (V0.6c "Model currency"): the SIEM's own AI task set
 across candidate local SLMs, scored against a known-answer corpus.
 
+OPS NOTE (FT-006, fleet Wave F): every query_llm call runs with the
+Ollama default keep-alive (~5 min), so a benchmark run RESETS the
+standing model's keep-alive timer (a 4h standing keep-alive drops to
+~5 min) and leaves the last-benchmarked model loaded instead. After a
+benchmark run, re-touch the standing model through the production path
+(any /ai/chat) or the fleet's warm-model state changes underneath you.
+
 Method (documented in docs/MODEL_BENCHMARK.md alongside the results):
   - Tasks = the two production AI tasks:
       1. VERDICT drafts -- the investigator's VERDICT_SYSTEM_PROMPT,
