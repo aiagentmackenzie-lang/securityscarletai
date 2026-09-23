@@ -10,7 +10,9 @@ Security layers:
 3. sqlparse structural validation — rejects non-SELECT/WITH statements
 4. FORBIDDEN_PATTERN regex check — no DDL/DML keywords (data-modifying CTEs
    included), no system schemas
-5. EXPLAIN cost estimation — rejects queries scanning >10K rows
+5. EXPLAIN cost estimation — ADVISORY row-cost gate (best-effort per P2-19:
+   an EXPLAIN failure or a LIMIT-clamped plan can pass; the 1,000-row cap
+   and the 5-second timeout below are the REAL bounds)
 6. Result size limit — max 1000 rows returned
 7. Execution timeout — 5 seconds max per query
 """

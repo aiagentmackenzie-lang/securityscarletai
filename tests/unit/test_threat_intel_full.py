@@ -1054,30 +1054,36 @@ class TestGetThreatIntelStats:
 class TestThreatIntelScheduler:
     @pytest.mark.asyncio
     async def test_start_scheduler(self):
-        """Should start APScheduler and run initial refresh."""
-        mock_scheduler = MagicMock()
-        mock_scheduler.start = MagicMock()
-        mock_scheduler.add_job = MagicMock()
+        """Should register the TI job on the SHARED scheduler (C4) and fire
+        the initial refresh as a background task."""
+        from src.services import shared_scheduler as shared_mod
+
+        mock_shared = MagicMock()
+        mock_shared.running = False
 
         with (
             patch("src.intel.threat_intel._async_scheduler", None),
             patch(
                 "src.intel.threat_intel.refresh_all_feeds", AsyncMock(return_value={"urlhaus": 0})
             ),
-            patch("apscheduler.schedulers.asyncio.AsyncIOScheduler", return_value=mock_scheduler),
-            patch("apscheduler.triggers.interval.IntervalTrigger"),
+            patch.object(shared_mod, "_scheduler", mock_shared),
         ):
             await start_threat_intel_scheduler()
 
-        mock_scheduler.add_job.assert_called_once()
-        mock_scheduler.start.assert_called_once()
+        mock_shared.add_job.assert_called_once()
+        assert mock_shared.add_job.call_args.kwargs["id"] == "threat_intel_refresh"
+        # ops jobs use the DEFAULT store (never the reload-scoped detection one)
+        assert mock_shared.add_job.call_args.kwargs.get("jobstore") is None
+        mock_shared.start.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_start_scheduler_initial_refresh_error(self):
-        """Should handle initial refresh error gracefully."""
-        mock_scheduler = MagicMock()
-        mock_scheduler.start = MagicMock()
-        mock_scheduler.add_job = MagicMock()
+        """Should handle initial refresh error gracefully (B6: the done-
+        callback retrieves + logs it — the start itself never raises)."""
+        from src.services import shared_scheduler as shared_mod
+
+        mock_shared = MagicMock()
+        mock_shared.running = False
 
         with (
             patch("src.intel.threat_intel._async_scheduler", None),
@@ -1085,24 +1091,24 @@ class TestThreatIntelScheduler:
                 "src.intel.threat_intel.refresh_all_feeds",
                 AsyncMock(side_effect=Exception("db error")),
             ),
-            patch("apscheduler.schedulers.asyncio.AsyncIOScheduler", return_value=mock_scheduler),
-            patch("apscheduler.triggers.interval.IntervalTrigger"),
+            patch.object(shared_mod, "_scheduler", mock_shared),
         ):
             # Should not raise even when initial refresh fails
             await start_threat_intel_scheduler()
 
-        mock_scheduler.start.assert_called_once()
+        mock_shared.start.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_stop_scheduler(self):
-        """Should stop the scheduler."""
-        mock_scheduler = MagicMock()
-        mock_scheduler.shutdown = MagicMock()
+        """Should stop the SHARED scheduler (C4) — idempotent, so a second
+        stop (retention's) is a no-op."""
+        mock_shared = MagicMock()
+        mock_shared.running = True
 
-        with patch("src.intel.threat_intel._async_scheduler", mock_scheduler):
+        with patch("src.services.shared_scheduler._scheduler", mock_shared):
             await stop_threat_intel_scheduler()
 
-        mock_scheduler.shutdown.assert_called_once()
+        mock_shared.shutdown.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_stop_scheduler_no_scheduler(self):

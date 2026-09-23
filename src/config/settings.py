@@ -228,6 +228,11 @@ class Settings(BaseSettings):
     # them for auth decisions -- MCP auth is MCP_BEARER_TOKEN only.
     mcp_bearer_token: Optional[SecretStr] = None
     mcp_port: int = 8002
+    # W3-D: POST /mcp rate limit (per client IP; keyed by the shared API
+    # limiter, Redis-backed in prod with in-memory fallback). The investigate
+    # tool is a multi-LLM-call loop — the semaphore caps concurrency, this
+    # caps RATE (LLM10). Default mirrors the API's LLM quota.
+    mcp_rate_limit: str = "30/5minutes"
 
     # --- AI-usage emission (V0.4/5 item 3: AI as a detection domain) ---
     # URL the MCP server POSTs its mcp_tool_call / mcp_tool_denied events

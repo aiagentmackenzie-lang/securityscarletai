@@ -23,7 +23,9 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
 
+from src.api.rate_limit import limiter, rate_limit_exceeded_handler
 from src.config.logging import get_logger, setup_logging
 from src.config.settings import settings
 from src.config.version import APP_VERSION
@@ -95,6 +97,12 @@ app = FastAPI(
     openapi_url=None,
 )
 
+# W3-D: the MCP endpoint is rate-limited by the SHARED API limiter (same
+# Redis storage in prod, in-memory fallback; keys are endpoint-scoped so the
+# API's budgets are unaffected). 429s use the API's JSON shape + Retry-After.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]
+
 
 def _auth_ok(request: "Request") -> bool:
     """Constant-time bearer check. MCP_BEARER_TOKEN only."""
@@ -152,16 +160,28 @@ async def _emit_tool_event(
 
 
 @app.get("/healthz")
-async def healthz() -> dict:
-    return {
+async def healthz(request: "Request") -> dict:
+    """Ops health probe.
+
+    W3-C: the UNAUTHENTICATED response is terse — booleans only. The
+    scope_violation details (table/privilege names surfaced by the boot-time
+    information_schema check) are disclosed only to a valid bearer. The
+    server is deployed loopback-only, but health endpoints should not leak
+    schema-level detail by default.
+    """
+    body: dict[str, Any] = {
         "status": "ok",
         "auth_ready": _state["auth_ready"],
         "scope_ok": _state["scope_ok"],
-        "scope_violations": _state["scope_violations"],
     }
+    if _auth_ok(request):
+        body["scope_violations"] = _state["scope_violations"]
+    return body
 
 
 @app.post("/mcp")
+# callable → limit string read at request time (config changes apply live)
+@limiter.limit(lambda: settings.mcp_rate_limit)
 async def mcp_endpoint(request: "Request") -> "JSONResponse":
     session = request.headers.get("mcp-session-id") or ""
     headers = {"Mcp-Session-Id": session} if session else {}

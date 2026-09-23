@@ -362,7 +362,7 @@ class TestSchedulerWiring:
                 "src.detection.scheduler.get_pool",
                 new=AsyncMock(return_value=mock_pool),
             ),
-            patch("src.detection.scheduler.scheduler", mock_scheduler),
+            patch("src.services.shared_scheduler._scheduler", mock_scheduler),
             patch(
                 "src.response.scheduled_reports.load_schedules_file",
                 return_value=schedules,

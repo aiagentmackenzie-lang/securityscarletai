@@ -141,25 +141,26 @@ _async_scheduler: Any = None
 
 
 async def start_retention_scheduler() -> None:
-    """Start the periodic retention job (every retention_interval_hours)."""
-    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    """Start the periodic retention job (every retention_interval_hours).
+
+    C4: the job rides the ONE shared scheduler (W2-E/B6b) — no own instance,
+    same W1-G job defaults, guarded start (the shared instance may already
+    be running for detection).
+    """
     from apscheduler.triggers.interval import IntervalTrigger
 
+    from src.services.shared_scheduler import get_shared_scheduler
+
     global _async_scheduler
-    # W1-G: explicit job_defaults — APScheduler's default misfire_grace_time
-    # (~1s) silently SKIPPED retention sweeps under a busy loop. See the
-    # detection scheduler's W1-G note for the stdlib-vs-structlog logging
-    # caveat (misfire warnings surface via logging.lastResort, plain stderr).
-    _async_scheduler = AsyncIOScheduler(
-        job_defaults={"misfire_grace_time": 60, "coalesce": True, "max_instances": 1}
-    )
+    _async_scheduler = get_shared_scheduler()
     _async_scheduler.add_job(
         run_retention_once,
         trigger=IntervalTrigger(hours=max(1, settings.retention_interval_hours)),
         id="retention_sweep",
         replace_existing=True,
     )
-    _async_scheduler.start()
+    if not _async_scheduler.running:
+        _async_scheduler.start()
     log.info(
         "retention_scheduler_started",
         interval_hours=settings.retention_interval_hours,
@@ -170,8 +171,11 @@ async def start_retention_scheduler() -> None:
 
 
 async def stop_retention_scheduler() -> None:
-    """Stop the retention scheduler."""
+    """Stop the retention job's scheduler — the SHARED instance (C4),
+    idempotent: the first domain's stop shuts it down, later ones no-op."""
     global _async_scheduler
-    if _async_scheduler:
-        _async_scheduler.shutdown()
-        log.info("retention_scheduler_stopped")
+    from src.services.shared_scheduler import stop_shared_scheduler
+
+    stop_shared_scheduler()
+    _async_scheduler = None
+    log.info("retention_scheduler_stopped")

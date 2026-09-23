@@ -22,7 +22,6 @@ import hashlib
 import os
 from typing import Optional
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from src.config.logging import get_logger
@@ -30,6 +29,11 @@ from src.config.settings import settings
 from src.db.connection import get_pool
 from src.detection.alerts import create_alert
 from src.detection.sigma import sigma_to_sql
+from src.services.shared_scheduler import (
+    DETECTION_JOBSTORE,
+    get_shared_scheduler,
+    stop_shared_scheduler,
+)
 
 log = get_logger("detection.scheduler")
 
@@ -41,9 +45,9 @@ log = get_logger("detection.scheduler")
 # this codebase never bridges stdlib logging into structlog, so misfire
 # warnings surface via logging.lastResort as plain stderr lines, NOT as
 # structlog JSON events. Documented here; not bridged (out of scope).
-scheduler = AsyncIOScheduler(
-    job_defaults={"misfire_grace_time": 60, "coalesce": True, "max_instances": 1}
-)
+# C4/B6b: NO module-level instance alias — every site resolves the shared
+# scheduler at call time (an import-time alias goes stale against a rebuilt
+# registry; the shared module owns the instance, period).
 
 RULE_QUERY_TIMEOUT_SECONDS = 60
 _ENRICH_MAX_CONCURRENT = 2
@@ -237,6 +241,7 @@ async def run_rule(rule_id: int) -> None:
 
 async def schedule_rules() -> None:
     """Schedule all enabled detection rules."""
+    sched = get_shared_scheduler()
     pool = await get_pool()
     async with pool.acquire() as conn:
         rules = await conn.fetch("SELECT id, run_interval FROM rules WHERE enabled = TRUE")
@@ -251,12 +256,13 @@ async def schedule_rules() -> None:
         else:
             interval_seconds = rule["run_interval"].total_seconds()
 
-        scheduler.add_job(
+        sched.add_job(
             run_rule,
             trigger=IntervalTrigger(seconds=interval_seconds),
             args=[rule["id"]],
             id=f"rule_{rule['id']}",
             replace_existing=True,
+            jobstore=DETECTION_JOBSTORE,
         )
         log.info("scheduled_rule", rule_id=rule["id"], interval=interval_seconds)
 
@@ -265,11 +271,12 @@ async def schedule_rules() -> None:
     # Lazy import to avoid a src.detection -> src.api import cycle at module load.
     from src.api.ai import auto_train_check
 
-    scheduler.add_job(
+    sched.add_job(
         auto_train_check,
         trigger=IntervalTrigger(hours=1),
         id="auto_train_check",
         replace_existing=True,
+        jobstore=DETECTION_JOBSTORE,
     )
     log.info("scheduled_auto_train_check", interval_hours=1)
 
@@ -283,12 +290,13 @@ async def schedule_rules() -> None:
     )
 
     for schedule in load_schedules_file(SCHEDULES_CONFIG_PATH):
-        scheduler.add_job(
+        sched.add_job(
             run_scheduled_report,
             trigger=IntervalTrigger(hours=schedule.interval_hours),
             args=[schedule],
             id=f"report_{schedule.name}",
             replace_existing=True,
+            jobstore=DETECTION_JOBSTORE,
         )
         log.info(
             "scheduled_report_job",
@@ -308,30 +316,36 @@ async def schedule_rules() -> None:
     from src.detection.correlation import trigger_correlation_coalesced
 
     sweep_seconds = settings.correlation_sweep_interval_seconds
-    scheduler.add_job(
+    sched.add_job(
         trigger_correlation_coalesced,
         trigger=IntervalTrigger(seconds=sweep_seconds),
         id="correlation_sweep",
         replace_existing=True,
+        jobstore=DETECTION_JOBSTORE,
     )
     log.info("scheduled_correlation_sweep", interval_seconds=sweep_seconds)
 
     # Idempotent start: reload_rules() (called after rule CRUD) re-enters
     # schedule_rules; scheduler.start() raises SchedulerAlreadyRunningError if
     # already running, which would 500 every rule mutation after the first.
-    if not scheduler.running:
-        scheduler.start()
+    if not sched.running:
+        sched.start()
     log.info("scheduler_started", rules_scheduled=len(rules))
 
 
 async def stop_scheduler() -> None:
-    """Stop the scheduler."""
-    scheduler.shutdown()
+    """Stop the SHARED scheduler (C4: detection, retention, and TI share one
+    instance; this is idempotent — main.py's stop order doesn't matter)."""
+    stop_shared_scheduler()
     log.info("scheduler_stopped")
 
 
 async def reload_rules() -> None:
-    """Reload and reschedule all rules (call after rule CRUD operations)."""
-    scheduler.remove_all_jobs()
+    """Reload and reschedule all rules (call after rule CRUD operations).
+
+    C4: removes ONLY the detection jobstore — ops jobs (retention sweep, TI
+    refresh) share this scheduler instance and must survive a rules reload.
+    """
+    get_shared_scheduler().remove_all_jobs(jobstore=DETECTION_JOBSTORE)
     await schedule_rules()
     log.info("rules_reloaded")

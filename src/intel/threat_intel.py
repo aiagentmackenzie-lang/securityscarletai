@@ -806,18 +806,15 @@ async def start_threat_intel_scheduler():
         log.info("threat_intel_disabled_air_gapped_mode")
         return
 
-    from apscheduler.schedulers.asyncio import AsyncIOScheduler
     from apscheduler.triggers.interval import IntervalTrigger
 
-    global _async_scheduler
-    # W1-G: explicit job_defaults — APScheduler's default misfire_grace_time
-    # (~1s) silently SKIPPED TI refreshes under a busy loop. See the
-    # detection scheduler's W1-G note for the stdlib-vs-structlog logging
-    # caveat (misfire warnings surface via logging.lastResort, plain stderr).
-    _async_scheduler = AsyncIOScheduler(
-        job_defaults={"misfire_grace_time": 60, "coalesce": True, "max_instances": 1}
-    )
+    from src.services.shared_scheduler import get_shared_scheduler
 
+    global _async_scheduler
+    # C4/B6b: the job rides the ONE shared scheduler (W1-G defaults live
+    # there; guarded start — the shared instance may already be running for
+    # detection/retention).
+    _async_scheduler = get_shared_scheduler()
     _async_scheduler.add_job(
         refresh_all_feeds,
         trigger=IntervalTrigger(hours=FEED_REFRESH_INTERVAL_HOURS),
@@ -836,13 +833,17 @@ async def start_threat_intel_scheduler():
     _initial_refresh_tasks.add(task)
     task.add_done_callback(_on_initial_refresh_done)
 
-    _async_scheduler.start()
+    if not _async_scheduler.running:
+        _async_scheduler.start()
     log.info("threat_intel_scheduler_started", interval_hours=FEED_REFRESH_INTERVAL_HOURS)
 
 
 async def stop_threat_intel_scheduler():
-    """Stop the threat intel scheduler."""
+    """Stop the threat intel scheduler — the SHARED instance (C4), idempotent:
+    the first domain's stop shuts it down, later ones no-op."""
     global _async_scheduler
-    if _async_scheduler:
-        _async_scheduler.shutdown()
-        log.info("threat_intel_scheduler_stopped")
+    from src.services.shared_scheduler import stop_shared_scheduler
+
+    stop_shared_scheduler()
+    _async_scheduler = None
+    log.info("threat_intel_scheduler_stopped")
