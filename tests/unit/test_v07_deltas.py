@@ -16,7 +16,7 @@ listed 8 chains while the generator emits 10.
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -317,6 +317,27 @@ class TestComputePostureOutliers:
         assert host_view["baseline"]["entities"] == 4
         auth_view = result["auth_failure_user_outliers"]
         assert [o["entity"] for o in auth_view["outliers"]] == ["admin"]
+
+    @pytest.mark.asyncio
+    async def test_queries_the_window_not_the_future(self):
+        # W4-A pin: $1 is the window's LOWER bound (as_of - window_hours),
+        # not as_of itself. The old code passed as_of (≈ now) =>
+        # `WHERE time > now()` => always empty in production; these tests
+        # mocked conn.fetch wholesale, so the SQL params were never
+        # exercised and the bug shipped. This pin reads the params.
+        conn = AsyncMock()
+        conn.fetch = AsyncMock(return_value=[])
+        with patch("src.compliance.outliers.get_pool", return_value=_pool_mock(conn)):
+            await compute_posture_outliers(24, as_of=AS_OF)
+
+        assert conn.fetch.await_count == 2  # alerts query + logs query
+        expected_start = AS_OF - timedelta(hours=24)
+        for call in conn.fetch.await_args_list:
+            params = call.args[1:]  # bind params after the SQL text
+            assert len(params) == 1
+            assert params[0] == expected_start, (
+                f"$1 must be window_start ({expected_start}), got {params[0]}"
+            )
 
     @pytest.mark.asyncio
     async def test_empty_fleet_zero_shape(self):
