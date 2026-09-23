@@ -23,6 +23,7 @@ pipeline, never inside the request.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -103,7 +104,10 @@ async def receive_ssf_set(request: Request) -> Response:
         log.error("ssf_config_invalid", error=e.description)
         return _error_response("access_denied", "SSF receiver configuration error")
     try:
-        parsed = validate_set(token, cfg)
+        # W5-B: validate_set performs a blocking JWKS fetch (urllib, 10s
+        # timeout) when a transmitter uses jwks_uri — run it in a worker
+        # thread so a hung IdP can never stall the event loop.
+        parsed = await asyncio.to_thread(validate_set, token, cfg)
     except SSFError as e:
         # RFC 8935 §2: parse/validate/auth failures are 400 + err codes.
         # Audited: every refusal names the (unverified) issuer and reason.

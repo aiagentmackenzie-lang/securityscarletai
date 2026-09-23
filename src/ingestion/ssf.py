@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -338,6 +339,12 @@ def validate_set(token: str, cfg: SSFConfig) -> ParsedSet:
     elif transmitter.jwks_inline:
         keys = transmitter.jwks_inline.get("keys", [])
     key_entry = next((k for k in keys if isinstance(k, dict) and k.get("kid") == kid), None)
+    if key_entry is None and transmitter.jwks_uri:
+        # W5-B: the cached JWKS may predate a key the transmitter just
+        # rotated in. Force exactly ONE refetch before refusing (fail-closed
+        # afterwards — if the refreshed JWKS still lacks the kid, refuse).
+        keys = _fetch_jwks(transmitter.jwks_uri, force_refresh=True)
+        key_entry = next((k for k in keys if isinstance(k, dict) and k.get("kid") == kid), None)
     if key_entry is None:
         raise SSFError("invalid_key", f"no transmitter key for kid {kid!r}")
     try:
@@ -447,9 +454,31 @@ def validate_set(token: str, cfg: SSFConfig) -> ParsedSet:
     )
 
 
-def _fetch_jwks(uri: str) -> list[Any]:
-    """Fetch a transmitter's JWKS over HTTPS (stdlib; bounded timeout).
-    Raises SSFError(invalid_key) on any failure."""
+# W5-B: JWKS TTL cache, keyed by jwks_uri. 300s = bounded staleness for
+# rotated keys (a kid-miss forces an immediate refetch, so rotation latency
+# is one SET, not the TTL).
+_JWKS_TTL_SECONDS = 300.0
+_JWKS_CACHE: dict[str, tuple[float, list[Any]]] = {}
+
+
+def _fetch_jwks(uri: str, *, force_refresh: bool = False) -> list[Any]:
+    """Fetch a transmitter's JWKS over HTTPS, TTL-cached per jwks_uri (W5-B).
+
+    The cache fixes two problems at once: (1) the old code re-fetched on
+    EVERY SET — one hung IdP cost the whole receiver 10s per SET; (2) the
+    fetch is a blocking urlopen, so the endpoint runs validate_set in a
+    worker thread (asyncio.to_thread) and the loop is never the one waiting.
+    The cache is keyed by jwks_uri (config-sourced — a handful of
+    transmitters, so no unbounded growth); concurrent cold misses may fetch
+    twice (benign — same value stored). force_refresh=True serves key
+    rotation: on a kid-miss validate_set forces exactly ONE refetch before
+    refusing. Raises SSFError(invalid_key) on any failure.
+    """
+    now = time.monotonic()
+    if not force_refresh:
+        cached = _JWKS_CACHE.get(uri)
+        if cached is not None and (now - cached[0]) < _JWKS_TTL_SECONDS:
+            return cached[1]
     import urllib.request
 
     try:
@@ -461,6 +490,7 @@ def _fetch_jwks(uri: str) -> list[Any]:
     keys = data.get("keys")
     if not isinstance(keys, list):
         raise SSFError("invalid_key", "transmitter JWKS has no keys array")
+    _JWKS_CACHE[uri] = (time.monotonic(), keys)
     return keys
 
 

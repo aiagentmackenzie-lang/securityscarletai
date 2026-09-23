@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -548,6 +549,96 @@ class TestSeverityAndEventShape:
 
     def test_new_jti_unique(self):
         assert new_jti() != new_jti()
+
+
+# ───────────────────────────────────────────────────────────────
+# W5-B: the JWKS fetch cache + key-rotation refetch
+# ───────────────────────────────────────────────────────────────
+
+
+class TestJwksCache:
+    """W5-B: the JWKS fetch is TTL-cached per jwks_uri (the old code
+    re-fetched on EVERY SET — one hung IdP stalled the loop 10s per SET);
+    a kid-miss forces exactly ONE refetch (transmitter key rotation)
+    before refusing."""
+
+    JWKS_URI = "https://idp.example.com/jwks.json"
+
+    @pytest.fixture(autouse=True)
+    def _clean_cache(self):
+        from src.ingestion import ssf as _ssf
+
+        _ssf._JWKS_CACHE.clear()
+        yield
+        _ssf._JWKS_CACHE.clear()
+
+    def _uri_cfg(self) -> SSFConfig:
+        return SSFConfig(
+            receiver_enabled=True,
+            transmitters=[
+                TransmitterConfig(
+                    issuer=ISSUER,
+                    aud=AUD,
+                    events={CAEP_SESSION_REVOKED_URI, CAEP_CREDENTIAL_CHANGE_URI},
+                    jwks_uri=self.JWKS_URI,
+                )
+            ],
+        )
+
+    def test_cached_path_no_second_fetch_within_ttl(self, monkeypatch):
+        import io
+
+        pem, jwk = _keypair()
+        payload = {"keys": [jwk]}
+        calls: list[int] = []
+
+        def fake_urlopen(req, timeout=None):
+            calls.append(1)
+            return io.BytesIO(json.dumps(payload).encode("utf-8"))
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        cfg = self._uri_cfg()
+
+        token = _encode(_claims(), pem)
+        parsed = validate_set(token, cfg)
+        assert parsed.transmitter.issuer == ISSUER
+        parsed2 = validate_set(token, cfg)  # second SET within the TTL
+        assert parsed2.transmitter.issuer == ISSUER
+        assert len(calls) == 1, "cached path must return without a second fetch"
+
+    def test_kid_miss_forces_exactly_one_refetch(self, monkeypatch):
+        import io
+
+        pem1, jwk1 = _keypair()
+        pem2, jwk2 = _keypair()
+        rotated = {**jwk2, "kid": "test-key-2"}
+        payload = {"keys": [jwk1]}  # server starts WITHOUT the rotated key
+        calls: list[int] = []
+
+        def fake_urlopen(req, timeout=None):
+            calls.append(1)
+            return io.BytesIO(json.dumps(payload).encode("utf-8"))
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        cfg = self._uri_cfg()
+
+        # SET 1: signed with the known key — cold cache, one fetch.
+        validate_set(_encode(_claims(), pem1), cfg)
+        assert len(calls) == 1
+        # SET 2: signed with the ROTATED key — kid-miss must force exactly
+        # ONE refetch; the "server" now serves the rotated key too, so the
+        # SET verifies (calls 1 -> 2, not 3: one fetch per miss, no storm).
+        payload["keys"].append(rotated)
+        parsed = validate_set(_encode(_claims(), pem2, kid="test-key-2"), cfg)
+        assert parsed.transmitter.issuer == ISSUER
+        assert len(calls) == 2, "kid-miss must trigger exactly one refetch"
+        # SET 3: another unknown kid — the miss forces exactly one further
+        # refetch (per-miss semantics), the refreshed JWKS still lacks the
+        # kid, and the SET is refused (fail-closed after the one retry).
+        with pytest.raises(SSFError) as exc_info:
+            validate_set(_encode(_claims(), pem1, kid="ghost"), cfg)
+        assert exc_info.value.err == "invalid_key"
+        assert len(calls) == 3
 
 
 # ───────────────────────────────────────────────────────────────
