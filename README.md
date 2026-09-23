@@ -476,9 +476,9 @@ against the code (no auto-updating badge):
   suite with the coverage gate · integration suite on a live Postgres ·
   pip-audit · Trivy image scan (HIGH/CRITICAL zero-findings enforced since
   2026-09-10).
-- **Unit + integration:** 2,483 unit tests (mocked DB) and 40 integration
-  tests (live Postgres) — CI-green on every push (2026-09-18); coverage
-  measured **87%** (9,873 statements, 2026-09-18).
+- **Unit + integration:** 2,594 unit tests (mocked DB) and 40 integration
+  tests (live Postgres) — CI-green on every push (2026-09-23); coverage
+  measured **88%** (10,009 statements, 2026-09-23).
 - **Live-fire:** the full 10-chain correlation matrix scored 10/10 through
   the real pipeline (latest: 2026-09-18 — 28 alerts, 25 distinct rules, 16
   ATT&CK techniques, re-run after the audit's rule-corpus corrections landed;
@@ -544,7 +544,7 @@ securityscarletai/
 ├── scripts/                 # entrypoint, backup + watchdog, purple loop, seeds,
 │                            #   provision_readonly.sql, audit-grant verification
 ├── runs/                    # Committed purple-loop run reports (evidence, not claims)
-├── tests/                   # 2,483 unit + 40 integration tests
+├── tests/                   # 2,594 unit + 40 integration tests
 ├── docs/                    # PRODUCTION · DEPLOYMENT · DEMO · RULES · AI · AIR-GAPPED ·
 │                            #   ATTACK-SCENARIOS · AI_USAGE_DETECTIONS · CHANGELOG · …
 └── docker-compose.yml       # TimescaleDB (pg17) + Redis 7 + api + mcp + dashboard

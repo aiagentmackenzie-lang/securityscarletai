@@ -1,5 +1,40 @@
 # CHANGELOG
 
+## Unreleased — deep review fix campaign (2026-09-22 → 2026-09-23)
+
+**A five-wave cover-to-cover review (~34,000 of ~35,000 lines read) produced a
+15-item fix queue; every item re-confirmed in code before fixing, every pin
+proven to FAIL on old code, one commit per item across four merge branches
+(A, B, C+B7, D). Suite 2,483 → 2,594 passed / 0 failed; coverage 87% → 88.15%.
+Headline behavior changes an operator sees:**
+
+- **Dashboard sessions (W5-A/W1-D):** the refresh token is kept and rotated —
+  no more hard 15-minute logout; logout revokes the presented refresh token.
+- **Perimeter (W5-C/D):** the prod overlay resets the mcp ports (no 0.0.0.0
+  publish in the internet posture); XFF trust narrowed to 172.16.0.0/12 only
+  (LAN peers in 10/8 + 192.168/16 can no longer spoof X-Forwarded-For).
+- **SSF receiver (W5-F):** SET jti replay refused — a captured valid SET used
+  to re-deliver indefinitely; (issuer, jti) dedup table + audited refusals +
+  retention. **Two-role posture operators: GRANT INSERT/DELETE on
+  ssf_seen_sets to scarletai_app at next boot** (see DEPLOYMENT.md §two-role).
+- **Data correctness (W4-A/W4-D/W5-E):** posture outliers query the actual
+  window (not the future); the /decisions since/until window is honored for
+  ALL six decision types (was: policy_refusal only); TimescaleDB logs
+  retention converges to LOGS_RETENTION_DAYS every boot (was: hardcoded 30d).
+- **Input bounds (W4-G/H):** bulk/case alert-id lists, suppression strings,
+  and stats/export time windows are bounded (422 on over-limit — an unbounded
+  bulk list or a year-long export window were DoS primitives).
+- **Ownership + audit integrity (W4-B/E/F):** alert links refuse foreign-owned
+  alerts (409) on every path; rules writes release the pool connection before
+  audit/reload; analyst-triggered correlation writes are audited.
+- **Parse-time fail-closed (W4-I/J/W5-H):** malformed audit date filters 422
+  instead of 500ing on the cast; malformed email channels (string to_addrs,
+  non-numeric smtp_port) drop loudly at parse, not per-dispatch; the
+  admin-token telemetry fallback warns once per process.
+- **Dead code + honest exit codes (W5-G/W5-I):** the pySigma PostgreSQLBackend
+  is deleted (off-path, lying docstring, fail-open fallback); dead-letter
+  replay exits 1 when stranded files went unreplayed (entrypoint warning).
+
 ## Unreleased — codebase quality audit campaign (2026-09-17 → 2026-09-18)
 
 **A full codebase quality audit (83 findings, AUD-001..083) executed across 11 fix
