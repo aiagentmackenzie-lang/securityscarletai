@@ -59,7 +59,10 @@ class TestCorrelationRunEndpoint:
         user = {"sub": "test", "role": "analyst"}
         request = CorrelationRunRequest(as_of="2026-05-31T22:00:00Z", persist=True)
 
-        with patch.object(api_corr, "run_all_correlations", new_callable=AsyncMock) as mock_run:
+        with (
+            patch.object(api_corr, "run_all_correlations", new_callable=AsyncMock) as mock_run,
+            patch.object(api_corr, "log_audit_action", new_callable=AsyncMock),
+        ):
             mock_run.return_value = {
                 "matches": [],
                 "total_matches": 0,
@@ -101,6 +104,58 @@ class TestCorrelationRunEndpoint:
         as_of = call.kwargs["as_of"]
         delta = abs((datetime.now(timezone.utc) - as_of).total_seconds())
         assert delta < 5  # within 5 seconds
+
+    @pytest.mark.asyncio
+    async def test_run_persist_writes_audit_row(self):
+        # W4-F: a persist=true run writes forensic rows — the write is
+        # audited with the analyst as actor and the persisted count.
+        from src.api import correlation as api_corr
+        from src.api.correlation import CorrelationRunRequest, run_correlations_post
+
+        user = {"sub": "analyst9", "role": "analyst"}
+        request = CorrelationRunRequest(as_of="2026-05-31T22:00:00Z", persist=True)
+
+        with (
+            patch.object(api_corr, "run_all_correlations", new_callable=AsyncMock) as mock_run,
+            patch.object(api_corr, "log_audit_action", new_callable=AsyncMock) as audit,
+        ):
+            mock_run.return_value = {
+                "matches": [],
+                "total_matches": 3,
+                "persisted": 3,
+                "as_of": "2026-05-31T22:00:00+00:00",
+                "per_rule": {},
+            }
+            await run_correlations_post(request=request, user=user)
+
+        audit.assert_awaited_once()
+        kwargs = audit.await_args.kwargs
+        assert kwargs["action"] == "correlation.run_persist"
+        assert kwargs["actor"] == "analyst9"
+        assert kwargs["new_values"]["persisted"] == 3
+
+    @pytest.mark.asyncio
+    async def test_run_without_persist_writes_no_audit_row(self):
+        from src.api import correlation as api_corr
+        from src.api.correlation import CorrelationRunRequest, run_correlations_post
+
+        user = {"sub": "analyst9", "role": "analyst"}
+        request = CorrelationRunRequest(persist=False)
+
+        with (
+            patch.object(api_corr, "run_all_correlations", new_callable=AsyncMock) as mock_run,
+            patch.object(api_corr, "log_audit_action", new_callable=AsyncMock) as audit,
+        ):
+            mock_run.return_value = {
+                "matches": [],
+                "total_matches": 0,
+                "persisted": 0,
+                "as_of": "2026-06-01T00:00:00+00:00",
+                "per_rule": {},
+            }
+            await run_correlations_post(request=request, user=user)
+
+        audit.assert_not_awaited()  # nothing was written — nothing to audit
 
     @pytest.mark.asyncio
     async def test_run_invalid_as_of_raises_400(self):
@@ -325,23 +380,51 @@ class TestMarkSeenEndpoint:
         from src.api.correlation import mark_seen
 
         user = {"sub": "test", "role": "analyst"}
-        with patch.object(api_corr, "mark_match_seen", new_callable=AsyncMock) as mock_seen:
+        with (
+            patch.object(api_corr, "mark_match_seen", new_callable=AsyncMock) as mock_seen,
+            patch.object(api_corr, "log_audit_action", new_callable=AsyncMock),
+        ):
             mock_seen.return_value = True
             response = await mark_seen(match_id=42, user=user)
 
         assert response == {"id": 42, "seen": True}
 
     @pytest.mark.asyncio
-    async def test_mark_seen_not_found_returns_404(self):
+    async def test_mark_seen_writes_audit_row(self):
+        # W4-F: the seen flip is an evidence-handling action — audited.
+        from src.api import correlation as api_corr
+        from src.api.correlation import mark_seen
+
+        user = {"sub": "analyst9", "role": "analyst"}
+        with (
+            patch.object(api_corr, "mark_match_seen", new_callable=AsyncMock) as mock_seen,
+            patch.object(api_corr, "log_audit_action", new_callable=AsyncMock) as audit,
+        ):
+            mock_seen.return_value = True
+            await mark_seen(match_id=42, user=user)
+
+        audit.assert_awaited_once()
+        kwargs = audit.await_args.kwargs
+        assert kwargs["action"] == "correlation.match_seen"
+        assert kwargs["actor"] == "analyst9"
+        assert kwargs["target_id"] == 42
+        assert kwargs["new_values"] == {"seen": True}
+
+    @pytest.mark.asyncio
+    async def test_mark_seen_not_found_writes_no_audit_row(self):
         from src.api import correlation as api_corr
         from src.api.correlation import mark_seen
 
         user = {"sub": "test", "role": "analyst"}
-        with patch.object(api_corr, "mark_match_seen", new_callable=AsyncMock) as mock_seen:
+        with (
+            patch.object(api_corr, "mark_match_seen", new_callable=AsyncMock) as mock_seen,
+            patch.object(api_corr, "log_audit_action", new_callable=AsyncMock) as audit,
+        ):
             mock_seen.return_value = False
             with pytest.raises(HTTPException) as exc_info:
                 await mark_seen(match_id=99999, user=user)
         assert exc_info.value.status_code == 404
+        audit.assert_not_awaited()  # nothing flipped — nothing to audit
 
 
 class TestPersistMatchEndpoint:
@@ -351,7 +434,10 @@ class TestPersistMatchEndpoint:
         from src.api.correlation import persist_single_match
 
         user = {"sub": "test", "role": "admin"}
-        with patch.object(api_corr, "persist_match", new_callable=AsyncMock) as mock_p:
+        with (
+            patch.object(api_corr, "persist_match", new_callable=AsyncMock) as mock_p,
+            patch.object(api_corr, "log_audit_action", new_callable=AsyncMock),
+        ):
             mock_p.return_value = 99
             response = await persist_single_match(
                 match_id=10,
@@ -363,16 +449,50 @@ class TestPersistMatchEndpoint:
         assert response["correlation_id"] == "abc"
 
     @pytest.mark.asyncio
-    async def test_persist_match_failure_returns_500(self):
+    async def test_persist_match_writes_audit_row(self):
+        # W4-F: an ad-hoc forensic insert of an admin-supplied dict is
+        # exactly the write the audit chain must carry.
+        from src.api import correlation as api_corr
+        from src.api.correlation import persist_single_match
+
+        user = {"sub": "admin9", "role": "admin"}
+        with (
+            patch.object(api_corr, "persist_match", new_callable=AsyncMock) as mock_p,
+            patch.object(api_corr, "log_audit_action", new_callable=AsyncMock) as audit,
+        ):
+            mock_p.return_value = 99
+            await persist_single_match(
+                match_id=10,
+                match={"correlation_rule": "x", "correlation_id": "abc"},
+                user=user,
+            )
+
+        audit.assert_awaited_once()
+        kwargs = audit.await_args.kwargs
+        assert kwargs["action"] == "correlation.match_persist"
+        assert kwargs["actor"] == "admin9"
+        assert kwargs["target_id"] == 99
+        assert kwargs["new_values"] == {
+            "correlation_id": "abc",
+            "correlation_rule": "x",
+            "trigger_event_id": 10,
+        }
+
+    @pytest.mark.asyncio
+    async def test_persist_match_failure_writes_no_audit_row(self):
         from src.api import correlation as api_corr
         from src.api.correlation import persist_single_match
 
         user = {"sub": "test", "role": "admin"}
-        with patch.object(api_corr, "persist_match", new_callable=AsyncMock) as mock_p:
+        with (
+            patch.object(api_corr, "persist_match", new_callable=AsyncMock) as mock_p,
+            patch.object(api_corr, "log_audit_action", new_callable=AsyncMock) as audit,
+        ):
             mock_p.return_value = None
             with pytest.raises(HTTPException) as exc_info:
                 await persist_single_match(match_id=10, match={}, user=user)
         assert exc_info.value.status_code == 500
+        audit.assert_not_awaited()  # nothing persisted — nothing to audit
 
 
 class TestRulesEndpoints:

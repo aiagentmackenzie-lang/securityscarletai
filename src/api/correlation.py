@@ -19,6 +19,7 @@ from typing import Annotated, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from src.api.audit import log_audit_action
 from src.api.auth import get_current_user, require_role
 from src.config.logging import get_logger
 from src.db.connection import get_pool
@@ -184,6 +185,17 @@ async def run_correlations_post(
         user=str(user.get("sub", "unknown")),
     )
     result = await run_all_correlations(as_of=parsed_as_of, persist=request.persist)
+    if request.persist:
+        # W4-F: the persist path writes forensic rows — the analyst-triggered
+        # write gets an audit row (engine info logs are not part of the
+        # tamper-evident chain).
+        await log_audit_action(
+            actor=str(user.get("sub", "unknown")),
+            action="correlation.run_persist",
+            target_type="correlation",
+            target_id=None,
+            new_values={"as_of": parsed_as_of.isoformat(), "persisted": result["persisted"]},
+        )
     return CorrelationRunResponse(
         as_of=result["as_of"],
         total_matches=result["total_matches"],
@@ -333,6 +345,14 @@ async def mark_seen(match_id: int, user: dict = Depends(require_role("analyst"))
         match_id=match_id,
         user=str(user.get("sub", "unknown")),
     )
+    # W4-F: the seen flip is an evidence-handling action — audit it.
+    await log_audit_action(
+        actor=str(user.get("sub", "unknown")),
+        action="correlation.match_seen",
+        target_type="correlation_match",
+        target_id=match_id,
+        new_values={"seen": True},
+    )
     return {"id": match_id, "seen": True}
 
 
@@ -356,4 +376,18 @@ async def persist_single_match(
             status_code=500,
             detail="Failed to persist match",
         )
+    # W4-F: an ad-hoc forensic insert of an admin-supplied dict is exactly
+    # the write the audit chain must carry (bounded summary — selected
+    # scalar keys, never the whole blob).
+    await log_audit_action(
+        actor=str(user.get("sub", "unknown")),
+        action="correlation.match_persist",
+        target_type="correlation_match",
+        target_id=new_id,
+        new_values={
+            "correlation_id": match.get("correlation_id"),
+            "correlation_rule": match.get("correlation_rule"),
+            "trigger_event_id": match_id,
+        },
+    )
     return {"id": new_id, "correlation_id": match.get("correlation_id")}
