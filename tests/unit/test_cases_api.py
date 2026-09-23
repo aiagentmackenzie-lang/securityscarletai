@@ -139,6 +139,22 @@ class TestCaseCreateModel:
         with pytest.raises(Exception):
             CaseCreate(title="Test", severity="invalid")
 
+    def test_case_create_alert_ids_over_500_rejected(self):
+        """W4-G: bounded alert_ids on case creation (a ValidationError —
+        a 422 at the API layer)."""
+        from pydantic import ValidationError
+
+        from src.api.cases import CaseCreate
+
+        with pytest.raises(ValidationError):
+            CaseCreate(title="Test", alert_ids=list(range(501)))
+
+    def test_case_create_alert_ids_exactly_500_accepted(self):
+        from src.api.cases import CaseCreate
+
+        case = CaseCreate(title="Test", alert_ids=list(range(500)))
+        assert len(case.alert_ids) == 500
+
 
 class TestCaseUpdateModel:
     """Tests for CaseUpdate model validation."""

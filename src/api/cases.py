@@ -54,7 +54,8 @@ class CaseCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=500)
     description: str = Field("", max_length=5000)
     severity: str = Field("medium", pattern=r"^(info|low|medium|high|critical)$")
-    alert_ids: list[int] = Field(default_factory=list)
+    # W4-G: bounded list — same rationale as BulkOperation.alert_ids.
+    alert_ids: list[int] = Field(default_factory=list, max_length=500)
     assigned_to: str | None = None
 
 

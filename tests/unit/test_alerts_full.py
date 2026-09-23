@@ -18,6 +18,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from src.api.alerts import (
     AlertNote,
@@ -76,6 +77,17 @@ class TestBulkOperationModel:
         op = BulkOperation(alert_ids=[1], assigned_to="analyst1")
         assert op.assigned_to == "analyst1"
 
+    def test_alert_ids_over_1000_rejected(self):
+        """W4-G: bounded list — 1001 ids must be a ValidationError (a 422
+        at the API layer); the old model accepted an arbitrarily large IN
+        clause."""
+        with pytest.raises(ValidationError):
+            BulkOperation(alert_ids=list(range(1001)))
+
+    def test_alert_ids_exactly_1000_accepted(self):
+        op = BulkOperation(alert_ids=list(range(1000)))
+        assert len(op.alert_ids) == 1000
+
 
 class TestAlertNoteModel:
     def test_valid_note(self):
@@ -111,6 +123,23 @@ class TestSuppressionRuleCreate:
     def test_reason_required(self):
         with pytest.raises(Exception):
             SuppressionRuleCreate()
+
+    def test_rule_name_over_200_rejected(self):
+        """W4-H: bounded strings — rule_name lands in a DB row untrimmed."""
+        with pytest.raises(ValidationError):
+            SuppressionRuleCreate(rule_name="x" * 201, reason="Suppress")
+
+    def test_rule_name_exactly_200_accepted(self):
+        rule = SuppressionRuleCreate(rule_name="x" * 200, reason="Suppress")
+        assert len(rule.rule_name) == 200
+
+    def test_host_name_over_255_rejected(self):
+        with pytest.raises(ValidationError):
+            SuppressionRuleCreate(host_name="x" * 256, reason="Suppress")
+
+    def test_host_name_exactly_255_accepted(self):
+        rule = SuppressionRuleCreate(host_name="x" * 255, reason="Suppress")
+        assert len(rule.host_name) == 255
 
 
 class TestAlertResponseModel:

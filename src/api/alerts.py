@@ -51,7 +51,9 @@ class AlertUpdate(BaseModel):
 
 
 class BulkOperation(BaseModel):
-    alert_ids: list[int] = Field(..., min_length=1)
+    # W4-G: bounded list — an unbounded alert_ids let one bulk request hand
+    # the DB an arbitrarily large IN clause.
+    alert_ids: list[int] = Field(..., min_length=1, max_length=1000)
     assigned_to: Optional[str] = None
     note: Optional[str] = None
 
@@ -61,8 +63,9 @@ class AlertNote(BaseModel):
 
 
 class SuppressionRuleCreate(BaseModel):
-    rule_name: Optional[str] = None
-    host_name: Optional[str] = None
+    # W4-H: bounded strings — rule_name/host_name land in DB rows untrimmed.
+    rule_name: Optional[str] = Field(None, max_length=200)
+    host_name: Optional[str] = Field(None, max_length=255)
     reason: str = Field(..., min_length=1, max_length=500)
 
 
@@ -131,7 +134,9 @@ async def list_alerts(
 
 @router.get("/stats")
 async def alert_statistics(
-    hours: int | None = None,
+    # W4-H: bounded window — a huge hours value made every stats query scan
+    # the whole table; one year of hours is the honest ceiling.
+    hours: Annotated[int | None, Query(ge=1, le=24 * 365)] = None,
     user: dict = Depends(get_current_user),
 ):
     """Get alert statistics for dashboard.
@@ -535,7 +540,9 @@ async def bulk_resolve_alerts(
 
 @router.get("/export/csv")
 async def export_csv(
-    hours: int = 24,
+    # W4-H: bounded window (30 days) — exports serialize every matching
+    # alert into one response.
+    hours: Annotated[int, Query(ge=1, le=24 * 30)] = 24,
     status: Optional[str] = None,
     user: str = Depends(require_role("analyst")),
 ):
@@ -552,7 +559,8 @@ async def export_csv(
 
 @router.get("/export/stix")
 async def export_stix(
-    hours: int = 24,
+    # W4-H: bounded window (30 days) — same serialization bound as CSV.
+    hours: Annotated[int, Query(ge=1, le=24 * 30)] = 24,
     user: str = Depends(require_role("analyst")),
 ):
     """Export alerts as STIX 2.1 bundle."""
