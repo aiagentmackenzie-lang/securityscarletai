@@ -56,6 +56,18 @@ class RefreshRequest(BaseModel):
     refresh_token: str = Field(..., min_length=10)
 
 
+class LogoutRequest(BaseModel):
+    """Optional body for /auth/logout (W1-D).
+
+    Presenting the session's refresh_token revokes it (its jti is blocklisted
+    until natural expiry). Omitting it keeps the pre-W1-D behaviour: only the
+    access token dies. Logout is per-session, not global — password change
+    remains the revoke-every-session path.
+    """
+
+    refresh_token: str | None = Field(default=None, min_length=10)
+
+
 class LogoutResponse(BaseModel):
     message: str = "Logged out"
 
@@ -517,10 +529,19 @@ async def refresh_token(request: RefreshRequest):
 
 
 @router.post("/logout", response_model=LogoutResponse)
-async def logout(payload: dict = Depends(verify_jwt)):
+async def logout(payload: dict = Depends(verify_jwt), body: LogoutRequest | None = None):
     """Logout — blacklist the current access token's jti in Redis until natural expiry.
 
     Subsequent calls with the same token return 401.
+
+    W1-D: if the optional body carries the session's refresh_token, that token
+    is blocklisted too (its jti, until natural expiry) — without this, a
+    stolen refresh token survived logout for its full TTL and could mint new
+    access tokens. Revocation is opt-in via the body and PER-SESSION, not
+    global: other sessions' refresh tokens stay valid (password change is the
+    revoke-everything path). A presented token that fails verification, type
+    check, or subject match is refused and logged — logout must never fail
+    because of the optional part.
     """
     jti = payload.get("jti")
     if not jti:
@@ -534,6 +555,38 @@ async def logout(payload: dict = Depends(verify_jwt)):
 
     ttl = _settings.access_token_ttl_minutes * 60
     await blocklist_jti(jti, ttl)
+
+    # W1-D: optional refresh-token revocation. Same verification /auth/refresh
+    # uses (decode + type=refresh), plus a sub-match against the presented
+    # access token so one session's logout can't revoke another user's token.
+    if body is not None and body.refresh_token:
+        from jose import JWTError, jwt
+
+        try:
+            refresh_payload = jwt.decode(
+                body.refresh_token,
+                _settings.api_secret_key.get_secret_value(),
+                algorithms=[JWT_ALGORITHM],
+            )
+        except JWTError:
+            refresh_payload = None
+
+        if (
+            refresh_payload is not None
+            and refresh_payload.get("type") == "refresh"
+            and refresh_payload.get("sub") == payload.get("sub")
+            and refresh_payload.get("jti")
+        ):
+            # +1 day padding mirrors the revoke_ttl shape used elsewhere.
+            refresh_ttl = (_settings.refresh_token_ttl_days + 1) * 24 * 3600
+            await blocklist_jti(refresh_payload["jti"], refresh_ttl)
+            log.info("logout_refresh_revoked", username=payload.get("sub"))
+        else:
+            log.warning(
+                "logout_refresh_token_rejected",
+                username=payload.get("sub"),
+                reason="invalid_type_or_subject_mismatch",
+            )
 
     log.info("user_logout", username=payload.get("sub"))
     return LogoutResponse()
