@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import src.api.websocket as ws_mod
 from src.api.websocket import (
     _connected_clients,
     broadcast_event,
@@ -24,12 +25,22 @@ from src.ingestion.schemas import NormalizedEvent
 
 @pytest.fixture(autouse=True)
 def _isolate_connected_clients():
-    """Isolate _connected_clients between tests to prevent shared mutable state (T-09)."""
+    """Isolate _connected_clients between tests to prevent shared mutable state (T-09).
+
+    W1-E: also isolates the per-client send-lock registry the broadcasts use
+    (absent on pre-W1-E code — getattr keeps the isolation harmless there).
+    """
     original = list(_connected_clients)
+    original_locks = dict(getattr(ws_mod, "_client_send_locks", {}))
     _connected_clients.clear()
+    if hasattr(ws_mod, "_client_send_locks"):
+        ws_mod._client_send_locks.clear()
     yield
     _connected_clients.clear()
     _connected_clients.extend(original)
+    if hasattr(ws_mod, "_client_send_locks"):
+        ws_mod._client_send_locks.clear()
+        ws_mod._client_send_locks.update(original_locks)
 
 
 def make_test_event(**kwargs):
@@ -134,6 +145,45 @@ class TestBroadcastEvent:
         assert message["user_name"] is None
         assert message["source_ip"] is None
         assert message["destination_ip"] is None
+
+
+class TestSendSerialization:
+    @pytest.mark.asyncio
+    async def test_concurrent_broadcasts_never_interleave_on_one_socket(self):
+        """W1-E/B3: two concurrent broadcasts to the SAME client must not
+        interleave ASGI frames — sends serialize per socket (per-client lock).
+        ASGI forbids concurrent send on one socket; unguarded, the second
+        broadcast's send starts inside the first's yield point."""
+        from starlette.websockets import WebSocketState
+
+        in_flight = 0
+        max_concurrent = 0
+        sent: list[str] = []
+
+        class _FakeSocket:
+            client_state = WebSocketState.CONNECTED
+            client = None
+
+            @staticmethod
+            async def send_json(message):
+                nonlocal in_flight, max_concurrent
+                in_flight += 1
+                max_concurrent = max(max_concurrent, in_flight)
+                await asyncio.sleep(0)  # yield: an unguarded concurrent send starts HERE
+                sent.append(message["host_name"])
+                in_flight -= 1
+
+        sock = _FakeSocket()
+        _connected_clients.append(sock)
+
+        await asyncio.gather(
+            broadcast_event(make_test_event(host_name="host-A")),
+            broadcast_event(make_test_event(host_name="host-B")),
+        )
+
+        # Both sends completed, but never two at once on the same socket.
+        assert sorted(sent) == ["host-A", "host-B"]
+        assert max_concurrent == 1
 
 
 class TestBroadcastBackpressure:

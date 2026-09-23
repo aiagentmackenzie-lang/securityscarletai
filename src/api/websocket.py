@@ -26,6 +26,13 @@ log = get_logger("api.websocket")
 # MAX_CLIENTS caps the registry (LLM10-style unbounded-consumption bounds).
 _connected_clients: list[WebSocket] = []
 _client_filters: dict[WebSocket, dict[str, Optional[str]]] = {}
+# W1-E: one send lock PER CLIENT. ASGI forbids concurrent send on one socket;
+# concurrent ingest batches spawn concurrent post-process/broadcast tasks, and
+# two sends interleaving on the same socket corrupted frames (random dashboard
+# disconnects under ingest bursts). Broadcasts stay concurrent ACROSS clients;
+# they serialize per socket. Entries are created at registration and popped in
+# both disconnect paths (endpoint finally + broadcast eviction).
+_client_send_locks: dict[WebSocket, asyncio.Lock] = {}
 _clients_lock = asyncio.Lock()
 MAX_WEBSOCKET_CLIENTS = 100
 
@@ -117,6 +124,8 @@ async def websocket_logs(
             "category_filter": category_filter,
             "severity_filter": severity_filter,
         }
+        # W1-E: register this socket's send lock with it.
+        _client_send_locks[websocket] = asyncio.Lock()
 
     await websocket.accept()
 
@@ -155,6 +164,7 @@ async def websocket_logs(
             if websocket in _connected_clients:
                 _connected_clients.remove(websocket)
             _client_filters.pop(websocket, None)
+            _client_send_locks.pop(websocket, None)  # W1-E: drop the send lock too
 
 
 async def broadcast_event(event: NormalizedEvent) -> None:
@@ -204,7 +214,14 @@ async def broadcast_event(event: NormalizedEvent) -> None:
             if client.client_state == WebSocketState.CONNECTED:
                 # P2.4: never let a slow client stall the broadcast (and with
                 # it, whatever called us). Timeout → evict the client.
-                await asyncio.wait_for(client.send_json(message), timeout=WS_SEND_TIMEOUT_SECONDS)
+                # W1-E: serialize sends PER SOCKET — concurrent broadcasts to
+                # the same client must not interleave ASGI frames. setdefault
+                # is defensive: every registered client already has a lock.
+                send_lock = _client_send_locks.setdefault(client, asyncio.Lock())
+                async with send_lock:
+                    await asyncio.wait_for(
+                        client.send_json(message), timeout=WS_SEND_TIMEOUT_SECONDS
+                    )
         except asyncio.TimeoutError:
             log.warning(
                 "ws_broadcast_slow_client_evicted",
@@ -221,3 +238,6 @@ async def broadcast_event(event: NormalizedEvent) -> None:
             for client in disconnected:
                 if client in _connected_clients:
                     _connected_clients.remove(client)
+                # W1-E: evicted sockets drop their send locks too — an
+                # evicted client's lock must not linger in the registry.
+                _client_send_locks.pop(client, None)
