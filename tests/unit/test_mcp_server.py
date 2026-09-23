@@ -86,6 +86,9 @@ def _settings(mcp_token: str | None, **overrides):
     s = MagicMock()
     s.mcp_bearer_token = SecretStr(mcp_token) if mcp_token is not None else None
     s.db_user = "scarletai_readonly"
+    # W3-D: the /mcp limiter reads this per request — generous default so
+    # existing tests never trip the budget (the rate-limit pin patches its own).
+    s.mcp_rate_limit = "1000/minute"
     for k, v in overrides.items():
         setattr(s, k, v)
     return s
@@ -494,3 +497,94 @@ class TestCallTool:
             )
         assert result is None
         assert "failed" in (err or "")
+
+
+class TestHealthzTerse:
+    """W3-C/B8-followup — /healthz is terse without the bearer: the
+    unauthenticated response carries booleans only; scope_violation details
+    (table/privilege names) are disclosed only to a valid bearer."""
+
+    def _get(self, headers: dict[str, str] | None = None) -> Request:
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/healthz",
+            "headers": [(k.lower().encode(), v.encode()) for k, v in (headers or {}).items()],
+            "query_string": b"",
+            "client": ("127.0.0.1", 12345),
+            "server": ("testserver", 80),
+            "scheme": "http",
+            "root_path": "",
+            "asgi": {"version": "3.0", "spec_version": "2.0"},
+            "http_version": "1.1",
+            "extensions": {},
+        }
+        return Request(scope)
+
+    @pytest.mark.asyncio
+    async def test_healthz_unauthenticated_is_terse(self):
+        from src.mcp_server import app as app_module
+
+        response = await app_module.healthz(self._get())
+        assert response["status"] == "ok"
+        assert response["auth_ready"] is True
+        assert response["scope_ok"] is True
+        assert "scope_violations" not in response  # no schema detail without auth
+
+    @pytest.mark.asyncio
+    async def test_healthz_with_bearer_discloses_violations(self):
+        from src.mcp_server import app as app_module
+
+        response = await app_module.healthz(self._get(headers={"Authorization": f"Bearer {TOKEN}"}))
+        assert response["scope_violations"] == []  # bearer sees the detail
+
+
+class TestMcpRateLimit:
+    """W3-D — POST /mcp is rate-limited (the investigate tool is a
+    multi-LLM-call loop; the semaphore caps concurrency, the limiter caps
+    rate). Keyed per client IP by the shared API limiter."""
+
+    async def test_rate_limited_after_budget(self, monkeypatch):
+        from slowapi.errors import RateLimitExceeded
+
+        from src.mcp_server import app as app_module
+
+        monkeypatch.setattr(app_module.settings, "mcp_rate_limit", "2/minute")
+
+        def _post_ip(body: bytes) -> Request:
+            """_post with a dedicated client IP so the counter is isolated
+            from the other tests (they share 127.0.0.1 under the default)."""
+            received = False
+
+            async def receive():
+                nonlocal received
+                if received:
+                    return {"type": "http.disconnect"}
+                received = True
+                return {"type": "http.request", "body": body, "more_body": False}
+
+            scope = {
+                "type": "http",
+                "method": "POST",
+                "path": "/mcp",
+                "headers": [
+                    (k.lower().encode(), v.encode())
+                    for k, v in {"Authorization": f"Bearer {TOKEN}"}.items()
+                ],
+                "query_string": b"",
+                "client": ("203.0.113.77", 9999),  # TEST-NET-3, unique to this test
+                "server": ("testserver", 80),
+                "scheme": "http",
+                "root_path": "",
+                "asgi": {"version": "3.0", "spec_version": "2.0"},
+                "http_version": "1.1",
+                "extensions": {},
+            }
+            return Request(scope, receive)
+
+        # Budget 2: two pings pass, the third raises RateLimitExceeded
+        # (direct call → the app-level 429 handler is not in the path).
+        await app_module.mcp_endpoint(_post_ip(_rpc("ping")))
+        await app_module.mcp_endpoint(_post_ip(_rpc("ping")))
+        with pytest.raises(RateLimitExceeded):
+            await app_module.mcp_endpoint(_post_ip(_rpc("ping")))
