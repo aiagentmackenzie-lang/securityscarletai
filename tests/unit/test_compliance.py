@@ -8,6 +8,7 @@ wiring.
 """
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,6 +16,7 @@ import pytest
 from src.compliance.evidence import build_evidence_pack
 from src.compliance.frameworks import parse_frameworks_document
 from src.compliance.retention import _timescaledb_policy_state, retention_policy_evidence
+from src.config.settings import settings
 
 AS_OF = datetime(2026, 9, 14, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -466,6 +468,114 @@ class TestRetentionPolicyEvidence:
             engine = await _timescaledb_policy_state()
         assert engine["timescaledb"] is False
         assert "vanilla PostgreSQL" in engine["note"]
+
+
+class TestTimescaleRetentionConfig:
+    """W5-E: the TimescaleDB logs-retention policy converges to config."""
+
+    def test_schema_tsdb_policy_reads_config_not_a_literal(self):
+        schema = (Path(__file__).resolve().parents[2] / "src" / "db" / "schema.sql").read_text()
+        # psql var interpolated OUTSIDE the dollar-quoted block into a GUC.
+        assert "SET app.logs_retention_days = :'logs_retention_days';" in schema
+        # The policy converges: drop + re-add from the configured window.
+        assert "remove_retention_policy('logs', if_exists => TRUE)" in schema
+        assert "current_setting('app.logs_retention_days', true)" in schema
+        # The hardcoded 30-day policy is GONE (the standing drift bug).
+        assert "INTERVAL '30 days'", "stale hardcoded policy must not return"
+        assert "add_retention_policy('logs', INTERVAL '30 days'" not in schema
+
+    @pytest.mark.asyncio
+    async def test_drift_warning_on_engine_mismatch(self, monkeypatch):
+        from src.compliance.retention import retention_policy_evidence
+        from src.config.settings import settings
+
+        monkeypatch.setattr(settings, "logs_retention_days", 365)
+        with patch(
+            "src.compliance.retention._timescaledb_policy_state",
+            AsyncMock(
+                return_value={
+                    "timescaledb": True,
+                    "policies": [
+                        {
+                            "job_id": 1001,
+                            "procedure": "policy_retention",
+                            "schedule_interval": "1 day",
+                            "config": {
+                                "hypertable": ["logs", "public"],
+                                "drop_after": "30 days",
+                            },
+                        }
+                    ],
+                }
+            ),
+        ):
+            doc = await retention_policy_evidence(AS_OF)
+        warning = doc.get("retention_drift_warning")
+        assert warning is not None
+        assert warning["engine_window_days"] == 30
+        assert warning["configured_window_days"] == 365
+
+    @pytest.mark.asyncio
+    async def test_no_drift_warning_when_windows_match(self, monkeypatch):
+        from src.compliance.retention import retention_policy_evidence
+        from src.config.settings import settings
+
+        monkeypatch.setattr(settings, "logs_retention_days", 365)
+        with patch(
+            "src.compliance.retention._timescaledb_policy_state",
+            AsyncMock(
+                return_value={
+                    "timescaledb": True,
+                    "policies": [
+                        {
+                            "job_id": 1001,
+                            "procedure": "policy_retention",
+                            "schedule_interval": "1 day",
+                            "config": {
+                                "hypertable": ["logs", "public"],
+                                "drop_after": "365 days",
+                            },
+                        }
+                    ],
+                }
+            ),
+        ):
+            doc = await retention_policy_evidence(AS_OF)
+        assert "retention_drift_warning" not in doc
+
+    @pytest.mark.asyncio
+    async def test_no_drift_warning_on_vanilla_pg_or_unreadable_config(self, monkeypatch):
+        from src.compliance.retention import retention_policy_evidence
+
+        monkeypatch.setattr(settings, "logs_retention_days", 365)
+        # Vanilla PG: no Timescale → no drift claim.
+        with patch(
+            "src.compliance.retention._timescaledb_policy_state",
+            AsyncMock(return_value={"timescaledb": False, "policies": []}),
+        ):
+            doc = await retention_policy_evidence(AS_OF)
+        assert "retention_drift_warning" not in doc
+
+        # Timescale present but the logs policy config unreadable → the
+        # warning is NOT invented (honest absence, never a false claim).
+        with patch(
+            "src.compliance.retention._timescaledb_policy_state",
+            AsyncMock(
+                return_value={
+                    "timescaledb": True,
+                    "policies": [
+                        {
+                            "job_id": 1002,
+                            "procedure": "policy_retention",
+                            "schedule_interval": "1 day",
+                            "config": {"hypertable": ["logs", "public"]},
+                        }
+                    ],
+                }
+            ),
+        ):
+            doc = await retention_policy_evidence(AS_OF)
+        assert "retention_drift_warning" not in doc
 
 
 class TestShipperInDemoPostureCheck:

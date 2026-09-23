@@ -612,6 +612,18 @@ CREATE INDEX IF NOT EXISTS idx_fleet_enrollments_last_seen
 -- ============================================================
 -- TIMESCALEDB (V0.5c "Fleet & Scale") -- idempotent upgrade block
 -- ============================================================
+-- W5-E: the logs retention window comes from CONFIG (LOGS_RETENTION_DAYS,
+-- default 30), not a hardcoded literal. psql variables are interpolated
+-- HERE (outside dollar-quoted blocks — psql cannot interpolate inside
+-- them), into a session-level custom GUC the DO block below reads. The
+-- entrypoint always passes -v logs_retention_days=<window>; operators
+-- applying schema.sql manually must pass the same -v (or accept the
+-- COALESCE'd 30-day default when the SET below is removed).
+-- NOTE: an undefined psql variable substitutes an EMPTY string with only a
+-- psql warning; the NULLIF+COALESCE guard inside the block converges that
+-- to the default rather than crashing the apply.
+SET app.logs_retention_days = :'logs_retention_days';
+
 -- No-op on vanilla PostgreSQL (the extension is not available there, so CI's
 -- plain postgres service and dev volumes are untouched). When the timescaledb
 -- library IS preloaded (docker-compose sets shared_preload_libraries), this
@@ -626,8 +638,8 @@ CREATE INDEX IF NOT EXISTS idx_fleet_enrollments_last_seen
 --   5. drops the correlation_matches -> logs FK (regular tables cannot
 --      reference a hypertable) and replaces it with a plain index,
 --   6. adds compression (chunks older than 7 days, segmented per host) and
---      retention (30-day logs window) policies -- they supersede the BRIN
---      index and the retention job's logs sweep (the job still owns
+--      retention (config-driven logs window) policies -- they supersede the
+--      BRIN index and the retention job's logs sweep (the job still owns
 --      alerts/correlation/ai_usage retention and stays as a fallback).
 -- Failures here are LOUD on purpose (no catch-all handler): schema apply
 -- runs under ON_ERROR_STOP=1, so a real upgrade failure must stop the boot.
@@ -679,6 +691,20 @@ BEGIN
         timescaledb.orderby = 'time DESC'
     );
     PERFORM add_compression_policy('logs', INTERVAL '7 days', if_not_exists => true);
-    PERFORM add_retention_policy('logs', INTERVAL '30 days', if_not_exists => true);
+    -- W5-E: converge the retention policy to the CONFIGURED window on every
+    -- boot. add_retention_policy's if_not_exists alone would keep a stale
+    -- 30-day policy forever even after LOGS_RETENTION_DAYS changes (the
+    -- standing config-drift bug); remove + re-add converges it. The window
+    -- is read from the session GUC set above; a missing/empty setting
+    -- (manual psql apply without -v) falls back to the documented 30 days.
+    PERFORM remove_retention_policy('logs', if_exists => TRUE);
+    PERFORM add_retention_policy(
+        'logs',
+        INTERVAL '1 day' * COALESCE(
+            NULLIF(current_setting('app.logs_retention_days', true), '')::int,
+            30
+        ),
+        if_not_exists => true
+    );
 END
 $tsdb$;

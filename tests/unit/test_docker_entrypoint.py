@@ -54,6 +54,14 @@ class TestEntrypointContents:
     def test_applies_schema(self, contents: str):
         assert "schema.sql" in contents
 
+    def test_schema_apply_passes_retention_window(self, contents: str):
+        # W5-E: the schema's TimescaleDB retention policy reads the
+        # configured LOGS_RETENTION_DAYS (default 30) — the entrypoint must
+        # pass it as a psql variable on the schema apply (both DSN paths).
+        assert '-v logs_retention_days="${LOGS_RETENTION_DAYS:-30}"' in contents
+        # BOTH branches carry the variable (superuser DSN + direct psql).
+        assert contents.count("SCHEMA_PSQL_VARS[@]") >= 2
+
     def test_seeds_demo_data_conditionally(self, contents: str):
         assert "alerts" in contents
         assert "seed_demo_data" in contents

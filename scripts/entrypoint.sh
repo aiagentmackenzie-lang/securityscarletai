@@ -72,16 +72,23 @@ echo "[entrypoint] Applying schema if needed..."
 # first CREATE TABLE ("permission denied for schema public"), which under
 # set -e + ON_ERROR_STOP crash-loops the container.
 export PGPASSWORD="${DB_PASSWORD}"
+# W5-E: the schema's TimescaleDB logs-retention policy reads the configured
+# window (LOGS_RETENTION_DAYS, default 30) via a psql variable it SETs into
+# a custom GUC before the tsdb DO block — the policy converges to config on
+# every boot instead of a hardcoded 30 days.
+SCHEMA_PSQL_VARS=(-v logs_retention_days="${LOGS_RETENTION_DAYS:-30}")
 if [ -n "${DATABASE_SUPERUSER_URL:-}" ]; then
     unset PGPASSWORD
     echo "[entrypoint] two-role deploy: schema applies via DATABASE_SUPERUSER_URL (owner)"
-    if ! psql "${DATABASE_SUPERUSER_URL}" -v ON_ERROR_STOP=1 -f src/db/schema.sql; then
+    if ! psql "${DATABASE_SUPERUSER_URL}" -v ON_ERROR_STOP=1 \
+            "${SCHEMA_PSQL_VARS[@]}" -f src/db/schema.sql; then
         echo "[entrypoint] FATAL: schema apply failed (superuser path)" >&2
         exit 1
     fi
 else
     if ! psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" \
-            -v ON_ERROR_STOP=1 -f src/db/schema.sql; then
+            -v ON_ERROR_STOP=1 \
+            "${SCHEMA_PSQL_VARS[@]}" -f src/db/schema.sql; then
         unset PGPASSWORD
         echo "[entrypoint] FATAL: schema apply failed" >&2
         exit 1
