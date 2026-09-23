@@ -241,6 +241,32 @@ class TestQueryRequestAudit:
         assert "method = $2" in sql
         assert "path = $3" in sql
 
+    def test_malformed_since_422(self):
+        """W4-I: malformed since/until must 422 at validation -- the old str
+        params 500ed on the ::timestamptz cast in the query."""
+        from unittest.mock import AsyncMock
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from src.api.audit import router as audit_router
+        from src.api.auth import get_current_user
+
+        app = FastAPI()
+        app.include_router(audit_router, prefix="/api/v1")
+        analyst = AsyncMock(return_value={"sub": "tester", "role": "analyst"})
+        app.dependency_overrides[get_current_user] = lambda: {"sub": "tester", "role": "analyst"}
+        # require_role's _check_role calls get_current_user in-body (module
+        # global at call time) -- patch the auth module for that path.
+        with patch("src.api.auth.get_current_user", analyst):
+            client = TestClient(app, raise_server_exceptions=False)
+            r = client.get(
+                "/api/v1/audit/requests",
+                params={"since": "not-a-date"},
+                headers={"Authorization": "Bearer rbac-bypass-token"},
+            )
+        assert r.status_code == 422
+
 
 # ───────────────────────────────────────────────────────────────
 # AuditLogMiddleware

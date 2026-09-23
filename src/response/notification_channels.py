@@ -151,11 +151,27 @@ def parse_channels_document(document: Any) -> list[ChannelConfig]:
         if ctype == "webhook" and not isinstance(config.get("url"), str):
             log.warning("notification_channel_webhook_url_missing", name=name)
             continue
-        if ctype == "email" and (
-            not config.get("smtp_host") or not config.get("from_addr") or not config.get("to_addrs")
-        ):
-            log.warning("notification_channel_email_incomplete_dropped", name=name)
-            continue
+        if ctype == "email":
+            # W4-J: parse-time validation -- a malformed email channel is
+            # dropped loudly HERE, never per-dispatch (the old shape let a
+            # string to_addrs iterate per-character at dispatch and a bad
+            # smtp_port raise inside the sender on every send).
+            to_addrs = config.get("to_addrs")
+            if (
+                not isinstance(to_addrs, list)
+                or not to_addrs
+                or not all(isinstance(t, str) and t.strip() for t in to_addrs)
+            ):
+                log.warning("notification_channel_email_to_addrs_invalid_dropped", name=name)
+                continue
+            try:
+                int(config.get("smtp_port", 587))
+            except (TypeError, ValueError):
+                log.warning("notification_channel_email_smtp_port_invalid_dropped", name=name)
+                continue
+            if not config.get("smtp_host") or not config.get("from_addr"):
+                log.warning("notification_channel_email_incomplete_dropped", name=name)
+                continue
         seen_names.add(name)
         channels.append(
             ChannelConfig(

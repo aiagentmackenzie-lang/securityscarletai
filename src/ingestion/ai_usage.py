@@ -46,6 +46,9 @@ from src.ingestion.schemas import NormalizedEvent
 AI_USAGE_SOURCE = "ai_usage"
 AI_USAGE_CATEGORY = "ai"
 
+# W5-H: the admin-token fallback below warns ONCE per process.
+_fallback_warning_logged = False
+
 # The closed kind -> (event_action, event_type) mapping. Producers name a
 # KIND; anything outside this table is rejected (fail-closed: an unknown
 # kind must not silently become a guessed token).
@@ -141,14 +144,25 @@ async def emit_ai_usage_event(event: NormalizedEvent) -> bool:
     from src.config.logging import get_logger
 
     log = get_logger("ingestion.ai_usage")
+    global _fallback_warning_logged
     url = settings.ai_usage_ingest_url
     if not url:
         return False  # emission disabled by config -- documented, not silent
-    token = (
-        settings.ingest_bearer_token.get_secret_value()
-        if settings.ingest_bearer_token
-        else settings.api_bearer_token.get_secret_value()
-    )
+    # W5-H: the RIGHT credential here is the scoped INGEST_BEARER_TOKEN;
+    # the fallback sends the ADMIN api_bearer_token to the ingest URL. It
+    # is kept -- refusing would silently disable MCP telemetry where the
+    # scoped token is unset -- but the posture is warned about once.
+    if settings.ingest_bearer_token:
+        token = settings.ingest_bearer_token.get_secret_value()
+    else:
+        token = settings.api_bearer_token.get_secret_value()
+        if not _fallback_warning_logged:
+            log.warning(
+                "ai_usage_emission_using_admin_token_fallback",
+                recommendation="set INGEST_BEARER_TOKEN (scoped) so the admin API "
+                "token is not used for telemetry emission",
+            )
+            _fallback_warning_logged = True
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(

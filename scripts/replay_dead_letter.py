@@ -71,13 +71,14 @@ async def replay_all(dead_letter_dir: Path = DEAD_LETTER_DIR) -> dict[str, int]:
     """
     if not dead_letter_dir.exists():
         log.info("replay_no_dir", dir=str(dead_letter_dir))
-        return {"files": 0, "replayed": 0, "skipped": 0}
+        return {"found": 0, "files": 0, "replayed": 0, "skipped": 0}
 
     # Initialise the pool so re-ingestion can write.
     await get_pool()
     await writer.start()
 
     files = sorted(p for p in dead_letter_dir.glob("*.jsonl") if p.is_file())
+    found = len(files)  # W5-I: the operator-visible "files existed" count
     total_replayed = 0
     total_skipped = 0
     files_ok = 0
@@ -112,7 +113,7 @@ async def replay_all(dead_letter_dir: Path = DEAD_LETTER_DIR) -> dict[str, int]:
         replayed=total_replayed,
         skipped=total_skipped,
     )
-    return {"files": files_ok, "replayed": total_replayed, "skipped": total_skipped}
+    return {"found": found, "files": files_ok, "replayed": total_replayed, "skipped": total_skipped}
 
 
 def main() -> None:
@@ -122,8 +123,13 @@ def main() -> None:
         f"{summary['replayed']} event(s) re-ingested, "
         f"{summary['skipped']} skipped."
     )
-    if summary["replayed"] == 0 and summary["files"] == 0:
-        sys.exit(0)
+    # W5-I: dead-letter files present but nothing re-ingested (all
+    # malformed, or a DB error left them stranded) is a WARNING the
+    # operator must see -- the entrypoint treats non-zero exit as a
+    # non-fatal warning. Nothing stranded -> healthy no-op, exit 0.
+    if summary["found"] > 0 and summary["replayed"] == 0:
+        sys.exit(1)
+    sys.exit(0)
 
 
 if __name__ == "__main__":

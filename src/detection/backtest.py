@@ -158,7 +158,8 @@ async def run_backtest(
 
     Raises:
         ValueError: invalid YAML or a Sigma field/column the compiler rejects.
-        RuleNotFound: rule_id given but no such row in the rules table.
+        (An unknown rule_id is NOT refused here: rule_id is metadata and the
+        FP-projection input -- existence is the caller's contract.)
     """
     if as_of is None:
         as_of = datetime.now(timezone.utc)

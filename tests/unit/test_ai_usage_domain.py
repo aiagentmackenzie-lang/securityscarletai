@@ -17,6 +17,74 @@ from src.ingestion.ai_usage import (
 from src.ingestion.schemas import NormalizedEvent
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# W5-H: the admin-token fallback warns exactly once per process
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+class TestAdminTokenFallbackWarning:
+    """The scoped INGEST_BEARER_TOKEN is the right credential for emission;
+    the admin api_bearer_token fallback is KEPT (refusing would silently
+    disable MCP telemetry where the scoped token is unset) but must warn
+    exactly ONCE per process."""
+
+    @pytest.mark.asyncio
+    async def test_fallback_sends_admin_token_and_warns_exactly_once(self):
+        import src.ingestion.ai_usage as ai_usage_mod
+        from src.ingestion.ai_usage import emit_ai_usage_event
+
+        event = build_ai_usage_event("mcp_tool_call", actor="mcp:s", tool="t")
+
+        posted_auth: list[str] = []
+        fake_client = MagicMock()
+        fake_response = MagicMock()
+        fake_response.raise_for_status = MagicMock()
+
+        async def _post(url, json=None, headers=None):
+            posted_auth.append(headers["Authorization"])
+            return fake_response
+
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=False)
+        fake_client.post = _post
+
+        fake_settings = MagicMock()
+        fake_settings.ai_usage_ingest_url = "http://api:8000/api/v1/ingest"
+        fake_settings.ingest_bearer_token = None
+        fake_settings.api_bearer_token = SecretStr("admin-api-tok")
+
+        warnings: list[str] = []
+
+        def _warning(event_name, **kw):
+            if event_name == "ai_usage_emission_using_admin_token_fallback":
+                warnings.append(event_name)
+
+        fake_log = MagicMock()
+        fake_log.warning = _warning
+
+        old_flag = ai_usage_mod._fallback_warning_logged
+        ai_usage_mod._fallback_warning_logged = False
+        try:
+            with (
+                patch(
+                    "src.ingestion.ai_usage.httpx.AsyncClient",
+                    MagicMock(return_value=fake_client),
+                ),
+                patch("src.ingestion.ai_usage.settings", fake_settings),
+                patch("src.config.logging.get_logger", MagicMock(return_value=fake_log)),
+            ):
+                ok1 = await emit_ai_usage_event(event)
+                ok2 = await emit_ai_usage_event(event)
+        finally:
+            ai_usage_mod._fallback_warning_logged = old_flag
+
+        assert ok1 is True and ok2 is True
+        # Both emissions carry the admin token (fallback kept, telemetry ON)
+        assert posted_auth == ["Bearer admin-api-tok", "Bearer admin-api-tok"]
+        # ...but the posture is warned about exactly ONCE
+        assert len(warnings) == 1
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # The closed mapping
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

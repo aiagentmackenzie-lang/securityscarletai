@@ -270,7 +270,7 @@ def render_rules_view():
     # ─── Create Rule ───
     with tab2:
         if not can_manage_rules():
-            st.error("You need admin or analyst permissions to create rules.")
+            st.error("You need admin permissions to create rules.")
             return
 
         st.subheader("Create New Rule")

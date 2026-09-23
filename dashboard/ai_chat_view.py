@@ -154,7 +154,9 @@ def render_ai_chat():
 
     if submitted and user_input.strip():
         st.session_state.chat_history.append({"role": "user", "content": user_input})
-        st.chat_message("user").markdown(user_input)
+        # AUD-061 parity: the live echo is user input — escaped exactly like
+        # the history re-render below (the old shape rendered raw for one cycle).
+        st.chat_message("user").markdown(esc_md(user_input))
 
         with st.chat_message("assistant"):
             with st.status("Thinking...", expanded=False) as status:
