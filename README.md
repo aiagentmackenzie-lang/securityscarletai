@@ -182,7 +182,12 @@ case in create_alert; probes alert + notify. Near-zero-FP doctrine:
   parsing, a stdlib-only `fleet_shipper.py`, and a fail-closed
   [deployment kit](deploy/fleet/) (Linux systemd + macOS launchd + Windows
   scheduled task) — a mixed-estate fleet with identity telemetry on all
-  three platforms
+  three platforms. **Fleet operators (B7):** an agent line with a missing,
+  empty, or null `hostIdentifier` is KEPT and stamped host `unknown` — it
+  never inherits the SIEM's own hostname (attribution fails closed) and is
+  never dropped. An `unknown` bucket in the dashboard = misconfigured agent
+  enrollment to fix; fix the agent's config so osquery sends
+  `hostIdentifier`.
 
 **AI & ML**
 - ML alert triage: calibrated Random Forest with cross-validated accuracy and

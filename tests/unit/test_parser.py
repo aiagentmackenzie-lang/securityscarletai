@@ -582,3 +582,57 @@ class TestWindowsStateTables:
         assert event.event_action == "config_observed"
         # registry `path` is NOT a file path -- file context must stay NULL.
         assert event.file_path is None
+
+
+# ------------------------------------------------------------------------
+# W1-L/B7: host attribution fails CLOSED
+# ------------------------------------------------------------------------
+
+
+class TestHostAttributionSentinel:
+    """A missing/empty/null/non-string hostIdentifier NEVER inherits the
+    SIEM's own hostname (attribution laundering — agent events would pose as
+    the SIEM's local telemetry) and NEVER drops the event (null used to
+    raise on host_name: str inside the shipper's per-line guard). The event
+    is kept and stamped "unknown"."""
+
+    def _line(self, **overrides):
+        payload = {
+            "name": "processes",
+            "calendarTime": "Mon Mar 21 12:00:00 2026 UTC",
+            "unixTime": 1774267200,
+            "columns": {"pid": "1", "name": "python3"},
+            "action": "added",
+        }
+        payload.update(overrides)
+        return json.dumps(payload)
+
+    def test_missing_host_identifier_is_unknown(self):
+        event = parse_osquery_line(self._line())
+        assert event is not None
+        assert event.host_name == "unknown"  # NOT socket.gethostname()
+
+    def test_empty_host_identifier_is_unknown(self):
+        event = parse_osquery_line(self._line(hostIdentifier=""))
+        assert event is not None
+        assert event.host_name == "unknown"  # NOT an invisible empty string
+
+    def test_null_host_identifier_keeps_event_as_unknown(self):
+        event = parse_osquery_line(self._line(hostIdentifier=None))
+        assert event is not None  # old code: validation raise -> event DROPPED
+        assert event.host_name == "unknown"
+
+    def test_whitespace_host_identifier_is_unknown(self):
+        event = parse_osquery_line(self._line(hostIdentifier="   "))
+        assert event is not None
+        assert event.host_name == "unknown"
+
+    def test_non_string_host_identifier_is_unknown(self):
+        event = parse_osquery_line(self._line(hostIdentifier=42))
+        assert event is not None
+        assert event.host_name == "unknown"
+
+    def test_valid_host_identifier_passes_through_trimmed(self):
+        event = parse_osquery_line(self._line(hostIdentifier=" agent-01 "))
+        assert event is not None
+        assert event.host_name == "agent-01"
