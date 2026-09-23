@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 from src.api.rules import RuleCreate, RuleResponse
 
@@ -229,6 +230,50 @@ class TestGetRuleById:
         assert result["name"] == "Test Rule"
 
     @pytest.mark.asyncio
+    async def test_serializes_interval_timedeltas(self):
+        """RT-002 FAIL-proof: run_interval/lookback arrive as timedelta from
+        asyncpg (INTERVAL columns) and must leave as strings.
+
+        Runtime live-fire 2026-09-23: POST /rules / GET /rules/{id} /
+        PATCH /rules/{id} 500'd with ResponseValidationError — d9f447a
+        (2026-08-22, P1-15) typed the RuleResponse fields as str while this
+        helper serialized only datetimes. The list endpoint works because it
+        routes through RuleResponse.from_row; every detail-route caller gets
+        the raw dict here.
+        """
+        from datetime import timedelta
+
+        from src.api.rules import get_rule_by_id
+
+        mock_row = {
+            "id": 5,
+            "name": "Interval Rule",
+            "severity": "low",
+            "run_interval": timedelta(seconds=60),
+            "lookback": timedelta(seconds=300),
+            "last_run": None,
+            "last_match": None,
+        }
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow = AsyncMock(return_value=mock_row)
+
+        class AsyncCtx:
+            async def __aenter__(self):
+                return mock_conn
+
+            async def __aexit__(self, *args):
+                pass
+
+        mock_pool = AsyncMock()
+        mock_pool.acquire = MagicMock(return_value=AsyncCtx())
+
+        with patch("src.api.rules.get_pool", AsyncMock(return_value=mock_pool)):
+            result = await get_rule_by_id(5)
+
+        assert result["run_interval"] == "0:01:00"
+        assert result["lookback"] == "0:05:00"
+
+    @pytest.mark.asyncio
     async def test_not_found(self):
         from src.api.rules import get_rule_by_id
 
@@ -433,3 +478,81 @@ class TestRuleMutationRBAC:
             # dependency attribute is the _check_role closure.
             assert hasattr(dep, "dependency")
             assert dep.dependency.__name__ == "_check_role"
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# RT-002: the HTTP detail surface (TestClient — the layer the 500 was live on)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+class TestRuleDetailHTTPSurface:
+    """GET /rules/{id} must serialize INTERVAL columns (RT-002).
+
+    Live-fire 2026-09-23: the route returned get_rule_by_id's raw dict —
+    run_interval/lookback as timedelta — against RuleResponse's str fields:
+    ResponseValidationError -> 500 on every detail fetch.
+    """
+
+    @pytest.fixture
+    def client(self) -> TestClient:
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from src.api.rules import router as rules_router
+
+        app = FastAPI()
+        app.include_router(rules_router, prefix="/api/v1")
+
+        demo_admin = {"sub": "tester", "role": "admin"}
+
+        from src.api.auth import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: demo_admin
+        for route in rules_router.routes:
+            for dep in route.dependencies or []:
+                app.dependency_overrides[dep.call] = lambda: demo_admin
+
+        return TestClient(app, raise_server_exceptions=False)
+
+    def test_get_rule_detail_returns_200_with_interval_strings(self, client):
+        """FAIL-proof: 500 (ResponseValidationError) on the old code."""
+        from datetime import timedelta
+
+        row = {
+            "id": 9,
+            "name": "HTTP Surface Rule",
+            "description": "d",
+            "severity": "low",
+            "enabled": False,
+            "last_run": None,
+            "last_match": None,
+            "match_count": 0,
+            "mitre_tactics": [],
+            "mitre_techniques": [],
+            "sigma_yaml": "title: x",
+            "run_interval": timedelta(seconds=60),
+            "lookback": timedelta(seconds=300),
+            "threshold": 1,
+            "created_at": None,
+            "updated_at": None,
+        }
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(return_value=row)
+
+        class AsyncCtx:
+            async def __aenter__(self):
+                return conn
+
+            async def __aexit__(self, *args):
+                pass
+
+        pool = AsyncMock()
+        pool.acquire = MagicMock(return_value=AsyncCtx())
+
+        with patch("src.api.rules.get_pool", AsyncMock(return_value=pool)):
+            resp = client.get("/api/v1/rules/9", headers={"Authorization": "Bearer test-token"})
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["run_interval"] == "0:01:00"
+        assert body["lookback"] == "0:05:00"
