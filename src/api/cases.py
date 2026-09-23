@@ -207,6 +207,25 @@ async def create_case(
     username = user.get("sub", "unknown")
 
     async with pool.acquire() as conn:
+        # W4-B: fail-closed ownership check BEFORE the case exists — an alert
+        # already linked to another case is refused, never silently stolen
+        # (the old case used to keep a phantom alert_ids entry with no
+        # repair path).
+        if case.alert_ids:
+            owned = await conn.fetch(
+                "SELECT id, case_id FROM alerts WHERE id = ANY($1::int[]) AND case_id IS NOT NULL",
+                case.alert_ids,
+            )
+            if owned:
+                conflict = owned[0]
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"alert #{conflict['id']} already linked to case "
+                        f"#{conflict['case_id']} — unlink it first"
+                    ),
+                )
+
         # Insert the case
         row = await conn.fetchrow(
             """
@@ -502,6 +521,18 @@ async def link_alert(
         if not alert_row:
             raise HTTPException(status_code=404, detail="Alert not found")
 
+        # W4-B: fail-closed ownership guard — an alert owned by a DIFFERENT
+        # case is refused, never silently stolen (the old case kept a
+        # phantom alert_ids entry while alerts.case_id pointed here).
+        current_owner = alert_row["case_id"]
+        if current_owner is not None and current_owner != case_id:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"alert #{alert_id} already linked to case #{current_owner} — unlink it first"
+                ),
+            )
+
         # P2-35: atomic append — array_append with a NOT-ANY guard appends only if
         # not already present, eliminating the read-modify-write lost-update race.
         result = await conn.execute(
@@ -578,10 +609,13 @@ async def unlink_alert(
                 detail="Alert is not linked to this case",
             )
 
-        # Set alert.case_id to null
+        # Set alert.case_id to null — W4-B: only if THIS case owns it (the
+        # old unconditional UPDATE could null an alert another case owned,
+        # diverging alerts.case_id from cases.alert_ids).
         await conn.execute(
-            "UPDATE alerts SET case_id = NULL, updated_at = NOW() WHERE id = $1",
+            "UPDATE alerts SET case_id = NULL, updated_at = NOW() WHERE id = $1 AND case_id = $2",
             alert_id,
+            case_id,
         )
         # Durable timeline: evidence removal is an event too (append-only —
         # the removal is recorded, the history is never erased)

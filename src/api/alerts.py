@@ -339,12 +339,27 @@ async def link_to_case(
     username = user.get("sub", "unknown")
 
     async with pool.acquire() as conn:
-        # Verify the alert exists
-        alert_row = await conn.fetchrow("SELECT id, severity FROM alerts WHERE id = $1", alert_id)
+        # Verify the alert exists (case_id included — W4-B ownership guard)
+        alert_row = await conn.fetchrow(
+            "SELECT id, severity, case_id FROM alerts WHERE id = $1", alert_id
+        )
         if not alert_row:
             raise HTTPException(status_code=404, detail="Alert not found")
 
+        current_owner = alert_row["case_id"]
+
         if body.case_id:
+            # W4-B: fail-closed ownership guard — an alert owned by a
+            # DIFFERENT case is refused, never silently stolen.
+            if current_owner is not None and current_owner != body.case_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"alert #{alert_id} already linked to case "
+                        f"#{current_owner} — unlink it first"
+                    ),
+                )
+
             # Link to existing case
             case_row = await conn.fetchrow(
                 "SELECT id, alert_ids FROM cases WHERE id = $1", body.case_id
@@ -399,6 +414,16 @@ async def link_to_case(
 
         else:
             # Create a new case inline
+            # W4-B: an alert owned by another case is never stolen into a
+            # new one — refuse (any existing owner is "elsewhere" here).
+            if current_owner is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"alert #{alert_id} already linked to case "
+                        f"#{current_owner} — unlink it first"
+                    ),
+                )
             title = body.title or f"Investigation: Alert #{alert_id}"
             description = body.description or ""
             severity = alert_row["severity"]

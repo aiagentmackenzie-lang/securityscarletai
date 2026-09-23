@@ -579,7 +579,7 @@ class TestLinkToCase:
 
         mock_conn = AsyncMock()
         # Sequential fetchrow returns for different queries
-        alert_row = {"id": 1, "severity": "high"}
+        alert_row = {"id": 1, "severity": "high", "case_id": None}
         case_row = {"id": 5, "alert_ids": [3, 4]}
         updated_row = {"id": 1, "status": "investigating"}
 
@@ -931,7 +931,10 @@ class TestLinkToCaseGovernanceParity:
 
         mock_conn = AsyncMock()
         mock_conn.fetchrow = AsyncMock(
-            side_effect=[{"id": 1, "severity": "high"}, {"id": 5, "alert_ids": [1]}]
+            side_effect=[
+                {"id": 1, "severity": "high", "case_id": None},
+                {"id": 5, "alert_ids": [1]},
+            ]
         )
         mock_conn.execute = AsyncMock(return_value="UPDATE 0")  # already linked
 
@@ -956,13 +959,86 @@ class TestLinkToCaseGovernanceParity:
         case_event.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_link_to_existing_case_refuses_foreign_owned_alert(self):
+        # W4-B: alert owned by case 7 cannot be linked into case 5 — refused,
+        # never stolen.
+        from fastapi import HTTPException
+
+        from src.api.alerts import LinkCaseRequest, link_to_case
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow = AsyncMock(
+            side_effect=[
+                {"id": 1, "severity": "high", "case_id": 7},  # owned by case 7
+                {"id": 5, "alert_ids": [3, 4]},
+            ]
+        )
+        mock_conn.execute = AsyncMock(return_value="UPDATE 1")
+
+        with (
+            patch(
+                "src.api.alerts.get_pool",
+                AsyncMock(return_value=self._mock_pool(mock_conn)),
+            ),
+            patch("src.api.cases._record_case_event", AsyncMock()) as case_event,
+            patch("src.api.audit.log_audit_action", AsyncMock()) as audit,
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await link_to_case(
+                    alert_id=1,
+                    body=LinkCaseRequest(case_id=5),
+                    user={"sub": "analyst1", "role": "analyst"},
+                )
+
+        assert exc_info.value.status_code == 409
+        assert "case #7" in exc_info.value.detail
+        assert "unlink it first" in exc_info.value.detail
+        assert mock_conn.execute.await_count == 0  # no steal update
+        case_event.assert_not_awaited()
+        audit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_inline_case_create_refuses_foreign_owned_alert(self):
+        # W4-B: an alert owned by another case is never stolen into a NEW
+        # case either (the inline-create branch of POST /alerts/{id}/case).
+        from fastapi import HTTPException
+
+        from src.api.alerts import LinkCaseRequest, link_to_case
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow = AsyncMock(side_effect=[{"id": 1, "severity": "high", "case_id": 7}])
+
+        with (
+            patch(
+                "src.api.alerts.get_pool",
+                AsyncMock(return_value=self._mock_pool(mock_conn)),
+            ),
+            patch("src.api.cases._record_case_event", AsyncMock()) as case_event,
+            patch("src.api.audit.log_audit_action", AsyncMock()) as audit,
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await link_to_case(
+                    alert_id=1,
+                    body=LinkCaseRequest(title="Borrowed evidence"),
+                    user={"sub": "analyst1", "role": "analyst"},
+                )
+
+        assert exc_info.value.status_code == 409
+        assert "case #7" in exc_info.value.detail
+        # no case INSERT, no alert update, no timeline/audit writes
+        assert mock_conn.fetchrow.await_count == 1
+        assert mock_conn.execute.await_count == 0
+        case_event.assert_not_awaited()
+        audit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_link_existing_records_case_event_and_audit(self):
         from src.api.alerts import LinkCaseRequest, link_to_case
 
         mock_conn = AsyncMock()
         mock_conn.fetchrow = AsyncMock(
             side_effect=[
-                {"id": 1, "severity": "high"},
+                {"id": 1, "severity": "high", "case_id": None},
                 {"id": 5, "alert_ids": [3, 4]},
                 {"id": 1, "status": "investigating"},
             ]
@@ -1003,7 +1079,7 @@ class TestLinkToCaseGovernanceParity:
         created_case = {"id": 7, "title": "Investigation: Alert #1"}
         mock_conn.fetchrow = AsyncMock(
             side_effect=[
-                {"id": 1, "severity": "high"},  # alert exists
+                {"id": 1, "severity": "high", "case_id": None},  # alert exists
                 created_case,  # INSERT ... RETURNING *
                 {"id": 1, "status": "new"},  # final select
             ]
