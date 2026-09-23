@@ -59,6 +59,18 @@ def parse_osquery_line(raw_line: str) -> Optional[NormalizedEvent]:
         log.warning("json_parse_failed", error=str(e), line_preview=raw_line[:200])
         return None
 
+    # W1-C: the "never raises" contract was false for SHAPE errors — a valid
+    # JSON line with a non-dict top level raised AttributeError below, which
+    # the FileShipper loop turned into an infinite same-offset retry (the
+    # AUD-006 stall pattern, alive for shape errors). Guard both shapes.
+    if not isinstance(data, dict):
+        log.warning(
+            "parser_non_dict_payload",
+            top_level_type=type(data).__name__,
+            line_preview=raw_line[:200],
+        )
+        return None
+
     table_name = data.get("name", "")
     ecs_mapping = OSQUERY_ECS_MAP.get(table_name)
 
@@ -67,6 +79,15 @@ def parse_osquery_line(raw_line: str) -> Optional[NormalizedEvent]:
         return None
 
     columns = data.get("columns", {})
+    # W1-C: same wedge class as above — a valid-JSON line whose `columns`
+    # is a string/list/number raises AttributeError on .get() further down.
+    if not isinstance(columns, dict):
+        log.warning(
+            "parser_non_dict_columns",
+            columns_type=type(columns).__name__,
+            line_preview=raw_line[:200],
+        )
+        return None
     osquery_action = data.get("action", "info")
 
     # Parse timestamp -- osquery provides both calendarTime and unixTime

@@ -72,7 +72,11 @@ _LLM_TOKEN_RE = re.compile(r"<\|[^|>]{0,40}\|>")
 # XML/JSON-style tags (both open and close) and any remaining tag-like
 # leading <tool_call> — neutralized by inserting a space after '<' so no sequence
 # can parse as a tag, while the characters themselves stay visible/readable.
-_TAG_RE = re.compile(r"&lt;/?[A-Za-z_][A-Za-z0-9_.:\-]*&gt;")
+# W2-I(a): the old pattern matched HTML-ENTITY sequences (&lt;tag&gt;)
+# that never exist in the RAW pre-escape input, so the "xml/json tags"
+# warning could never fire. Detect RAW tags; the neutralizer below was
+# already correct and is unchanged.
+_TAG_RE = re.compile(r"</?[A-Za-z_][A-Za-z0-9_.:\-]*>")
 # Control characters (except \n \t).
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 

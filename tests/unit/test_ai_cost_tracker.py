@@ -89,6 +89,41 @@ class TestRecordUsage:
         args = mock_conn.execute.call_args.args
         assert "template_library" in args
 
+    @pytest.mark.asyncio
+    async def test_persists_source_fallback_and_warning(self):
+        """W2-I(b): source / fallback_used / warning were accepted and
+        silently dropped (log-only) — they must ride the INSERT now."""
+        mock_pool = MagicMock()
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value=None)
+        acquirer = MagicMock()
+        acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
+        acquirer.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = MagicMock(return_value=acquirer)
+
+        with patch("src.ai.cost_tracker.get_pool", return_value=mock_pool):
+            ok = await record_usage(
+                user="analyst1",
+                endpoint="ai.explain",
+                model="mistral:7b",
+                tokens_in=100,
+                tokens_out=50,
+                latency_ms=200,
+                source="ollama",
+                fallback_used=True,
+                warning="Ollama slow",
+            )
+
+        assert ok is True
+        sql = mock_conn.execute.call_args.args[0]
+        assert "source" in sql
+        assert "fallback_used" in sql
+        assert "warning" in sql
+        params = mock_conn.execute.call_args.args[1:]
+        assert "ollama" in params
+        assert True in params
+        assert "Ollama slow" in params
+
 
 class TestGetUsageSummary:
     @pytest.mark.asyncio

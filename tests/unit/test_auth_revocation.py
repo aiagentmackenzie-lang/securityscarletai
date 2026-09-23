@@ -516,6 +516,46 @@ class TestForceChangeTokenScope:
             await verify_force_change_token(creds)
         assert exc.value.status_code == 401
 
+    async def test_verify_jwt_warning_is_structlog_kwarg_style(self, monkeypatch):
+        """W2-F: structlog renders %-style args literally (%s stays %s, the
+        value lands in positional_args) — the rejection warning must be
+        kwarg-style so diagnostics aren't garbled."""
+        calls: list[tuple] = []
+
+        class _Recorder:
+            @staticmethod
+            def warning(event, **kw):
+                calls.append((event, kw))
+
+        monkeypatch.setattr("src.api.auth.log", _Recorder())
+        creds = MagicMock()
+        creds.credentials = self._force_token("migr", "admin")
+        from src.api.auth import verify_jwt
+
+        with pytest.raises(HTTPException):
+            await verify_jwt(creds)
+
+        assert calls == [("force_token_rejected_on_business_endpoint", {"sub": "migr"})]
+
+    async def test_get_current_user_warning_is_structlog_kwarg_style(self, monkeypatch):
+        """W2-F (second site, _decode_access_jwt): same kwarg-style contract."""
+        calls: list[tuple] = []
+
+        class _Recorder:
+            @staticmethod
+            def warning(event, **kw):
+                calls.append((event, kw))
+
+        monkeypatch.setattr("src.api.auth.log", _Recorder())
+        creds = MagicMock()
+        creds.credentials = self._force_token("migr", "admin")
+        from src.api.auth import get_current_user
+
+        with pytest.raises(HTTPException):
+            await get_current_user(creds)
+
+        assert calls == [("force_token_rejected_on_business_endpoint", {"sub": "migr"})]
+
     async def test_force_change_password_sets_user_revoke_marker(self, monkeypatch):
         """P2-12 — a successful /force-change-password sets a user_revoke marker so
         the force_change_token (and any prior tokens) die immediately."""

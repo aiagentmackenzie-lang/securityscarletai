@@ -42,6 +42,13 @@ async def record_usage(
         fallback_used: True if the call fell back from Ollama
         warning: Optional warning string (e.g. "Ollama not responding")
 
+    W2-I(b): source / fallback_used / warning are PERSISTED (previously
+    accepted-and-dropped, log-only). Standing deployments get the columns
+    via the idempotent ALTERs in schema.sql (the AUD-030 pattern; the
+    entrypoint re-runs schema.sql on every boot). Historical rows carry
+    NULL fallback_used — get_usage_summary's model-name fallback heuristic
+    remains the supported path for those rows.
+
     Returns:
         True on success, False on any DB error (errors are logged, never raised)
     """
@@ -52,9 +59,10 @@ async def record_usage(
                 """
                 INSERT INTO ai_usage (
                     user_id, endpoint, model, tokens_in, tokens_out,
-                    latency_ms, prompt_version, created_at
+                    latency_ms, prompt_version, source, fallback_used, warning,
+                    created_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 """,
                 user or "system",
                 endpoint,
@@ -63,6 +71,10 @@ async def record_usage(
                 tokens_out,
                 latency_ms,
                 prompt_version,
+                # W2-I(b): persisted, not just logged.
+                source,
+                fallback_used,
+                warning,
                 datetime.now(tz=timezone.utc),
             )
         log.info(

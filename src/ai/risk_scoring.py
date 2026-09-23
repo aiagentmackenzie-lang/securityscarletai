@@ -294,6 +294,9 @@ class RiskScorer:
         """Get highest risk assets.
 
         M-13 fix: Batch into single query instead of N+1 per-host calls.
+        W2-I(d): the DISTINCT host LIMIT-50 sample now carries ORDER BY —
+        without it the sample was nondeterministic and could silently
+        miss risky hosts between calls.
         """
         pool = await get_pool()
         async with pool.acquire() as conn:
@@ -310,6 +313,7 @@ class RiskScorer:
                     SELECT DISTINCT host_name
                     FROM logs
                     WHERE time > NOW() - INTERVAL '24 hours'
+                    ORDER BY host_name
                     LIMIT 50
                 ) h
                 LEFT JOIN alerts al
@@ -361,6 +365,9 @@ class RiskScorer:
         per user (2 queries × up to 50 users). The scoring math below is
         lifted verbatim from calculate_user_risk so both paths stay
         identical.
+        W2-I(d): the DISTINCT user LIMIT-50 sample now carries ORDER BY —
+        without it the sample was nondeterministic and could silently
+        miss risky users between calls.
         """
         pool = await get_pool()
         async with pool.acquire() as conn:
@@ -371,6 +378,7 @@ class RiskScorer:
                     FROM logs
                     WHERE user_name IS NOT NULL
                       AND time > NOW() - INTERVAL '24 hours'
+                    ORDER BY user_name
                     LIMIT 50
                 ),
                 user_hosts AS (

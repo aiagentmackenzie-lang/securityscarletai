@@ -146,7 +146,13 @@ async def start_retention_scheduler() -> None:
     from apscheduler.triggers.interval import IntervalTrigger
 
     global _async_scheduler
-    _async_scheduler = AsyncIOScheduler()
+    # W1-G: explicit job_defaults — APScheduler's default misfire_grace_time
+    # (~1s) silently SKIPPED retention sweeps under a busy loop. See the
+    # detection scheduler's W1-G note for the stdlib-vs-structlog logging
+    # caveat (misfire warnings surface via logging.lastResort, plain stderr).
+    _async_scheduler = AsyncIOScheduler(
+        job_defaults={"misfire_grace_time": 60, "coalesce": True, "max_instances": 1}
+    )
     _async_scheduler.add_job(
         run_retention_once,
         trigger=IntervalTrigger(hours=max(1, settings.retention_interval_hours)),

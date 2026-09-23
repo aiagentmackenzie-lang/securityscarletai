@@ -33,7 +33,17 @@ from src.detection.sigma import sigma_to_sql
 
 log = get_logger("detection.scheduler")
 
-scheduler = AsyncIOScheduler()
+# W1-G: APScheduler's default misfire_grace_time is 1s — under a busy event
+# loop a 60s detection sweep that overran its slot was silently SKIPPED.
+# A 60s grace + coalescing + max_instances=1 turns a transient misfire into
+# a catch-up run instead of a silent detection hole. NOTE (W1-G follow-up,
+# verified 2026-09-25): APScheduler logs through the STDLIB logging module —
+# this codebase never bridges stdlib logging into structlog, so misfire
+# warnings surface via logging.lastResort as plain stderr lines, NOT as
+# structlog JSON events. Documented here; not bridged (out of scope).
+scheduler = AsyncIOScheduler(
+    job_defaults={"misfire_grace_time": 60, "coalesce": True, "max_instances": 1}
+)
 
 RULE_QUERY_TIMEOUT_SECONDS = 60
 _ENRICH_MAX_CONCURRENT = 2
@@ -188,7 +198,12 @@ async def run_rule(rule_id: int) -> None:
                         evidence=dict(row),
                         risk_score=None,
                     )
-                    if alert_id:
+                    # W1-A: create_alert returns -1 for dedup/suppressed —
+                    # truthy! The old `if alert_id:` scheduled a full LLM
+                    # enrichment for a nonexistent alert (id=-1), burning one
+                    # of the two semaphore slots for ~30s per deduped match
+                    # and starving real alerts. Only a real id enriches.
+                    if alert_id > 0:
                         _schedule_enrichment(alert_id, rule, row)
                 except Exception as e:
                     log.error(
@@ -227,7 +242,14 @@ async def schedule_rules() -> None:
         rules = await conn.fetch("SELECT id, run_interval FROM rules WHERE enabled = TRUE")
 
     for rule in rules:
-        interval_seconds = rule["run_interval"].total_seconds()
+        # W1-H: an API-created rule with NULL run_interval raised
+        # AttributeError here — one bad row bricked the whole lifespan boot.
+        # Fail-closed for the ROW, not for the process: default 60s, loudly.
+        if rule["run_interval"] is None:
+            log.warning("rule_null_run_interval_defaulted", rule_id=rule["id"], default_seconds=60)
+            interval_seconds = 60.0
+        else:
+            interval_seconds = rule["run_interval"].total_seconds()
 
         scheduler.add_job(
             run_rule,

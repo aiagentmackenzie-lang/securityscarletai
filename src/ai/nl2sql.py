@@ -211,9 +211,15 @@ def _extract_table_refs(sql: str) -> tuple[set[str], set[str]]:
 # boundary), while the missing keyword let a data-modifying CTE
 # (WITH x AS (UPDATE ...) SELECT ...) slip through the WITH-accepting
 # validator: the old startswith("SELECT") gate had blocked it by accident.
+# W2-A: bare `INTO` replaces the MySQL-ism `INTO\s+OUTFILE` — Postgres
+# `SELECT ... INTO newtable FROM logs` executes as DDL (creates a table)
+# and slipped past every layer when only the OUTFILE form was blocked. No
+# legit SELECT/WITH in this pipeline uses INTO. Like the rest of this set,
+# the check is a naive substring match: a string LITERAL containing "INTO"
+# is rejected too — fail-closed, consistent with the existing patterns.
 FORBIDDEN_PATTERNS = re.compile(
     r"(?<![a-z_])(DROP|ALTER|CREATE|TRUNCATE|INSERT|DELETE|UPDATE\b|GRANT|REVOKE|COPY|"
-    r"EXEC(UTE)?|EXECUTE\s|INTO\s+OUTFILE|LOAD_FILE|BENCHMARK|SLEEP|WAITFOR|"
+    r"EXEC(UTE)?|EXECUTE\s|INTO\b|LOAD_FILE|BENCHMARK|SLEEP|WAITFOR|"
     r"pg_\w+|information_schema\.|pg_catalog\.|pg_toast\.|lo_import|lo_export)",
     re.IGNORECASE,
 )

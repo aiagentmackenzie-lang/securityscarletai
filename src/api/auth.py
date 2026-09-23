@@ -134,7 +134,9 @@ async def verify_jwt(
     # JWT, and uses it on /query /alerts /ingest without ever resetting). Only
     # verify_force_change_token (below) accepts such tokens.
     if payload.get("force_password_change"):
-        log.warning("force_token_rejected_on_business_endpoint sub=%s", payload.get("sub"))
+        # W2-F: structlog renders %-style args literally (%s stays %s, the
+        # value lands in positional_args) — kwarg style instead.
+        log.warning("force_token_rejected_on_business_endpoint", sub=payload.get("sub"))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Password change required",
@@ -207,7 +209,8 @@ async def _decode_access_jwt(token: str) -> dict[str, Any]:
     # P1-B: reject force_change_tokens on the business API (same as
     # verify_jwt above) — they are scoped to /auth/force-change-password.
     if payload.get("force_password_change"):
-        log.warning("force_token_rejected_on_business_endpoint sub=%s", payload.get("sub"))
+        # W2-F: structlog renders %-style args literally — kwarg style.
+        log.warning("force_token_rejected_on_business_endpoint", sub=payload.get("sub"))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Password change required",

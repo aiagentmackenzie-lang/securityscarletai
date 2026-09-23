@@ -429,6 +429,16 @@ class TestAuth:
         request = _post(b"", headers={"Authorization": "Bearer anything"})
         assert app_module._auth_ok(request) is False
 
+    def test_non_ascii_bearer_rejected_not_500(self):
+        """W3-B: hmac.compare_digest raises TypeError on non-ASCII str — a
+        hostile non-ASCII bearer got a 500 instead of a 401. Bytes-compare
+        refuses cleanly (noise hygiene, not a bypass fix — the token was
+        never valid either way)."""
+        from src.mcp_server import app as app_module
+
+        request = _post(b"", headers={"Authorization": "Bearer tökén-ñøn-àscii-123"})
+        assert app_module._auth_ok(request) is False
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Tool dispatch
