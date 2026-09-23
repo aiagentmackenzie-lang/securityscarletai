@@ -40,13 +40,21 @@ def _process_line(name: str = "python3", cmdline: str = "python3 -m pytest") -> 
 
 
 class FakeWriter:
-    """Minimal stand-in for LogWriter — records events, never touches a DB."""
+    """Minimal stand-in for LogWriter — records events, never touches a DB.
+
+    Mirrors the real contract the shipper relies on, including flush()
+    (W1-B: the shipper confirms the flush before persisting its checkpoint).
+    """
 
     def __init__(self) -> None:
         self.events: list = []
+        self.flush_calls = 0
 
     async def write(self, event) -> None:  # noqa: D401 - mirrors LogWriter.write
         self.events.append(event)
+
+    async def flush(self) -> None:  # mirrors LogWriter.flush (no-op on empty)
+        self.flush_calls += 1
 
 
 @pytest.mark.asyncio
