@@ -31,7 +31,7 @@ the feature.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from statistics import median
 from typing import Any
 
@@ -128,6 +128,11 @@ async def compute_posture_outliers(window_hours: int, as_of: datetime | None = N
     """
     if as_of is None:
         as_of = datetime.now(timezone.utc)
+    # The window is (as_of - window_hours, as_of]: query the window's past,
+    # not the future. $1 is the LOWER bound -- passing as_of here was the
+    # born-broken W4-A bug (time > now() => always empty in production;
+    # window_hours was cosmetic).
+    window_start = as_of - timedelta(hours=window_hours)
     pool = await get_pool()
     async with pool.acquire() as conn:
         host_rows = await conn.fetch(
@@ -137,7 +142,7 @@ async def compute_posture_outliers(window_hours: int, as_of: datetime | None = N
             WHERE time > $1::timestamptz
             GROUP BY host_name
             """,
-            as_of,
+            window_start,
         )
         auth_rows = await conn.fetch(
             """
@@ -149,7 +154,7 @@ async def compute_posture_outliers(window_hours: int, as_of: datetime | None = N
               AND time > $1::timestamptz
             GROUP BY user_name
             """,
-            as_of,
+            window_start,
         )
 
     host_counts = [(r["host_name"], int(r["alert_count"])) for r in host_rows]

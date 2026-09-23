@@ -139,6 +139,22 @@ class TestCaseCreateModel:
         with pytest.raises(Exception):
             CaseCreate(title="Test", severity="invalid")
 
+    def test_case_create_alert_ids_over_500_rejected(self):
+        """W4-G: bounded alert_ids on case creation (a ValidationError —
+        a 422 at the API layer)."""
+        from pydantic import ValidationError
+
+        from src.api.cases import CaseCreate
+
+        with pytest.raises(ValidationError):
+            CaseCreate(title="Test", alert_ids=list(range(501)))
+
+    def test_case_create_alert_ids_exactly_500_accepted(self):
+        from src.api.cases import CaseCreate
+
+        case = CaseCreate(title="Test", alert_ids=list(range(500)))
+        assert len(case.alert_ids) == 500
+
 
 class TestCaseUpdateModel:
     """Tests for CaseUpdate model validation."""
@@ -329,6 +345,8 @@ class TestCaseCreation:
 
         case_row = _make_case_row(alert_ids=[5, 10])
         mock_conn.fetchrow.return_value = case_row
+        # W4-B: the pre-insert ownership check queries alerts (empty = all free).
+        mock_conn.fetch.return_value = []
 
         case_data = CaseCreate(title="With Alerts", alert_ids=[5, 10])
 
@@ -669,6 +687,94 @@ class TestAlertLinking:
             with pytest.raises(HTTPException) as exc_info:
                 await unlink_alert(case_id=1, alert_id=5, user=_make_user())
             assert exc_info.value.status_code == 404
+
+
+# W4-B: alert-ownership steal guard (fail-closed) on every link path.
+
+
+class TestAlertOwnershipGuard:
+    """W4-B: linking an alert owned by a DIFFERENT case is refused with 409
+    — the old code silently stole it (old case kept a phantom alert_ids
+    entry, alerts.case_id pointed elsewhere, no repair path)."""
+
+    def _pool(self, mock_conn):
+        mock_pool = AsyncMock()
+        mock_acquirer = AsyncMock()
+        mock_acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquirer.__aexit__ = AsyncMock(return_value=False)
+        mock_pool.acquire = MagicMock(return_value=mock_acquirer)
+        return mock_pool
+
+    @pytest.mark.asyncio
+    async def test_create_case_refuses_alert_owned_elsewhere(self):
+        from fastapi import HTTPException
+
+        from src.api.cases import CaseCreate, create_case
+
+        mock_conn = AsyncMock()
+        # Alert 5 is already owned by case 3 → the ownership check refuses.
+        mock_conn.fetch.return_value = [{"id": 5, "case_id": 3}]
+
+        with (
+            patch("src.api.cases.get_pool", return_value=self._pool(mock_conn)),
+            patch("src.api.cases.log_audit_action", new_callable=AsyncMock),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await create_case(
+                    case=CaseCreate(title="Steal attempt", alert_ids=[5]), user=_make_user()
+                )
+        assert exc_info.value.status_code == 409
+        assert "unlink it first" in exc_info.value.detail
+        # Refusal short-circuits BEFORE any INSERT or alerts UPDATE.
+        assert mock_conn.execute.await_count == 0
+        assert mock_conn.fetchrow.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_link_alert_refuses_alert_owned_by_other_case(self):
+        from fastapi import HTTPException
+
+        from src.api.cases import AlertLink, link_alert
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow.side_effect = [
+            {"id": 2, "alert_ids": []},  # target case exists
+            {"id": 5, "case_id": 7},  # alert owned by case 7
+        ]
+
+        with (
+            patch("src.api.cases.get_pool", return_value=self._pool(mock_conn)),
+            patch("src.api.cases.log_audit_action", new_callable=AsyncMock),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await link_alert(case_id=2, body=AlertLink(alert_id=5), user=_make_user())
+        assert exc_info.value.status_code == 409
+        assert "case #7" in exc_info.value.detail
+        assert "unlink it first" in exc_info.value.detail
+        # No array_append, no alert.case_id steal — refused before any write.
+        assert mock_conn.execute.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_unlink_only_nulls_when_this_case_owns_the_alert(self):
+        from src.api.cases import unlink_alert
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow.return_value = {"id": 1, "alert_ids": [5]}
+        mock_conn.execute.return_value = "UPDATE 1"
+
+        with (
+            patch("src.api.cases.get_pool", return_value=self._pool(mock_conn)),
+            patch("src.api.cases.log_audit_action", new_callable=AsyncMock),
+        ):
+            result = await unlink_alert(case_id=1, alert_id=5, user=_make_user())
+        assert result["status"] == "unlinked"
+        # The alert UPDATE must be guarded: only null case_id when THIS case
+        # owns the alert (the old unconditional UPDATE could null an alert
+        # another case owned).
+        alert_update = next(
+            call for call in mock_conn.execute.await_args_list if "UPDATE alerts" in call.args[0]
+        )
+        assert "AND case_id = $2" in alert_update.args[0]
+        assert alert_update.args[1:] == (5, 1)
 
 
 class TestCaseNotes:

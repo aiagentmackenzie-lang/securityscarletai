@@ -102,6 +102,15 @@ def test_jinja2_and_markupsafe_are_declared_direct_dependencies():
     )
 
 
+def test_pysigma_is_not_a_dependency():
+    # W5-G: the pySigma PostgreSQLBackend was deleted (off-path dead code
+    # with a lying docstring); the production path is the legacy parser in
+    # src/detection/sigma.py. The dependency must not silently return.
+    main = _pyproject()["project"]["dependencies"]
+    main_names = {d.split(" ")[0].split(">")[0].split("=")[0] for d in main}
+    assert "pysigma" not in main_names, "pysigma must stay removed (supply-chain reduction)"
+
+
 def test_dockerfile_builds_split_targets_without_the_dashboard_group_for_api():
     dockerfile = _DOCKERFILE.read_text()
     # The api builder must exclude the dashboard group...

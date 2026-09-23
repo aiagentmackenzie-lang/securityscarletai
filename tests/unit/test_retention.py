@@ -66,6 +66,18 @@ def _make_rows(n_old: int, n_new: int, time_col: str = "time") -> list[dict]:
 
 
 class TestRunRetentionOnce:
+    def test_ssf_seen_sets_in_both_target_mirrors(self):
+        # W5-F: the (issuer, jti) replay guard is retention-pruned in BOTH
+        # hand-mirrored target lists (compliance evidence + the sweep job) —
+        # the mirror is itself a logged nit; keeping them in sync is the
+        # discipline until the mirror is consolidated.
+        from src.compliance.retention import _RETENTION_TARGETS as compliance_targets
+        from src.services.retention import _RETENTION_TARGETS as service_targets
+
+        assert ("ssf_seen_sets", "seen_at", "ssf_retention_days") in compliance_targets
+        assert ("ssf_seen_sets", "seen_at", "ssf_retention_days") in service_targets
+        assert compliance_targets == service_targets
+
     @pytest.mark.asyncio
     async def test_deletes_old_keeps_new(self, monkeypatch):
         import src.services.retention as r
@@ -79,6 +91,7 @@ class TestRunRetentionOnce:
         monkeypatch.setattr(r.settings, "audit_retention_days", 0)
         monkeypatch.setattr(r.settings, "correlation_retention_days", 0)
         monkeypatch.setattr(r.settings, "ai_usage_retention_days", 0)
+        monkeypatch.setattr(r.settings, "ssf_retention_days", 0)
         monkeypatch.setattr(r.settings, "retention_batch_size", 100)
 
         results = await r.run_retention_once()
@@ -100,6 +113,7 @@ class TestRunRetentionOnce:
         monkeypatch.setattr(r.settings, "audit_retention_days", 0)
         monkeypatch.setattr(r.settings, "correlation_retention_days", 0)
         monkeypatch.setattr(r.settings, "ai_usage_retention_days", 0)
+        monkeypatch.setattr(r.settings, "ssf_retention_days", 0)
 
         results = await r.run_retention_once()
         assert results["logs"] == -1  # sentinel: disabled
@@ -118,6 +132,7 @@ class TestRunRetentionOnce:
         monkeypatch.setattr(r.settings, "audit_retention_days", 0)
         monkeypatch.setattr(r.settings, "correlation_retention_days", 0)
         monkeypatch.setattr(r.settings, "ai_usage_retention_days", 0)
+        monkeypatch.setattr(r.settings, "ssf_retention_days", 0)
         monkeypatch.setattr(r.settings, "retention_batch_size", 5)  # 12 -> 3 batches
 
         results = await r.run_retention_once()
@@ -148,6 +163,7 @@ class TestRunRetentionOnce:
         monkeypatch.setattr(r.settings, "audit_retention_days", 365)
         monkeypatch.setattr(r.settings, "correlation_retention_days", 0)
         monkeypatch.setattr(r.settings, "ai_usage_retention_days", 0)
+        monkeypatch.setattr(r.settings, "ssf_retention_days", 0)
 
         # Must not raise — a retention error must not crash the scheduler.
         results = await r.run_retention_once()

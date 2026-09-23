@@ -149,6 +149,77 @@ class TestParseChannelsDocument:
         }
         assert [c.name for c in parse_channels_document(doc)] == ["e"]
 
+    def test_email_string_to_addrs_dropped_at_parse(self):
+        """W4-J: a string to_addrs iterated PER-CHARACTER at dispatch (each
+        char a recipient) -- dropped loudly at parse instead."""
+        doc = {
+            "notification_channels": {
+                "version": 1,
+                "channels": [
+                    {
+                        "name": "mail",
+                        "type": "email",
+                        "enabled": True,
+                        "severities": ["critical"],
+                        "config": {
+                            "smtp_host": "h",
+                            "from_addr": "f@x",
+                            "to_addrs": "ops@x.com",
+                        },
+                    }
+                ],
+            }
+        }
+        assert parse_channels_document(doc) == []
+
+    def test_email_non_numeric_smtp_port_dropped_at_parse(self):
+        """W4-J: a non-numeric smtp_port used to raise inside the sender on
+        EVERY dispatch -- dropped loudly at parse instead."""
+        doc = {
+            "notification_channels": {
+                "version": 1,
+                "channels": [
+                    {
+                        "name": "mail",
+                        "type": "email",
+                        "enabled": True,
+                        "severities": ["critical"],
+                        "config": {
+                            "smtp_host": "h",
+                            "from_addr": "f@x",
+                            "to_addrs": ["t@x"],
+                            "smtp_port": "not-a-port",
+                        },
+                    }
+                ],
+            }
+        }
+        assert parse_channels_document(doc) == []
+
+    def test_email_numeric_string_port_still_parses(self):
+        """W4-J: int()-coercible values ("587") stay accepted -- only
+        genuinely unparseable ports drop the channel."""
+        doc = {
+            "notification_channels": {
+                "version": 1,
+                "channels": [
+                    {
+                        "name": "mail",
+                        "type": "email",
+                        "enabled": True,
+                        "severities": ["critical"],
+                        "config": {
+                            "smtp_host": "h",
+                            "from_addr": "f@x",
+                            "to_addrs": ["t@x"],
+                            "smtp_port": "587",
+                        },
+                    }
+                ],
+            }
+        }
+        assert [c.name for c in parse_channels_document(doc)] == ["mail"]
+
 
 class TestLegacyImplicitChannel:
     @pytest.mark.asyncio

@@ -8,6 +8,7 @@ wiring.
 """
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,6 +16,7 @@ import pytest
 from src.compliance.evidence import build_evidence_pack
 from src.compliance.frameworks import parse_frameworks_document
 from src.compliance.retention import _timescaledb_policy_state, retention_policy_evidence
+from src.config.settings import settings
 
 AS_OF = datetime(2026, 9, 14, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -216,6 +218,166 @@ class TestEvidencePackBuilder:
         receipts = pack["audit_receipts"]
         assert receipts and receipts[0]["action"] == "response.approve"
 
+    @pytest.mark.asyncio
+    async def test_big_case_newest_first_with_truncation_flags(self):
+        # W4-C: pack limits slice NEWEST-first and say so when they cut —
+        # the old ASC LIMIT silently dropped the newest evidence (including
+        # the verdict) out of a regulator-facing document.
+        alert_time = AS_OF - timedelta(days=1)
+        conn = AsyncMock()
+
+        async def fetchrow_side_effect(sql, *params):
+            if "FROM cases" in sql:
+                return {
+                    "id": 3,
+                    "title": "Big Case",
+                    "description": "",
+                    "status": "open",
+                    "severity": "critical",
+                    "assigned_to": None,
+                    "lessons_learned": None,
+                    "resolution_note": None,
+                    "resolved_at": None,
+                    "created_at": alert_time,
+                    "updated_at": alert_time,
+                }
+            return {
+                "id": 11,
+                "time": alert_time,
+                "rule_id": 1,
+                "rule_name": "r",
+                "severity": "critical",
+                "status": "new",
+                "host_name": "h",
+                "description": None,
+                "mitre_tactics": None,
+                "mitre_techniques": None,
+                "evidence": None,
+                "risk_score": None,
+                "assigned_to": None,
+                "resolved_at": None,
+                "resolution_note": None,
+                "case_id": 3,
+                "created_at": alert_time,
+                "updated_at": alert_time,
+                "notes": None,
+            }
+
+        conn.fetchrow = fetchrow_side_effect
+
+        async def fetch_side_effect(sql, *params):
+            if "FROM case_events" in sql:
+                assert "ORDER BY created_at DESC" in sql
+                return [
+                    {
+                        "id": i,
+                        "event_type": "created",
+                        "actor": "a",
+                        "actor_kind": "human",
+                        "payload": {},
+                        "alert_id": None,
+                        "action_id": None,
+                        "created_at": alert_time,
+                    }
+                    for i in range(200)  # == max_case_events
+                ]
+            if "FROM response_actions" in sql:
+                assert "ORDER BY created_at DESC" in sql
+                return [
+                    {
+                        "id": i,
+                        "action_type": "quarantine_host",
+                        "params": {},
+                        "policy_effect": "approval_required",
+                        "status": "requested",
+                        "requested_by": "r",
+                        "justification": None,
+                        "approved_by": None,
+                        "approval_note": None,
+                        "rejection_reason": None,
+                        "executed_at": None,
+                        "verified_at": None,
+                        "evidence": None,
+                        "rollback_note": None,
+                        "created_at": alert_time,
+                        "updated_at": alert_time,
+                    }
+                    for i in range(50)  # == max_response_actions
+                ]
+            if "FROM audit_log" in sql:
+                assert "ORDER BY created_at DESC" in sql
+                return [
+                    {
+                        "id": i,
+                        "actor": "a",
+                        "action": "case.create",
+                        "target_type": "case",
+                        "target_id": 3,
+                        "created_at": alert_time,
+                    }
+                    for i in range(100)  # == max_audit_receipts
+                ]
+            return []
+
+        conn.fetch = AsyncMock(side_effect=fetch_side_effect)
+        with patch("src.compliance.evidence.get_pool", return_value=_pool_mock(conn)):
+            pack = await build_evidence_pack(11, AS_OF)
+
+        assert pack["case"]["timeline_truncated"] is True
+        assert pack["case"]["response_actions_truncated"] is True
+        assert pack["audit_receipts_truncated"] is True
+
+    @pytest.mark.asyncio
+    async def test_small_case_has_no_truncation_flags(self):
+        alert_time = AS_OF - timedelta(days=1)
+        conn = AsyncMock()
+
+        async def fetchrow_side_effect(sql, *params):
+            if "FROM cases" in sql:
+                return {
+                    "id": 3,
+                    "title": "Small Case",
+                    "description": None,
+                    "status": "open",
+                    "severity": "low",
+                    "assigned_to": None,
+                    "lessons_learned": None,
+                    "resolution_note": None,
+                    "resolved_at": None,
+                    "created_at": alert_time,
+                    "updated_at": alert_time,
+                }
+            return {
+                "id": 11,
+                "time": alert_time,
+                "rule_id": 1,
+                "rule_name": "r",
+                "severity": "low",
+                "status": "new",
+                "host_name": "h",
+                "description": None,
+                "mitre_tactics": None,
+                "mitre_techniques": None,
+                "evidence": None,
+                "risk_score": None,
+                "assigned_to": None,
+                "resolved_at": None,
+                "resolution_note": None,
+                "case_id": 3,
+                "created_at": alert_time,
+                "updated_at": alert_time,
+                "notes": None,
+            }
+
+        conn.fetchrow = fetchrow_side_effect
+        conn.fetch = AsyncMock(return_value=[])
+        with patch("src.compliance.evidence.get_pool", return_value=_pool_mock(conn)):
+            pack = await build_evidence_pack(11, AS_OF)
+
+        assert pack["case"]["timeline_truncated"] is False
+        assert pack["case"]["response_actions_truncated"] is False
+        assert pack["audit_receipts_truncated"] is False
+
 
 class TestFrameworkMappingsLoader:
     def test_parse_valid_document(self):
@@ -294,6 +456,7 @@ class TestRetentionPolicyEvidence:
             "audit_log",
             "correlation_matches",
             "ai_usage",
+            "ssf_seen_sets",
         }
         assert tables["logs"]["window_days"] >= 0
         assert doc["engine"]["timescaledb"] is False
@@ -306,6 +469,114 @@ class TestRetentionPolicyEvidence:
             engine = await _timescaledb_policy_state()
         assert engine["timescaledb"] is False
         assert "vanilla PostgreSQL" in engine["note"]
+
+
+class TestTimescaleRetentionConfig:
+    """W5-E: the TimescaleDB logs-retention policy converges to config."""
+
+    def test_schema_tsdb_policy_reads_config_not_a_literal(self):
+        schema = (Path(__file__).resolve().parents[2] / "src" / "db" / "schema.sql").read_text()
+        # psql var interpolated OUTSIDE the dollar-quoted block into a GUC.
+        assert "SET app.logs_retention_days = :'logs_retention_days';" in schema
+        # The policy converges: drop + re-add from the configured window.
+        assert "remove_retention_policy('logs', if_exists => TRUE)" in schema
+        assert "current_setting('app.logs_retention_days', true)" in schema
+        # The hardcoded 30-day policy is GONE (the standing drift bug).
+        assert "INTERVAL '30 days'", "stale hardcoded policy must not return"
+        assert "add_retention_policy('logs', INTERVAL '30 days'" not in schema
+
+    @pytest.mark.asyncio
+    async def test_drift_warning_on_engine_mismatch(self, monkeypatch):
+        from src.compliance.retention import retention_policy_evidence
+        from src.config.settings import settings
+
+        monkeypatch.setattr(settings, "logs_retention_days", 365)
+        with patch(
+            "src.compliance.retention._timescaledb_policy_state",
+            AsyncMock(
+                return_value={
+                    "timescaledb": True,
+                    "policies": [
+                        {
+                            "job_id": 1001,
+                            "procedure": "policy_retention",
+                            "schedule_interval": "1 day",
+                            "config": {
+                                "hypertable": ["logs", "public"],
+                                "drop_after": "30 days",
+                            },
+                        }
+                    ],
+                }
+            ),
+        ):
+            doc = await retention_policy_evidence(AS_OF)
+        warning = doc.get("retention_drift_warning")
+        assert warning is not None
+        assert warning["engine_window_days"] == 30
+        assert warning["configured_window_days"] == 365
+
+    @pytest.mark.asyncio
+    async def test_no_drift_warning_when_windows_match(self, monkeypatch):
+        from src.compliance.retention import retention_policy_evidence
+        from src.config.settings import settings
+
+        monkeypatch.setattr(settings, "logs_retention_days", 365)
+        with patch(
+            "src.compliance.retention._timescaledb_policy_state",
+            AsyncMock(
+                return_value={
+                    "timescaledb": True,
+                    "policies": [
+                        {
+                            "job_id": 1001,
+                            "procedure": "policy_retention",
+                            "schedule_interval": "1 day",
+                            "config": {
+                                "hypertable": ["logs", "public"],
+                                "drop_after": "365 days",
+                            },
+                        }
+                    ],
+                }
+            ),
+        ):
+            doc = await retention_policy_evidence(AS_OF)
+        assert "retention_drift_warning" not in doc
+
+    @pytest.mark.asyncio
+    async def test_no_drift_warning_on_vanilla_pg_or_unreadable_config(self, monkeypatch):
+        from src.compliance.retention import retention_policy_evidence
+
+        monkeypatch.setattr(settings, "logs_retention_days", 365)
+        # Vanilla PG: no Timescale → no drift claim.
+        with patch(
+            "src.compliance.retention._timescaledb_policy_state",
+            AsyncMock(return_value={"timescaledb": False, "policies": []}),
+        ):
+            doc = await retention_policy_evidence(AS_OF)
+        assert "retention_drift_warning" not in doc
+
+        # Timescale present but the logs policy config unreadable → the
+        # warning is NOT invented (honest absence, never a false claim).
+        with patch(
+            "src.compliance.retention._timescaledb_policy_state",
+            AsyncMock(
+                return_value={
+                    "timescaledb": True,
+                    "policies": [
+                        {
+                            "job_id": 1002,
+                            "procedure": "policy_retention",
+                            "schedule_interval": "1 day",
+                            "config": {"hypertable": ["logs", "public"]},
+                        }
+                    ],
+                }
+            ),
+        ):
+            doc = await retention_policy_evidence(AS_OF)
+        assert "retention_drift_warning" not in doc
 
 
 class TestShipperInDemoPostureCheck:

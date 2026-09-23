@@ -19,6 +19,33 @@ from fastapi import HTTPException
 
 from src.api.rules import RuleCreate, RuleResponse
 
+
+class _DepthTrackingPool:
+    """W4-E pin fixture: a fake pool counting how many connections are held
+    at once. Collaborators (audit/reload/re-fetch) acquire from the SAME
+    pool, mimicking their real behavior — so max_depth exposes
+    hold-one-need-two deadlocks."""
+
+    def __init__(self, conn):
+        self._conn = conn
+        self.depth = 0
+        self.max_depth = 0
+
+    def acquire(self):
+        pool = self
+
+        class _Ctx:
+            async def __aenter__(self):
+                pool.depth += 1
+                pool.max_depth = max(pool.max_depth, pool.depth)
+                return pool._conn
+
+            async def __aexit__(self, *args):
+                pool.depth -= 1
+
+        return _Ctx()
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Pydantic models
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -275,6 +302,92 @@ class TestDeleteRule:
             with pytest.raises(HTTPException) as exc_info:
                 await delete_rule(rule_id=9999, user="admin")
             assert exc_info.value.status_code == 404
+
+
+class TestPoolAcquireDepth:
+    """W4-E: admin mutations must hold at most ONE pool connection.
+
+    log_audit_action / reload_rules / get_rule_by_id each acquire their own
+    connection — when they ran INSIDE the endpoint's acquire block
+    (hold-one-need-two), a saturated pool self-deadlocked every concurrent
+    admin mutation. The fake collaborators acquire from the SAME tracked
+    pool, so max_depth == 1 is the honest contract.
+    """
+
+    def _wired(self, conn):
+        from src.api import rules as rules_module
+
+        pool = _DepthTrackingPool(conn)
+
+        async def fake_log_audit(**kwargs):
+            async with pool.acquire():
+                pass
+
+        async def fake_reload_rules():
+            async with pool.acquire():
+                pass
+
+        async def fake_get_rule_by_id(rule_id):
+            async with pool.acquire():
+                return {"id": rule_id, "name": "rule"}
+
+        return rules_module, pool, fake_log_audit, fake_reload_rules, fake_get_rule_by_id
+
+    @pytest.mark.asyncio
+    async def test_create_rule_holds_at_most_one_connection(self, monkeypatch):
+        conn = AsyncMock()
+        conn.fetchval = AsyncMock(return_value=42)
+        rules_module, pool, audit, reload, get_by_id = self._wired(conn)
+
+        with (
+            patch.object(rules_module, "get_pool", AsyncMock(return_value=pool)),
+            patch.object(
+                rules_module,
+                "parse_sigma_rule",
+                MagicMock(return_value=MagicMock(mitre_tactics=[], mitre_techniques=[])),
+            ),
+            patch.object(rules_module, "log_audit_action", audit),
+            patch.object(rules_module, "reload_rules", reload),
+            patch.object(rules_module, "get_rule_by_id", get_by_id),
+        ):
+            result = await rules_module.create_rule(
+                rule=RuleCreate(name="R", sigma_yaml="valid: true"),
+                user={"sub": "admin", "role": "admin"},
+            )
+        assert result["id"] == 42
+        assert pool.max_depth == 1, f"hold-one-need-two: max_depth={pool.max_depth}"
+        assert pool.depth == 0  # everything released
+
+    @pytest.mark.asyncio
+    async def test_update_rule_holds_at_most_one_connection(self, monkeypatch):
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(return_value={"id": 7})  # rule exists
+        rules_module, pool, audit, reload, get_by_id = self._wired(conn)
+        monkeypatch.setattr(rules_module, "get_pool", AsyncMock(return_value=pool))
+        monkeypatch.setattr(rules_module, "log_audit_action", audit)
+        monkeypatch.setattr(rules_module, "reload_rules", reload)
+        monkeypatch.setattr(rules_module, "get_rule_by_id", get_by_id)
+
+        await rules_module.update_rule(
+            rule_id=7,
+            updates=RuleCreate(name="R2", sigma_yaml="valid: true"),
+            user={"sub": "admin", "role": "admin"},
+        )
+        assert pool.max_depth == 1, f"hold-one-need-two: max_depth={pool.max_depth}"
+        assert pool.depth == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_rule_holds_at_most_one_connection(self, monkeypatch):
+        conn = AsyncMock()
+        conn.execute = AsyncMock(return_value="DELETE 1")
+        rules_module, pool, audit, reload, _ = self._wired(conn)
+        monkeypatch.setattr(rules_module, "get_pool", AsyncMock(return_value=pool))
+        monkeypatch.setattr(rules_module, "log_audit_action", audit)
+        monkeypatch.setattr(rules_module, "reload_rules", reload)
+
+        await rules_module.delete_rule(rule_id=7, user={"sub": "admin", "role": "admin"})
+        assert pool.max_depth == 1, f"hold-one-need-two: max_depth={pool.max_depth}"
+        assert pool.depth == 0
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -67,6 +67,24 @@ def _load_json(value: Any) -> dict:
     return result if isinstance(result, dict) else {}
 
 
+def _window_conditions(
+    column: str, since: datetime | None, until: datetime | None, params: list[Any]
+) -> list[str]:
+    """The W4-D window contract: every decision-type query filters its
+    records on the timestamp column that type actually sorts on (the
+    record's `ts`), with the same ::timestamptz cast the policy_refusal
+    query established. since/until are appended to `params` in order; the
+    caller adds the LIMIT parameter last so its $n index always follows."""
+    conditions: list[str] = []
+    if since:
+        params.append(since)
+        conditions.append(f"{column} >= ${len(params)}::timestamptz")
+    if until:
+        params.append(until)
+        conditions.append(f"{column} < ${len(params)}::timestamptz")
+    return conditions
+
+
 @router.get("")
 async def list_decisions(
     decision_type: Annotated[
@@ -96,16 +114,17 @@ async def list_decisions(
 
     async with pool.acquire() as conn:
         if decision_type in (None, "ai_triage"):
+            conditions = ["ai_summary IS NOT NULL"]
+            params: list[Any] = []
+            conditions += _window_conditions("updated_at", since, until, params)
+            params.append(per_type_limit)
+            limit_idx = len(params)
             rows = await conn.fetch(
-                """
-                SELECT id, created_at, updated_at, host_name, rule_name, severity,
-                       ai_summary, risk_score
-                FROM alerts
-                WHERE ai_summary IS NOT NULL
-                ORDER BY updated_at DESC
-                LIMIT $1
-                """,
-                per_type_limit,
+                f"SELECT id, created_at, updated_at, host_name, rule_name, severity, "  # noqa: S608
+                f"ai_summary, risk_score FROM alerts "
+                f"WHERE {' AND '.join(conditions)} "
+                f"ORDER BY updated_at DESC LIMIT ${limit_idx}",
+                *params,
             )
             records += [
                 {
@@ -130,14 +149,16 @@ async def list_decisions(
             ]
 
         if decision_type in (None, "correlation"):
+            params = []
+            conditions = _window_conditions("created_at", since, until, params)
+            where = f"WHERE {' AND '.join(conditions)} " if conditions else ""
+            params.append(per_type_limit)
+            limit_idx = len(params)
             rows = await conn.fetch(
-                """
-                SELECT id, created_at, correlation_rule, severity, match_data
-                FROM correlation_matches
-                ORDER BY created_at DESC
-                LIMIT $1
-                """,
-                per_type_limit,
+                f"SELECT id, created_at, correlation_rule, severity, match_data "  # noqa: S608
+                f"FROM correlation_matches {where}"
+                f"ORDER BY created_at DESC LIMIT ${limit_idx}",
+                *params,
             )
             records += [
                 {
@@ -159,15 +180,16 @@ async def list_decisions(
             ]
 
         if decision_type in (None, "verdict"):
+            conditions = ["event_type = 'verdict'"]
+            params = []
+            conditions += _window_conditions("created_at", since, until, params)
+            params.append(per_type_limit)
+            limit_idx = len(params)
             rows = await conn.fetch(
-                """
-                SELECT id, created_at, actor, payload, case_id, alert_id
-                FROM case_events
-                WHERE event_type = 'verdict'
-                ORDER BY created_at DESC
-                LIMIT $1
-                """,
-                per_type_limit,
+                f"SELECT id, created_at, actor, payload, case_id, alert_id "  # noqa: S608
+                f"FROM case_events WHERE {' AND '.join(conditions)} "
+                f"ORDER BY created_at DESC LIMIT ${limit_idx}",
+                *params,
             )
             records += [
                 {
@@ -191,16 +213,17 @@ async def list_decisions(
             ]
 
         if decision_type in (None, "response_action"):
+            params = []
+            conditions = _window_conditions("created_at", since, until, params)
+            where = f"WHERE {' AND '.join(conditions)} " if conditions else ""
+            params.append(per_type_limit)
+            limit_idx = len(params)
             rows = await conn.fetch(
-                """
-                SELECT id, case_id, action_type, policy_effect, status,
-                       requested_by, approved_by, justification, executed_at,
-                       verified_at, evidence, created_at
-                FROM response_actions
-                ORDER BY created_at DESC
-                LIMIT $1
-                """,
-                per_type_limit,
+                f"SELECT id, case_id, action_type, policy_effect, status, "  # noqa: S608
+                f"requested_by, approved_by, justification, executed_at, "
+                f"verified_at, evidence, created_at FROM response_actions {where}"
+                f"ORDER BY created_at DESC LIMIT ${limit_idx}",
+                *params,
             )
             records += [
                 {
@@ -229,13 +252,8 @@ async def list_decisions(
 
         if decision_type in (None, "policy_refusal"):
             conditions = ["action = 'response.refused'"]
-            params: list = []
-            if since:
-                params.append(since)
-                conditions.append(f"created_at >= ${len(params)}::timestamptz")
-            if until:
-                params.append(until)
-                conditions.append(f"created_at < ${len(params)}::timestamptz")
+            params = []
+            conditions += _window_conditions("created_at", since, until, params)
             params.append(per_type_limit)
             limit_idx = len(params)
             rows = await conn.fetch(
@@ -266,16 +284,17 @@ async def list_decisions(
             ]
 
         if decision_type in (None, "agent_investigation"):
+            conditions = ["verdict_draft IS NOT NULL"]
+            params = []
+            conditions += _window_conditions("updated_at", since, until, params)
+            params.append(per_type_limit)
+            limit_idx = len(params)
             rows = await conn.fetch(
-                """
-                SELECT id, created_at, updated_at, objective, alert_id, status,
-                       actor, requested_by, verdict_draft, hitl_state
-                FROM agent_investigations
-                WHERE verdict_draft IS NOT NULL
-                ORDER BY updated_at DESC
-                LIMIT $1
-                """,
-                per_type_limit,
+                f"SELECT id, created_at, updated_at, objective, alert_id, status, "  # noqa: S608
+                f"actor, requested_by, verdict_draft, hitl_state "
+                f"FROM agent_investigations WHERE {' AND '.join(conditions)} "
+                f"ORDER BY updated_at DESC LIMIT ${limit_idx}",
+                *params,
             )
             records += [
                 {

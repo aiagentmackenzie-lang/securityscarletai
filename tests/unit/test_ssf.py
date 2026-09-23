@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import yaml
@@ -44,6 +45,16 @@ from src.services.writer import writer as writer_singleton
 
 ISSUER = "https://idp.example.com/"
 AUD = "scarletai-receiver"
+
+
+def _ssf_pool_mock(conn):
+    """A fake pool for the SSF endpoint's replay-guard queries (W5-F)."""
+    mock_pool = MagicMock()
+    acquirer = MagicMock()
+    acquirer.__aenter__ = AsyncMock(return_value=conn)
+    acquirer.__aexit__ = AsyncMock(return_value=None)
+    mock_pool.acquire = MagicMock(return_value=acquirer)
+    return mock_pool
 
 
 # ───────────────────────────────────────────────────────────────
@@ -551,6 +562,96 @@ class TestSeverityAndEventShape:
 
 
 # ───────────────────────────────────────────────────────────────
+# W5-B: the JWKS fetch cache + key-rotation refetch
+# ───────────────────────────────────────────────────────────────
+
+
+class TestJwksCache:
+    """W5-B: the JWKS fetch is TTL-cached per jwks_uri (the old code
+    re-fetched on EVERY SET — one hung IdP stalled the loop 10s per SET);
+    a kid-miss forces exactly ONE refetch (transmitter key rotation)
+    before refusing."""
+
+    JWKS_URI = "https://idp.example.com/jwks.json"
+
+    @pytest.fixture(autouse=True)
+    def _clean_cache(self):
+        from src.ingestion import ssf as _ssf
+
+        _ssf._JWKS_CACHE.clear()
+        yield
+        _ssf._JWKS_CACHE.clear()
+
+    def _uri_cfg(self) -> SSFConfig:
+        return SSFConfig(
+            receiver_enabled=True,
+            transmitters=[
+                TransmitterConfig(
+                    issuer=ISSUER,
+                    aud=AUD,
+                    events={CAEP_SESSION_REVOKED_URI, CAEP_CREDENTIAL_CHANGE_URI},
+                    jwks_uri=self.JWKS_URI,
+                )
+            ],
+        )
+
+    def test_cached_path_no_second_fetch_within_ttl(self, monkeypatch):
+        import io
+
+        pem, jwk = _keypair()
+        payload = {"keys": [jwk]}
+        calls: list[int] = []
+
+        def fake_urlopen(req, timeout=None):
+            calls.append(1)
+            return io.BytesIO(json.dumps(payload).encode("utf-8"))
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        cfg = self._uri_cfg()
+
+        token = _encode(_claims(), pem)
+        parsed = validate_set(token, cfg)
+        assert parsed.transmitter.issuer == ISSUER
+        parsed2 = validate_set(token, cfg)  # second SET within the TTL
+        assert parsed2.transmitter.issuer == ISSUER
+        assert len(calls) == 1, "cached path must return without a second fetch"
+
+    def test_kid_miss_forces_exactly_one_refetch(self, monkeypatch):
+        import io
+
+        pem1, jwk1 = _keypair()
+        pem2, jwk2 = _keypair()
+        rotated = {**jwk2, "kid": "test-key-2"}
+        payload = {"keys": [jwk1]}  # server starts WITHOUT the rotated key
+        calls: list[int] = []
+
+        def fake_urlopen(req, timeout=None):
+            calls.append(1)
+            return io.BytesIO(json.dumps(payload).encode("utf-8"))
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        cfg = self._uri_cfg()
+
+        # SET 1: signed with the known key — cold cache, one fetch.
+        validate_set(_encode(_claims(), pem1), cfg)
+        assert len(calls) == 1
+        # SET 2: signed with the ROTATED key — kid-miss must force exactly
+        # ONE refetch; the "server" now serves the rotated key too, so the
+        # SET verifies (calls 1 -> 2, not 3: one fetch per miss, no storm).
+        payload["keys"].append(rotated)
+        parsed = validate_set(_encode(_claims(), pem2, kid="test-key-2"), cfg)
+        assert parsed.transmitter.issuer == ISSUER
+        assert len(calls) == 2, "kid-miss must trigger exactly one refetch"
+        # SET 3: another unknown kid — the miss forces exactly one further
+        # refetch (per-miss semantics), the refreshed JWKS still lacks the
+        # kid, and the SET is refused (fail-closed after the one retry).
+        with pytest.raises(SSFError) as exc_info:
+            validate_set(_encode(_claims(), pem1, kid="ghost"), cfg)
+        assert exc_info.value.err == "invalid_key"
+        assert len(calls) == 3
+
+
+# ───────────────────────────────────────────────────────────────
 # The RFC 8935 endpoint contract (router-only TestClient; NO auth
 # dependency — the SET signature + configured transmitter IS the auth)
 # ───────────────────────────────────────────────────────────────
@@ -618,6 +719,12 @@ class TestReceiveEndpoint:
             patch("src.api.ssf.log_audit_action", AsyncMock()) as audit,
             patch("src.detection.correlation.trigger_correlation_coalesced", AsyncMock()),
             patch.object(writer_singleton, "write", AsyncMock()) as write,
+            patch(
+                "src.api.ssf.get_pool",
+                return_value=_ssf_pool_mock(
+                    AsyncMock(fetchval=AsyncMock(return_value="2026-09-23T00:00:00+00:00+00"))
+                ),
+            ),
         ):
             resp = self._post(client, _encode(_claims(), pem))
         assert resp.status_code == 202
@@ -631,6 +738,60 @@ class TestReceiveEndpoint:
         assert event.user_name == "user@example.com"
         accepted = [c for c in audit.call_args_list if c.kwargs.get("action") == "ssf.set_accepted"]
         assert accepted, "accepted SETs must be audited"
+
+    def test_replayed_set_refused_audited_not_persisted(self, client, tmp_path, monkeypatch):
+        # W5-F: a SET whose (issuer, jti) was already accepted (fetchval ->
+        # None: the ON CONFLICT swallowed the insert) is a REPLAY — 400
+        # invalid_request, audited, and the event is NOT persisted twice.
+        pem, jwk = _keypair()
+        tx = {"issuer": ISSUER, "aud": AUD, "jwks": {"keys": [jwk]}, "events": ["session-revoked"]}
+        monkeypatch.setenv(
+            "SSF_CONFIG_PATH", str(_receiver_yaml(tmp_path / "ssf.yaml", transmitters=[tx]))
+        )
+        replay_conn = AsyncMock()
+        replay_conn.fetchval = AsyncMock(return_value=None)  # conflict — already seen
+        with (
+            patch("src.api.ssf.log_audit_action", AsyncMock()) as audit,
+            patch.object(writer_singleton, "write", AsyncMock()) as write,
+            patch("src.detection.correlation.trigger_correlation_coalesced", AsyncMock()),
+            patch("src.api.ssf.get_pool", return_value=_ssf_pool_mock(replay_conn)),
+        ):
+            resp = self._post(client, _encode(_claims(jti="jti-1"), pem))
+        assert resp.status_code == 400
+        assert resp.json()["err"] == "invalid_request"
+        assert "replay" in resp.json()["description"]
+        replayed = [
+            c for c in audit.call_args_list if c.kwargs.get("action") == "ssf.set_replay_refused"
+        ]
+        assert replayed, "replays must be audited"
+        assert replayed[0].kwargs["new_values"]["jti"] == "jti-1"
+        assert replayed[0].kwargs["actor"] == ISSUER
+        write.assert_not_awaited()  # the replayed SET is never persisted twice
+        # The guard query is the (issuer, jti) memory insert.
+        sql = replay_conn.fetchval.call_args.args[0]
+        assert "ON CONFLICT DO NOTHING" in sql
+        assert "RETURNING seen_at" in sql
+
+    def test_fresh_jti_row_inserts_and_event_persists(self, client, tmp_path, monkeypatch):
+        # W5-F: the FIRST delivery inserts its (issuer, jti) row and proceeds.
+        pem, jwk = _keypair()
+        tx = {"issuer": ISSUER, "aud": AUD, "jwks": {"keys": [jwk]}, "events": ["session-revoked"]}
+        monkeypatch.setenv(
+            "SSF_CONFIG_PATH", str(_receiver_yaml(tmp_path / "ssf.yaml", transmitters=[tx]))
+        )
+        fresh_conn = AsyncMock()
+        fresh_conn.fetchval = AsyncMock(return_value="2026-09-23T00:00:00+00:00")
+        with (
+            patch("src.api.ssf.log_audit_action", AsyncMock()) as audit,
+            patch.object(writer_singleton, "write", AsyncMock()) as write,
+            patch("src.detection.correlation.trigger_correlation_coalesced", AsyncMock()),
+            patch("src.api.ssf.get_pool", return_value=_ssf_pool_mock(fresh_conn)),
+        ):
+            resp = self._post(client, _encode(_claims(), pem))
+        assert resp.status_code == 202
+        write.assert_awaited_once()  # the event IS persisted
+        sql = fresh_conn.fetchval.call_args.args[0]
+        assert "INSERT INTO ssf_seen_sets" in sql
 
     def test_unknown_issuer_400_audited(self, client, tmp_path, monkeypatch):
         pem, jwk = _keypair()

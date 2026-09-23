@@ -76,15 +76,21 @@ class TestEntrypointProxyHeaders:
         assert "--proxy-headers" in s
         assert "--forwarded-allow-ips" in s
 
-    def test_forwarded_allow_ips_defaults_to_private_ranges_only(self):
+    def test_forwarded_allow_ips_defaults_to_docker_network_only(self):
+        # W5-D: the default trust list is the Docker compose network space
+        # ONLY. The other RFC1918 ranges (10/8, 192.168/16) are LAN space:
+        # with dev/demo publishing 0.0.0.0:8000, a LAN peer inside them
+        # could spoof X-Forwarded-For (rate-limit bypass, /metrics localhost
+        # check, audit ip poisoning). LAN peers are never trusted proxies.
         import re
 
         s = _ENTRY.read_text()
         m = re.search(r"UVICORN_FORWARDED_ALLOW_IPS:-(.*)\}", s)
         assert m, "expected a defaulted allowance"
         default = m.group(1)
-        for private in ("172.16.0.0/12", "10.0.0.0/8", "192.168.0.0/16"):
-            assert private in default
+        assert "172.16.0.0/12" in default
+        assert "192.168.0.0/16" not in default
+        assert "10.0.0.0/8" not in default
         assert "0.0.0.0/0" not in default and "::/0" not in default
 
     def test_entrypoint_syntax_still_valid(self):
@@ -105,6 +111,14 @@ class TestProdOverlay:
         # postgres + redis services must carry ports: !reset []
         pg_section = s.split("services:")[1]
         assert "ports: !reset []" in s
+
+    def test_prod_overlay_reset_mcp_ports(self):
+        # W5-C: the base compose publishes 0.0.0.0:8002 for mcp; the internet
+        # overlay must revoke it — only Caddy publishes (80/443). The
+        # local-prod overlay keeps its explicit 127.0.0.1:8002 MCP publish.
+        s = _PROD.read_text()
+        mcp_section = s.split("  mcp:", 1)[1].split("\n  caddy:", 1)[0]
+        assert "ports: !reset []" in mcp_section
 
     def test_no_platform_pins_anywhere(self):
         for f in (_BASE, _PROD):

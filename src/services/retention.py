@@ -43,6 +43,7 @@ _RETENTION_TARGETS: tuple[tuple[str, str, str], ...] = (
     ("audit_log", "created_at", "audit_retention_days"),
     ("correlation_matches", "created_at", "correlation_retention_days"),
     ("ai_usage", "created_at", "ai_usage_retention_days"),
+    ("ssf_seen_sets", "seen_at", "ssf_retention_days"),
 )
 
 # Safety cap so a single job run never loops forever on a pathological backlog.

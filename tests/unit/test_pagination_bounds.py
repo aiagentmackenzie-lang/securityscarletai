@@ -116,3 +116,91 @@ class TestCorrelationMatchesPaginationBounds:
         client = _make_client(correlation_router)
         r = client.get("/api/v1/correlation/matches", params={"offset": -1})
         assert r.status_code == 422
+
+
+class TestAlertsWindowBounds:
+    """W4-H — bounded time windows on the stats/export endpoints. The old
+    signatures accepted ANY hours value: every stats/export query scanned
+    the whole table (and exports serialized it) for one request."""
+
+    # HTTPBearer(auto_error) resolves BEFORE _check_role's body — so the
+    # export requests also carry a dummy Bearer token; the patched
+    # get_current_user (module global inside _check_role) does the "verify".
+    _AUTH = {"Authorization": "Bearer rbac-bypass-token"}
+
+    def test_stats_hours_over_year_422(self):
+        client = _make_client(alerts_router)
+        with patch("src.api.alerts.get_alert_stats", AsyncMock(return_value={"total_count": 0})):
+            r = client.get("/api/v1/alerts/stats", params={"hours": 24 * 365 + 1})
+        assert r.status_code == 422
+
+    def test_stats_hours_zero_422(self):
+        client = _make_client(alerts_router)
+        with patch("src.api.alerts.get_alert_stats", AsyncMock(return_value={"total_count": 0})):
+            r = client.get("/api/v1/alerts/stats", params={"hours": 0})
+        assert r.status_code == 422
+
+    def test_stats_hours_at_cap_accepted(self):
+        client = _make_client(alerts_router)
+        with patch("src.api.alerts.get_alert_stats", AsyncMock(return_value={"total_count": 0})):
+            r = client.get("/api/v1/alerts/stats", params={"hours": 24 * 365})
+        assert r.status_code == 200
+
+    def test_export_csv_hours_over_30d_422(self):
+        # require_role calls get_current_user INSIDE _check_role (module
+        # global lookup at call time) — patch the auth module, not the
+        # dependency override, or the request 403s before validation.
+        client = _make_client(alerts_router)
+        analyst = AsyncMock(return_value={"sub": "tester", "role": "analyst"})
+        with (
+            patch("src.api.auth.get_current_user", analyst),
+            patch("src.api.alerts.export_alerts_csv", AsyncMock(return_value="id\n")),
+        ):
+            r = client.get(
+                "/api/v1/alerts/export/csv",
+                params={"hours": 24 * 30 + 1},
+                headers=self._AUTH,
+            )
+        assert r.status_code == 422
+
+    def test_export_csv_hours_at_cap_accepted(self):
+        client = _make_client(alerts_router)
+        analyst = AsyncMock(return_value={"sub": "tester", "role": "analyst"})
+        with (
+            patch("src.api.auth.get_current_user", analyst),
+            patch("src.api.alerts.export_alerts_csv", AsyncMock(return_value="id\n")),
+        ):
+            r = client.get(
+                "/api/v1/alerts/export/csv",
+                params={"hours": 24 * 30},
+                headers=self._AUTH,
+            )
+        assert r.status_code == 200
+
+    def test_export_stix_hours_over_30d_422(self):
+        client = _make_client(alerts_router)
+        analyst = AsyncMock(return_value={"sub": "tester", "role": "analyst"})
+        with (
+            patch("src.api.auth.get_current_user", analyst),
+            patch("src.api.alerts.export_alerts_stix", AsyncMock(return_value={"type": "bundle"})),
+        ):
+            r = client.get(
+                "/api/v1/alerts/export/stix",
+                params={"hours": 24 * 30 + 1},
+                headers=self._AUTH,
+            )
+        assert r.status_code == 422
+
+    def test_export_stix_hours_at_cap_accepted(self):
+        client = _make_client(alerts_router)
+        analyst = AsyncMock(return_value={"sub": "tester", "role": "analyst"})
+        with (
+            patch("src.api.auth.get_current_user", analyst),
+            patch("src.api.alerts.export_alerts_stix", AsyncMock(return_value={"type": "bundle"})),
+        ):
+            r = client.get(
+                "/api/v1/alerts/export/stix",
+                params={"hours": 24 * 30},
+                headers=self._AUTH,
+            )
+        assert r.status_code == 200

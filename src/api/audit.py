@@ -7,6 +7,7 @@ Also provides GET /audit endpoint for querying the audit log.
 """
 
 import json
+from datetime import datetime
 from typing import Optional, cast
 
 from fastapi import APIRouter, Depends, Query
@@ -137,8 +138,10 @@ async def query_request_audit(
     user: Optional[str] = Query(None, description="Filter by user"),
     method: Optional[str] = Query(None, description="HTTP method (GET, POST, ...)"),
     path: Optional[str] = Query(None, description="URL path (exact match)"),
-    since: Optional[str] = Query(None, description="ISO timestamp lower bound"),
-    until: Optional[str] = Query(None, description="ISO timestamp upper bound"),
+    # W4-I: typed datetimes, not str -- a malformed since/until now 422s at
+    # validation instead of 500ing on the ::timestamptz cast in the query.
+    since: Optional[datetime] = Query(None, description="ISO timestamp lower bound"),
+    until: Optional[datetime] = Query(None, description="ISO timestamp upper bound"),
     limit: int = Query(100, le=1000, description="Max results to return"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     _user: dict = Depends(require_role("analyst")),

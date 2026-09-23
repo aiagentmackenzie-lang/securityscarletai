@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from dashboard.api_client import ApiClient, ApiError, PasswordChangeRequiredError
+from dashboard.auth import require_auth
 
 
 class _SessionState(dict):
@@ -578,3 +579,94 @@ class TestLoginForcePasswordChange:
         # URL must hit the force-change endpoint, not /auth/login
         url = call_args.args[0] if call_args.args else call_args[0][0]
         assert url.endswith("/auth/force-change-password")
+
+
+class TestSessionRefresh:
+    """W5-A: the dashboard keeps and uses the refresh token.
+
+    Old behavior: login() discarded the refresh_token, so the 15-minute
+    access TTL meant a forced logout every 15 minutes (require_auth's
+    get_me re-verify 401'd with no recovery path).
+    """
+
+    @pytest.fixture
+    def client(self):
+        return ApiClient()
+
+    def _mock_resp(self, status_code, body):
+        m = MagicMock()
+        m.status_code = status_code
+        m.content = str(body).encode()
+        m.json.return_value = body
+        return m
+
+    def test_login_stores_refresh_token(self, client):
+        body = {"access_token": "tok", "refresh_token": "ref", "username": "admin", "role": "admin"}
+        mock_state = _SessionState()
+        with patch("httpx.post", return_value=self._mock_resp(200, body)):
+            with patch("streamlit.session_state", mock_state):
+                client.login("admin", "pw")
+        assert mock_state["refresh_token"] == "ref"
+
+    def test_refresh_posts_refresh_token_and_rotates_pair(self, client):
+        body = {
+            "access_token": "new-access",
+            "refresh_token": "new-refresh",
+            "username": "admin",
+            "role": "admin",
+            "expires_in": 900,
+        }
+        state = _SessionState(refresh_token="old-refresh", access_token="old-access")
+        with patch("httpx.post", return_value=self._mock_resp(200, body)) as mock_post:
+            with patch("streamlit.session_state", state):
+                data = client.refresh()
+        assert data["access_token"] == "new-access"
+        assert state["access_token"] == "new-access"
+        assert state["refresh_token"] == "new-refresh"  # rotation stored
+        call_args = mock_post.call_args
+        json_data = call_args.kwargs.get("json") or call_args[1].get("json")
+        assert json_data == {"refresh_token": "old-refresh"}
+        url = call_args.args[0] if call_args.args else call_args[0][0]
+        assert url.endswith("/auth/refresh")
+
+    def test_refresh_without_stored_token_raises(self, client):
+        with patch("streamlit.session_state", _SessionState()):
+            with pytest.raises(ApiError) as exc_info:
+                client.refresh()
+        assert exc_info.value.status_code == 401
+
+    def test_require_auth_refreshes_once_and_survives_401(self, monkeypatch):
+        # get_me 401s (access expired) -> ONE refresh -> get_me retry OK
+        # -> still authenticated, still logged in. THE regression pin for
+        # the 15-minute forced logout.
+        client = ApiClient()
+        client.get_me = MagicMock(
+            side_effect=[ApiError(401, "Session expired."), {"username": "admin", "role": "admin"}]
+        )
+        client.refresh = MagicMock(return_value={"access_token": "new-access"})
+        state = _SessionState(
+            authenticated=True, access_token="old-token", username="admin", role="admin"
+        )
+        monkeypatch.setattr("dashboard.auth.get_api_client", lambda: client)
+        monkeypatch.setattr("streamlit.session_state", state)
+        assert require_auth() is True
+        assert client.refresh.call_count == 1  # exactly ONE refresh attempt
+        assert client.get_me.call_count == 2  # original + retry
+        assert state.get("authenticated") is True
+
+    def test_require_auth_logs_out_when_refresh_also_fails(self, monkeypatch):
+        # Refresh fails -> NO get_me retry -> logout. Session dead as before.
+        client = ApiClient()
+        client.get_me = MagicMock(side_effect=ApiError(401, "Session expired."))
+        client.refresh = MagicMock(side_effect=ApiError(401, "No valid refresh token."))
+        state = _SessionState(
+            authenticated=True, access_token="expired", username="admin", role="admin"
+        )
+        monkeypatch.setattr("dashboard.auth.get_api_client", lambda: client)
+        monkeypatch.setattr("streamlit.session_state", state)
+        # logout() POSTs (best-effort) — keep it off the network.
+        monkeypatch.setattr("httpx.post", MagicMock())
+        assert require_auth() is False
+        assert client.refresh.call_count == 1
+        assert client.get_me.call_count == 1  # no retry after a failed refresh
+        assert state.get("authenticated") is False

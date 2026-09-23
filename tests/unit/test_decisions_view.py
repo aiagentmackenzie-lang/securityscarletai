@@ -208,3 +208,92 @@ class TestListDecisions:
         for route in router.routes:
             methods = {m for m in route.methods if m not in ("HEAD", "OPTIONS")}
             assert methods == {"GET"}, f"{route.path} must be read-only"
+
+
+_SINCE = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+_UNTIL = datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc)
+
+# (decision_type, the time column that type's records actually sort on)
+_WINDOW_CASES = [
+    ("ai_triage", "updated_at"),
+    ("correlation", "created_at"),
+    ("verdict", "created_at"),
+    ("response_action", "created_at"),
+    ("policy_refusal", "created_at"),
+    ("agent_investigation", "updated_at"),
+]
+
+
+def _capture_fetch(conn, calls):
+    def _capture(sql, *args, **kw):
+        calls.append((" ".join(sql.split()), tuple(args)))
+        return []
+
+    conn.fetch.side_effect = _capture
+
+
+class TestDecisionWindowFiltering:
+    """W4-D: the since/until window must reach EVERY decision-type query,
+    on the column each type sorts on -- not just policy_refusal."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("decision_type,column", _WINDOW_CASES)
+    async def test_window_reaches_every_type(self, decision_type, column):
+        from src.api.decisions import list_decisions
+
+        pool, conn = _pool_and_conn()
+        calls: list[tuple[str, tuple]] = []
+        _capture_fetch(conn, calls)
+
+        with patch("src.api.decisions.get_pool", return_value=pool):
+            await list_decisions(
+                decision_type=decision_type, since=_SINCE, until=_UNTIL, user=_user()
+            )
+
+        assert len(calls) == 1
+        sql, params = calls[0]
+        # The window conditions ride the SQL with the timestamptz cast
+        assert f"{column} >= $1::timestamptz" in sql
+        assert f"{column} < $2::timestamptz" in sql
+        # The params carry since/until first, LIMIT last (index shifts)
+        assert params[0] == _SINCE
+        assert params[1] == _UNTIL
+        assert f"LIMIT ${len(params)}" in sql
+        assert params[-1] == 100  # default limit + offset
+
+    @pytest.mark.asyncio
+    async def test_since_only_orders_before_limit(self):
+        from src.api.decisions import list_decisions
+
+        pool, conn = _pool_and_conn()
+        calls: list[tuple[str, tuple]] = []
+        _capture_fetch(conn, calls)
+
+        with patch("src.api.decisions.get_pool", return_value=pool):
+            await list_decisions(decision_type="correlation", since=_SINCE, user=_user())
+
+        sql, params = calls[0]
+        assert "created_at >= $1::timestamptz" in sql
+        assert "created_at <" not in sql
+        assert params == (_SINCE, 100)
+        assert "LIMIT $2" in sql
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("decision_type", [c[0] for c in _WINDOW_CASES])
+    async def test_no_window_keeps_unfiltered_shape(self, decision_type):
+        """Regression guard: without since/until every query keeps the
+        unfiltered LIMIT-$1 shape (params carry only the limit)."""
+        from src.api.decisions import list_decisions
+
+        pool, conn = _pool_and_conn()
+        calls: list[tuple[str, tuple]] = []
+        _capture_fetch(conn, calls)
+
+        with patch("src.api.decisions.get_pool", return_value=pool):
+            await list_decisions(decision_type=decision_type, user=_user())
+
+        assert len(calls) == 1
+        sql, params = calls[0]
+        assert "::timestamptz" not in sql
+        assert params == (100,)
+        assert "LIMIT $1" in sql

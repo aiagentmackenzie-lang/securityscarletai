@@ -261,6 +261,11 @@ class ApiClient:
         if r.status_code in (200, 201):
             data = r.json()
             st.session_state.access_token = data["access_token"]
+            # W5-A: keep the refresh token — /auth/refresh turns it into a
+            # fresh pair, so the dashboard no longer hard-caps sessions at
+            # the 15-minute access TTL.
+            if data.get("refresh_token"):
+                st.session_state.refresh_token = data["refresh_token"]
             st.session_state.username = data["username"]
             st.session_state.role = data["role"]
             return data
@@ -327,6 +332,37 @@ class ApiClient:
         """Get current user info."""
         return self._get("/auth/me")
 
+    def refresh(self) -> dict:
+        """Exchange the session's refresh token for a fresh token pair (W5-A).
+
+        POSTs /auth/refresh with the session's refresh_token. The API ROTATES
+        on every refresh — the presented token is consumed and a NEW
+        (access, refresh) pair is returned — so both new tokens replace the
+        old ones in session state. No Authorization header: the refresh
+        token in the body IS the credential. Raises ApiError on failure
+        (invalid / expired / revoked => 401); the caller decides what that
+        means (require_auth: one refresh attempt, then logout).
+        """
+        refresh_token = st.session_state.get("refresh_token")
+        if not refresh_token:
+            raise ApiError(401, "No refresh token in session — log in again.")
+        try:
+            r = httpx.post(
+                f"{self.base_url}/auth/refresh",
+                headers={"Content-Type": "application/json"},
+                json={"refresh_token": refresh_token},
+                timeout=REQUEST_TIMEOUT,
+            )
+        except httpx.ConnectError:
+            raise ApiError(0, "Cannot connect to API server. Is it running?") from None
+        except httpx.TimeoutException:
+            raise ApiError(0, "API request timed out") from None
+        data = self._handle_response(r)
+        st.session_state.access_token = data["access_token"]
+        if data.get("refresh_token"):
+            st.session_state.refresh_token = data["refresh_token"]
+        return data
+
     @staticmethod
     def is_authenticated() -> bool:
         """Check if user is authenticated in session state."""
@@ -346,14 +382,21 @@ class ApiClient:
         """
         base_url = self.base_url if self is not None else API_BASE_URL
         token = st.session_state.get("access_token")
+        refresh_token = st.session_state.get("refresh_token")
         if token:
             try:
+                # W5-A: present the session's refresh token in the
+                # LogoutRequest body (W1-D contract) so the server revokes
+                # it too — a stolen refresh token must not outlive logout.
+                # No refresh token in session => no body (pre-W1-D behavior).
+                body = {"refresh_token": refresh_token} if refresh_token else None
                 httpx.post(
                     f"{base_url}/auth/logout",
                     headers={
                         "Authorization": f"Bearer {token}",
                         "Content-Type": "application/json",
                     },
+                    json=body,
                     timeout=REQUEST_TIMEOUT,
                 )
             except Exception:  # noqa: S110 -- best-effort; never block local logout
@@ -362,6 +405,7 @@ class ApiClient:
         for key in list(st.session_state.keys()):
             if key in (
                 "access_token",
+                "refresh_token",
                 "username",
                 "role",
                 "authenticated",

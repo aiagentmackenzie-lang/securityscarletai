@@ -72,16 +72,23 @@ echo "[entrypoint] Applying schema if needed..."
 # first CREATE TABLE ("permission denied for schema public"), which under
 # set -e + ON_ERROR_STOP crash-loops the container.
 export PGPASSWORD="${DB_PASSWORD}"
+# W5-E: the schema's TimescaleDB logs-retention policy reads the configured
+# window (LOGS_RETENTION_DAYS, default 30) via a psql variable it SETs into
+# a custom GUC before the tsdb DO block — the policy converges to config on
+# every boot instead of a hardcoded 30 days.
+SCHEMA_PSQL_VARS=(-v logs_retention_days="${LOGS_RETENTION_DAYS:-30}")
 if [ -n "${DATABASE_SUPERUSER_URL:-}" ]; then
     unset PGPASSWORD
     echo "[entrypoint] two-role deploy: schema applies via DATABASE_SUPERUSER_URL (owner)"
-    if ! psql "${DATABASE_SUPERUSER_URL}" -v ON_ERROR_STOP=1 -f src/db/schema.sql; then
+    if ! psql "${DATABASE_SUPERUSER_URL}" -v ON_ERROR_STOP=1 \
+            "${SCHEMA_PSQL_VARS[@]}" -f src/db/schema.sql; then
         echo "[entrypoint] FATAL: schema apply failed (superuser path)" >&2
         exit 1
     fi
 else
     if ! psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" \
-            -v ON_ERROR_STOP=1 -f src/db/schema.sql; then
+            -v ON_ERROR_STOP=1 \
+            "${SCHEMA_PSQL_VARS[@]}" -f src/db/schema.sql; then
         unset PGPASSWORD
         echo "[entrypoint] FATAL: schema apply failed" >&2
         exit 1
@@ -317,11 +324,19 @@ fi
 # 7. Hand off to uvicorn
 # ───────────────────────────────────────────────────────────────
 echo "[entrypoint] Starting uvicorn on 0.0.0.0:8000"
-# F-07: trust proxy headers ONLY from private/docker networks. Behind Caddy
-# (prod overlay) this makes slowapi rate-limit keys and audit_logs.ip reflect
-# the REAL client (X-Forwarded-For) instead of the proxy IP — without it, all
-# clients share one rate-limit bucket and audit_rows.ip is useless. Private
-# ranges only: a non-proxied direct client cannot spoof XFF into the key.
+# F-07: trust proxy headers ONLY from the Docker compose network range.
+# Behind Caddy (prod overlay) this makes slowapi rate-limit keys and
+# audit_logs.ip reflect the REAL client (X-Forwarded-For) instead of the
+# proxy IP — without it, all clients share one rate-limit bucket and
+# audit_rows.ip is useless. W5-D: the default is 172.16.0.0/12 — the
+# Docker compose network space (Caddy lives there in every shipped
+# posture). 10.0.0.0/8 and 192.168.0.0/16 were DROPPED: those RFC1918
+# ranges are LAN space, and the dev/demo compose publishes 0.0.0.0:8000 —
+# a 192.168.x or 10.x LAN peer IS in those ranges, so trusting them let
+# any LAN client spoof X-Forwarded-For (per-IP rate-limit bypass, the
+# unauthenticated /metrics localhost check, audit_logs.ip poisoning).
+# LAN peers must never be trusted proxies. Operators whose ingress sits
+# on another subnet override UVICORN_FORWARDED_ALLOW_IPS.
 exec uvicorn src.api.main:app --host 0.0.0.0 --port 8000 \
   --proxy-headers \
-  --forwarded-allow-ips "${UVICORN_FORWARDED_ALLOW_IPS:-172.16.0.0/12,10.0.0.0/8,192.168.0.0/16}"
+  --forwarded-allow-ips "${UVICORN_FORWARDED_ALLOW_IPS:-172.16.0.0/12}"

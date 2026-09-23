@@ -131,6 +131,8 @@ services:
       AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-365}
       CORRELATION_RETENTION_DAYS: ${CORRELATION_RETENTION_DAYS:-90}
       AI_USAGE_RETENTION_DAYS: ${AI_USAGE_RETENTION_DAYS:-90}
+      # W5-F: SSF SET replay-guard memory window (bounded by design).
+      SSF_RETENTION_DAYS: ${SSF_RETENTION_DAYS:-30}
       # Two-role audit hardening (P1-C): when set, the entrypoint applies the
       # schema as the OWNER via this DSN and re-applies scripts/harden_audit.sql
       # on every boot. Empty = single-role, convention-only audit immutability.

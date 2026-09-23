@@ -30,6 +30,7 @@ _RETENTION_TARGETS: tuple[tuple[str, str, str], ...] = (
     ("audit_log", "created_at", "audit_retention_days"),
     ("correlation_matches", "created_at", "correlation_retention_days"),
     ("ai_usage", "created_at", "ai_usage_retention_days"),
+    ("ssf_seen_sets", "seen_at", "ssf_retention_days"),
 )
 
 
@@ -55,7 +56,7 @@ async def retention_policy_evidence(as_of: datetime | None = None) -> dict:
         )
 
     engine = await _timescaledb_policy_state()
-    return {
+    result = {
         "document": {
             "kind": "retention_policy_evidence",
             "version": 1,
@@ -70,6 +71,59 @@ async def retention_policy_evidence(as_of: datetime | None = None) -> dict:
             "them per the regime you answer to"
         ),
     }
+    # W5-E: the TimescaleDB logs-retention policy is engine-enforced; when it
+    # differs from the configured window, the evidence doc must say so (the
+    # operator sets 365, the engine deletes at 30 — config drift, written
+    # down instead of silently reconciled away).
+    drift = _logs_retention_drift(engine)
+    if drift:
+        result["retention_drift_warning"] = drift
+    return result
+
+
+def _logs_retention_drift(engine: dict) -> dict | None:
+    """W5-E: engine-vs-config drift on the TimescaleDB logs retention window.
+
+    Returns a warning dict when the engine's policy_retention job for the
+    logs hypertable carries a parseable drop_after that differs from
+    settings.logs_retention_days. Every other shape (vanilla PG, unreadable
+    config, no logs policy) yields None — the warning is only ever raised on
+    a CLEARLY READABLE mismatch, never invented.
+    """
+    import re
+
+    if not engine.get("timescaledb"):
+        return None
+    configured_days = int(settings.logs_retention_days)
+    for p in engine.get("policies", []):
+        if p.get("procedure") != "policy_retention":
+            continue
+        config = p.get("config") or {}
+        hypertable = config.get("hypertable")
+        names = hypertable if isinstance(hypertable, list) else [hypertable]
+        if not any(isinstance(n, str) and n == "logs" for n in names):
+            continue
+        drop_after = config.get("drop_after")
+        if drop_after is None:
+            continue
+        m = re.search(r"(\d+)\s*day", str(drop_after))
+        if not m:
+            continue
+        engine_days = int(m.group(1))
+        if engine_days == configured_days:
+            return None
+        return {
+            "table": "logs",
+            "engine_window_days": engine_days,
+            "configured_window_days": configured_days,
+            "warning": (
+                f"the TimescaleDB engine deletes logs at {engine_days} days "
+                f"while LOGS_RETENTION_DAYS is configured to {configured_days} — "
+                "the engine policy wins on a Timescale deployment; re-apply "
+                "schema.sql (it converges the policy to config on every boot)"
+            ),
+        }
+    return None
 
 
 async def _timescaledb_policy_state() -> dict:

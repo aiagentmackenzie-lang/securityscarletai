@@ -41,7 +41,9 @@ class TestTwoRoleEntrypoint:
     def test_schema_applies_via_superuser_url_when_set(self):
         s = _ENTRY.read_text()
         assert 'if [ -n "${DATABASE_SUPERUSER_URL:-}" ]' in s
-        assert 'psql "${DATABASE_SUPERUSER_URL}" -v ON_ERROR_STOP=1 -f src/db/schema.sql' in s
+        # W5-E: the schema apply carries the psql retention variable.
+        assert 'psql "${DATABASE_SUPERUSER_URL}" -v ON_ERROR_STOP=1' in s
+        assert "SCHEMA_PSQL_VARS[@]" in s
 
     def test_hardening_reapplied_every_boot(self):
         s = _ENTRY.read_text()

@@ -373,9 +373,27 @@ def require_auth():
                 st.session_state.last_role_verify = now
                 st.session_state.role = me.get("role", st.session_state.role)
                 st.session_state.username = me.get("username", st.session_state.username)
-            except ApiError:
-                ApiClient.logout()
-                st.session_state.authenticated = False
-                return False
+            except ApiError as e:
+                # W5-A: a 401 no longer means instant logout — with the
+                # 15-minute access TTL that forced a re-login every 15
+                # minutes. Attempt ONE refresh (the API rotates the pair on
+                # success) and retry get_me; only when the refresh path also
+                # fails do we log out. Non-401 errors keep the historical
+                # behavior (logout + require login).
+                refreshed = False
+                if e.status_code == 401:
+                    try:
+                        api.refresh()
+                        me = api.get_me()
+                        st.session_state.last_role_verify = now
+                        st.session_state.role = me.get("role", st.session_state.role)
+                        st.session_state.username = me.get("username", st.session_state.username)
+                        refreshed = True
+                    except ApiError:
+                        refreshed = False
+                if not refreshed:
+                    ApiClient.logout()
+                    st.session_state.authenticated = False
+                    return False
         return True
     return False

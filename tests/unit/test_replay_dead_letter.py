@@ -85,6 +85,7 @@ class TestReplayFile:
 
         assert summary["replayed"] == 2
         assert summary["files"] == 1
+        assert summary["found"] == 1
         # The file moved to processed/.
         assert not f.exists()
         assert (dl_dir / "processed" / "2026-08-26.jsonl").exists()
@@ -95,4 +96,43 @@ class TestReplayFile:
 
         monkeypatch.setattr(mod, "get_pool", AsyncMock())
         summary = await mod.replay_all(tmp_path / "does_not_exist")
-        assert summary == {"files": 0, "replayed": 0, "skipped": 0}
+        assert summary == {"found": 0, "files": 0, "replayed": 0, "skipped": 0}
+
+    def test_main_exits_1_when_files_existed_but_nothing_replayed(self, monkeypatch):
+        """W5-I: dead-letter files present but nothing re-ingested (all
+        malformed, or a DB error left them stranded) must be VISIBLE --
+        exit 1; the entrypoint treats non-zero as a non-fatal warning."""
+        import scripts.replay_dead_letter as mod
+
+        monkeypatch.setattr(
+            mod,
+            "replay_all",
+            AsyncMock(return_value={"found": 2, "files": 1, "replayed": 0, "skipped": 3}),
+        )
+        with pytest.raises(SystemExit) as exc:
+            mod.main()
+        assert exc.value.code == 1
+
+    def test_main_exits_0_when_nothing_found(self, monkeypatch):
+        import scripts.replay_dead_letter as mod
+
+        monkeypatch.setattr(
+            mod,
+            "replay_all",
+            AsyncMock(return_value={"found": 0, "files": 0, "replayed": 0, "skipped": 0}),
+        )
+        with pytest.raises(SystemExit) as exc:
+            mod.main()
+        assert exc.value.code == 0
+
+    def test_main_exits_0_when_events_replayed(self, monkeypatch):
+        import scripts.replay_dead_letter as mod
+
+        monkeypatch.setattr(
+            mod,
+            "replay_all",
+            AsyncMock(return_value={"found": 1, "files": 1, "replayed": 5, "skipped": 0}),
+        )
+        with pytest.raises(SystemExit) as exc:
+            mod.main()
+        assert exc.value.code == 0
