@@ -221,7 +221,12 @@ async def triage_alert(
         if not alert:
             raise HTTPException(status_code=404, detail=f"Alert {alert_id} not found")
 
-    model = await get_triage_model()
+    # W2-B: the READ path must never train — get_triage_model's default
+    # train_if_missing=True ran the full training (~7k queries + CV) INLINE
+    # in an analyst's first triage click. AUD-043/044 hardened /ai/status and
+    # /ai/train but missed these two call sites. predict() already returns
+    # an honest "Model not trained" payload.
+    model = await get_triage_model(train_if_missing=False)
     result = await model.predict(alert_id)
 
     return TriageResponse(
@@ -245,7 +250,9 @@ async def get_ueba_score(
     _user: dict = Depends(require_role("analyst")),
 ):
     """Get UEBA anomaly score for a user."""
-    ueba = await get_ueba()
+    # W2-B: same as triage_alert — a read must never trigger training.
+    # score_user() returns an honest "Model not trained" payload.
+    ueba = await get_ueba(train_if_missing=False)
     result = await ueba.score_user(user_name)
 
     return UEBAResponse(

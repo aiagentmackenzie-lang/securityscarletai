@@ -523,7 +523,21 @@ async def _run_cmd(argv: list[str], timeout: float = 15.0) -> str | None:
             stderr=asyncio.subprocess.PIPE,
         )
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except (OSError, asyncio.TimeoutError) as e:
+    except asyncio.TimeoutError as e:
+        log.warning("response_executor_cmd_failed", argv=argv[0], error=str(e))
+        # W3-E: wait_for cancels communicate() but the child was never
+        # killed — a hung pfctl/pwpolicy process leaked on every timed-out
+        # execution. Kill (best-effort) and reap so no PID lingers.
+        try:
+            proc.kill()  # already-exited child raises ProcessLookupError (an OSError)
+        except OSError:
+            pass
+        try:
+            await proc.wait()
+        except OSError:
+            pass
+        return None
+    except OSError as e:
         log.warning("response_executor_cmd_failed", argv=argv[0], error=str(e))
         return None
     if proc.returncode != 0:

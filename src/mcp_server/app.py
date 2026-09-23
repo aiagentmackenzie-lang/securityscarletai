@@ -105,7 +105,11 @@ def _auth_ok(request: "Request") -> bool:
         return False
     provided = header[7:]
     expected = settings.mcp_bearer_token.get_secret_value()
-    return hmac.compare_digest(provided, expected)
+    # W3-B: compare_digest raises TypeError on non-ASCII str — a hostile
+    # non-ASCII bearer got a 500 instead of a 401. Compare on UTF-8 bytes:
+    # still constant-time, any bytes accepted, mismatch still refuses
+    # (noise hygiene, not an auth bypass fix).
+    return hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8"))
 
 
 def _audit_fn(session: str) -> tuple[str, Any]:

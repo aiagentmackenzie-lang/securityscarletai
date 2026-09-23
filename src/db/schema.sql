@@ -286,6 +286,15 @@ CREATE TABLE IF NOT EXISTS ai_usage (
 CREATE INDEX IF NOT EXISTS idx_ai_usage_user_day ON ai_usage(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_ai_usage_endpoint ON ai_usage(endpoint, created_at DESC);
 
+-- W2-I(b): record_usage() accepts source / fallback_used / warning — they
+-- were previously dropped (log-only). Persisted now; existing deployments get
+-- the columns via IF NOT EXISTS (the entrypoint re-runs this file
+-- idempotently — the AUD-030 pattern). fallback_used is deliberately
+-- NULLABLE: historical rows have unknown fallback state, and
+-- get_usage_summary's model-name heuristic remains the path for those rows.
+ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS source TEXT;
+ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS fallback_used BOOLEAN;
+ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS warning TEXT;
 
 -- ============================================================
 -- TRIAGE MODEL PROVENANCE — ML training audit trail (Agent A, Epic 3)

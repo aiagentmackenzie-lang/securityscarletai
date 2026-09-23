@@ -130,6 +130,58 @@ class TestRunRule:
                             assert mock_create.call_count == 2
 
     @pytest.mark.asyncio
+    async def test_deduped_alert_never_enriches(self):
+        """W1-A: create_alert returns -1 for dedup/suppressed — truthy! The
+        old `if alert_id:` scheduled a full LLM enrichment for a nonexistent
+        alert, burning one of the two semaphore slots per deduped match and
+        starving real alerts. No enrichment may be scheduled for id=-1."""
+        import asyncio
+
+        mock_pool = AsyncMock()
+        mock_conn = AsyncMock()
+
+        rule_row = {
+            "id": 1,
+            "name": "Noisy Rule",
+            "sigma_yaml": "title: Test",
+            "severity": "high",
+            "description": "Test rule",
+            "mitre_tactics": ["TA0006"],
+            "mitre_techniques": ["T1110"],
+        }
+        matched_rows = [{"host_name": "server01", "source_ip": "10.0.0.5"}]
+        mock_conn.fetchrow = AsyncMock(return_value=rule_row)
+        mock_conn.fetch = AsyncMock(return_value=matched_rows)
+        mock_conn.execute = AsyncMock(return_value=None)
+
+        acquirer = MagicMock()
+        acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
+        acquirer.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = MagicMock(return_value=acquirer)
+
+        with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
+            with patch("src.detection.scheduler.sigma_to_sql", return_value=("SELECT 1", [])):
+                with patch(
+                    "src.detection.scheduler.create_alert", new_callable=AsyncMock
+                ) as mock_create:
+                    mock_create.return_value = -1  # dedup/suppressed
+                    with patch(
+                        "src.detection.ai_analyzer.analyze_alert", new_callable=AsyncMock
+                    ) as mock_analyze:
+                        with patch(
+                            "src.detection.ai_analyzer.enrich_alert", new_callable=AsyncMock
+                        ) as mock_enrich:
+                            await run_rule(rule_id=1)
+                            # Give any (wrongly) scheduled fire-and-forget
+                            # task a chance to run before the assert.
+                            await asyncio.sleep(0.05)
+
+        assert mock_create.call_count == 1
+        mock_analyze.assert_not_awaited()
+        mock_enrich.assert_not_awaited()
+        assert scheduler_mod._enrich_tasks == set()
+
+    @pytest.mark.asyncio
     async def test_run_rule_sigma_parse_error(self):
         """Should handle Sigma parse errors gracefully."""
         mock_pool = AsyncMock()
@@ -391,6 +443,37 @@ class TestScheduleRules:
         assert sweep_call.args[0].__name__ == "trigger_correlation_coalesced"
 
     @pytest.mark.asyncio
+    async def test_null_run_interval_defaults_to_60s(self):
+        """W1-H: an API-created rule with NULL run_interval raised
+        AttributeError — one bad row bricked the lifespan boot. The row
+        must default to 60s with a warning, not kill the process."""
+        mock_pool = AsyncMock()
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(
+            return_value=[
+                {"id": 1, "run_interval": None},
+            ]
+        )
+
+        acquirer = MagicMock()
+        acquirer.__aenter__ = AsyncMock(return_value=mock_conn)
+        acquirer.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = MagicMock(return_value=acquirer)
+
+        mock_scheduler = MagicMock()
+
+        with patch("src.detection.scheduler.get_pool", return_value=mock_pool):
+            with patch("src.detection.scheduler.scheduler", mock_scheduler):
+                # Must NOT raise (old code: AttributeError -> lifespan boot fails)
+                await schedule_rules()
+
+        rule_calls = [
+            c for c in mock_scheduler.add_job.call_args_list if c.kwargs.get("id") == "rule_1"
+        ]
+        assert len(rule_calls) == 1
+        assert rule_calls[0].kwargs["trigger"].interval == timedelta(seconds=60)
+
+    @pytest.mark.asyncio
     async def test_schedule_empty_rules(self):
         """Should handle no enabled rules."""
         mock_pool = AsyncMock()
@@ -451,3 +534,17 @@ class TestReloadRules:
 
                 await reload_rules()
                 mock_scheduler.remove_all_jobs.assert_called_once()
+
+
+class TestJobDefaults:
+    """W1-G: explicit job_defaults — APScheduler's defaults silently SKIP a
+    job whose slot was missed by more than ~1s (busy loop, slow sweep). A
+    60s grace + coalesce + max_instances=1 turns a transient misfire into a
+    catch-up run instead of a silent detection hole."""
+
+    def test_scheduler_carries_misfire_job_defaults(self):
+        from src.detection.scheduler import scheduler
+
+        assert scheduler._job_defaults["misfire_grace_time"] == 60
+        assert scheduler._job_defaults["coalesce"] is True
+        assert scheduler._job_defaults["max_instances"] == 1

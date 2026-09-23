@@ -110,6 +110,30 @@ class TestValidateSQLStructure:
         # INSERT is rejected because it doesn't start with SELECT
         assert "SELECT" in reason or "not" in reason.lower()
 
+    def test_select_into_rejected(self):
+        """W2-A: bare Postgres `SELECT ... INTO newtable` executes as DDL
+        (creates a table) and slipped past every layer when only the MySQL
+        `INTO OUTFILE` form was blocked."""
+        sql = "SELECT id INTO pwn FROM logs"
+        is_valid, reason = validate_sql_structure(sql)
+        assert not is_valid
+        assert "INTO" in reason
+
+    def test_select_into_outfile_rejected(self):
+        """W2-A: the MySQL OUTFILE form stays rejected under the bare-INTO
+        pattern too."""
+        sql = "SELECT * FROM logs INTO OUTFILE '/tmp/pwn'"
+        is_valid, reason = validate_sql_structure(sql)
+        assert not is_valid
+        assert "INTO" in reason
+
+    def test_cte_select_into_rejected(self):
+        """W2-A: the WITH-accepting path must not offer an INTO escape."""
+        sql = "WITH x AS (SELECT id FROM logs) SELECT id INTO pwn FROM x"
+        is_valid, reason = validate_sql_structure(sql)
+        assert not is_valid
+        assert "INTO" in reason
+
     def test_update_rejected(self):
         sql = "UPDATE alerts SET status = 'resolved' WHERE 1=1"
         is_valid, reason = validate_sql_structure(sql)

@@ -135,6 +135,27 @@ class TestLoadTrainingData:
         with pytest.raises(ValueError, match="missing required columns"):
             _load_training_data(bad)
 
+    def test_unknown_label_raises_value_error(self, tmp_path: Path):
+        """W2-H: an unknown CSV label raised KeyError — train_v2 catches only
+        ValueError, so a malformed label 500s the /ai/train-v2 endpoint."""
+        import csv as _csv
+
+        bad = tmp_path / "bad_label.csv"
+        fieldnames = [ALERT_ID_COLUMN] + AlertTriageModel.FEATURES + [LABEL_COLUMN]
+        with bad.open("w", newline="") as f:
+            writer = _csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerow(
+                {
+                    **{feat: "0.5" for feat in AlertTriageModel.FEATURES},
+                    ALERT_ID_COLUMN: 1,
+                    LABEL_COLUMN: "maybe",
+                }
+            )
+
+        with pytest.raises(ValueError, match="unknown label"):
+            _load_training_data(bad)
+
 
 # ──────────────────────────────────────────────────────────
 # DB reachability probe

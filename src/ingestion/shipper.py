@@ -137,7 +137,20 @@ class FileShipper:
             line = line.strip()
             if not line:
                 continue
-            event = parser(line)
+            try:
+                event = parser(line)
+            except Exception as e:
+                # W1-C belt-and-braces: the parser promises never-raise, but
+                # an exception escaping it used to stall this loop at the
+                # same offset forever (run() retries from the unchanged
+                # checkpoint — the exact AUD-006 wedge). Skip the poison
+                # line; the checkpoint still advances over its bytes.
+                log.warning(
+                    "shipper_parse_line_skipped",
+                    error=str(e),
+                    line_preview=line[:200],
+                )
+                continue
             if event:
                 await self.writer.write(event)
                 self._events_shipped += 1

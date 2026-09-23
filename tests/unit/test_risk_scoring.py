@@ -412,6 +412,27 @@ class TestGetTopRisk:
             assert scores == sorted(scores, reverse=True)
 
     @pytest.mark.asyncio
+    async def test_sample_sql_carries_order_by(self):
+        """W2-I(d): the DISTINCT LIMIT-50 sample CTEs must carry ORDER BY —
+        without it the sample was nondeterministic and could silently miss
+        risky users/hosts between calls."""
+        mock_pool = AsyncMock()
+        conn = AsyncMock()
+        conn.fetch = AsyncMock(return_value=[])
+        acquirer = MagicMock()
+        acquirer.__aenter__ = AsyncMock(return_value=conn)
+        acquirer.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = MagicMock(return_value=acquirer)
+
+        with patch("src.ai.risk_scoring.get_pool", return_value=mock_pool):
+            await RiskScorer.get_top_risk_assets(limit=10)
+            await RiskScorer.get_top_risk_users(limit=10)
+
+        sqls = [c.args[0] for c in conn.fetch.call_args_list]
+        assert len(sqls) == 2
+        assert any("ORDER BY host_name" in s for s in sqls)
+        assert any("ORDER BY user_name" in s for s in sqls)
+
     async def test_get_top_risk_users(self):
         """Should return users sorted by risk_score descending.
 

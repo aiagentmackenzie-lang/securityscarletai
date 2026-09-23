@@ -268,3 +268,32 @@ def test_refused_helper_message_is_honest():
     assert result.ok is False
     assert "fail-closed" in result.detail
     assert "NOT simulated" in result.detail
+
+
+class TestRunCmdTimeoutKillsChild:
+    """W3-E: a timed-out _run_cmd used to abandon the hung child (no kill) —
+    one leaked process per timed-out execution."""
+
+    @pytest.mark.asyncio
+    async def test_timeout_kills_and_reaps_child(self):
+        import asyncio
+
+        from src.response.executors import _run_cmd
+
+        proc = MagicMock()
+        proc.returncode = 0
+
+        async def _hang():
+            await asyncio.sleep(60)
+            return (b"", b"")
+
+        proc.communicate = AsyncMock(side_effect=_hang)
+        proc.kill = MagicMock()
+        proc.wait = AsyncMock(return_value=0)
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=proc):
+            result = await _run_cmd(["pwpolicy", "-u", "x", "-getpolicy"], timeout=0.05)
+
+        assert result is None
+        proc.kill.assert_called_once()  # the old code leaked the hung child
+        proc.wait.assert_awaited_once()  # and never reaped it

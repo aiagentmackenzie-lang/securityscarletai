@@ -179,3 +179,18 @@ class TestSchedulerLifecycle:
         assert r._async_scheduler is not None
         await r.stop_retention_scheduler()
         # _async_scheduler remains set but shut down; the point is no raise.
+
+    @pytest.mark.asyncio
+    async def test_scheduler_carries_misfire_job_defaults(self, monkeypatch):
+        """W1-G: APScheduler's default misfire_grace_time (~1s) silently
+        SKIPPED retention sweeps under a busy loop — a 60s grace + coalesce
+        + max_instances=1 turns a transient misfire into a catch-up run."""
+        import src.services.retention as r
+
+        await r.start_retention_scheduler()
+        try:
+            assert r._async_scheduler._job_defaults["misfire_grace_time"] == 60
+            assert r._async_scheduler._job_defaults["coalesce"] is True
+            assert r._async_scheduler._job_defaults["max_instances"] == 1
+        finally:
+            await r.stop_retention_scheduler()

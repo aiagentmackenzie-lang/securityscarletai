@@ -105,6 +105,69 @@ def test_parse_invalid_json():
     assert event is None
 
 
+# --- W1-C regression: the "never raises" contract was false for SHAPE errors ---
+# A valid-JSON line with a non-dict top level or a non-dict `columns` raised
+# AttributeError, which the FileShipper loop turned into an infinite
+# same-offset retry (the AUD-006 stall pattern, alive for shape errors).
+
+
+def test_parse_top_level_list_returns_none():
+    event = parse_osquery_line('["name", "columns"]')
+    assert event is None
+
+
+def test_parse_top_level_string_returns_none():
+    event = parse_osquery_line('"just a string"')
+    assert event is None
+
+
+def test_parse_top_level_number_returns_none():
+    event = parse_osquery_line("42")
+    assert event is None
+
+
+def test_parse_columns_as_string_returns_none():
+    line = json.dumps(
+        {
+            "name": "processes",
+            "hostIdentifier": "test-mac.local",
+            "unixTime": 1774267200,
+            "columns": "not-a-dict",
+            "action": "added",
+        }
+    )
+    event = parse_osquery_line(line)
+    assert event is None
+
+
+def test_parse_columns_as_list_returns_none():
+    line = json.dumps(
+        {
+            "name": "processes",
+            "hostIdentifier": "test-mac.local",
+            "unixTime": 1774267200,
+            "columns": [{"pid": "1"}],
+            "action": "added",
+        }
+    )
+    event = parse_osquery_line(line)
+    assert event is None
+
+
+def test_parse_columns_as_number_returns_none():
+    line = json.dumps(
+        {
+            "name": "processes",
+            "hostIdentifier": "test-mac.local",
+            "unixTime": 1774267200,
+            "columns": 12345,
+            "action": "added",
+        }
+    )
+    event = parse_osquery_line(line)
+    assert event is None
+
+
 def test_parse_unknown_table():
     line = json.dumps({"name": "unknown_table_xyz", "columns": {}, "unixTime": 0})
     event = parse_osquery_line(line)

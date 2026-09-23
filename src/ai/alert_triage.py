@@ -1166,8 +1166,17 @@ def _load_training_data(
         [[float(row[col]) for col in AlertTriageModel.FEATURES] for row in rows],
         dtype=float,
     )
+    # W2-H: an unknown CSV label used to raise KeyError here — train_v2
+    # catches only ValueError, so a malformed label 500s the endpoint.
+    # Raise the exception type the caller already handles.
+    y_values: List[int] = []
+    for row in rows:
+        label = row[LABEL_COLUMN]
+        if label not in label_to_y:
+            raise ValueError(f"unknown label: {label!r}")
+        y_values.append(label_to_y[label])
     y = np.array(
-        [label_to_y[row[LABEL_COLUMN]] for row in rows],
+        y_values,
         dtype=int,
     )
     meta = [

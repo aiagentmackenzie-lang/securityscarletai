@@ -189,3 +189,31 @@ class TestAirGappedScheduler:
                         mock_sched.start.assert_called_once()
                         mock_create_task.assert_called_once()
                         mock_refresh.assert_not_awaited()  # create_task wraps it
+
+    @pytest.mark.asyncio
+    async def test_scheduler_constructed_with_misfire_job_defaults(self):
+        """W1-G: APScheduler's default misfire_grace_time (~1s) silently
+        SKIPPED TI refreshes under a busy loop — a 60s grace + coalesce +
+        max_instances=1 turns a transient misfire into a catch-up run."""
+        from src.intel import threat_intel
+
+        threat_intel._async_scheduler = None  # reset
+        mock_sched = MagicMock()
+        mock_sched.add_job = MagicMock()
+        mock_sched.start = MagicMock()
+
+        with patch.object(threat_intel.settings, "threat_intel_enabled", True):
+            with patch(
+                "apscheduler.schedulers.asyncio.AsyncIOScheduler",
+                return_value=mock_sched,
+            ) as mock_cls:
+                with patch.object(threat_intel, "refresh_all_feeds", AsyncMock()):
+                    with patch.object(threat_intel.asyncio, "create_task"):
+                        await threat_intel.start_threat_intel_scheduler()
+                        mock_cls.assert_called_once_with(
+                            job_defaults={
+                                "misfire_grace_time": 60,
+                                "coalesce": True,
+                                "max_instances": 1,
+                            }
+                        )

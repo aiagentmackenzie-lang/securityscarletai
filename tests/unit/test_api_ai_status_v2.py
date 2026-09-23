@@ -128,3 +128,68 @@ class TestGetStatusIncludesProvenance:
             response = await get_status(_user={"sub": "tester", "role": "viewer"})
 
         assert response.triage["provenance"] is None
+
+
+def _acquirer(conn):
+    """House-pattern async context manager wrapper for pool.acquire()."""
+    acquirer = MagicMock()
+    acquirer.__aenter__ = AsyncMock(return_value=conn)
+    acquirer.__aexit__ = AsyncMock(return_value=None)
+    return acquirer
+
+
+class TestReadEndpointsNeverTrain:
+    """W2-B: AUD-043/044 hardened /ai/status and /ai/train but MISSED the
+    triage/ueba read paths — their default train_if_missing=True ran the
+    full training INLINE in an analyst's first click. The read paths must
+    access the singletons READ-ONLY and surface the honest 'not trained'
+    payloads instead."""
+
+    @pytest.mark.asyncio
+    async def test_triage_endpoint_never_trains(self):
+        # Alert exists (the 404 path is covered elsewhere) — only the model
+        # accessor contract matters here.
+        mock_conn = MagicMock()
+        mock_conn.fetchrow = AsyncMock(return_value={"id": 1, "rule_name": "r", "severity": "high"})
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(return_value=_acquirer(mock_conn))
+
+        model_instance = MagicMock()
+        model_instance.predict = AsyncMock(
+            return_value={
+                "prediction": "unknown",
+                "confidence": 0.0,
+                "priority_score": 50.0,
+                "reason": "Model not trained",
+            }
+        )
+
+        with patch("src.api.ai.get_pool", return_value=mock_pool):
+            with patch("src.api.ai.get_triage_model", new_callable=AsyncMock) as mock_get_model:
+                mock_get_model.return_value = model_instance
+                from src.api.ai import triage_alert
+
+                response = await triage_alert(alert_id=1, _user={"sub": "a", "role": "analyst"})
+
+        mock_get_model.assert_awaited_once_with(train_if_missing=False)
+        assert response.prediction == "unknown"
+        assert response.reason == "Model not trained"
+
+    @pytest.mark.asyncio
+    async def test_ueba_endpoint_never_trains(self):
+        ueba_instance = MagicMock()
+        ueba_instance.score_user = AsyncMock(
+            return_value={"anomaly_score": None, "is_anomaly": False, "error": "Model not trained"}
+        )
+
+        with patch("src.api.ai.get_ueba", new_callable=AsyncMock) as mock_get_ueba:
+            mock_get_ueba.return_value = ueba_instance
+            from src.api.ai import get_ueba_score
+
+            response = await get_ueba_score(
+                user_name="j.doe", _user={"sub": "a", "role": "analyst"}
+            )
+
+        mock_get_ueba.assert_awaited_once_with(train_if_missing=False)
+        assert response.anomaly_score is None
+        assert response.error == "Model not trained"

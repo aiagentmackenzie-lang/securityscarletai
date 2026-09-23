@@ -232,3 +232,41 @@ async def test_checkpoint_persists_without_home_dir(tmp_path, monkeypatch):
     assert int(ckpt.read_text().strip()) > 0
     reloaded = FileShipper(str(log_file), writer, checkpoint_path=ckpt)  # type: ignore[arg-type]
     assert reloaded._offset > 0
+
+
+@pytest.mark.asyncio
+async def test_shipper_poison_line_does_not_stall(tmp_path, monkeypatch):
+    """W1-C belt-and-braces: the parser promises never-raise, but an exception
+    escaping it used to propagate out of _read_new_lines into run()'s handler,
+    which sleeps and retries from the SAME offset forever (the exact AUD-006
+    wedge shape). The per-line guard must skip the poison line, ship the rest,
+    and advance the checkpoint over ALL consumed bytes."""
+    log_file = tmp_path / "osqueryd.results.log"
+    poison = b'{"poison": true}\n'
+    good1 = _process_line("python3").encode() + b"\n"
+    good2 = _process_line("bash", "bash -c id").encode() + b"\n"
+    log_file.write_bytes(poison + good1 + good2)
+    monkeypatch.setattr(shipper, "CHECKPOINT_FILE", tmp_path / "ckpt")
+
+    real_parse = shipper.parse_osquery_line
+
+    def _poisonous(line: str):
+        if "poison" in line:
+            raise RuntimeError("poison line")
+        return real_parse(line)
+
+    monkeypatch.setattr(shipper, "parse_osquery_line", _poisonous)
+
+    writer = FakeWriter()
+    ship = FileShipper(str(log_file), writer)  # type: ignore[arg-type]
+
+    # Direct call: on the old code the parser's exception escaped
+    # _read_new_lines and the offset never advanced (the stall).
+    await ship._read_new_lines()
+
+    assert [e.process_name for e in writer.events] == ["python3", "bash"]
+    assert ship._offset == log_file.stat().st_size
+
+    # Idempotence: a second read at the advanced offset ships nothing new.
+    await ship._read_new_lines()
+    assert len(writer.events) == 2

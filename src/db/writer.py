@@ -73,6 +73,13 @@ class LogWriter:
         """Flush remaining events and stop."""
         if self._flush_task:
             self._flush_task.cancel()
+            # W1-F: await the cancel so an in-flight batch is dead-lettered
+            # (see the CancelledError handler in _flush_unlocked) BEFORE the
+            # final flush, and so no task is left pending behind stop().
+            try:
+                await self._flush_task
+            except asyncio.CancelledError:
+                pass
         await self._flush()
         log.info(
             "writer_stopped",
@@ -112,9 +119,18 @@ class LogWriter:
         """Flush the buffer every N seconds regardless of size."""
         while True:
             await asyncio.sleep(self._flush_interval)
-            async with self._lock:
-                if self._buffer:
-                    await self._flush_unlocked()
+            try:
+                async with self._lock:
+                    if self._buffer:
+                        await self._flush_unlocked()
+            except Exception as e:
+                # W1-F: an unexpected exception type (NOT PostgresError/
+                # OSError — e.g. a TypeError building rows) used to kill this
+                # task silently forever: nothing awaits it, so no error
+                # surfaced and every later flush never ran. Log and keep the
+                # loop alive. CancelledError is a BaseException and still
+                # cancels normally.
+                log.error("periodic_flush_failed", error=str(e))
 
     async def _flush(self) -> None:
         async with self._lock:
@@ -194,6 +210,16 @@ class LogWriter:
                 self._total_written += len(batch)
                 log.info("batch_flushed", count=len(batch), total=self._total_written)
 
+        except asyncio.CancelledError:
+            # W1-F: stop() cancels the flush task possibly mid-executemany —
+            # CancelledError is a BaseException, so it bypassed the
+            # PostgresError/OSError dead-letter handler below and the batch
+            # (already copied off _buffer) was silently LOST on shutdown.
+            # Dead-letter it, then honor the cancel.
+            self._total_errors += len(batch)
+            log.error("batch_flush_cancelled", count=len(batch))
+            await self._write_to_dead_letter(batch, "cancelled mid-flush (writer stop)")
+            raise
         except (asyncpg.PostgresError, OSError) as e:
             self._total_errors += len(batch)
             log.error("batch_insert_failed", count=len(batch), error=str(e))
