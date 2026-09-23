@@ -363,3 +363,56 @@ class TestEnrichEventDict:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # calculate_severity_boost
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+class TestBatchedTILookup:
+    """W2-D/B5 — the cached-TI lookups are batched: ONE check_ioc_matches
+    query resolves the batch's distinct public IPs; per-event enrichment
+    reads the prefetch map instead of a per-IP cache round-trip."""
+
+    @pytest.mark.asyncio
+    async def test_write_back_issues_one_batched_cache_query_per_batch(self):
+        from datetime import datetime, timezone
+
+        from src.enrichment.pipeline import write_back_enrichment
+        from src.ingestion.schemas import NormalizedEvent
+        from src.services.writer import writer as writer_singleton
+
+        events = [
+            NormalizedEvent(
+                timestamp=datetime(2024, 1, 1, 12, 0, i, tzinfo=timezone.utc),
+                host_name="h01",
+                source="syslog",
+                event_category="network",
+                event_type="connection",
+                event_action="attempted",
+                raw_data={"i": i},
+                source_ip="8.8.8.8" if i % 2 == 0 else "1.1.1.1",
+            )
+            for i in range(4)
+        ]
+
+        pool = AsyncMock()
+        conn = AsyncMock()
+        acq = AsyncMock()
+        acq.__aenter__ = AsyncMock(return_value=conn)
+        acq.__aexit__ = AsyncMock(return_value=False)
+        pool.acquire = MagicMock(return_value=acq)
+
+        ti_row = {"ioc_value": "8.8.8.8", "ioc_type": "ip", "confidence": 90}
+        batch_lookup = AsyncMock(return_value={"8.8.8.8": ti_row, "1.1.1.1": None})
+        single_lookup = AsyncMock()  # must NEVER be called when prefetch covers the IPs
+
+        with (
+            patch.object(writer_singleton, "flush", AsyncMock()),
+            patch("src.db.connection.get_pool", AsyncMock(return_value=pool)),
+            patch("src.intel.threat_intel.check_ioc_matches", batch_lookup),
+            patch("src.intel.threat_intel.check_ioc_match", single_lookup),
+            patch("src.enrichment.pipeline.enrich_geoip", AsyncMock(return_value={})),
+            patch("src.enrichment.pipeline.enrich_dns_reverse_async", AsyncMock(return_value={})),
+        ):
+            await write_back_enrichment(events)
+
+        assert batch_lookup.await_count == 1  # ONE query per batch, not per event
+        assert sorted(batch_lookup.await_args.args[1]) == ["1.1.1.1", "8.8.8.8"]
+        assert single_lookup.await_count == 0  # per-IP round-trips are gone
