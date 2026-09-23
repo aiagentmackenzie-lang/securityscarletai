@@ -49,6 +49,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -264,6 +265,32 @@ async def _warmup(model: str) -> float:
     return round(time.monotonic() - start, 1)
 
 
+async def _record_benchmark_usage(result: Any, endpoint: str, prompt_version: str) -> None:
+    """FT-007 (fleet Wave F): benchmark LLM calls land in ai_usage like any other.
+
+    Every LLM call is audited (the ai_usage doctrine) — the harness was the
+    one call family that logged tokens but persisted nothing. Attributed to
+    the system actor (user=None, the documented system-call slot) with a
+    dedicated ``ai.benchmark_*`` endpoint so quota accounting and the
+    operator's usage views can distinguish benchmark spend. Fail-soft: a
+    DB-less run skips rows and continues (record_usage never raises).
+    """
+    from src.ai.cost_tracker import record_usage
+
+    await record_usage(
+        user=None,
+        endpoint=endpoint,
+        model=result.model_used or "unknown",
+        tokens_in=result.tokens_in,
+        tokens_out=result.tokens_out,
+        latency_ms=result.latency_ms,
+        prompt_version=prompt_version,
+        source=result.source,
+        fallback_used=result.fallback_used,
+        warning=result.warning,
+    )
+
+
 async def run_verdict_case(case: dict, system_suffix: str = "", think: bool | None = None) -> dict:
     """One verdict call through the production invocation contract."""
     evidence_package = "\n\n".join(fence(e, label="telemetry") for e in case["evidence"])
@@ -283,6 +310,7 @@ async def run_verdict_case(case: dict, system_suffix: str = "", think: bool | No
         think=think,
     )
     prod_sla_ms = 30_000  # the production client's ollama_timeout ceiling
+    await _record_benchmark_usage(result, "ai.benchmark_verdict", "model_benchmark_verdict_v1")
     return {
         "latency_ms": result.latency_ms,
         "raw": result.text,
@@ -319,6 +347,9 @@ async def run_explanation_case(
         think=think,
     )
     prod_sla_ms = 30_000
+    await _record_benchmark_usage(
+        result, "ai.benchmark_explanation", "model_benchmark_explanation_v1"
+    )
     return {
         "latency_ms": result.latency_ms,
         "raw": result.text,
