@@ -456,6 +456,7 @@ class TestRetentionPolicyEvidence:
             "audit_log",
             "correlation_matches",
             "ai_usage",
+            "ssf_seen_sets",
         }
         assert tables["logs"]["window_days"] >= 0
         assert doc["engine"]["timescaledb"] is False

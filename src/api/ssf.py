@@ -34,6 +34,7 @@ from fastapi.responses import JSONResponse
 from src.api.audit import log_audit_action
 from src.api.rate_limit import LIMIT_INGEST, limiter
 from src.config.logging import get_logger
+from src.db.connection import get_pool
 from src.ingestion.ssf import SET_CONTENT_TYPE, SSFError, load_ssf_config, validate_set
 
 router = APIRouter(tags=["ingestion"])
@@ -120,6 +121,39 @@ async def receive_ssf_set(request: Request) -> Response:
         )
         log.info("ssf_set_refused", err=e.err, issuer=_unverified_iss(token))
         return _error_response(e.err, e.description)
+
+    # W5-F: replay guard. SSF SETs carry no exp by design (RFC 8935), so a
+    # captured valid SET re-delivers forever unless the receiver remembers
+    # its jti. The (issuer, jti) table IS that memory: the first delivery
+    # inserts a row; a zero-row insert means it was already accepted —
+    # replay, refused (audited, before the event is persisted).
+    replay_pool = await get_pool()
+    async with replay_pool.acquire() as conn:
+        seen_at = await conn.fetchval(
+            """
+            INSERT INTO ssf_seen_sets (issuer, jti) VALUES ($1, $2)
+            ON CONFLICT DO NOTHING
+            RETURNING seen_at
+            """,
+            parsed.transmitter.issuer,
+            str(parsed.claims.get("jti", "")),
+        )
+    if seen_at is None:
+        # The (issuer, jti) row already exists: this exact SET was accepted
+        # before. Replay — refused (audited), never persisted twice.
+        await log_audit_action(
+            actor=parsed.transmitter.issuer,
+            action="ssf.set_replay_refused",
+            target_type="ssf_set",
+            target_id=None,
+            new_values={"issuer": parsed.transmitter.issuer, "jti": parsed.claims.get("jti")},
+        )
+        log.info(
+            "ssf_set_replay_refused",
+            issuer=parsed.transmitter.issuer,
+            jti=parsed.claims.get("jti"),
+        )
+        return _error_response("invalid_request", "SET jti already received (replay refused)")
 
     # Persist BEFORE responding (RFC 8935 §2: validate + persist, then 202).
     received_at = datetime.now(tz=timezone.utc).isoformat()

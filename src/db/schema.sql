@@ -297,6 +297,25 @@ ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS fallback_used BOOLEAN;
 ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS warning TEXT;
 
 -- ============================================================
+-- SSF SEEN SETS — (issuer, jti) replay guard (W5-F)
+-- ============================================================
+-- SSF SETs carry no exp by design (RFC 8935), so a captured valid SET
+-- re-delivers forever unless the receiver remembers its jti. This table is
+-- the receiver's memory: one row per accepted (issuer, jti); a redelivery
+-- INSERTs nothing (PK conflict, ON CONFLICT DO NOTHING) and is refused as
+-- a replay. Pruned by the retention sweep (SSF_RETENTION_DAYS — bounded
+-- memory by design; losing old jti rows only re-opens that bounded window
+-- to replays, it never affects stored telemetry).
+CREATE TABLE IF NOT EXISTS ssf_seen_sets (
+    issuer TEXT NOT NULL,
+    jti TEXT NOT NULL,
+    seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (issuer, jti)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ssf_seen_sets_seen_at ON ssf_seen_sets (seen_at);
+
+-- ============================================================
 -- TRIAGE MODEL PROVENANCE — ML training audit trail (Agent A, Epic 3)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS triage_model_provenance (

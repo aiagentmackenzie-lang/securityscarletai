@@ -19,7 +19,7 @@ import asyncio
 import base64
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import yaml
@@ -45,6 +45,16 @@ from src.services.writer import writer as writer_singleton
 
 ISSUER = "https://idp.example.com/"
 AUD = "scarletai-receiver"
+
+
+def _ssf_pool_mock(conn):
+    """A fake pool for the SSF endpoint's replay-guard queries (W5-F)."""
+    mock_pool = MagicMock()
+    acquirer = MagicMock()
+    acquirer.__aenter__ = AsyncMock(return_value=conn)
+    acquirer.__aexit__ = AsyncMock(return_value=None)
+    mock_pool.acquire = MagicMock(return_value=acquirer)
+    return mock_pool
 
 
 # ───────────────────────────────────────────────────────────────
@@ -709,6 +719,12 @@ class TestReceiveEndpoint:
             patch("src.api.ssf.log_audit_action", AsyncMock()) as audit,
             patch("src.detection.correlation.trigger_correlation_coalesced", AsyncMock()),
             patch.object(writer_singleton, "write", AsyncMock()) as write,
+            patch(
+                "src.api.ssf.get_pool",
+                return_value=_ssf_pool_mock(
+                    AsyncMock(fetchval=AsyncMock(return_value="2026-09-23T00:00:00+00:00+00"))
+                ),
+            ),
         ):
             resp = self._post(client, _encode(_claims(), pem))
         assert resp.status_code == 202
@@ -722,6 +738,60 @@ class TestReceiveEndpoint:
         assert event.user_name == "user@example.com"
         accepted = [c for c in audit.call_args_list if c.kwargs.get("action") == "ssf.set_accepted"]
         assert accepted, "accepted SETs must be audited"
+
+    def test_replayed_set_refused_audited_not_persisted(self, client, tmp_path, monkeypatch):
+        # W5-F: a SET whose (issuer, jti) was already accepted (fetchval ->
+        # None: the ON CONFLICT swallowed the insert) is a REPLAY — 400
+        # invalid_request, audited, and the event is NOT persisted twice.
+        pem, jwk = _keypair()
+        tx = {"issuer": ISSUER, "aud": AUD, "jwks": {"keys": [jwk]}, "events": ["session-revoked"]}
+        monkeypatch.setenv(
+            "SSF_CONFIG_PATH", str(_receiver_yaml(tmp_path / "ssf.yaml", transmitters=[tx]))
+        )
+        replay_conn = AsyncMock()
+        replay_conn.fetchval = AsyncMock(return_value=None)  # conflict — already seen
+        with (
+            patch("src.api.ssf.log_audit_action", AsyncMock()) as audit,
+            patch.object(writer_singleton, "write", AsyncMock()) as write,
+            patch("src.detection.correlation.trigger_correlation_coalesced", AsyncMock()),
+            patch("src.api.ssf.get_pool", return_value=_ssf_pool_mock(replay_conn)),
+        ):
+            resp = self._post(client, _encode(_claims(jti="jti-1"), pem))
+        assert resp.status_code == 400
+        assert resp.json()["err"] == "invalid_request"
+        assert "replay" in resp.json()["description"]
+        replayed = [
+            c for c in audit.call_args_list if c.kwargs.get("action") == "ssf.set_replay_refused"
+        ]
+        assert replayed, "replays must be audited"
+        assert replayed[0].kwargs["new_values"]["jti"] == "jti-1"
+        assert replayed[0].kwargs["actor"] == ISSUER
+        write.assert_not_awaited()  # the replayed SET is never persisted twice
+        # The guard query is the (issuer, jti) memory insert.
+        sql = replay_conn.fetchval.call_args.args[0]
+        assert "ON CONFLICT DO NOTHING" in sql
+        assert "RETURNING seen_at" in sql
+
+    def test_fresh_jti_row_inserts_and_event_persists(self, client, tmp_path, monkeypatch):
+        # W5-F: the FIRST delivery inserts its (issuer, jti) row and proceeds.
+        pem, jwk = _keypair()
+        tx = {"issuer": ISSUER, "aud": AUD, "jwks": {"keys": [jwk]}, "events": ["session-revoked"]}
+        monkeypatch.setenv(
+            "SSF_CONFIG_PATH", str(_receiver_yaml(tmp_path / "ssf.yaml", transmitters=[tx]))
+        )
+        fresh_conn = AsyncMock()
+        fresh_conn.fetchval = AsyncMock(return_value="2026-09-23T00:00:00+00:00")
+        with (
+            patch("src.api.ssf.log_audit_action", AsyncMock()) as audit,
+            patch.object(writer_singleton, "write", AsyncMock()) as write,
+            patch("src.detection.correlation.trigger_correlation_coalesced", AsyncMock()),
+            patch("src.api.ssf.get_pool", return_value=_ssf_pool_mock(fresh_conn)),
+        ):
+            resp = self._post(client, _encode(_claims(), pem))
+        assert resp.status_code == 202
+        write.assert_awaited_once()  # the event IS persisted
+        sql = fresh_conn.fetchval.call_args.args[0]
+        assert "INSERT INTO ssf_seen_sets" in sql
 
     def test_unknown_issuer_400_audited(self, client, tmp_path, monkeypatch):
         pem, jwk = _keypair()

@@ -294,6 +294,10 @@ class Settings(BaseSettings):
     correlation_retention_days: int = 90
     correlation_sweep_interval_seconds: int = 60
     ai_usage_retention_days: int = 90
+    # W5-F: SSF SET replay-guard memory (issuer, jti) — bounded by design.
+    # Losing old rows only re-opens that bounded window to replays; it
+    # never affects stored telemetry.
+    ssf_retention_days: int = 30
     retention_interval_hours: int = 1
     retention_batch_size: int = 5000
 
