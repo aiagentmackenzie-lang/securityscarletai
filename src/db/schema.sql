@@ -636,10 +636,13 @@ CREATE INDEX IF NOT EXISTS idx_fleet_enrollments_last_seen
 -- HERE (outside dollar-quoted blocks — psql cannot interpolate inside
 -- them), into a session-level custom GUC the DO block below reads. The
 -- entrypoint always passes -v logs_retention_days=<window>; operators
--- applying schema.sql manually must pass the same -v (or accept the
--- COALESCE'd 30-day default when the SET below is removed).
--- NOTE: an undefined psql variable substitutes an EMPTY string with only a
--- psql warning; the NULLIF+COALESCE guard inside the block converges that
+-- applying schema.sql manually must pass the same -v.
+-- EMPIRICAL (psql 17, verified 2026-09-24): an UNDEFINED variable is passed
+-- through LITERALLY — the server receives the raw :'logs_retention_days'
+-- text and errors with "syntax error at or near :" (this broke CI's
+-- schema-apply from 541668b). Every caller MUST define the variable.
+-- A DEFINED-BUT-EMPTY value (-v logs_retention_days=) does substitute an
+-- empty string; the NULLIF+COALESCE guard inside the block converges that
 -- to the default rather than crashing the apply.
 SET app.logs_retention_days = :'logs_retention_days';
 
