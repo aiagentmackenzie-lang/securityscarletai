@@ -197,10 +197,20 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
         # P2-30/P2-38: apply the canonical schema to the provisioned
         # Postgres with ON_ERROR_STOP=1 so a broken/partial apply fails the
         # job loudly instead of reporting success while tables are missing.
+        # W5-E: schema.sql SETs app.logs_retention_days from a psql variable
+        # before the Timescale DO block. An UNDEFINED variable is passed
+        # through LITERALLY (psql 17), so the server sees :'logs_retention_days'
+        # and the apply dies with a syntax error (CI failure since 541668b).
+        # This step must mirror the entrypoint's contract
+        # (scripts/entrypoint.sh SCHEMA_PSQL_VARS): always pass
+        # -v logs_retention_days=<window>. CI's scratch DB uses the
+        # documented default 30.
         run: |
           PGPASSWORD="$DB_PASSWORD" psql \
             -h localhost -p 5433 -U scarletai -d scarletai \
-            -v ON_ERROR_STOP=1 -f src/db/schema.sql
+            -v ON_ERROR_STOP=1 \
+            -v logs_retention_days="${LOGS_RETENTION_DAYS:-30}" \
+            -f src/db/schema.sql
 
       - name: Unit tests and coverage
         # Single gate: coverage IS the unit test run. Previously this ran
