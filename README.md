@@ -1,6 +1,6 @@
 # SecurityScarletAI
 
-**The AI-native SIEM that proves its own detections work.**
+**A self-hosted SIEM with real endpoint telemetry, Sigma detection, and optional local AI.**
 
 [![CI](https://github.com/aiagentmackenzie-lang/securityscarletai/actions/workflows/ci.yml/badge.svg)](https://github.com/aiagentmackenzie-lang/securityscarletai/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
@@ -14,17 +14,30 @@
 [![Sigma](https://img.shields.io/badge/Sigma-120%20rules-orange)](docs/RULES.md)
 [![MITRE ATT&CK](https://img.shields.io/badge/MITRE-ATT%26CK%20mapped-B31E1E)](https://attack.mitre.org)
 
-SecurityScarletAI is an open-source, self-hosted SIEM for macOS, Linux, and
-Windows hosts and small fleets: real osquery telemetry in, Sigma detections +
-LLM-driven investigation out — with every AI decision recorded and every response action
-**verified by re-querying the system it changed**. The LLM runs locally via
-Ollama. No cloud, no phone-home; the whole stack is air-gappable.
+SecurityScarletAI is an open-source, self-hosted SIEM for a single server
+collecting telemetry from supported hosts and small fleets. It ingests real
+osquery events, evaluates Sigma rules and correlation chains, and provides
+case management, policy-controlled response, and optional AI-assisted
+investigation. Response executors record verification results; unsupported
+actions refuse execution rather than claiming containment.
+
+The hardened reference deployment runs on a single host with one API worker.
+macOS and Linux collection have recorded live validation; Windows parsers
+and fleet configuration are tested, but the Windows installer has not yet
+been live-fired. Container portability does not imply identical telemetry
+coverage on every operating system.
+
+AI inference runs through a configured Ollama endpoint and installed model.
+The core SIEM can operate without an available model, with AI features
+reporting degradation or labeled fallbacks. No hosted inference service is
+required. Air-gapped operation is documented; external enrichment and
+notification integrations must be disabled or confined appropriately.
 
 Most security dashboards show you charts. This one shows you **receipts**:
 
 - **Verified detections, not vibes.** A built-in purple-team loop fires the
   full correlation matrix through the real pipeline — shipper → parser →
-  Postgres → Sigma → correlation — and scores every run. The latest committed
+  Postgres → Sigma → correlation — and scores every run. A recorded
   run (2026-09-18, post-audit, on the multi-target images): **10/10 chains
   fired (score 1.0), 28 alerts, 25 distinct rules, 16 MITRE ATT&CK
   techniques hit**, with the full run history and a machine-readable
@@ -41,22 +54,25 @@ Most security dashboards show you charts. This one shows you **receipts**:
   action honestly as unverified. One read-only endpoint (`GET /decisions`)
   assembles the entire decision trail — the artifact a governed-autonomy
   buyer (EU AI Act Art. 14, NIST AI RMF GOVERN) asks for.
-- **Sovereign by default.** Local Ollama, loopback-only publishing,
-  DB-enforced append-only audit trail, verified backups with restore tests,
-  and a documented air-gapped deployment. Your telemetry never leaves the box.
-- **Scale built in.** Logs live in a TimescaleDB hypertable (compression +
+- **Self-hosted operations.** The hardened local-production posture provides
+  loopback-only publishing, authenticated Redis, a two-role DB-enforced
+  append-only audit trail, and backup/restore procedures. These controls
+  require the documented configuration; the development compose is not the
+  same posture. Configured enrichment and notifications can send data to
+  external services.
+- **Fleet collection and bounded retention.** Logs live in a TimescaleDB hypertable (compression +
   policy-driven retention), and hosts enroll into a fleet with
   sha256-at-rest tokens, host-bound identity (a stolen token cannot spoof
-  another host), and a fail-closed agent install kit.
+  another host), and a fail-closed agent install kit. This is not a claim of
+  high availability or validated throughput at arbitrary fleet sizes.
 
-| | Verified state (2026-09-18 — counts hand-checked against the code after the 11-wave quality audit, no auto-updating badge) |
+| | Recorded capabilities and verification scope |
 |---|---|
-| Release | **v0.8.0** (2026-09-17) — first receipted release: SBOM + attestation bundles on the release page, cosign-verified image in GHCR (public), buyer commands in SECURITY.md |
-|---|---|
-| Tests | **2,483 unit** (mocked DB) + **40 integration** against live Postgres, CI-enforced coverage ≥ 80%, measured **87%** |
+| Releases | [v0.9.0](https://github.com/aiagentmackenzie-lang/securityscarletai/releases/tag/v0.9.0) (2026-09-23) and [v0.8.0](https://github.com/aiagentmackenzie-lang/securityscarletai/releases/tag/v0.8.0) (2026-09-17) include SBOM and attestation assets; buyer verification commands are in SECURITY.md. Check the running build separately from the release tag. |
+| Tests | Unit tests use mocked dependencies; integration tests use live Postgres. CI enforces coverage ≥ 80%. Dated results and their limits are described under [Status](#status--what-verified-means-here). |
 | Detections | **120 Sigma rules** (vocabulary-gated in CI; 116 post-audit + 2 NeuralGuard producer rules 2026-09-19 + 2 NeuralStrike red-team-exercise rules 2026-09-20 — compile-pinned, DORMANT until a fleet exercise emits) · **10 correlation chains** — all 10 live-fire verified through the real pipeline (purple-loop score 1.0, 2026-09-14) |
 | Agentic | Read-only investigator · SIEM **MCP server** (3 tools over a scoped read-only DB role) · AI-usage detection domain |
-| Response | 6 action types — 3 live-verified on the reference deployment, 3 capability-gated fail-closed |
+| Response | 6 action types — 3 live-verified on the reference deployment, 3 capability-gated fail-closed. Host quarantine rejects telemetry; endpoint network isolation is not implemented. |
 | Pipeline | Real osqueryd telemetry → Sigma alerts in production since 2026-09-04 · FIM file telemetry · fleet ingest (macOS/Linux/Windows agents; Windows auth via Security eventid 4624/4625) · TimescaleDB store |
 
 ---
@@ -162,18 +178,16 @@ case in create_alert; probes alert + notify. Near-zero-FP doctrine:
   decision ([docs/PRODUCTION.md](docs/PRODUCTION.md) §11); the boot
   reconciler honors an `enabled:` frontmatter extension (shipped rules
   unaffected)
-- Durable ingest buffer (W2.2): a Redis-Streams buffer between the API
-  ingest path and the batched writer — consumer group, **ACK only after
-  DB persist**, crash-safe (orphans reclaimed via XAUTOCLAIM), bounded
-  backlog (MAXLEN), poison entries preserved to a dead-letter stream;
-  removes the documented at-most-once in-process writer-buffer loss.
-  OFF by default; when enabled, Redis unavailable → the ingest endpoints
-  refuse with **503 (fail-closed)** — the SIEM never accepts at-most-once
-  while promising durability. Delivery becomes at-least-once (duplicates
-  possible on persist-retry — labeled, never silent)
-  ([docs/PRODUCTION.md](docs/PRODUCTION.md) §12)
-  with disposition-weighted FP ratios in the comments; one-click download
-  from the dashboard, importable at attack.mitre.org
+- Optional Redis-Streams ingest buffer (W2.2): consumer groups, pending-entry
+  reclamation, bounded backlog, and poison-entry handling. OFF by default;
+  when enabled, Redis unavailable → ingest refuses with **503**. **Known
+  durability defect:** the writer can swallow a database failure, causing
+  the consumer to ACK before database persistence. A successful local
+  dead-letter write leaves a recovery copy; if that write also fails, the
+  ACK still occurs without either storage path retaining the event. Do not
+  rely on an unconditional at-least-once guarantee until this is corrected.
+  See [Honest limitations](#honest-limitations); the intended contract in
+  [docs/PRODUCTION.md](docs/PRODUCTION.md) §12 is subject to this limitation.
 - EndpointSecurity process telemetry (`exec`/`exit`, codesigning evidence) and
   FIM file events (LaunchAgents/LaunchDaemons, `.ssh`, `/tmp`, `/var/log`,
   sha256-hashed) via a root LaunchDaemon
@@ -225,6 +239,8 @@ case in create_alert; probes alert + notify. Near-zero-FP doctrine:
   `quarantine_host` (ingest endpoint refuses that host's telemetry),
   `notify_slack` (webhook receipt) — live-verified; `pf_block_ip`,
   `disable_macos_user`, `isolate_host_fleet` — capability-gated fail-closed
+  (`isolate_host_fleet` is not implemented, even with an endpoint configured).
+  **Telemetry quarantine does not isolate a host from the network.**
 - Notification channels (Wave 1): versioned, fail-closed
   `config/notification_channels.yaml` routes alerts to Slack / generic
   webhook (HMAC-signed, receiver contract in PRODUCTION.md §8) / PagerDuty /
@@ -468,17 +484,29 @@ serve a 404 there by design).
 
 ## Status — what "verified" means here
 
-Claims in this README are tied to evidence, and counts are hand-verified
-against the code (no auto-updating badge):
+Verification is scoped to the commit, environment, telemetry sources, and
+workload exercised. Historical receipts are not a current health check or
+an independent efficacy benchmark. Rule compilation and passing tests do
+not establish detection accuracy on every deployment.
 
 - **CI (every push to `main`):** Docker build + real-entrypoint boot gate ·
   ruff + format check + mypy · schema applied with `ON_ERROR_STOP=1` · unit
   suite with the coverage gate · integration suite on a live Postgres ·
   pip-audit · Trivy image scan (HIGH/CRITICAL zero-findings enforced since
   2026-09-10).
-- **Unit + integration:** 2,594 unit tests (mocked DB) and 40 integration
-  tests (live Postgres) — CI-green on every push (2026-09-23); coverage
-  measured **88%** (10,009 statements, 2026-09-23).
+- **Recorded CI baseline:** 2,594 unit tests (mocked DB) and 40 integration
+  tests (live Postgres); coverage measured **88%** (10,009 statements,
+  2026-09-23). Consult Actions for the result on the commit being deployed.
+- **Local reassessment (2026-11-07, commit `cd50a49`):** all 120 shipped
+  rules compiled; the actual Ollama client returned a response from local
+  `qwen3.5:2b` with usage metadata and no fallback. A Python 3.12 unit run
+  with a 15-second per-test limit finished with **2,604 passed, 2 failed,
+  87.95% coverage**: one response test attempted unavailable PostgreSQL and
+  timed out; one model-provenance assertion expected every feature
+  importance to be positive. Dependencies were resolved from project
+  constraints, not the exact Poetry lock. Fresh-stack boot and live-DB
+  integration were not repeated on that host because Docker/Postgres were
+  unavailable. This is a scoped check, not a production certification.
 - **Live-fire:** the full 10-chain correlation matrix scored 10/10 through
   the real pipeline (latest: 2026-09-18 — 28 alerts, 25 distinct rules, 16
   ATT&CK techniques, re-run after the audit's rule-corpus corrections landed;
@@ -488,12 +516,35 @@ against the code (no auto-updating badge):
   verified end-to-end (2026-09-05); fleet enrollment + raw-line ingest +
   TimescaleDB migration (zero data loss) + Linux agent live-fire verified
   2026-09-12/13.
-- **Standing deployment:** the reference deployment has run as a real
-  local-production SIEM (real osqueryd telemetry, hardened overlay) since
-  2026-09-04.
+- **Reference deployment:** committed records document local-production
+  operation with real osqueryd telemetry and the hardened overlay beginning
+  2026-09-04. Those records do not establish present uptime or readiness on
+  a different host.
 
 ## Honest limitations
 
+- **Ingest acknowledgment can precede persistence** — a controlled
+  failure-injection check reproduced Redis ACK after a database failure,
+  including when the local dead-letter write also failed. The consumer
+  trusts `writer.flush()` returning, but the writer catches these failures
+  without propagating unsuccessful persistence. This removes normal
+  pending-message redelivery; a remaining stream entry can later be
+  trimmed. Durable mode is OFF by default. The underlying writer behavior
+  also matters to callers relying on flush confirmation. Track the actual
+  storage outcome rather than treating the absence of an exception as
+  successful persistence; see `src/ingestion/durable.py` and `src/db/writer.py`.
+- **Single-node deployment scope** — TimescaleDB retention and fleet
+  enrollment are implemented; high availability, multi-node failover, and
+  an arbitrary fleet-size or event-rate guarantee are not established by
+  the recorded exercises.
+- **Backlog recovery needs bounded reads** — the local file shipper reads
+  all newly appended bytes at once. A large accumulated log backlog can
+  cause a memory spike; this path has not been validated here under an
+  OOM/recovery drill.
+- **Backups need deployment-specific protection** — the local backup and
+  restore-test scripts do not themselves protect against loss of the host.
+  Configure off-host copies and verify restores for the required recovery
+  objectives.
 - **Single uvicorn worker** — the WebSocket registry is in-memory; multi-
   worker requires moving it to Redis first (documented boundary; don't just
   raise `--workers`).
