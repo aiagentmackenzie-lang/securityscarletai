@@ -151,7 +151,14 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
 
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: ~/.cache/pypoetry
+          # NOT the whole ~/.cache/pypoetry: that includes virtualenvs/, so a
+          # restore-keys hit resurrects a stale venv from an older lock. That
+          # is how dependency-audit kept reporting gitpython 3.1.61 long after
+          # it left the lock (2026-11-12) — the audit was scanning a venv from
+          # a previous run, not the locked set. Cache downloads only.
+          path: |
+            ~/.cache/pypoetry/cache
+            ~/.cache/pypoetry/artifacts
           key: poetry-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
           restore-keys: poetry-${{ runner.os }}-
 
@@ -167,7 +174,7 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
         run: |
           sudo apt-get update && sudo apt-get install -y postgresql-client
           pip install poetry
-          poetry install --no-root
+          poetry sync --no-root
 
       - name: Lint
         # Full pyproject config (E,F,W,I,S,B with S608/B008 ignored).
@@ -239,7 +246,14 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
 
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: ~/.cache/pypoetry
+          # NOT the whole ~/.cache/pypoetry: that includes virtualenvs/, so a
+          # restore-keys hit resurrects a stale venv from an older lock. That
+          # is how dependency-audit kept reporting gitpython 3.1.61 long after
+          # it left the lock (2026-11-12) — the audit was scanning a venv from
+          # a previous run, not the locked set. Cache downloads only.
+          path: |
+            ~/.cache/pypoetry/cache
+            ~/.cache/pypoetry/artifacts
           key: poetry-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
           restore-keys: poetry-${{ runner.os }}-
 
@@ -253,7 +267,7 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
         # exact locked dependency set the app actually runs on.
         run: |
           pip install poetry
-          poetry install --no-root
+          poetry sync --no-root
 
       - name: pip-audit (locked dependency set)
         # The two P4 risk-accepts (docs/dependency-vuln-triage-2026-09-03.md,
