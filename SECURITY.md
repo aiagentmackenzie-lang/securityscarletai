@@ -16,6 +16,35 @@ secret-leak in the container image), please report it responsibly:
   impact.
 - Please allow a reasonable window (default 90 days) before public disclosure.
 
+## Public-repo guardrails (2026-11-11)
+
+This repository is **public**. Four controls stop a secret or private artefact
+reaching it. They are independent on purpose — any one of them alone is
+bypassable.
+
+| Control | Catches | Bypass |
+| --- | --- | --- |
+| `git commit` hook (`.githooks/pre-commit`) | staged secrets, `data/`, `logs/`, `.env`, credential files, files > 5 MB | `--no-verify` (say why in the commit message) |
+| `secrets-scan` CI job | any secret in **full history**, including commits that skipped the hook | none — it gates the PR/push |
+| GitHub push protection | provider-shaped tokens (AWS, GitHub, Stripe…) before they land | owner override with a stated reason |
+| `main-protection` ruleset | branch deletion, force-push over `main` | repo admin |
+
+Install the hook in a fresh clone — it is **not** automatic:
+
+```bash
+make hooks          # git config --local core.hooksPath .githooks
+```
+
+Allowlist policy for `.gitleaks.toml`: reviewed placeholder **values only**,
+never paths. A real secret committed into a file that already holds a
+placeholder must still be caught, so adding a path allowlist defeats the gate.
+Verified by probe: a random `AKIA…` key and a random 40-char `api_key` in an
+already-allowlisted file both still fire.
+
+Action pins: every `uses:` is a commit SHA with the version in a trailing
+comment. `.github/dependabot.yml` refreshes them weekly — a pin with no updater
+is just a slower kind of stale.
+
 ## Scope
 
 In-scope:

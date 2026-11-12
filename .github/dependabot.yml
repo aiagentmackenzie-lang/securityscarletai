@@ -1,0 +1,28 @@
+# Keeps the SHA-pinned action refs in .github/workflows/*.yml current.
+#
+# Every `uses:` in this repo is pinned to a commit SHA (2026-11-11) so a
+# retagged or compromised action cannot execute with our registry credentials.
+# Pins rot silently without an updater — Dependabot rewrites the SHA and keeps
+# the trailing `# v4` comment accurate.
+#
+# Security updates are grouped into one PR so a weekly run does not produce
+# ten separate reviews.
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci(actions)"
+    groups:
+      actions:
+        patterns: ["*"]
+    labels:
+      - dependencies
+      - ci

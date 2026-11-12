@@ -12,6 +12,10 @@ help: ## Show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage: make <target>\n\nTargets:\n"} \
 	  /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
+hooks: ## Install git hooks — pre-commit gate: secrets, runtime data, >5 MB blobs (PUBLIC repo)
+	git config --local core.hooksPath .githooks
+	@echo "hooks installed -> $$(git config --local core.hooksPath)/pre-commit"
+
 install: ## Install Python dependencies via Poetry
 	poetry install
 

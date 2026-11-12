@@ -1,0 +1,22 @@
+# gitleaks config — public repo, reviewed fixtures only.
+#
+# Every regex below is an EXACT value already published in this repo: CI test
+# placeholders, seed-data fakes, and a scanner false positive on an internal URL.
+# They were reviewed on 2026-11-11 and confirmed to match nothing in .env.
+#
+# Deliberately scoped by VALUE, not by path: a real secret committed later into
+# any of these same files will still be caught. Do not add path allowlists here.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Reviewed public placeholders (2026-11-11)"
+regexTarget = "secret"
+regexes = [
+  '''^8000/api/v1/ingest$''',
+  '''^0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef$''',
+  '''^tok\-1234567890abcdef$''',
+  '''^bedd3171c0cf5a095e5ab6acc28c202257688340a7ff5874e0bf97d61cc624d1$''',
+  '''^YOUR_TOKEN$''',
+]

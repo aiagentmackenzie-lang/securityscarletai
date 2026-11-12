@@ -317,3 +317,32 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
           ignore-unfixed: true
           severity: HIGH,CRITICAL
           trivyignores: .trivyignore
+  # ── public-repo secret gate ──────────────────────────────────────────────────
+  # Cheapest place to catch a secret is before it is in published history.
+  # GitHub push protection already blocks provider-shaped tokens (verified ON
+  # 2026-11-11); this covers everything else, and covers commits that bypassed
+  # the local hook with --no-verify. Allowlist is .gitleaks.toml: reviewed
+  # placeholder VALUES only, never paths, so a real secret in the same file is
+  # still caught. gitleaks is fetched from an upstream release and
+  # checksum-verified rather than run via a third-party action.
+  secrets-scan:
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: 8.28.0
+      GITLEAKS_SHA256: a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0 # full history: a secret added and removed is still leaked
+
+      - name: Install gitleaks ${{ env.GITLEAKS_VERSION }} (checksum-verified)
+        run: |
+          set -euo pipefail
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          curl -sSLo /tmp/gitleaks.tgz "${base}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tgz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          /tmp/gitleaks version
+
+      - name: Scan full history for secrets
+        run: /tmp/gitleaks git . --config .gitleaks.toml --redact --no-banner -v

@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Pre-commit gate for a PUBLIC repository.
+#
+# Installed by:  make hooks        (sets core.hooksPath=.githooks)
+# Bypass (use sparingly, say why in the commit message):  git commit --no-verify
+#
+# Three independent checks. Each fails CLOSED.
+#   1. paths   — never publish runtime data, logs, or credential files
+#   2. size    — nothing over 5 MB (binary blobs are permanent)
+#   3. secrets — gitleaks against .gitleaks.toml (reviewed allowlist, value-scoped)
+#
+# This hook is deliberately dependency-light: plain bash + git + optional gitleaks.
+
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+fail() { printf '\n\033[31mBLOCKED\033[0m %s\n' "$1"; exit 1; }
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+
+# ── 1. forbidden paths ────────────────────────────────────────────────────────
+# data/ holds live host telemetry (osquery DB + logs). logs/ and .hypothesis/
+# are generated. Credential files must never be tracked, with .env.example the
+# single deliberate exception.
+bad_paths=$(printf '%s\n' "$staged" | grep -E \
+  '(^|/)(data|logs|\.venv|venv|node_modules|\.hypothesis|__pycache__)/|(^|/)\.env(\.|$)|(^|/)(id_rsa|id_ed25519)(\.|$)|\.(pem|key|p12|pfx|p8|keystore|jks)$' \
+  | grep -vE '(^|/)\.env\.example$' || true)
+if [ -n "$bad_paths" ]; then
+  printf '%s\n' "$bad_paths" | sed 's/^/   /'
+  fail "forbidden path(s) staged (runtime data / credentials). Not public-safe."
+fi
+
+# ── 2. size ───────────────────────────────────────────────────────────────────
+too_big=""
+while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  sz=$(wc -c <"$f" | tr -d ' ')
+  [ "$sz" -gt 5242880 ] && too_big="$too_big   $f ($((sz / 1024 / 1024)) MB)\n"
+done <<<"$staged"
+[ -n "$too_big" ] && { printf "%b" "$too_big"; fail "file(s) over 5 MB — git history is forever."; }
+
+# ── 3. secrets ────────────────────────────────────────────────────────────────
+if command -v gitleaks >/dev/null 2>&1; then
+  # One run, captured — gitleaks output is already redacted, so showing it is safe
+  # and gives the author the file, line and rule instead of a bare refusal.
+  out=$(gitleaks git --staged --config .gitleaks.toml --redact --no-banner -v 2>&1)
+  if ! printf '%s' "$out" | grep -qE "no leaks found"; then
+    printf '%s\n' "$out" | grep -vE "^$|INF|WRN" | sed 's/^/   /'
+    fail "gitleaks found a secret in the staged diff. Rotate it, then remove it."
+  fi
+else
+  # Fail-closed is wrong here (fresh clone, no toolchain yet) but silence is
+  # worse: say plainly that this check did not run.
+  printf '\033[33mNOTE\033[0m gitleaks not installed — secret scan SKIPPED. Install: brew install gitleaks\n'
+fi
+
+exit 0
