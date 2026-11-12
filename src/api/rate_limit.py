@@ -101,9 +101,18 @@ def user_or_ip_key(request: Request) -> str:
             # Unverified parse strictly for KEYING — the throwaway key plus
             # signature/expire checks disabled mean we never trust this for
             # authorization (require_role deps run before the limiter).
+            #
+            # algorithms is restricted even though verification is off: with it
+            # unset, python-jose follows the token header, which is the exact
+            # precondition for GHSA-3qf3-8w2g-rqmx / PYSEC-2026-4298 (HS256
+            # algorithm confusion via a DER-encoded public key). Nothing is
+            # trusted here, so this was not exploitable, but the restriction
+            # costs nothing and keeps the pattern uniform across all 8 decode
+            # sites (2026-11-12).
             payload = jwt.decode(
                 token,
                 "",
+                algorithms=["HS256"],
                 options={
                     "verify_signature": False,
                     "verify_exp": False,

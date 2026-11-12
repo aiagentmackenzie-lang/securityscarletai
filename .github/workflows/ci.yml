@@ -268,9 +268,23 @@ jobs:  # P2-38: build the Docker image so Dockerfile breakage (stale COPYs, bad
         #   precondition out of scope for the threat model.
         run: |
           poetry run pip install pip-audit
+          # PYSEC-2026-4298 / GHSA-3qf3-8w2g-rqmx / CVE-2026-85394 (python-jose
+          # 3.5.0, CRITICAL, NO upstream fix): HS256 algorithm confusion via a
+          # DER-encoded public key. NOT REACHABLE here — the advisory requires
+          # "algorithms are not explicitly restricted", and all 8 jwt.decode
+          # sites in src/ pass algorithms explicitly (verified 2026-11-12 by
+          # call-site audit; the one that did not, rate_limit.py keying, was
+          # hardened in the same commit). Every token this product issues or
+          # verifies is HS256 against a symmetric secret (JWT_ALGORITHM in
+          # src/api/auth.py), so no public key exists to confuse. The only
+          # asymmetric surface is SSF SET verification (ingestion/ssf.py), which
+          # allowlists ES256/RS256 before decode. ACCEPTED until a fixed release
+          # lands — re-review 2027-02-01 and migrate to PyJWT if none does.
           poetry run pip-audit --skip-editable \
             --ignore-vuln PYSEC-2026-2447 --ignore-vuln PYSEC-2026-1325 \
-            --ignore-vuln CVE-2025-69872 --ignore-vuln CVE-2024-23342
+            --ignore-vuln CVE-2025-69872 --ignore-vuln CVE-2024-23342 \
+            --ignore-vuln PYSEC-2026-4298 --ignore-vuln GHSA-3qf3-8w2g-rqmx \
+            --ignore-vuln CVE-2026-85394
 
   # P3.5: image vulnerability scan of the built Docker image (OS packages +
   # Python site-packages) with Trivy. HIGH/CRITICAL exit-code 1.
