@@ -619,3 +619,42 @@ class TestFleetDocstringHonesty:
         assert not any("/fleet/rotate" in p for p in route_paths)
         # the real rotation path is documented: enroll on an existing host
         assert "re-enroll" in fleet_module.__doc__
+
+
+# ─────────────────────────────────────────────────────────────────────
+# SS-010 — the fleet last_seen throttle map must be bounded
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestFleetLastSeenMapIsBounded:
+    def test_map_never_exceeds_the_cap(self, monkeypatch):
+        from src.api import auth as auth_mod
+
+        monkeypatch.setattr(auth_mod, "_fleet_last_seen", {}, raising=False)
+        cap = auth_mod._FLEET_LAST_SEEN_MAX_ENTRIES
+        assert cap > 0
+        for i in range(cap + 50):
+            auth_mod._record_fleet_last_seen(f"host-{i}", now=float(i))
+
+        assert len(auth_mod._fleet_last_seen) <= cap
+
+    def test_oldest_entries_are_evicted_first(self, monkeypatch):
+        from src.api import auth as auth_mod
+
+        monkeypatch.setattr(auth_mod, "_fleet_last_seen", {}, raising=False)
+        cap = auth_mod._FLEET_LAST_SEEN_MAX_ENTRIES
+        for i in range(cap):
+            auth_mod._record_fleet_last_seen(f"host-{i}", now=float(i))
+        # One more entry evicts the oldest (host-0).
+        auth_mod._record_fleet_last_seen("newcomer", now=float(cap + 1))
+
+        assert "host-0" not in auth_mod._fleet_last_seen
+        assert "newcomer" in auth_mod._fleet_last_seen
+
+    def test_throttle_still_applies_inside_the_window(self, monkeypatch):
+        from src.api import auth as auth_mod
+
+        monkeypatch.setattr(auth_mod, "_fleet_last_seen", {}, raising=False)
+        assert auth_mod._record_fleet_last_seen("h1", now=100.0) is True
+        assert auth_mod._record_fleet_last_seen("h1", now=101.0) is False
+        assert auth_mod._record_fleet_last_seen("h1", now=100.0 + 61.0) is True

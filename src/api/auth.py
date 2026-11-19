@@ -287,7 +287,31 @@ async def get_current_user(
 # Fleet-token last_seen write throttle: one UPDATE per host per window,
 # not one per ingest batch (a busy fleet would otherwise write-amplify).
 _FLEET_LAST_SEEN_WINDOW_S = 60.0
+# SS-010: the throttle map grew one entry per host forever — an unbounded
+# memory leak for a large (or spoofed, with valid enrollments) fleet. Bounded
+# to the most recently seen hosts; insertion order gives us LRU-ish eviction.
+_FLEET_LAST_SEEN_MAX_ENTRIES = 10_000
 _fleet_last_seen: dict[str, float] = {}
+
+
+def _record_fleet_last_seen(host: str, now: float) -> bool:
+    """Throttled last_seen bookkeeping. Returns True when the DB UPDATE should
+    run for this host (i.e. the window elapsed).
+
+    SS-010: evicts the oldest entries once the map reaches its cap, so a large
+    fleet cannot grow this dict without bound.
+    """
+    last = _fleet_last_seen.pop(host, None)
+    if last is not None and now - last < _FLEET_LAST_SEEN_WINDOW_S:
+        # Not due: re-insert so the entry stays "recent" for eviction order.
+        _fleet_last_seen[host] = last
+        return False
+
+    _fleet_last_seen[host] = now
+    while len(_fleet_last_seen) > _FLEET_LAST_SEEN_MAX_ENTRIES:
+        oldest = next(iter(_fleet_last_seen))
+        del _fleet_last_seen[oldest]
+    return True
 
 
 async def _resolve_fleet_token(token: str) -> Optional[dict[str, Any]]:
@@ -323,9 +347,7 @@ async def _resolve_fleet_token(token: str) -> Optional[dict[str, Any]]:
     host = row["host_name"]
 
     now = _time.monotonic()
-    last = _fleet_last_seen.get(host, 0.0)
-    if now - last >= _FLEET_LAST_SEEN_WINDOW_S:
-        _fleet_last_seen[host] = now
+    if _record_fleet_last_seen(host, now):
         try:
             await pool.execute(
                 "UPDATE fleet_enrollments SET last_seen_at = NOW() WHERE host_name = $1",
