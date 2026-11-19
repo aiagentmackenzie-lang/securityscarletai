@@ -26,6 +26,7 @@ Design notes:
   DEPLOYMENT.md). The job attempts the delete and reports the outcome honestly.
 """
 
+import time
 from typing import Any
 
 from src.config.logging import get_logger
@@ -47,11 +48,26 @@ _RETENTION_TARGETS: tuple[tuple[str, str, str], ...] = (
 )
 
 # Safety cap so a single job run never loops forever on a pathological backlog.
+# SS-027: the cap alone meant a backlog larger than 100 × batch_size per table
+# never caught up and retention silently fell behind forever. The loop now also
+# honours a wall-clock budget and REPORTS that work remains.
 _MAX_BATCHES_PER_TABLE = 100
+_DEFAULT_BUDGET_SECONDS = 60.0
 
 
-async def _delete_old_rows(table: str, time_col: str, cutoff: Any, batch_size: int) -> int:
-    """Delete rows older than cutoff from `table`, in batches. Returns total deleted.
+async def _delete_old_rows(
+    table: str,
+    time_col: str,
+    cutoff: Any,
+    batch_size: int,
+    budget_seconds: float = _DEFAULT_BUDGET_SECONDS,
+) -> tuple[int, bool]:
+    """Delete rows older than cutoff from `table`, in batches.
+
+    Returns (rows_deleted, backlog_remains). SS-027: the batch cap is a safety
+    valve, not a target — when it is hit (or the wall-clock budget expires
+    while a full batch was still returned) the caller learns that rows remain
+    instead of assuming the table is drained.
 
     Uses a CTE + LIMIT so each DELETE is bounded and never takes a table-wide
     lock. All values are parameterized; the table/column are static literals
@@ -59,6 +75,8 @@ async def _delete_old_rows(table: str, time_col: str, cutoff: Any, batch_size: i
     """
     pool = await get_pool()
     total = 0
+    backlog = False
+    started = time.monotonic()
     async with pool.acquire() as conn:
         for _ in range(_MAX_BATCHES_PER_TABLE):
             # Delete up to batch_size rows older than the cutoff. The CTE
@@ -81,11 +99,19 @@ async def _delete_old_rows(table: str, time_col: str, cutoff: Any, batch_size: i
             )
             n = _parse_rowcount(deleted)
             if n <= 0:
+                backlog = False
                 break
             total += n
             if n < batch_size:
+                backlog = False
                 break  # drained this run
-    return total
+            if time.monotonic() - started >= budget_seconds:
+                backlog = True
+                break
+        else:
+            # Loop exhausted its batch allowance with full batches: not drained.
+            backlog = True
+    return total, backlog
 
 
 def _parse_rowcount(status: str) -> int:
@@ -105,7 +131,11 @@ async def run_retention_once() -> dict[str, int]:
     from datetime import datetime, timedelta, timezone
 
     # P3.3: retention sweep results in /metrics (rows deleted + errors).
-    from src.api.metrics import retention_errors, retention_rows_deleted
+    from src.api.metrics import (
+        retention_backlog_remaining,
+        retention_errors,
+        retention_rows_deleted,
+    )
 
     now = datetime.now(tz=timezone.utc)
     results: dict[str, int] = {}
@@ -118,11 +148,23 @@ async def run_retention_once() -> dict[str, int]:
             continue
         cutoff = now - timedelta(days=days)
         try:
-            deleted = await _delete_old_rows(table, time_col, cutoff, batch_size)
+            deleted, backlog = await _delete_old_rows(table, time_col, cutoff, batch_size)
             results[table] = deleted
             if deleted > 0:
                 retention_rows_deleted.inc(deleted, table=table)
                 log.info("retention_swept", table=table, deleted=deleted, cutoff=cutoff.isoformat())
+            if backlog:
+                # SS-027: observable backlog — the sweep is capped, so silence
+                # here used to look like "drained".
+                retention_backlog_remaining.set(1, table=table)
+                log.warning(
+                    "retention_backlog_remaining",
+                    table=table,
+                    deleted_this_sweep=deleted,
+                    batch_size=batch_size,
+                )
+            else:
+                retention_backlog_remaining.set(0, table=table)
         except Exception as e:
             # A retention error must not crash the scheduler/API. Log and move
             # on; the next run retries. Common cause: audit_logs hardened

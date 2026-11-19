@@ -120,10 +120,16 @@ class RequestValidationMiddleware(BaseHTTPMiddleware):
                 chunks: list[bytes] = []
                 total = 0
                 over_limit = False
+                disconnected = False
                 receive = request._receive  # noqa: SLF001
                 while True:
                     message = await receive()
                     if message["type"] == "http.disconnect":
+                        # SS-035: the client went away mid-body. The old code
+                        # broke out and still re-injected the bytes read so far
+                        # as a COMPLETE request, so downstream handlers parsed a
+                        # truncated body. Refuse instead of shipping a lie.
+                        disconnected = True
                         break
                     part = message.get("body", b"")
                     total += len(part)
@@ -138,6 +144,13 @@ class RequestValidationMiddleware(BaseHTTPMiddleware):
                         status_code=413,
                         content={
                             "detail": f"Request body too large. Max {self.MAX_BODY_SIZE} bytes."
+                        },
+                    )
+                if disconnected:
+                    return JSONResponse(
+                        status_code=400,
+                        content={
+                            "detail": "Client disconnected before the request body was complete."
                         },
                     )
 

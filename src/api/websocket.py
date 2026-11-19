@@ -79,9 +79,30 @@ async def create_ws_token(payload: dict = Depends(verify_jwt)):
     return {"ws_token": token, "ttl": 300}
 
 
+def _sweep_ws_tokens() -> int:
+    """Drop every expired WS token (SS-041).
+
+    Cleanup used to run ONLY when a new token was minted, so an idle deployment
+    kept expired tokens in memory indefinitely. The sweep is cheap and is
+    called from validation and from the mint path.
+    """
+    import time
+
+    now = time.time()
+    expired = [k for k, v in _ws_tokens.items() if now > v["expires"] + 300]
+    for k in expired:
+        _ws_tokens.pop(k, None)
+    if expired:
+        log.debug("ws_tokens_cleaned", removed=len(expired), remaining=len(_ws_tokens))
+    return len(expired)
+
+
 def _validate_ws_token(token: str) -> Optional[dict]:
     """Validate and consume a WS token."""
     import time
+
+    # SS-041: lazy sweep — an idle deployment cleans up on the next verify.
+    _sweep_ws_tokens()
 
     data = _ws_tokens.pop(token, None)
     if data is None:

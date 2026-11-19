@@ -233,6 +233,12 @@ retention_rows_deleted = METRICS.counter(
 retention_errors = METRICS.counter(
     "scarletai_retention_errors_total", "Retention sweep errors, per table."
 )
+# SS-027: 1 = the last sweep hit its cap/budget with rows still older than the
+# cutoff (retention is behind, not drained).
+retention_backlog_remaining = METRICS.gauge(
+    "scarletai_retention_backlog_remaining",
+    "Whether retention is behind for a table after the last sweep (1 = yes).",
+)
 # SS-050: the durable stream's MAXLEN bound is a documented tradeoff, so it must
 # be a MEASURED one: entries trimmed out of the stream (upper bound, derived
 # from XINFO STREAM entries-added - length).
