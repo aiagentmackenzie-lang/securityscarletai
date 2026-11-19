@@ -429,31 +429,68 @@ class SigmaParser:
         return sql, self._params
 
     def _parse_condition(self, condition: str, detection: dict) -> str:
-        """Parse the condition string into SQL WHERE clause."""
-        if " and not " in condition.lower():
-            parts = condition.lower().split(" and not ")
+        """Parse the condition string into SQL WHERE clause.
+
+        SS-022: selection names are matched CASE-INSENSITIVELY. The condition
+        used to be lowercased before an exact dict lookup, so
+        `condition: Selection` + `detection: {Selection: ...}` compiled to
+        FALSE — a silently dead operator-authored rule.
+
+        SS-021: `and not` is folded over EVERY clause. The old split used only
+        parts[0] and parts[1], so `a and not b and not c` compiled to
+        `(a) AND NOT (b)` with `c` ignored — the rule matched MORE than
+        written, i.e. the fail-open direction.
+        """
+        lowered = condition.lower()
+
+        # Split on `and not` FIRST: `and not x` contains ` and `, so splitting
+        # on `and` alone would shred the negation.
+        if " and not " in lowered:
+            parts = lowered.split(" and not ")
+            if len(parts) > 2:
+                # Fold left: ((sel) AND NOT (f1)) AND NOT (f2))
+                sql = self._parse_selection(parts[0].strip(), detection)
+                for part in parts[1:]:
+                    filter_sql = self._parse_selection(part.strip(), detection)
+                    sql = f"({sql}) AND NOT ({filter_sql})"
+                return sql
             selection_sql = self._parse_selection(parts[0].strip(), detection)
             filter_sql = self._parse_selection(parts[1].strip(), detection)
             return f"({selection_sql}) AND NOT ({filter_sql})"
 
-        if " or " in condition.lower():
-            parts = condition.lower().split(" or ")
+        if " or " in lowered:
+            parts = lowered.split(" or ")
             sql_parts = [self._parse_selection(p.strip(), detection) for p in parts]
             return " OR ".join(f"({p})" for p in sql_parts)
 
         # P2-42: plain " and " (e.g. webshell_creation.yml uses
         # `selection_web_dir and selection_shell_content`). Checked after
         # `and not` (above) so `and not` is not mis-split, and after `or`.
-        if " and " in condition.lower():
-            parts = condition.lower().split(" and ")
+        if " and " in lowered:
+            parts = lowered.split(" and ")
             sql_parts = [self._parse_selection(p.strip(), detection) for p in parts]
             return " AND ".join(f"({p})" for p in sql_parts)
 
         return self._parse_selection(condition.strip(), detection)
 
+    def _resolve_selection_name(self, name: str, detection: dict) -> "str | None":
+        """Resolve a selection name case-insensitively (SS-022).
+
+        Exact match first, then a case-insensitive match. Returns None when no
+        selection matches.
+        """
+        if name in detection:
+            return name
+        wanted = name.strip().lower()
+        for key in detection:
+            if isinstance(key, str) and key.lower() == wanted:
+                return key
+        return None
+
     def _parse_selection(self, name: str, detection: dict) -> str:
         """Parse a selection block into SQL."""
-        if name not in detection:
+        resolved = self._resolve_selection_name(name, detection)
+        if resolved is None:
             # F-20 (fail-safe): a typo'd selection name used to parse as TRUE
             # — a match-everything alert storm. A missing selection now makes
             # the rule match NOTHING and logs loudly.
@@ -464,7 +501,7 @@ class SigmaParser:
             )
             return "FALSE"
 
-        selection = detection[name]
+        selection = detection[resolved]
         conditions = []
 
         try:
@@ -524,7 +561,13 @@ class SigmaParser:
                         conditions.append(
                             f"{sql_field} = {self._add_param(self._coerce_param(sql_field, value))}"
                         )
-        except UnsupportedSigmaValue as exc:
+        except (UnsupportedSigmaValue, ValueError) as exc:
+            # SS-023: `_map_field` raises ValueError for a field outside the
+            # allowlist, and that escaped compile_where -> _compile_rule_cached
+            # -> run_rule's generic except: the rule NEVER evaluated and the
+            # only trace was `rule_execution_failed` on every tick (a silent
+            # detection gap). Fail safe to FALSE with a warning, like every
+            # other unsupported construct.
             # Fail-safe (F-20 pattern): a value the compiler cannot represent
             # faithfully must make the selection match NOTHING, never widen it
             # (dropping one condition of a selection would match MORE). Rule

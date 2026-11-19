@@ -84,12 +84,14 @@ def test_sql_injection_in_startswith_value_is_parameterized():
     assert any("DROP TABLE" in str(p) for p in params)
 
 
-def test_unknown_field_is_rejected_not_silently_dropped():
-    # The legacy parser validates field names against ALLOWED_COLUMNS and raises
-    # ValueError for unknown fields (a malformed rule is rejected at load rather
-    # than over-firing as TRUE).
-    with pytest.raises(ValueError):
-        sigma_to_sql(_rule('        bogus_unknown_field: "value"'))
+def test_unknown_field_fails_safe_not_silently_dropped():
+    # The legacy parser validates field names against ALLOWED_COLUMNS. SS-023:
+    # the ValueError used to escape compilation, so the rule died for the whole
+    # run with only a generic `rule_execution_failed` trace. It now compiles
+    # fail-safe to FALSE with a warning -- never silently dropped, never
+    # widened to TRUE.
+    sql, _params = sigma_to_sql(_rule('        bogus_unknown_field: "value"'))
+    assert "FALSE" in sql
 
 
 def test_backends_module_stays_gone():

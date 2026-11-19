@@ -152,10 +152,20 @@ class TestCompilation:
             await run_backtest("title: [unclosed", window_hours=24, as_of=AS_OF)
 
     @pytest.mark.asyncio
-    async def test_unknown_field_raises_value_error(self):
+    async def test_unknown_field_fails_safe_and_surfaces_as_warning(self):
+        """SS-023: an unknown field no longer raises out of compilation (the
+        rule died for the whole run); it compiles fail-safe to FALSE and the
+        fail-safe is surfaced as a warning, same as every other unsupported
+        construct."""
         bad = SIMPLE_RULE.replace("process_name|contains", "no_such_field|contains")
-        with pytest.raises(ValueError, match="Invalid Sigma rule"):
-            await run_backtest(bad, window_hours=24, as_of=AS_OF)
+        conn = _backtest_conn(
+            corpus=5, per_day=[], islands=[{"bursts": 0, "hosts": 0, "est_alerts": 0}]
+        )
+        with patch("src.detection.backtest.get_pool", return_value=_pool_mock(conn)):
+            report = await run_backtest(bad, window_hours=24, as_of=AS_OF)
+        warnings = report["compilation"]["warnings"]
+        assert any("no_such_field" in w for w in warnings)
+        assert report["results"]["estimated_alerts"] == 0
 
     @pytest.mark.asyncio
     async def test_fail_safe_selection_surfaces_as_warning(self):
