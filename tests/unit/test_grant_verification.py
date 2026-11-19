@@ -14,6 +14,8 @@ These tests pin the truth source: effective privileges via
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from scripts.check_audit_grants import (
@@ -166,3 +168,64 @@ class TestNoDirectGrantQueryRemains:
 def test_import_guard():
     # keeps pytest imported for parametrised future cases
     assert pytest is not None
+
+
+# ───────────────────────────────────────────────────────────────
+# Wave E: MCP protocol/error hygiene (SS-055, SS-039)
+# ───────────────────────────────────────────────────────────────
+
+
+class TestMcpParamsType:
+    def test_array_params_are_rejected_as_invalid_params(self):
+        """SS-055: JSON-RPC 2.0 permits positional array params; they passed
+        parse_rpc then crashed on `.get` -> 500."""
+        from src.mcp_server.protocol import INVALID_PARAMS, parse_rpc
+
+        body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["explain"]}
+        parsed, error = parse_rpc(body)
+        assert parsed is None
+        assert error is not None
+        assert error["error"]["code"] == INVALID_PARAMS
+
+    def test_dict_params_are_accepted(self):
+        from src.mcp_server.protocol import parse_rpc
+
+        parsed, error = parse_rpc(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "x"}}
+        )
+        assert error is None
+        assert parsed is not None
+
+    def test_params_string_is_rejected(self):
+        from src.mcp_server.protocol import parse_rpc
+
+        parsed, error = parse_rpc(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": "x"}
+        )
+        assert parsed is None and error is not None
+
+    def test_absent_params_is_fine(self):
+        from src.mcp_server.protocol import parse_rpc
+
+        parsed, error = parse_rpc({"jsonrpc": "2.0", "id": 1, "method": "ping"})
+        assert error is None and parsed is not None
+
+
+class TestMcpToolErrorDoesNotEchoInternals:
+    @pytest.mark.asyncio
+    async def test_internal_error_text_is_not_returned(self):
+        """SS-039: DB/planner text reached the MCP consumer."""
+        from src.mcp_server import tools as tools_mod
+
+        async def _boom(args, actor, audit):
+            raise RuntimeError('relation "siem_users" does not exist at CHARACTER 15')
+
+        with patch.dict(tools_mod.TOOL_IMPLEMENTATIONS, {"explain": _boom}):
+            _result, err = await tools_mod.call_tool(
+                "explain", {}, actor="tester", audit=AsyncMock()
+            )
+
+        assert err is not None
+        assert "siem_users" not in err, err
+        assert "CHARACTER" not in err
+        assert "correlation" in err.lower() or "ref" in err.lower()

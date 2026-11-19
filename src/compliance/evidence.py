@@ -81,6 +81,14 @@ async def build_evidence_pack(alert_id: int, as_of: Optional[datetime] = None) -
             case_id=alert["case_id"],
             action_ids=[a["id"] for a in case_block.get("response_actions", [])],
         )
+        # SS-062: the SIEM has TWO audit chains. `audit_log` is the
+        # action-level record (receipts above); `audit_logs` is the HTTP
+        # request-level record (who called what, from where, with what
+        # outcome). A regulator-facing provenance pack that omits the second
+        # chain cannot answer "who saw this alert and when".
+        request_receipts, request_truncated = await _request_receipts(
+            conn, alert=alert, case_block=case_block
+        )
 
     pack = {
         "document": {
@@ -129,6 +137,14 @@ async def build_evidence_pack(alert_id: int, as_of: Optional[datetime] = None) -
         "correlation": correlation_matches,
         "case": case_block,
         "audit_receipts": audit_receipts,
+        "request_receipts": request_receipts,
+        "request_receipts_truncated": request_truncated,
+        "request_receipts_scope": (
+            "HTTP request-level audit rows (audit_logs) for paths naming this "
+            "alert, its case and the case's response actions, from the alert's "
+            "timestamp on; newest first, bounded. Requests that do not name the "
+            "incident's objects are not included."
+        ),
         # W4-C: say when the bounded slice cut anything (the pack is
         # regulator-facing; a silently-dropped section is a lie by omission).
         "audit_receipts_truncated": audit_truncated,
@@ -151,10 +167,11 @@ async def _correlation_matches(conn, alert) -> list[dict]:
     """Correlation matches tied to this alert, if any.
 
     Correlation-origin alerts carry the match's correlation_id inside their
-    evidence blob ({"match": {..., "correlation_id": ...}}). Resolve via
-    that id; fall back to (rule_name, host) within a bounded window. There
-    is no FK between the two tables by design (correlation_matches may be a
-    hypertable-side table; see V0.5c).
+    evidence blob ({"match": {..., "correlation_id": ...}}). SS-062: the
+    docstring promised a (rule_name, host) fallback that the code never
+    implemented — the pack now states the real contract: no correlation id,
+    no correlation section. (There is no FK between the two tables by design;
+    see V0.5c.)
     """
     evidence = _safe_evidence(alert["evidence"])
     correlation_id = None
@@ -371,6 +388,52 @@ async def _audit_receipts(
             for r in rows
         )
     return receipts, truncated
+
+
+async def _request_receipts(conn, alert: Any, case_block: dict) -> tuple[list[dict], bool]:
+    """HTTP request-level receipts for the incident window (SS-062).
+
+    Scope is explicit and bounded: requests whose PATH names one of the
+    incident's objects (the alert, its case, the case's response actions),
+    between the alert's creation and `generated_at` + the configured cap. The
+    pack states the scope in ``request_receipts_scope`` so a reviewer is never
+    left assuming the list is exhaustive.
+    """
+    limit = _PACK_LIMITS["max_audit_receipts"]
+    paths = {f"/alerts/{alert['id']}"}
+    if alert["case_id"] is not None:
+        paths.add(f"/cases/{alert['case_id']}")
+    for action in case_block.get("response_actions", []) or []:
+        paths.add(f"/response/actions/{action['id']}")
+    patterns = [f"%{p}%" for p in sorted(paths)]
+    rows = await conn.fetch(
+        """
+        SELECT id, "timestamp", "user", role, method, path, ip, status_code
+        FROM audit_logs
+        WHERE path LIKE ANY($1::text[])
+          AND "timestamp" >= $2::timestamptz
+        ORDER BY "timestamp" DESC
+        LIMIT $3
+        """,
+        patterns,
+        alert["time"] or alert["created_at"],
+        limit,
+    )
+    receipts = [
+        {
+            "request_id": r["id"],
+            "timestamp": _iso(r["timestamp"]),
+            "user": r["user"],
+            "role": r["role"],
+            "method": r["method"],
+            "path": r["path"],
+            "ip": str(r["ip"]) if r["ip"] is not None else None,
+            "status_code": r["status_code"],
+            "sources": ["audit_logs (request-level chain)"],
+        }
+        for r in rows
+    ]
+    return receipts, len(rows) == limit
 
 
 def _safe_evidence(evidence: Any) -> Any:

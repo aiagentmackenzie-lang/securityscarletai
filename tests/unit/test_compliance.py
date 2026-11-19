@@ -265,7 +265,21 @@ class TestEvidencePackBuilder:
                         "quarantined_at": alert_time,
                     }
                 ]
-            if "FROM audit_log" in sql:
+            if "FROM audit_logs" in sql:
+                # SS-062: request-level chain receipts
+                return [
+                    {
+                        "id": 77,
+                        "timestamp": alert_time,
+                        "user": "analyst",
+                        "role": "analyst",
+                        "method": "GET",
+                        "path": "/api/v1/alerts/9",
+                        "ip": "10.0.0.5",
+                        "status_code": 200,
+                    }
+                ]
+            if "FROM audit_log" in sql and "audit_logs" not in sql:
                 # target_type in (alert, case, response_action)
                 return [
                     {
@@ -293,6 +307,9 @@ class TestEvidencePackBuilder:
         assert pack["case"]["quarantine"][0]["host_name"] == "web-01"
         receipts = pack["audit_receipts"]
         assert receipts and receipts[0]["action"] == "response.approve"
+        # SS-062: the request-level chain is represented (and its scope stated).
+        assert pack["request_receipts"][0]["path"] == "/api/v1/alerts/9"
+        assert "audit_logs" in pack["request_receipts_scope"]
 
     @pytest.mark.asyncio
     async def test_big_case_newest_first_with_truncation_flags(self):
@@ -380,6 +397,10 @@ class TestEvidencePackBuilder:
                     }
                     for i in range(50)  # == max_response_actions
                 ]
+            if "FROM audit_logs" in sql:
+                # SS-062: request-level receipts, newest first.
+                assert 'ORDER BY "timestamp" DESC' in sql
+                return []
             if "FROM audit_log" in sql:
                 assert "ORDER BY created_at DESC" in sql
                 return [

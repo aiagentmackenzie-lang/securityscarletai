@@ -561,6 +561,28 @@ async def approve_action(
                     "action (HITL is non-negotiable for containment)"
                 ),
             )
+        # SS-038/SS-058: the documented invariant is "every action carries a
+        # rollback note BEFORE approval". approve_action never checked it, so
+        # an operator-added policy entry that omitted the note could be
+        # approved with no way back. Refuse, and carry the note into the
+        # approval audit row below.
+        rollback_note = row["rollback_note"]
+        if not isinstance(rollback_note, str) or not rollback_note.strip():
+            await log_audit_action(
+                actor=username,
+                action="response.approval_refused_no_rollback",
+                target_type="response_action",
+                target_id=action_id,
+                new_values={"action_type": row["action_type"], "reason": "missing_rollback_note"},
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "action has no rollback note — refusing approval. Add "
+                    "rollback_note to the policy entry (or the action) first: "
+                    "a containment action with no way back is not approvable."
+                ),
+            )
 
     # AUD-038: the approval write is a compare-and-swap, and it runs BEFORE
     # the audit row — a losing racer must never leave "response.approved" in
@@ -597,7 +619,12 @@ async def approve_action(
         action="response.approved",
         target_type="response_action",
         target_id=action_id,
-        new_values={"action_type": row["action_type"], "note": body.note},
+        new_values={
+            "action_type": row["action_type"],
+            "note": body.note,
+            # SS-038: the approver's decision record shows the way back.
+            "rollback_note": rollback_note,
+        },
     )
     await _case_event_for_action(
         pool,

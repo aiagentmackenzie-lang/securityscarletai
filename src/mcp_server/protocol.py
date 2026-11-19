@@ -46,6 +46,17 @@ def parse_rpc(body: Any) -> tuple[dict | None, dict | None]:
         return None, error_response(
             body.get("id"), INVALID_REQUEST, "method must be a non-empty string"
         )
+    # SS-055: JSON-RPC 2.0 permits POSITIONAL ARRAY params. MCP methods are
+    # all object-shaped here, so an array passed this validation and then blew
+    # up on `params.get(...)` — an AttributeError surfaced as a 500. Reject it
+    # as INVALID_PARAMS (the spec's code for a malformed params member).
+    params = body.get("params")
+    if params is not None and not isinstance(params, dict):
+        return None, error_response(
+            body.get("id"),
+            INVALID_PARAMS,
+            "params must be an object for this server (positional array params are not supported)",
+        )
     return body, None
 
 

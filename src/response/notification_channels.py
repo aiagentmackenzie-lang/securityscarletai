@@ -32,6 +32,7 @@ import time
 from dataclasses import dataclass, field
 from email.mime.text import MIMEText
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 import httpx
 import yaml
@@ -151,6 +152,11 @@ def parse_channels_document(document: Any) -> list[ChannelConfig]:
         if ctype == "webhook" and not isinstance(config.get("url"), str):
             log.warning("notification_channel_webhook_url_missing", name=name)
             continue
+        if ctype == "webhook":
+            allowed, why = webhook_url_allowed(config)
+            if not allowed:
+                log.error("notification_channel_insecure_webhook_dropped", name=name, reason=why)
+                continue
         if ctype == "email":
             # W4-J: parse-time validation -- a malformed email channel is
             # dropped loudly HERE, never per-dispatch (the old shape let a
@@ -314,6 +320,30 @@ async def _send_slack_channel(channel: ChannelConfig, message: str) -> tuple[boo
     )
 
 
+def webhook_url_allowed(config: dict[str, Any]) -> tuple[bool, str]:
+    """Is this webhook destination allowed? (SS-057)
+
+    A signed webhook over plain HTTP exposes the full alert body to any
+    on-path observer — the HMAC protects integrity, not confidentiality. For a
+    security product HTTPS is the requirement. Two deliberate exceptions:
+      * loopback (the receiver is on this host, nothing crosses the wire);
+      * an explicit ``allow_insecure_http: true`` opt-in for a lab/air-gapped
+        receiver the operator has accepted the risk for.
+    """
+    url = config.get("url") or config.get("legacy_webhook_url")
+    if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+        return False, "invalid webhook url (refused, fail-closed)"
+    if url.startswith("https://"):
+        return True, ""
+    if config.get("allow_insecure_http") is True:
+        return True, ""
+    parsed = urlsplit(url)
+    host = (parsed.hostname or "").lower()
+    if host in ("localhost", "127.0.0.1", "::1") or host.startswith("127."):
+        return True, ""
+    return False, "webhook url must be https:// (or loopback / allow_insecure_http: true)"
+
+
 async def _send_webhook_channel(channel: ChannelConfig, alert: dict) -> tuple[bool, int, str]:
     """Alert webhook: body = {source, sent_at, alert}, HMAC-signed when the
     channel carries hmac_secret_env."""
@@ -332,6 +362,11 @@ async def _send_webhook_body(channel: ChannelConfig, body: dict[str, Any]) -> tu
     url = channel.config.get("url")
     if not isinstance(url, str) or not url.startswith(("http://", "https://")):
         return False, 0, "invalid webhook url (refused, fail-closed)"
+    # SS-057: send-time defense in depth — a ChannelConfig built in code (not
+    # from the YAML file) must not POST over cleartext either.
+    allowed, why = webhook_url_allowed(channel.config)
+    if not allowed:
+        return False, 0, why + " (refused, fail-closed)"
     headers = {"Content-Type": "application/json"}
     sig_env = channel.config.get("hmac_secret_env")
     if sig_env:

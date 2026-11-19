@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import uuid
 from typing import Any
 
 from src.agents.investigator import run_investigation
@@ -390,6 +391,20 @@ async def call_tool(
             return result, None
         except ValueError as e:  # argument/validation failures -> isError result
             return None, str(e)
-        except Exception as e:  # never leak a stack to the MCP client
-            log.error("mcp_tool_failed", tool=name, actor=actor, error=str(e))
-            return None, f"tool '{name}' failed: {str(e)[:200]}"
+        except Exception as e:  # never leak a stack or internals to the client
+            # SS-039: the message used to echo str(e) — DB/planner text such as
+            # `relation "siem_users" does not exist at CHARACTER 15` reached the
+            # MCP consumer. Return a generic message plus a correlation id that
+            # matches the server log line, and keep the detail in the log.
+            correlation_id = uuid.uuid4().hex[:12]
+            log.error(
+                "mcp_tool_failed",
+                tool=name,
+                actor=actor,
+                error=str(e),
+                correlation_id=correlation_id,
+            )
+            return None, (
+                f"tool '{name}' failed (internal error, ref {correlation_id}). "
+                "Details are in the SIEM server log."
+            )
