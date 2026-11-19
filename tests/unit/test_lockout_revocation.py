@@ -270,17 +270,22 @@ class TestSingleKeyRevoke:
 
         ts = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
         assert await set_user_revoke_marker("gina", ts, 3600) is True
-        assert await fake_redis.get(f"{_KEY_PREFIX}user_revoke:gina") == str(int(ts.timestamp()))
+        # SS-004: the fixed key holds MILLISECONDS; the legacy scan key keeps
+        # whole seconds so an old worker still reads it.
+        assert await fake_redis.get(f"{_KEY_PREFIX}user_revoke:gina") == str(
+            int(round(ts.timestamp() * 1000))
+        )
         assert f"{_KEY_PREFIX}user_revoke:gina:{int(ts.timestamp())}" in fake_redis._kv
 
     async def test_read_is_o1_from_fixed_key(self, fake_redis):
         """No scan needed when the fixed key exists."""
         from src.api.redis_client import get_latest_user_revoke_ts
 
-        fake_redis._kv["scarletai:v1:user_revoke:hank"] = "1788000000"
+        fake_redis._kv["scarletai:v1:user_revoke:hank"] = "1788000000"  # legacy seconds
         fake_redis.counters["scan_iter_calls"] = 0
         got = await get_latest_user_revoke_ts("hank")
-        assert got == 1788000000.0
+        # SS-004: readers always return milliseconds, normalising legacy values.
+        assert got == 1788000000000.0
         # scan used as fallback only — with the fixed key present it must NOT run
         assert fake_redis.counters.get("scan_iter_calls", 0) == 0 or True
 
@@ -292,9 +297,9 @@ class TestSingleKeyRevoke:
         fake_redis._kv["scarletai:v1:user_revoke:ivan:1790000000"] = "1"
 
         got = await get_latest_user_revoke_ts("ivan")
-        assert got == 1790000000.0
+        assert got == 1790000000000.0
         assert "scarletai:v1:user_revoke:ivan" in fake_redis._kv  # backfilled
-        assert await fake_redis.get("scarletai:v1:user_revoke:ivan") == "1790000000"
+        assert await fake_redis.get("scarletai:v1:user_revoke:ivan") == "1790000000000"
 
     async def test_no_markers_returns_none(self, fake_redis):
         from src.api.redis_client import get_latest_user_revoke_ts
