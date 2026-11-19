@@ -173,7 +173,19 @@ class TestToolCatalog:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-def _pool_with_grants(grants: dict[str, set[str]], current_user: str = "scarletai_readonly"):
+def _pool_with_grants(
+    grants: dict[str, set[str]],
+    current_user: str = "scarletai_readonly",
+    *,
+    owner: str = "scarletai_owner",
+    member_of: list[str] | None = None,
+):
+    """Mock pool for the SS-037 verifier.
+
+    The verifier asks three questions now (effective privileges via
+    has_table_privilege, the tables with SELECT, and role memberships), so the
+    fake dispatches on the query shape.
+    """
     pool = AsyncMock()
     conn = AsyncMock()
     acq = AsyncMock()
@@ -181,9 +193,18 @@ def _pool_with_grants(grants: dict[str, set[str]], current_user: str = "scarleta
     acq.__aexit__ = AsyncMock(return_value=False)
     pool.acquire = MagicMock(return_value=acq)
     conn.fetchval.return_value = current_user
-    conn.fetch.return_value = [
-        {"table_name": t, "privilege_type": p} for t, privs in grants.items() for p in privs
-    ]
+
+    async def _fetch(sql, *args):
+        if "pg_auth_members" in sql:
+            return [{"rolname": r} for r in (member_of or [])]
+        if "has_table_privilege(current_user, c.oid, 'SELECT')" in sql:
+            return [{"table_name": t} for t, privs in grants.items() if "SELECT" in privs]
+        return [
+            {"table_name": t, "table_owner": owner, "privileges": sorted(privs)}
+            for t, privs in grants.items()
+        ]
+
+    conn.fetch.side_effect = _fetch
     return pool
 
 

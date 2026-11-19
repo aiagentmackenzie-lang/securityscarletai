@@ -424,13 +424,20 @@ async def update_alert_status(
         await conn.execute(
             """
             UPDATE alerts
-            SET status = $1,
+            -- SS-065 (found by the campaign's real-PG test, not in either
+            -- ledger): `$1` was used both as the alert_status column value and
+            -- inside a text IN-list. PostgreSQL could not deduce one type for
+            -- it and refused EVERY statement with
+            -- "inconsistent types deduced for parameter $1: text versus
+            -- alert_status" — so PATCH /alerts/{id} 500ed on every resolve.
+            -- Explicit casts make the intent unambiguous.
+            SET status = $1::alert_status,
                 assigned_to = COALESCE($2, assigned_to),
                 -- SS-049: a non-terminal transition (reopen) CLEARS the
                 -- column. Keeping the old value made a reopened alert look
                 -- resolved at the previous timestamp to MTTR/reporting.
                 resolved_at = CASE
-                    WHEN $1 IN ('resolved', 'closed', 'false_positive')
+                    WHEN $1::text IN ('resolved', 'closed', 'false_positive')
                     THEN NOW() ELSE NULL
                 END,
                 updated_at = NOW()

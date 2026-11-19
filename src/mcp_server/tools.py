@@ -125,32 +125,30 @@ _LIFECYCLE_TABLES = ("agent_investigations",)
 _APPEND_ONLY_TABLES = ("audit_log", "audit_logs", "ai_usage")
 
 
-async def verify_scoped_role(expected_user: str) -> list[str]:
-    """Verify the connected DB role's actual grants match the contract.
+def evaluate_scoped_role(
+    grants: dict[str, set[str]],
+    *,
+    owned_tables: set[str] | None = None,
+    readable_tables: set[str] | None = None,
+    member_of: list[str] | None = None,
+) -> list[str]:
+    """Pure contract check for the scoped role (SS-037 / SS-056).
 
-    Returns a list of violations (empty = scoped). Queries
-    information_schema.role_table_grants -- the DB's own view, not our
-    config's claim. A violation list is fatal for tool calls: the server
-    refuses tools until the role is re-scoped.
+    ``grants`` must come from `has_table_privilege` (inheritance- and
+    ownership-aware). The old verifier read
+    `information_schema.role_table_grants WHERE grantee = current_user`, which
+    shows DIRECT grants only: a scoped role with direct SELECT plus an
+    inherited UPDATE/DELETE from a group role produced NO violations while the
+    role could mutate SIEM data.
+
+    ``readable_tables`` (when provided) is the set of tables the role can
+    actually SELECT. It must be contained in the contract — a new table the
+    owner created (e.g. a future credential store) must fail closed rather
+    than be silently readable.
     """
-    from src.db.connection import get_pool
-
     violations: list[str] = []
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        current = await conn.fetchval("SELECT current_user")
-        if str(current).lower() != expected_user.lower():
-            violations.append(f"connected as '{current}' but the scoped role is '{expected_user}'")
-        rows = await conn.fetch(
-            """
-            SELECT table_name, privilege_type
-            FROM information_schema.role_table_grants
-            WHERE grantee = current_user AND table_schema = 'public'
-            """
-        )
-    grants: dict[str, set[str]] = {}
-    for r in rows:
-        grants.setdefault(r["table_name"], set()).add(r["privilege_type"].upper())
+    owned = owned_tables or set()
+    member_note = f" (role memberships: {', '.join(member_of)})" if member_of else ""
 
     for table in _READ_ONLY_DATA_TABLES:
         privs = grants.get(table, set())
@@ -158,21 +156,110 @@ async def verify_scoped_role(expected_user: str) -> list[str]:
             violations.append(f"{table}: SELECT missing")
         for forbidden in ("UPDATE", "DELETE", "INSERT", "TRUNCATE"):
             if forbidden in privs:
-                violations.append(f"{table}: {forbidden} forbidden on SIEM data")
+                violations.append(
+                    f"{table}: {forbidden} forbidden on SIEM data{member_note}"
+                    " — effective privilege includes inherited grants"
+                )
     for table in _LIFECYCLE_TABLES:
         privs = grants.get(table, set())
         if not {"SELECT", "INSERT", "UPDATE"} <= privs:
             violations.append(f"{table}: run-record lifecycle grants missing")
         for forbidden in ("DELETE", "TRUNCATE"):
             if forbidden in privs:
-                violations.append(f"{table}: {forbidden} forbidden")
+                violations.append(f"{table}: {forbidden} forbidden{member_note}")
     for table in _APPEND_ONLY_TABLES:
         privs = grants.get(table, set())
         if not {"INSERT", "SELECT"} <= privs:
             violations.append(f"{table}: append-only grants missing")
         for forbidden in ("UPDATE", "DELETE", "TRUNCATE"):
             if forbidden in privs:
-                violations.append(f"{table}: forbidden mutation right")
+                violations.append(
+                    f"{table}: {forbidden} forbidden{member_note}"
+                    " — effective privilege includes inherited grants"
+                )
+    for table in sorted(owned):
+        violations.append(
+            f"{table}: the scoped role OWNS the table — ownership bypasses "
+            "REVOKE and widens the blast radius"
+        )
+    allowed = set(_READ_ONLY_DATA_TABLES) | set(_LIFECYCLE_TABLES) | set(_APPEND_ONLY_TABLES)
+    for table in sorted(set(readable_tables or ()) - allowed):
+        violations.append(
+            f"{table}: unexpected SELECT outside the tool contract "
+            "(new table readable by the scoped role — grant explicitly)"
+        )
+    return violations
+
+
+async def verify_scoped_role(expected_user: str) -> list[str]:
+    """Verify the connected DB role's EFFECTIVE grants match the contract.
+
+    Returns a list of violations (empty = scoped). SS-037: the truth source is
+    `has_table_privilege(current_user, table, privilege)` — it accounts for
+    role inheritance and ownership, unlike
+    `information_schema.role_table_grants WHERE grantee = current_user`, which
+    only sees direct grants. `pg_auth_members` supplies the membership context
+    for the message. A violation list is fatal for tool calls: the server
+    refuses tools until the role is re-scoped.
+    """
+    from src.db.connection import get_pool
+
+    violations: list[str] = []
+    contract_tables = (*(_READ_ONLY_DATA_TABLES + _LIFECYCLE_TABLES + _APPEND_ONLY_TABLES),)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        current = await conn.fetchval("SELECT current_user")
+        if str(current).lower() != expected_user.lower():
+            violations.append(f"connected as '{current}' but the scoped role is '{expected_user}'")
+        rows = await conn.fetch(
+            """
+            SELECT c.relname AS table_name,
+                   pg_get_userbyid(c.relowner) AS table_owner,
+                   ARRAY(
+                       SELECT p
+                       FROM unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) AS p
+                       WHERE has_table_privilege(current_user, c.oid, p)
+                   ) AS privileges
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+              AND c.relname = ANY($1::text[])
+            """,
+            list(contract_tables),
+        )
+        readable = await conn.fetch(
+            """
+            SELECT c.relname AS table_name
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+              AND has_table_privilege(current_user, c.oid, 'SELECT')
+            """
+        )
+        members = await conn.fetch(
+            """
+            SELECT r.rolname
+            FROM pg_auth_members m
+            JOIN pg_roles r ON r.oid = m.roleid
+            WHERE m.member = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+            """
+        )
+
+    grants: dict[str, set[str]] = {}
+    owned: set[str] = set()
+    for r in rows:
+        grants.setdefault(r["table_name"], set()).update(p.upper() for p in (r["privileges"] or []))
+        if str(r["table_owner"]).lower() == str(current).lower():
+            owned.add(r["table_name"])
+
+    violations.extend(
+        evaluate_scoped_role(
+            grants,
+            owned_tables=owned,
+            readable_tables={r["table_name"] for r in readable},
+            member_of=[r["rolname"] for r in members],
+        )
+    )
     return violations
 
 
