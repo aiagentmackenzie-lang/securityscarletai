@@ -27,6 +27,7 @@ from src.api.alerts import (
     BulkOperation,
     SuppressionRuleCreate,
 )
+from tests.unit._fake_tx import with_tx
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Pydantic model tests
@@ -189,6 +190,7 @@ class TestListAlertsLogic:
         ]
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetch = AsyncMock(return_value=mock_rows)
 
         class AsyncCtx:
@@ -237,6 +239,7 @@ class TestListAlertsLogic:
         ]
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetch = AsyncMock(return_value=mock_rows)
 
         class AsyncCtx:
@@ -283,6 +286,7 @@ class TestGetAlertLogic:
             "description": "test",
         }
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchrow = AsyncMock(return_value=mock_row)
 
         class AsyncCtx:
@@ -307,6 +311,7 @@ class TestGetAlertLogic:
         from src.api.alerts import get_alert
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchrow = AsyncMock(return_value=None)
 
         class AsyncCtx:
@@ -548,6 +553,7 @@ class TestAddNote:
         from src.api.alerts import add_note
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchrow = AsyncMock(return_value=None)
 
         class AsyncCtx:
@@ -571,6 +577,7 @@ class TestAddNote:
         from src.api.alerts import add_note
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchrow = AsyncMock(return_value={"id": 1})
 
         class AsyncCtx:
@@ -607,6 +614,7 @@ class TestLinkToCase:
         from src.api.alerts import LinkCaseRequest, link_to_case
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         # Sequential fetchrow returns for different queries
         alert_row = {"id": 1, "severity": "high", "case_id": None}
         case_row = {"id": 5, "alert_ids": [3, 4]}
@@ -653,6 +661,7 @@ class TestLinkToCase:
         from src.api.alerts import LinkCaseRequest, link_to_case
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchrow = AsyncMock(return_value=None)
 
         class AsyncCtx:
@@ -692,6 +701,7 @@ class TestConcurrentAlertCreation:
         from src.detection.alerts import create_alert
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchrow = AsyncMock(return_value=None)
         mock_conn.fetchval = AsyncMock(return_value=42)
         mock_conn.execute = AsyncMock(return_value="UPDATE 1")
@@ -742,6 +752,7 @@ class TestConcurrentAlertCreation:
             return "UPDATE 1"
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchrow = AsyncMock(return_value=None)
         mock_conn.fetchval = AsyncMock(return_value=99)
         mock_conn.execute = track_execute
@@ -796,6 +807,7 @@ class TestConcurrentAlertCreation:
             return "UPDATE 1"
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchrow = AsyncMock(return_value=None)
         mock_conn.fetchval = AsyncMock(side_effect=[1, 2, 3])
         mock_conn.execute = counting_execute
@@ -878,6 +890,7 @@ class TestUpdateAlert404Contract:
         from src.api.alerts import AlertUpdate, update_alert
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchval = AsyncMock(return_value=False)  # existence probe
 
         with (
@@ -905,6 +918,7 @@ class TestUpdateAlert404Contract:
         from src.api.alerts import AlertUpdate, update_alert
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchval = AsyncMock(return_value=True)  # exists
         mock_conn.fetchrow = AsyncMock(return_value={"id": 1, "status": "resolved"})
 
@@ -959,6 +973,7 @@ class TestLinkToCaseGovernanceParity:
         from src.api.alerts import LinkCaseRequest, link_to_case
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchrow = AsyncMock(
             side_effect=[
                 {"id": 1, "severity": "high", "case_id": None},
@@ -996,6 +1011,7 @@ class TestLinkToCaseGovernanceParity:
         from src.api.alerts import LinkCaseRequest, link_to_case
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchrow = AsyncMock(
             side_effect=[
                 {"id": 1, "severity": "high", "case_id": 7},  # owned by case 7
@@ -1035,6 +1051,7 @@ class TestLinkToCaseGovernanceParity:
         from src.api.alerts import LinkCaseRequest, link_to_case
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchrow = AsyncMock(side_effect=[{"id": 1, "severity": "high", "case_id": 7}])
 
         with (
@@ -1065,6 +1082,7 @@ class TestLinkToCaseGovernanceParity:
         from src.api.alerts import LinkCaseRequest, link_to_case
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchrow = AsyncMock(
             side_effect=[
                 {"id": 1, "severity": "high", "case_id": None},
@@ -1105,6 +1123,7 @@ class TestLinkToCaseGovernanceParity:
         from src.api.alerts import LinkCaseRequest, link_to_case
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         created_case = {"id": 7, "title": "Investigation: Alert #1"}
         mock_conn.fetchrow = AsyncMock(
             side_effect=[

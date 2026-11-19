@@ -42,6 +42,7 @@ from src.detection.alerts import (
     set_suppression_enabled,
     update_alert_status,
 )
+from tests.unit._fake_tx import with_tx
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Constants
@@ -79,6 +80,7 @@ class TestCheckSeverityEscalation:
     async def test_no_escalation_below_threshold(self):
         """Should not escalate when recent count is below threshold."""
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchval = AsyncMock(return_value=1)  # 1+1=2 < 3, below threshold
 
         result = await _check_severity_escalation(
@@ -90,6 +92,7 @@ class TestCheckSeverityEscalation:
     async def test_escalation_at_threshold(self):
         """Should escalate severity by one level when at threshold."""
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchval = AsyncMock(return_value=3)  # At threshold
 
         result = await _check_severity_escalation(
@@ -101,6 +104,7 @@ class TestCheckSeverityEscalation:
     async def test_escalation_from_high_to_critical(self):
         """Should escalate high to critical."""
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchval = AsyncMock(return_value=5)  # Well above threshold
 
         result = await _check_severity_escalation(
@@ -112,6 +116,7 @@ class TestCheckSeverityEscalation:
     async def test_escalation_capped_at_critical(self):
         """Should not escalate beyond critical."""
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchval = AsyncMock(return_value=10)
 
         result = await _check_severity_escalation(
@@ -123,6 +128,7 @@ class TestCheckSeverityEscalation:
     async def test_escalation_from_low_to_medium(self):
         """Should escalate low to medium."""
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchval = AsyncMock(return_value=3)
 
         result = await _check_severity_escalation(
@@ -134,6 +140,7 @@ class TestCheckSeverityEscalation:
     async def test_escalation_from_info_to_low(self):
         """Should escalate info to low."""
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchval = AsyncMock(return_value=4)
 
         result = await _check_severity_escalation(
@@ -152,6 +159,7 @@ class TestIsSuppressed:
     async def test_not_suppressed(self):
         """Should return False when no matching suppression rule."""
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchrow = AsyncMock(return_value=None)
 
         result = await _is_suppressed(mock_conn, "test_rule", "server-01", "high")
@@ -161,6 +169,7 @@ class TestIsSuppressed:
     async def test_suppressed_by_rule_name(self):
         """Should return True when matching suppression rule exists."""
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchrow = AsyncMock(return_value={"id": 1})
 
         result = await _is_suppressed(mock_conn, "noisy_rule", "server-01", "low")
@@ -177,6 +186,7 @@ class TestCreateAlert:
     async def test_create_alert_dedup(self):
         """Should return existing alert ID when duplicate detected."""
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         # First query: find existing duplicate
         mock_conn.fetchrow = AsyncMock(return_value={"id": 42})
 
@@ -205,6 +215,7 @@ class TestCreateAlert:
     async def test_create_alert_suppressed(self):
         """Should return 0 when alert is suppressed."""
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
 
         async def mock_fetchrow(sql, *args):
             # No duplicate, but is suppressed
@@ -255,6 +266,7 @@ class TestUpdateAlertStatus:
     @pytest.mark.asyncio
     async def test_update_status(self):
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.execute = AsyncMock()
 
         class AsyncCtx:
@@ -289,6 +301,7 @@ class TestBulkAcknowledge:
     @pytest.mark.asyncio
     async def test_bulk_acknowledge(self):
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.execute = AsyncMock(return_value="UPDATE 3")
 
         class AsyncCtx:
@@ -315,6 +328,7 @@ class TestBulkMarkFalsePositive:
     @pytest.mark.asyncio
     async def test_bulk_false_positive(self):
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         # SS-048: the UPDATE returns the affected ids so the note/audit trail
         # can name them.
         mock_conn.fetch = AsyncMock(return_value=[{"id": 4}, {"id": 5}])
@@ -343,6 +357,7 @@ class TestBulkAssign:
     @pytest.mark.asyncio
     async def test_bulk_assign(self):
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.execute = AsyncMock(return_value="UPDATE 5")
 
         class AsyncCtx:
@@ -364,6 +379,7 @@ class TestBulkResolve:
     @pytest.mark.asyncio
     async def test_bulk_resolve(self):
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetch = AsyncMock(return_value=[{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}])
 
         class AsyncCtx:
@@ -390,6 +406,7 @@ class TestAddAlertNote:
     @pytest.mark.asyncio
     async def test_add_note(self):
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.execute = AsyncMock()
 
         class AsyncCtx:
@@ -429,6 +446,7 @@ class TestGetAlertStats:
         }
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetchrow = AsyncMock(return_value=mock_stats)
 
         class AsyncCtx:
@@ -457,6 +475,7 @@ class TestSuppressionRules:
     @pytest.mark.asyncio
     async def test_create_suppression_rule(self):
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.execute = AsyncMock()  # CREATE TABLE
         mock_conn.fetchval = AsyncMock(return_value=1)
 
@@ -500,6 +519,7 @@ class TestSuppressionRules:
         ]
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetch = AsyncMock(return_value=mock_rules)
 
         class AsyncCtx:
@@ -522,6 +542,7 @@ class TestSuppressionRules:
     async def test_set_suppression_enabled_returns_true_when_updated(self):
         """A row exists -> UPDATE returns 'UPDATE 1' -> function returns True."""
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.execute = AsyncMock(return_value="UPDATE 1")
 
         class AsyncCtx:
@@ -547,6 +568,7 @@ class TestSuppressionRules:
     async def test_set_suppression_enabled_returns_false_when_missing(self):
         """No row -> 'UPDATE 0' -> returns False."""
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.execute = AsyncMock(return_value="UPDATE 0")
 
         class AsyncCtx:
@@ -566,6 +588,7 @@ class TestSuppressionRules:
     @pytest.mark.asyncio
     async def test_delete_suppression_rule_returns_true_when_deleted(self):
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.execute = AsyncMock(return_value="DELETE 1")
 
         class AsyncCtx:
@@ -589,6 +612,7 @@ class TestSuppressionRules:
     @pytest.mark.asyncio
     async def test_delete_suppression_rule_returns_false_when_missing(self):
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.execute = AsyncMock(return_value="DELETE 0")
 
         class AsyncCtx:
@@ -664,6 +688,7 @@ class TestExportAlerts:
                 return ((k, values[k]) for k in columns)
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetch = AsyncMock(return_value=[FakeAsyncpgRecord()])
 
         class AsyncCtx:
@@ -702,6 +727,7 @@ class TestExportAlerts:
         ]
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetch = AsyncMock(return_value=mock_rows)
 
         class AsyncCtx:
@@ -723,6 +749,7 @@ class TestExportAlerts:
     @pytest.mark.asyncio
     async def test_export_csv_with_status_filter(self):
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetch = AsyncMock(return_value=[])
 
         class AsyncCtx:
@@ -758,6 +785,7 @@ class TestExportAlerts:
         ]
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetch = AsyncMock(return_value=mock_rows)
 
         class AsyncCtx:
@@ -799,6 +827,7 @@ class TestExportAlerts:
         ]
 
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetch = AsyncMock(return_value=mock_rows)
 
         class AsyncCtx:
@@ -836,6 +865,7 @@ class TestCsvFormulaInjectionGuard:
         }
         row.update(row_overrides)
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         mock_conn.fetch = AsyncMock(return_value=[row])
 
         class AsyncCtx:

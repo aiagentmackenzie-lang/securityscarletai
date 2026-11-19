@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.enrichment.pipeline import enrich_event
+from tests.unit._fake_tx import with_tx
 
 
 class TestEnrichEvent:
@@ -107,6 +108,7 @@ class TestAlertFunctions:
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
         # First call: no existing alert (new), second update
         mock_conn.fetchrow = AsyncMock(return_value=None)
         mock_conn.fetchval = AsyncMock(side_effect=[1, 1])  # alert id
@@ -145,6 +147,7 @@ class TestAlertFunctions:
 
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
+        with_tx(mock_conn)
 
         acquirer = MagicMock()
         acquirer.__aenter__ = AsyncMock(return_value=mock_conn)

@@ -163,3 +163,79 @@ class TestReopenClearsResolvedAt:
         assert "THEN NOW()" in sql
         assert "ELSE NULL" in sql, "reopening leaves a stale resolved_at (SS-049)"
         assert "ELSE resolved_at" not in sql
+
+
+class TestAdvisoryLockIsTransactional:
+    """SS-018: `pg_advisory_xact_lock` is released at the end of the
+    TRANSACTION. The call ran in autocommit, so the lock was gone before the
+    dedup SELECT returned and two concurrent check-then-insert flows both
+    inserted — the docstring's TOCTOU guarantee was false."""
+
+    @pytest.mark.asyncio
+    async def test_dedup_check_and_insert_run_inside_one_transaction(self):
+        from src.detection.alerts import create_alert
+
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(return_value=None)
+        conn.fetchval = AsyncMock(return_value=42)
+        conn.execute = AsyncMock(return_value="UPDATE 1")
+        entered = []
+
+        tx = MagicMock()
+        tx.__aenter__ = AsyncMock(side_effect=lambda: entered.append("enter"))
+        tx.__aexit__ = AsyncMock(return_value=None)
+        conn.transaction = MagicMock(return_value=tx)
+
+        acquirer = MagicMock()
+        acquirer.__aenter__ = AsyncMock(return_value=conn)
+        acquirer.__aexit__ = AsyncMock(return_value=None)
+        pool = AsyncMock()
+        pool.acquire = MagicMock(return_value=acquirer)
+
+        with (
+            patch("src.detection.alerts.get_pool", AsyncMock(return_value=pool)),
+            patch("src.detection.alerts._is_suppressed", AsyncMock(return_value=False)),
+            patch(
+                "src.detection.alerts._check_severity_escalation",
+                AsyncMock(return_value="high"),
+            ),
+            patch("src.detection.alerts._send_alert_notification", AsyncMock()),
+        ):
+            await create_alert(
+                rule_id=1,
+                rule_name="Transactional Rule",
+                severity="high",
+                host_name="h1",
+                description="d",
+            )
+
+        assert entered, "create_alert did not open a transaction around dedup+insert"
+        # Inside the transaction: lock -> dedup SELECT -> INSERT.
+        assert conn.execute.await_args_list[0].args[0] == "SELECT pg_advisory_xact_lock($1)"
+        tx.__aexit__.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_dedup_hit_exits_the_transaction_cleanly(self):
+        from src.detection.alerts import create_alert
+
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(return_value={"id": 7})  # duplicate
+        conn.fetchval = AsyncMock(return_value=None)
+        conn.execute = AsyncMock(return_value="SELECT 1")
+        tx = MagicMock()
+        tx.__aenter__ = AsyncMock(return_value=None)
+        tx.__aexit__ = AsyncMock(return_value=None)
+        conn.transaction = MagicMock(return_value=tx)
+        acquirer = MagicMock()
+        acquirer.__aenter__ = AsyncMock(return_value=conn)
+        acquirer.__aexit__ = AsyncMock(return_value=None)
+        pool = AsyncMock()
+        pool.acquire = MagicMock(return_value=acquirer)
+
+        with patch("src.detection.alerts.get_pool", AsyncMock(return_value=pool)):
+            result = await create_alert(
+                rule_id=1, rule_name="R", severity="high", host_name="h1", description="d"
+            )
+
+        assert result == -1
+        tx.__aexit__.assert_awaited()  # no transaction left open on a pooled conn

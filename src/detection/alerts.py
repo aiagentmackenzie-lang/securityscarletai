@@ -82,107 +82,119 @@ async def create_alert(
         raise ValueError("rule_id or rule_name is required to create an alert")
     pool = await get_pool()
     async with pool.acquire() as conn:
-        # ── Step 1: Insert with dedup check (race-safe) ───────
-        # Use advisory lock per (rule_id, host_name) to prevent TOCTOU races
-        # Correlation-origin alerts have rule_id=None; lock on rule_name instead.
-        lock_key = _alert_lock_key(rule_id, rule_name, host_name)
-        await conn.execute("SELECT pg_advisory_xact_lock($1)", lock_key)
+        # SS-018: the advisory lock below is TRANSACTION-scoped
+        # (pg_advisory_xact_lock), but it ran in autocommit: the lock was
+        # released at the end of that single statement, so two concurrent
+        # dedup-check -> insert flows (two uvicorn workers, or interleaved
+        # coroutines — the function awaits escalation + suppression between
+        # the SELECT and the INSERT) both inserted. Wrapping the whole
+        # check-then-insert in one transaction is what makes the lock mean
+        # what its docstring claims.
+        async with conn.transaction():
+            # ── Step 1: Insert with dedup check (race-safe) ───────
+            # Use advisory lock per (rule_id, host_name) to prevent TOCTOU races
+            # Correlation-origin alerts have rule_id=None; lock on rule_name instead.
+            lock_key = _alert_lock_key(rule_id, rule_name, host_name)
+            await conn.execute("SELECT pg_advisory_xact_lock($1)", lock_key)
 
-        if rule_id is not None:
-            existing = await conn.fetchrow(
+            if rule_id is not None:
+                existing = await conn.fetchrow(
+                    """
+                    SELECT id FROM alerts
+                    WHERE rule_id = $1
+                      AND host_name = $2
+                      AND time > NOW() - INTERVAL '1 second' * $3
+                    ORDER BY time DESC
+                    LIMIT 1
+                    """,
+                    rule_id,
+                    host_name,
+                    dedup_window_seconds,
+                )
+            else:
+                # Correlation-origin alert: dedup by rule_name + host_name.
+                existing = await conn.fetchrow(
+                    """
+                    SELECT id FROM alerts
+                    WHERE rule_id IS NULL
+                      AND rule_name = $1
+                      AND host_name = $2
+                      AND time > NOW() - INTERVAL '1 second' * $3
+                    ORDER BY time DESC
+                    LIMIT 1
+                    """,
+                    rule_name,
+                    host_name,
+                    dedup_window_seconds,
+                )
+
+            if existing:
+                log.info(
+                    "duplicate_alert_suppressed",
+                    rule_id=rule_id,
+                    rule_name=rule_name,
+                    host_name=host_name,
+                    alert_id=existing["id"],
+                )
+                return -1  # Dedup hit — indicate suppression
+
+            # ── Step 2: Check escalation BEFORE insert ───────────
+            # Correlation-origin alerts (rule_id=None) don't escalate by rule_id.
+            if rule_id is not None:
+                escalated_severity = await _check_severity_escalation(
+                    conn, rule_id, host_name, severity
+                )
+            else:
+                escalated_severity = severity
+
+            # ── Step 3: Check suppression rules ──────────────────
+            if await _is_suppressed(conn, rule_name, host_name, escalated_severity):
+                log.info("alert_suppressed_by_rule", rule_name=rule_name, host_name=host_name)
+                return -1  # Suppressed — no alert created
+
+            # ── Step 4: Insert alert ─────────────────────────────
+            alert_id = await conn.fetchval(
                 """
-                SELECT id FROM alerts
-                WHERE rule_id = $1
-                  AND host_name = $2
-                  AND time > NOW() - INTERVAL '1 second' * $3
-                ORDER BY time DESC
-                LIMIT 1
+                INSERT INTO alerts (
+                    rule_id, rule_name, severity, host_name,
+                    description, mitre_tactics, mitre_techniques,
+                    evidence, risk_score, status
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'new')
+                RETURNING id
                 """,
                 rule_id,
-                host_name,
-                dedup_window_seconds,
-            )
-        else:
-            # Correlation-origin alert: dedup by rule_name + host_name.
-            existing = await conn.fetchrow(
-                """
-                SELECT id FROM alerts
-                WHERE rule_id IS NULL
-                  AND rule_name = $1
-                  AND host_name = $2
-                  AND time > NOW() - INTERVAL '1 second' * $3
-                ORDER BY time DESC
-                LIMIT 1
-                """,
                 rule_name,
+                escalated_severity,
                 host_name,
-                dedup_window_seconds,
+                description,
+                mitre_tactics or [],
+                mitre_techniques or [],
+                json.dumps(evidence, default=str) if evidence else "[]",
+                risk_score,
             )
 
-        if existing:
+            # Add system note about creation
+            await _add_note(
+                conn, alert_id, "system", f"Alert created (severity: {escalated_severity})"
+            )
+            if escalated_severity != severity:
+                await _add_note(
+                    conn,
+                    alert_id,
+                    "system",
+                    f"Severity escalated from {severity} to {escalated_severity}",
+                )
+
             log.info(
-                "duplicate_alert_suppressed",
-                rule_id=rule_id,
+                "alert_created",
+                alert_id=alert_id,
                 rule_name=rule_name,
                 host_name=host_name,
-                alert_id=existing["id"],
-            )
-            return -1  # Dedup hit — indicate suppression
-
-        # ── Step 2: Check escalation BEFORE insert ───────────
-        # Correlation-origin alerts (rule_id=None) don't escalate by rule_id.
-        if rule_id is not None:
-            escalated_severity = await _check_severity_escalation(
-                conn, rule_id, host_name, severity
-            )
-        else:
-            escalated_severity = severity
-
-        # ── Step 3: Check suppression rules ──────────────────
-        if await _is_suppressed(conn, rule_name, host_name, escalated_severity):
-            log.info("alert_suppressed_by_rule", rule_name=rule_name, host_name=host_name)
-            return -1  # Suppressed — no alert created
-
-        # ── Step 4: Insert alert ─────────────────────────────
-        alert_id = await conn.fetchval(
-            """
-            INSERT INTO alerts (
-                rule_id, rule_name, severity, host_name,
-                description, mitre_tactics, mitre_techniques,
-                evidence, risk_score, status
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'new')
-            RETURNING id
-            """,
-            rule_id,
-            rule_name,
-            escalated_severity,
-            host_name,
-            description,
-            mitre_tactics or [],
-            mitre_techniques or [],
-            json.dumps(evidence, default=str) if evidence else "[]",
-            risk_score,
-        )
-
-        # Add system note about creation
-        await _add_note(conn, alert_id, "system", f"Alert created (severity: {escalated_severity})")
-        if escalated_severity != severity:
-            await _add_note(
-                conn,
-                alert_id,
-                "system",
-                f"Severity escalated from {severity} to {escalated_severity}",
+                severity=escalated_severity,
             )
 
-        log.info(
-            "alert_created",
-            alert_id=alert_id,
-            rule_name=rule_name,
-            host_name=host_name,
-            severity=escalated_severity,
-        )
-
-        # ── Step 5: Deception doctrine — a CRITICAL deception alert (the
+        # ── Step 5 (outside the transaction): Deception doctrine — a CRITICAL
+        # deception alert (the
         # canary/token kinds; probes alert + notify without an auto-case) is
         # a case by construction (Wave 1 W1.5): auto-create + link a case.
         # A failure here never blocks alert creation.
