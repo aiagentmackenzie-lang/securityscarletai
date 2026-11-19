@@ -27,6 +27,11 @@ def _mock_pool(fetchrow_results=None, fetch_results=None, execute_returns=None):
     conn.fetchrow = AsyncMock(side_effect=lambda *a, **k: next(fetchrow_iter, None))
     conn.fetch = AsyncMock(side_effect=lambda *a, **k: next(fetch_iter, []))
     conn.execute = AsyncMock(side_effect=lambda *a, **k: next(exec_iter, None))
+    # SS-006: the last-admin guard runs inside conn.transaction().
+    tx = MagicMock()
+    tx.__aenter__ = AsyncMock(return_value=None)
+    tx.__aexit__ = AsyncMock(return_value=None)
+    conn.transaction = MagicMock(return_value=tx)
 
     acquirer = MagicMock()
     acquirer.__aenter__ = AsyncMock(return_value=conn)
@@ -394,3 +399,150 @@ class TestWiring:
             dep = sig.parameters["user"].default
             assert hasattr(dep, "dependency")
             assert dep.dependency.__name__ == "_check_role"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# SS-006 — last-admin guard
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestLastAdminGuard:
+    """Without a guard, admin A can demote or deactivate admin B; if B was the
+    last active admin a JWT-only deployment is bricked (the static bearer is
+    not configured there). The count must be taken inside the same transaction
+    under an advisory lock, or two concurrent demotions both see "2 left"."""
+
+    @staticmethod
+    def _admin_row(**over):
+        row = {"id": 3, "username": "admin2", "role": "admin", "is_active": True}
+        row.update(over)
+        return row
+
+    @staticmethod
+    def _updated(**over):
+        row = dict(
+            id=3,
+            username="admin2",
+            email=None,
+            role="analyst",
+            is_active=True,
+            must_change_password=False,
+            last_login=None,
+            created_at=None,
+        )
+        row.update(over)
+        return row
+
+    @pytest.mark.asyncio
+    async def test_demoting_the_last_admin_is_refused(self):
+        from src.api.users import UserPatchRequest, patch_user
+
+        pool, conn = _mock_pool(fetchrow_results=[self._admin_row()])
+        conn.fetchval = AsyncMock(return_value=0)  # no OTHER active admin
+
+        with (
+            patch("src.api.users.get_pool", return_value=pool),
+            patch("src.api.users.log_audit_action", new=AsyncMock()),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await patch_user(
+                    3,
+                    UserPatchRequest(role="analyst"),
+                    request=make_test_request(),
+                    user={"sub": "admin1", "role": "admin"},
+                )
+
+        assert exc.value.status_code == 400
+        assert "last active admin" in exc.value.detail
+        # The UPDATE never ran.
+        assert not any("UPDATE siem_users" in str(c.args[0]) for c in conn.fetchrow.call_args_list)
+
+    @pytest.mark.asyncio
+    async def test_deactivating_the_last_admin_is_refused(self):
+        from src.api.users import UserPatchRequest, patch_user
+
+        pool, conn = _mock_pool(fetchrow_results=[self._admin_row()])
+        conn.fetchval = AsyncMock(return_value=0)
+
+        with (
+            patch("src.api.users.get_pool", return_value=pool),
+            patch("src.api.users.log_audit_action", new=AsyncMock()),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await patch_user(
+                    3,
+                    UserPatchRequest(is_active=False),
+                    request=make_test_request(),
+                    user={"sub": "admin1", "role": "admin"},
+                )
+
+        assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_demoting_one_of_two_admins_is_allowed(self):
+        from src.api.users import UserPatchRequest, patch_user
+
+        pool, conn = _mock_pool(fetchrow_results=[self._admin_row(), self._updated(role="analyst")])
+        conn.fetchval = AsyncMock(return_value=1)  # another active admin remains
+
+        with (
+            patch("src.api.users.get_pool", return_value=pool),
+            patch("src.api.users.log_audit_action", new=AsyncMock()),
+            patch("src.api.redis_client.set_user_revoke_marker", new=AsyncMock(return_value=True)),
+        ):
+            resp = await patch_user(
+                3,
+                UserPatchRequest(role="analyst"),
+                request=make_test_request(),
+                user={"sub": "admin1", "role": "admin"},
+            )
+
+        assert resp.role == "analyst"
+
+    @pytest.mark.asyncio
+    async def test_guard_runs_under_an_advisory_lock_in_a_transaction(self):
+        from src.api.users import UserPatchRequest, patch_user
+
+        pool, conn = _mock_pool(fetchrow_results=[self._admin_row(), self._updated(role="analyst")])
+        conn.fetchval = AsyncMock(return_value=1)
+
+        with (
+            patch("src.api.users.get_pool", return_value=pool),
+            patch("src.api.users.log_audit_action", new=AsyncMock()),
+            patch("src.api.redis_client.set_user_revoke_marker", new=AsyncMock(return_value=True)),
+        ):
+            await patch_user(
+                3,
+                UserPatchRequest(role="analyst"),
+                request=make_test_request(),
+                user={"sub": "admin1", "role": "admin"},
+            )
+
+        sqls = [str(c.args[0]) for c in conn.execute.call_args_list]
+        assert any("pg_advisory_xact_lock" in s for s in sqls), (
+            "the admin count is not serialized (SS-006)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_non_admin_mutation_does_not_take_the_lock(self):
+        from src.api.users import UserPatchRequest, patch_user
+
+        existing = {"id": 9, "username": "analyst9", "role": "analyst", "is_active": True}
+        pool, conn = _mock_pool(
+            fetchrow_results=[existing, self._updated(id=9, username="analyst9", role="viewer")]
+        )
+
+        with (
+            patch("src.api.users.get_pool", return_value=pool),
+            patch("src.api.users.log_audit_action", new=AsyncMock()),
+            patch("src.api.redis_client.set_user_revoke_marker", new=AsyncMock(return_value=True)),
+        ):
+            await patch_user(
+                9,
+                UserPatchRequest(role="viewer"),
+                request=make_test_request(),
+                user={"sub": "admin1", "role": "admin"},
+            )
+
+        sqls = [str(c.args[0]) for c in conn.execute.call_args_list]
+        assert not any("pg_advisory_xact_lock" in s for s in sqls)

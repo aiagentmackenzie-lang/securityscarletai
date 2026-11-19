@@ -183,6 +183,21 @@ async def _revoke_user_tokens(username: str) -> bool:
     )
 
 
+# SS-006: stable advisory-lock key for the "who is the last admin" decision.
+# Two concurrent demotions must serialize, otherwise both read "2 admins left"
+# and the deployment ends up with zero.
+_ADMIN_GUARD_LOCK_KEY = 0x5C4A1D01
+
+
+async def _count_other_active_admins(conn, exclude_id: int) -> int:
+    """Active admins other than ``exclude_id`` (must run inside the lock)."""
+    count = await conn.fetchval(
+        "SELECT count(*) FROM siem_users WHERE role = 'admin' AND is_active AND id <> $1",
+        exclude_id,
+    )
+    return int(count or 0)
+
+
 @router.patch("/{user_id}", response_model=UserPatchResponse)
 async def patch_user(
     user_id: int,
@@ -195,8 +210,13 @@ async def patch_user(
     Deactivating a user sets the user_revoke marker (their existing tokens are
     rejected immediately). Role changes also set the marker — the JWT carries
     the role claim, so pre-change tokens must not survive a demotion.
-    Self-protection: you cannot deactivate yourself or change your own role
-    (that could disable the last admin account).
+    Self-protection: you cannot deactivate yourself or change your own role.
+    SS-006: that check only protected the ACTOR. Admin A could demote or
+    deactivate admin B, and if B was the last active admin a JWT-only
+    deployment was locked out (no static bearer to fall back on). A mutation
+    that would leave zero active admins is refused; the count is taken inside
+    the same transaction under an advisory lock so two concurrent demotions
+    cannot both pass.
     """
     if body.role is None and body.is_active is None:
         raise HTTPException(
@@ -232,16 +252,41 @@ async def patch_user(
         params.append(body.is_active)
     params.append(user_id)
 
+    # Does this mutation remove an ACTIVE admin? (demote away from admin, or
+    # deactivate an active admin)
+    removes_active_admin = (
+        bool(existing["is_active"])
+        and existing["role"] == "admin"
+        and (body.is_active is False or (body.role is not None and body.role != "admin"))
+    )
+
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            f"""
-            UPDATE siem_users SET {", ".join(sets)}
-            WHERE id = ${len(params)}
-            RETURNING id, username, email, role, is_active,
-                      must_change_password, last_login, created_at
-            """,  # noqa: S608 — no user input in the SET clause (parameterized values only)
-            *params,
-        )
+        async with conn.transaction():
+            if removes_active_admin:
+                await conn.execute("SELECT pg_advisory_xact_lock($1)", _ADMIN_GUARD_LOCK_KEY)
+                remaining = await _count_other_active_admins(conn, user_id)
+                if remaining == 0:
+                    log.warning(
+                        "user_mutation_refused_last_admin",
+                        target=existing["username"],
+                        actor=actor,
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(
+                            "Refusing: this is the last active admin. Promote or "
+                            "create another admin first."
+                        ),
+                    )
+            row = await conn.fetchrow(
+                f"""
+                UPDATE siem_users SET {", ".join(sets)}
+                WHERE id = ${len(params)}
+                RETURNING id, username, email, role, is_active,
+                          must_change_password, last_login, created_at
+                """,  # noqa: S608 — no user input in the SET clause (parameterized only)
+                *params,
+            )
 
     # Revoke older tokens on deactivation AND role change (see docstring).
     revoked = False
