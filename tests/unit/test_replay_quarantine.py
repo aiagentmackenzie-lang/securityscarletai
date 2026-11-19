@@ -50,9 +50,7 @@ def _data_error() -> asyncpg.DataError:
 
 class TestPerRowReplay:
     @pytest.mark.asyncio
-    async def test_poison_row_is_quarantined_and_good_rows_land(
-        self, tmp_path: Path, monkeypatch
-    ):
+    async def test_poison_row_is_quarantined_and_good_rows_land(self, tmp_path: Path, monkeypatch):
         import scripts.replay_dead_letter as mod
 
         monkeypatch.setattr(mod, "QUARANTINE_DIR", tmp_path / "quarantine")
