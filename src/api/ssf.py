@@ -16,9 +16,12 @@ deployment-specific mechanism (fail-closed: no configured transmitters ->
 every request is refused). Rate limited like the other ingest paths
 (RFC 8935 §5.4 names invalid-SET floods as the DoS vector).
 
-RFC 8935 §2: persist FIRST (validation + the logs row are durable before
-the response); detection runs asynchronously via the standard post-ingest
-pipeline, never inside the request.
+RFC 8935 §2: persist FIRST — validation, the logs row and a CONFIRMED writer
+flush all happen before the 202 (SS-015: `writer.write()` alone only appends to
+the in-process buffer, so the old code answered 202 before anything was
+durable and a crash lost the event while its jti was already burned as seen).
+Detection runs asynchronously via the standard post-ingest pipeline, never
+inside the request.
 """
 
 from __future__ import annotations
@@ -45,10 +48,17 @@ SSF_YAML = REPO_ROOT / "config" / "ssf.yaml"
 ERR_CONTENT_LANGUAGE = "en-US"
 
 
-def _error_response(err: str, description: str) -> JSONResponse:
-    """The published RFC 8935 §2.3 failure response shape."""
+def _error_response(
+    err: str, description: str, status_code: int = status.HTTP_400_BAD_REQUEST
+) -> JSONResponse:
+    """The published RFC 8935 §2.3 failure response shape.
+
+    ``status_code`` is 400 for SET-level refusals and 503 when the receiver
+    could not persist an otherwise valid SET (SS-015) — the retry is the
+    correct client behaviour in that case.
+    """
     return JSONResponse(
-        status_code=status.HTTP_400_BAD_REQUEST,
+        status_code=status_code,
         content={"err": err, "description": description},
         media_type="application/json",
         headers={"Content-Language": ERR_CONTENT_LANGUAGE},
@@ -168,7 +178,33 @@ async def receive_ssf_set(request: Request) -> Response:
         raw_data=set_to_event(parsed, received_at),
         severity=severity_for_event(parsed.action, parsed.event_payload),
     )
-    await writer.write(event)
+    jti = str(parsed.claims.get("jti", ""))
+    try:
+        await writer.write(event)
+        # SS-015: flush NOW, not on the writer's 2s tick. A confirmed flush
+        # means the row is in the database (or, on a write failure, on the
+        # durable dead-letter queue) before the IdP is told 202.
+        await writer.flush()
+    except Exception as e:
+        # The event is not durable, so the jti must not stay claimed: release
+        # it and refuse, or the IdP's retry would be rejected as a replay of a
+        # SET that was never persisted.
+        log.error("ssf_persist_failed", issuer=parsed.transmitter.issuer, error=str(e))
+        try:
+            release_pool = await get_pool()
+            async with release_pool.acquire() as conn:
+                await conn.execute(
+                    "DELETE FROM ssf_seen_sets WHERE issuer = $1 AND jti = $2",
+                    parsed.transmitter.issuer,
+                    jti,
+                )
+        except Exception as release_error:  # best effort — never mask the refusal
+            log.error("ssf_replay_claim_release_failed", error=str(release_error))
+        return _error_response(
+            "invalid_request",
+            "SET could not be persisted; retry (the replay guard was released)",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
     # Post-ingest pipeline (correlation) — off the request path, per RFC §2.
     await trigger_correlation_coalesced()

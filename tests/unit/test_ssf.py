@@ -793,6 +793,69 @@ class TestReceiveEndpoint:
         sql = fresh_conn.fetchval.call_args.args[0]
         assert "INSERT INTO ssf_seen_sets" in sql
 
+    def test_flush_completes_before_the_202(self, client, tmp_path, monkeypatch):
+        """SS-015: the docstring promises persistence before the 202, but
+        writer.write() only appends to the in-process buffer — the response
+        went out before any flush. A crash after 202 lost the identity event
+        while the ssf_seen_sets row made the IdP's redelivery look like a
+        replay."""
+        pem, jwk = _keypair()
+        tx = {"issuer": ISSUER, "aud": AUD, "jwks": {"keys": [jwk]}, "events": ["session-revoked"]}
+        monkeypatch.setenv(
+            "SSF_CONFIG_PATH", str(_receiver_yaml(tmp_path / "ssf.yaml", transmitters=[tx]))
+        )
+        order: list[str] = []
+
+        async def _write(_event):
+            order.append("write")
+
+        async def _flush():
+            order.append("flush")
+
+        with (
+            patch("src.api.ssf.log_audit_action", AsyncMock()),
+            patch.object(writer_singleton, "write", _write),
+            patch.object(writer_singleton, "flush", _flush),
+            patch("src.detection.correlation.trigger_correlation_coalesced", AsyncMock()),
+            patch(
+                "src.api.ssf.get_pool",
+                return_value=_ssf_pool_mock(AsyncMock(fetchval=AsyncMock(return_value="now"))),
+            ),
+        ):
+            resp = self._post(client, _encode(_claims(), pem))
+        assert resp.status_code == 202
+        assert order == ["write", "flush"], "the event must be flushed before the 202"
+
+    def test_flush_failure_releases_the_replay_claim_and_refuses(
+        self, client, tmp_path, monkeypatch
+    ):
+        """A SET that could not be persisted must not burn its jti: the IdP's
+        retry would otherwise be refused as a replay while the event is gone."""
+        pem, jwk = _keypair()
+        tx = {"issuer": ISSUER, "aud": AUD, "jwks": {"keys": [jwk]}, "events": ["session-revoked"]}
+        monkeypatch.setenv(
+            "SSF_CONFIG_PATH", str(_receiver_yaml(tmp_path / "ssf.yaml", transmitters=[tx]))
+        )
+        conn = AsyncMock()
+        conn.fetchval = AsyncMock(return_value="now")
+
+        async def _boom():
+            raise RuntimeError("db down mid-flush")
+
+        with (
+            patch("src.api.ssf.log_audit_action", AsyncMock()),
+            patch.object(writer_singleton, "write", AsyncMock()),
+            patch.object(writer_singleton, "flush", _boom),
+            patch("src.detection.correlation.trigger_correlation_coalesced", AsyncMock()),
+            patch("src.api.ssf.get_pool", return_value=_ssf_pool_mock(conn)),
+        ):
+            resp = self._post(client, _encode(_claims(), pem))
+        assert resp.status_code == 503
+        assert resp.json()["err"] == "invalid_request"
+        # The claim was released so the retry is not treated as a replay.
+        released = [c.args[0] for c in conn.execute.call_args_list if "DELETE" in str(c.args[0])]
+        assert released, "the (issuer, jti) replay claim must be released on flush failure"
+
     def test_unknown_issuer_400_audited(self, client, tmp_path, monkeypatch):
         pem, jwk = _keypair()
         tx = {"issuer": ISSUER, "aud": AUD, "jwks": {"keys": [jwk]}, "events": ["session-revoked"]}
