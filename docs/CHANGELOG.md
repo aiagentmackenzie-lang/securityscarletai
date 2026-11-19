@@ -8,6 +8,45 @@ fix was re-verified against `4ad5f21` before any code changed, and every S2 fix
 carries a regression test that fails on the old code. Public behaviour changes
 an operator sees:**
 
+### Wave D — detection correctness
+
+- **Alert dedup is actually serialized (SS-018):** `create_alert` ran
+  `pg_advisory_xact_lock` in autocommit, so the lock was released before the
+  dedup SELECT returned and concurrent sweeps inserted duplicates. The whole
+  check-then-insert now runs in one transaction.
+- **`data_exfiltration` aggregates over its own window (SS-019):** it bound the
+  24 h scan lookback as the aggregation interval, firing at "≥50 connections in
+  24 h" instead of per hour. `time_window_hours` (1 h) is the window.
+- **`launchctl unload` is not persistence activation (SS-020):** the gate
+  matched `%load%`; it now matches the `launchctl load` argv token and excludes
+  `unload`.
+- **Sigma `and not` folds every clause (SS-021):** `a and not b and not c`
+  silently dropped `c` and matched more than written.
+- **Mixed-case selection names compile (SS-022):** `condition: Selection` +
+  `detection: {Selection: …}` used to compile to `FALSE`.
+- **Unknown Sigma fields fail safe (SS-023):** instead of raising out of
+  compilation (rule dead for the whole run with a generic error), the rule
+  compiles to `FALSE` with a recorded warning.
+- **One "external IP" definition (SS-024):** the gates now exclude RFC1918,
+  loopback, link-local, ULA and the unspecified address (v4 + v6). Local
+  services no longer fire critical payload-callback/exfil alerts.
+- **Correlation coalescing cannot double-run (SS-025):** a caller queued behind
+  a finished sweep skips instead of running the same sweep again.
+- **`alerts.evidence` has one shape (SS-026):** always a JSON array of evidence
+  objects (a dict writer input is wrapped). Documented in `schema.sql`.
+- **The rules API refuses rules that cannot fire (SS-051):** create/update/patch
+  compile the rule and return 400 listing the fail-safe warnings, instead of
+  arming a rule that is silently dead.
+- **One label per alert in dispositions (SS-052):** scorecard/backtest/agent
+  memory take the latest label via `LATERAL … ORDER BY labeled_at DESC LIMIT 1`
+  instead of duplicating alerts and picking a label arbitrarily.
+- **FP ratio counts adjudicated dispositions only (SS-053):** `needs_review` no
+  longer dilutes the denominator (100 undecided alerts used to read as "0 %
+  false positives"); `fp_ratio` is `null` when nothing is adjudicated.
+- **Backtest estimate is an upper bound (SS-054):** the text no longer claims
+  "exact for dense streams" — runtime dedup keys on insert time, so a tick over
+  a dense burst yields fewer alerts than the event-time model.
+
 ### Wave C — auth / governance
 
 - **HITL can no longer be recorded against a nonexistent draft (SS-003):** a
