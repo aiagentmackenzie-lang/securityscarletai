@@ -14,23 +14,34 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 REPO_ROOT="$(pwd)"
-STATE_DIR="$REPO_ROOT/data/backups"
+STATE_DIR="${WATCHDOG_STATE_DIR:-$REPO_ROOT/data/backups}"
 STATE="$STATE_DIR/watchdog_state"
 LOG="$STATE_DIR/watchdog.log"
 mkdir -p "$STATE_DIR"
 
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8000/api/v1/health}"
 DASHBOARD_URL="${DASHBOARD_URL:-http://127.0.0.1:8501/_stcore/health}"
+DASHBOARD_PAGE_URL="${DASHBOARD_PAGE_URL:-http://127.0.0.1:8501/}"
+DASHBOARD_CONTAINER="${DASHBOARD_CONTAINER:-scarletai-dashboard}"
+
+# SS-043: JSON payload builder (jq/python3, never string interpolation).
+# shellcheck source=watchdog_payload.sh
+. "$REPO_ROOT/scripts/watchdog_payload.sh"
 
 get_env() { sed -n "s/^$1=//p" "$REPO_ROOT/.env" 2>/dev/null | head -1; }
 
 notify() {  # notify "subject" "detail"
     local subject="$1" detail="$2"
-    local hook; hook="$(get_env SLACK_WEBHOOK_URL)"
+    local hook; hook="${SLACK_WEBHOOK_URL:-$(get_env SLACK_WEBHOOK_URL)}"
     if [ -n "$hook" ]; then
-        curl -s -m 10 -X POST -H 'Content-Type: application/json' \
-            -d "{\"text\":\"[SecurityScarletAI] $subject — $detail\"}" \
-            "$hook" >/dev/null 2>&1 || true
+        local payload
+        if payload="$(slack_payload "$subject" "$detail")"; then
+            curl -s -m 10 -X POST -H 'Content-Type: application/json' \
+                -d "$payload" \
+                "$hook" >/dev/null 2>&1 || true
+        else
+            echo "$(date '+%Y-%m-%d %H:%M:%S') slack skipped (no JSON builder: jq/python3) — $subject: $detail" >> "$LOG"
+        fi
     fi
     echo "$(date '+%Y-%m-%d %H:%M:%S') $subject: $detail" >> "$LOG"
 }
