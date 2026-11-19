@@ -267,14 +267,27 @@ async def _finalize_run(
     hitl_state: str,
     error: str | None,
 ) -> None:
-    """Finalize the run row exactly once (see the table's mutation convention)."""
+    """Finalize the run row exactly once (see the table's mutation convention).
+
+    SS-003: `hitl_state` is CAS-guarded. A decision recorded by a human is
+    never overwritten by finalization — without the guard, a decision that
+    landed before the run finished was silently reset to 'required' and the
+    same draft could be "confirmed" again (the audit chain and the row
+    disagreed). `status` is deliberately not guarded: finalization is what
+    makes the run completed in the first place.
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             """
             UPDATE agent_investigations
             SET status = $2, plan = $3::jsonb, steps = $4::jsonb,
-                verdict_draft = $5::jsonb, hitl_state = $6, error = $7,
+                verdict_draft = $5::jsonb,
+                hitl_state = CASE
+                    WHEN hitl_state IN ('confirmed', 'rejected') THEN hitl_state
+                    ELSE $6
+                END,
+                error = $7,
                 updated_at = NOW()
             WHERE id = $1
             """,
@@ -753,7 +766,13 @@ async def record_hitl_decision(
             """
             UPDATE agent_investigations
             SET hitl_state = $2, hitl_actor = $3, hitl_note = $4, updated_at = NOW()
-            WHERE id = $1 AND hitl_state = 'required'
+            WHERE id = $1
+              AND hitl_state = 'required'
+              -- SS-003: a decision needs a finished run that produced a draft.
+              -- Defense in depth for the API guard: the CAS cannot decide a
+              -- run that is still executing or never generated a verdict.
+              AND status = 'completed'
+              AND verdict_draft IS NOT NULL
             RETURNING id, hitl_state, hitl_actor
             """,
             run_id,

@@ -372,3 +372,108 @@ class TestDecisionRecords:
         assert rec["decision_type"] == "agent_investigation"
         assert "true_positive" in rec["summary"]
         assert rec["evidence"]["hitl_state"] == "required"
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# SS-003 — a decision can be lost: HITL during 'running', and finalization
+# overwriting a decided state
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+class TestHitlCannotDecisionDuringRun:
+    """The run row is born hitl_state='required' with status='running'. The
+    endpoint only checked hitl_state, so a human could 'confirm' a draft that
+    did not exist yet — and _finalize_run then overwrote hitl_state back to
+    'required', discarding the decision while the audit chain kept it."""
+
+    @pytest.mark.asyncio
+    async def test_running_run_with_required_state_is_refused(self):
+        from src.api.agents import HitlDecisionRequest, hitl_decision
+
+        body = HitlDecisionRequest(decision="confirmed", note="too early, no draft yet")
+        pool, conn = _pool_and_conn()
+        conn.fetchrow.return_value = _run_row(status="running", verdict_draft=None)
+
+        with patch("src.api.agents.get_pool", AsyncMock(return_value=pool)):
+            with pytest.raises(HTTPException) as exc_info:
+                await hitl_decision(7, body, _user())
+
+        assert exc_info.value.status_code == 409
+        assert "COMPLETED" in exc_info.value.detail
+        # No UPDATE was attempted: nothing was recorded for a nonexistent draft.
+        assert conn.fetchrow.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_completed_run_without_draft_is_refused(self):
+        from src.api.agents import HitlDecisionRequest, hitl_decision
+
+        body = HitlDecisionRequest(decision="confirmed", note="no draft was ever produced")
+        pool, conn = _pool_and_conn()
+        conn.fetchrow.return_value = _run_row(status="completed", verdict_draft=None)
+
+        with patch("src.api.agents.get_pool", AsyncMock(return_value=pool)):
+            with pytest.raises(HTTPException) as exc_info:
+                await hitl_decision(7, body, _user())
+
+        assert exc_info.value.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_completed_run_with_draft_is_accepted(self):
+        from src.api.agents import HitlDecisionRequest, hitl_decision
+
+        body = HitlDecisionRequest(decision="confirmed", note="evidence checked")
+        pool, conn = _pool_and_conn()
+        conn.fetchrow.side_effect = [
+            _run_row(status="completed"),
+            {"id": 7, "hitl_state": "confirmed", "hitl_actor": "analyst1"},
+        ]
+
+        with (
+            patch("src.api.agents.get_pool", AsyncMock(return_value=pool)),
+            patch("src.agents.investigator.get_pool", AsyncMock(return_value=pool)),
+            patch("src.api.audit.get_pool", AsyncMock(return_value=pool)),
+        ):
+            result = await hitl_decision(7, body, _user())
+
+        assert result["hitl_state"] == "confirmed"
+
+
+class TestFinalizeNeverOverwritesADecision:
+    @pytest.mark.asyncio
+    async def test_finalize_cas_guards_hitl_state(self):
+        from src.agents.investigator import _finalize_run
+
+        pool, conn = _pool_and_conn()
+        with patch("src.agents.investigator.get_pool", AsyncMock(return_value=pool)):
+            await _finalize_run(
+                7,
+                status="completed",
+                plan={},
+                steps=[],
+                verdict_draft={"verdict": "true_positive"},
+                hitl_state="required",
+                error=None,
+            )
+
+        sql = conn.execute.call_args.args[0]
+        flat = " ".join(sql.split())
+        assert "CASE WHEN hitl_state IN ('confirmed', 'rejected') THEN hitl_state" in flat, (
+            "finalization can overwrite a decided hitl_state (SS-003)"
+        )
+        assert "ELSE $6" in flat
+
+    @pytest.mark.asyncio
+    async def test_record_decision_cas_requires_completed_and_draft(self):
+        """Defense in depth: even called directly, the CAS cannot decide a
+        running or draftless run."""
+        from src.agents.investigator import record_hitl_decision
+
+        pool, conn = _pool_and_conn()
+        conn.fetchrow.return_value = None
+        with patch("src.agents.investigator.get_pool", AsyncMock(return_value=pool)):
+            result = await record_hitl_decision(7, decision="confirmed", actor="analyst1", note="n")
+
+        assert result is None
+        sql = " ".join(conn.fetchrow.call_args.args[0].split())
+        assert "status = 'completed'" in sql
+        assert "verdict_draft IS NOT NULL" in sql

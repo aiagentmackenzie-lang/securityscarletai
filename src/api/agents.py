@@ -351,6 +351,22 @@ async def hitl_decision(
                 "'required' draft can be confirmed or rejected"
             ),
         )
+    # SS-003: every run row is BORN hitl_state='required' with status='running'
+    # (the column defaults to 'required', the insert sets status='running').
+    # Checking hitl_state alone let a human "confirm" a draft that did not
+    # exist yet; _finalize_run then wrote hitl_state back to 'required' and the
+    # decision was silently discarded while the audit chain kept it. A decision
+    # is only meaningful on a COMPLETED run that actually produced a draft.
+    if row.get("status") != "completed" or row.get("verdict_draft") is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "run status is "
+                f"'{row.get('status')}' with "
+                f"{'a' if row.get('verdict_draft') is not None else 'no'} verdict draft -- "
+                "only a COMPLETED run with a draft can be confirmed or rejected"
+            ),
+        )
 
     updated = await record_hitl_decision(
         run_id,
