@@ -165,6 +165,20 @@ async def is_jti_blocked(jti: str) -> bool:
 # ───────────────────────────────────────────────────────────────
 
 
+# Anything below this is a whole-second unix timestamp; milliseconds today are
+# ~1.8e12. 1e11 seconds is year 5138, so the split is unambiguous.
+_REVOKE_TS_MS_THRESHOLD = 1e11
+
+
+def _normalise_revoke_ts(value: float) -> float:
+    """SS-004: normalise a stored revoke marker to MILLISECONDS.
+
+    Markers written before the millisecond change hold whole seconds. Reading
+    them as milliseconds would place them in 1970 and silently revoke nothing.
+    """
+    return value * 1000.0 if value < _REVOKE_TS_MS_THRESHOLD else value
+
+
 def _user_revoke_key(username: str) -> str:
     """F-09: one fixed key per user — latest revocation wins, no SCAN to read."""
     return f"{_KEY_PREFIX}user_revoke:{username}"
@@ -177,13 +191,22 @@ async def set_user_revoke_marker(username: str, issued_at: datetime, ttl_seconds
     (overwrite semantics — latest revocation wins, matching the reader). Also
     writes the legacy timestamped key for one release so a rolling deploy
     where an old worker still scan-reads keeps working.
+
+    SS-004: the marker is stored in MILLISECONDS. It used to be
+    ``int(timestamp)`` (whole seconds) and compared against an integer-second
+    ``iat`` with ``<`` — a token issued at 12:00:00.9 and a password change at
+    12:00:00.5 compared equal, so the token survived the password change. The
+    reader normalises legacy second-resolution values (see
+    ``get_latest_user_revoke_ts``), and the comparison is ``iat <= revoke``
+    so a same-millisecond token is revoked too.
     """
     client = await _get_client()
     if client is None:
         return False
     try:
-        ts = int(issued_at.timestamp())
-        await client.setex(_user_revoke_key(username), ttl_seconds, str(ts))
+        ts_ms = int(round(issued_at.timestamp() * 1000))
+        ts = ts_ms // 1000  # legacy key keeps second granularity
+        await client.setex(_user_revoke_key(username), ttl_seconds, str(ts_ms))
         # legacy scan-format key (read fallback), same TTL
         await client.setex(f"{_KEY_PREFIX}user_revoke:{username}:{ts}", ttl_seconds, "1")
         return True
@@ -198,6 +221,11 @@ async def get_latest_user_revoke_ts(username: str) -> Optional[float]:
     F-09: O(1) GET on the fixed key. Falls back to a SCAN of the legacy
     timestamped keys and backfills the fixed key when the fixed key is
     absent (e.g. markers written before this change).
+
+    SS-004: always returns MILLISECONDS. A stored value below 1e11 is a legacy
+    whole-second marker (seconds are ~1.8e9 today; milliseconds ~1.8e12) and is
+    scaled up — reading a legacy marker as milliseconds would put it in 1970
+    and revoke nothing.
     """
     client = await _get_client()
     if client is None:
@@ -206,7 +234,7 @@ async def get_latest_user_revoke_ts(username: str) -> Optional[float]:
         fixed = await client.get(_user_revoke_key(username))
         if fixed is not None:
             try:
-                return float(fixed)
+                return _normalise_revoke_ts(float(fixed))
             except (TypeError, ValueError):
                 pass
 
@@ -216,9 +244,9 @@ async def get_latest_user_revoke_ts(username: str) -> Optional[float]:
         async for key in client.scan_iter(match=pattern, count=100):
             try:
                 ts_str = key.rsplit(":", 1)[-1]
-                ts = float(ts_str)
-                if latest is None or ts > latest:
-                    latest = ts
+                ts_ms = _normalise_revoke_ts(float(ts_str))
+                if latest is None or ts_ms > latest:
+                    latest = ts_ms
             except (ValueError, IndexError):
                 continue
         if latest is not None:

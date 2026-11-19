@@ -78,7 +78,10 @@ async def _check_revocation(payload: dict) -> None:
         from src.api.redis_client import get_latest_user_revoke_ts
 
         revoke_ts = await get_latest_user_revoke_ts(sub)
-        if revoke_ts is not None and float(iat) < revoke_ts:
+        # SS-004: `iat` is integer-second, the marker is milliseconds ->
+        # compare on the same scale and use <=, so a token issued in the same
+        # millisecond as the password change is revoked too.
+        if revoke_ts is not None and float(iat) * 1000.0 <= revoke_ts:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token issued before password change",

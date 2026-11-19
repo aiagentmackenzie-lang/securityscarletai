@@ -724,4 +724,118 @@ class TestForceChangeTokenScope:
         assert after is not None
         assert isinstance(after, float)
         # The marker time is ~now.
-        assert abs(after - datetime.now(tz=timezone.utc).timestamp()) < 30
+        # SS-004: markers are milliseconds now.
+        assert abs(after / 1000.0 - datetime.now(tz=timezone.utc).timestamp()) < 30
+
+
+# ───────────────────────────────────────────────────────────────
+# SS-004 — same-second revocation gap
+# ───────────────────────────────────────────────────────────────
+
+
+class TestSameSecondRevocation:
+    """JWT `iat` is integer-second; the revoke marker was `int(timestamp)` and
+    the comparison was `float(iat) < revoke_ts`. A token issued at 12:00:00.9
+    and a password change at 12:00:00.5 compared equal, so the token survived
+    the password change. Stored and compared at millisecond precision now."""
+
+    @pytest.mark.asyncio
+    async def test_marker_stores_milliseconds(self):
+        from datetime import datetime, timezone
+
+        from src.api import redis_client
+
+        fake = _FakeRedis()
+        with patch.object(redis_client, "_get_client", AsyncMock(return_value=fake)):
+            issued = datetime(2026, 11, 18, 12, 0, 0, 500000, tzinfo=timezone.utc)
+            assert await redis_client.set_user_revoke_marker("dave", issued, 3600) is True
+
+        stored = fake._kv[redis_client._user_revoke_key("dave")]
+        assert stored == str(1795003200500), stored
+
+    @pytest.mark.asyncio
+    async def test_reader_normalises_legacy_second_markers(self):
+        """Markers written before this change are seconds — they must not be
+        read as milliseconds (which would land in 1970 and revoke nothing)."""
+        from src.api import redis_client
+
+        fake = _FakeRedis()
+        fake._kv[redis_client._user_revoke_key("erin")] = "1795003200"  # legacy seconds
+        with patch.object(redis_client, "_get_client", AsyncMock(return_value=fake)):
+            ts = await redis_client.get_latest_user_revoke_ts("erin")
+
+        assert ts == 1795003200000.0
+
+    @pytest.mark.asyncio
+    async def test_token_issued_in_the_same_second_is_rejected(self):
+        """End-to-end through the real marker (the old code truncated the
+        marker to whole seconds, so equal seconds meant "not revoked")."""
+        from datetime import datetime, timezone
+
+        from src.api import redis_client
+        from src.api.auth import verify_jwt
+
+        fake = _FakeRedis()
+        # Password changed at 12:00:00.500; token iat is 12:00:00 (integer).
+        issued = datetime(2026, 11, 18, 12, 0, 0, 500000, tzinfo=timezone.utc)
+        with patch.object(redis_client, "_get_client", AsyncMock(return_value=fake)):
+            await redis_client.set_user_revoke_marker("frank", issued, 3600)
+            token = create_access_token_with_iat("frank", 1795003200)
+            creds = MagicMock()
+            creds.credentials = token
+            with pytest.raises(HTTPException) as exc:
+                await verify_jwt(creds)  # type: ignore[arg-type]
+        assert exc.value.status_code == 401
+        assert "password change" in exc.value.detail
+
+    @pytest.mark.asyncio
+    async def test_token_issued_before_the_marker_still_rejected(self):
+        from src.api import redis_client
+        from src.api.auth import verify_jwt
+
+        token = create_access_token_with_iat("gina", 1795003100)
+        creds = MagicMock()
+        creds.credentials = token
+        with patch.object(
+            redis_client, "get_latest_user_revoke_ts", AsyncMock(return_value=1795003200500.0)
+        ):
+            with pytest.raises(HTTPException):
+                await verify_jwt(creds)  # type: ignore[arg-type]
+
+    @pytest.mark.asyncio
+    async def test_token_issued_after_the_marker_is_accepted(self):
+        from src.api import redis_client
+        from src.api.auth import verify_jwt
+
+        token = create_access_token_with_iat("hank", 1795003300)
+        creds = MagicMock()
+        creds.credentials = token
+        with patch.object(
+            redis_client, "get_latest_user_revoke_ts", AsyncMock(return_value=1795003200500.0)
+        ):
+            payload = await verify_jwt(creds)  # type: ignore[arg-type]
+        assert payload["sub"] == "hank"
+
+
+def create_access_token_with_iat(username: str, iat: int) -> str:
+    """A valid access JWT with a pinned iat (the revocation comparison input)."""
+    import uuid
+    from datetime import datetime, timedelta, timezone
+
+    from jose import jwt as jose_jwt
+
+    from src.api.auth import JWT_ALGORITHM
+    from src.config.settings import settings
+
+    now = datetime.now(tz=timezone.utc)
+    claims = {
+        "sub": username,
+        "role": "analyst",
+        "type": "access",
+        "iat": iat,
+        "exp": int((now + timedelta(minutes=30)).timestamp()),
+        "jti": str(uuid.uuid4()),
+    }
+    return jose_jwt.encode(
+        claims, settings.api_secret_key.get_secret_value(), algorithm=JWT_ALGORITHM
+    )
