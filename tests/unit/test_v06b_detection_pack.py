@@ -216,7 +216,7 @@ class TestAiProcessEgressChain:
         )
         sql = mock_conn.fetch.call_args.args[0]
         params = list(mock_conn.fetch.call_args.args[1:])
-        assert len(params) == 9
+        assert len(params) == 7
         # The AI process list is bound as the $2 array.
         assert list(params[1]) == list(AI_PROCESS_NAMES)
         # The AUD-004 result cap is the LAST bound param.

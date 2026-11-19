@@ -94,17 +94,19 @@ class TestDetectorRegistry:
 
 class TestPayloadCallbackRfc1918:
     @pytest.mark.asyncio
-    async def test_binds_the_three_rfc1918_ranges(self):
+    async def test_binds_the_shared_local_network_set(self):
+        """SS-024: one shared predicate instead of three RFC1918 ranges — the
+        old gate treated loopback, link-local and ULA as external."""
         conn = _conn_returning([])
         await corr.detect_payload_callback(conn, AS_OF)
 
         sql = conn.fetch.call_args.args[0]
         params = list(conn.fetch.call_args.args[1:])
-        assert sql.count("NOT destination_ip <<= $") == 3
-        # $5-$7 are the RFC1918 ranges, matching the sibling detectors.
-        assert params[4] == "10.0.0.0/8"
-        assert params[5] == "192.168.0.0/16"
-        assert params[6] == "172.16.0.0/12"
+        assert sql.count("NOT destination_ip <<= ANY($") == 1
+        bound = params[4]
+        assert isinstance(bound, list)
+        assert {"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"} <= set(bound)
+        assert {"127.0.0.0/8", "169.254.0.0/16", "::1/128", "fe80::/10", "fc00::/7"} <= set(bound)
         # the /tmp trigger pattern is untouched ($2)
         assert params[1] == "%/tmp/%"
 
@@ -118,7 +120,7 @@ class TestPayloadCallbackRfc1918:
         trigger_leg = sql_text.split("network_connections")[0]
         assert "destination_ip" not in trigger_leg
         conn_leg = sql_text.split("network_connections", 1)[1]
-        assert conn_leg.count("NOT destination_ip <<=") == 3
+        assert conn_leg.count("NOT destination_ip <<=") == 1
 
 
 # ───────────────────────────────────────────────────────────────

@@ -72,6 +72,25 @@ CLICKFIX_INTERPRETERS = (
 # per match. 200 per detector per sweep is far above real signal density
 # and bounds the worst case. A detector that reaches the cap logs
 # correlation_detector_result_cap so truncation is visible, never silent.
+# SS-024: ONE definition of "not external". The gates used to exclude only the
+# three RFC1918 ranges, so loopback, link-local, ULA and the unspecified
+# address counted as "external": a /tmp process connecting to a local service
+# fired a CRITICAL payload-callback alert, and the exfil chains inherited the
+# same false-positive class. Every gate binds THIS list via
+# `NOT <col> <<= ANY($n::inet[])`.
+LOCAL_NETWORKS: tuple[str, ...] = (
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+    "127.0.0.0/8",
+    "169.254.0.0/16",
+    "0.0.0.0/8",
+    "::1/128",
+    "fe80::/10",
+    "fc00::/7",
+    "::/128",
+)
+
 DETECTOR_MAX_MATCHES = 200
 
 
@@ -387,9 +406,7 @@ async def detect_payload_callback(
           AND destination_ip IS NOT NULL
           -- AUD-005: external IP only. Routine LAN traffic from a /tmp
           -- process is not a C2 callback.
-          AND NOT destination_ip <<= $5::inet
-          AND NOT destination_ip <<= $6::inet
-          AND NOT destination_ip <<= $7::inet
+          AND NOT destination_ip <<= ANY($5::inet[])
           AND time > $1::timestamptz - INTERVAL '1 hour' * $3
           AND time <= $1::timestamptz
     )
@@ -407,7 +424,7 @@ async def detect_payload_callback(
         AND n.conn_time > t.proc_time
         AND n.conn_time < t.proc_time + INTERVAL '1 minute' * $4
     ORDER BY t.proc_time DESC
-    LIMIT $8
+    LIMIT $6
     """
 
     rows = await conn.fetch(
@@ -416,10 +433,8 @@ async def detect_payload_callback(
         "%/tmp/%",  # $2
         lookback_hours,  # $3
         time_window_minutes,  # $4
-        "10.0.0.0/8",  # $5 -- RFC1918 range 1 (AUD-005 external-IP gate)
-        "192.168.0.0/16",  # $6 -- RFC1918 range 2
-        "172.16.0.0/12",  # $7 -- RFC1918 range 3
-        max_matches,  # $8 -- per-detector result cap (AUD-004)
+        list(LOCAL_NETWORKS),  # $5 -- SS-024 shared external-IP predicate
+        max_matches,  # $6 -- per-detector result cap (AUD-004)
     )
     _warn_if_result_capped(rows, "payload_callback", max_matches)
     results = []
@@ -465,7 +480,15 @@ async def detect_persistence_activated(
         FROM logs
         WHERE event_category = 'process'
           AND process_name = 'launchctl'
-          AND process_cmdline LIKE $4
+          -- SS-020: '%load%' also matches `launchctl unload` (and
+          -- `download`, `payload`, ...), so a deliberate DEACTIVATION was
+          -- reported as persistence activation. Match the argv token and
+          -- exclude the negating subcommands explicitly.
+          AND (
+                process_cmdline LIKE $4
+                OR process_cmdline LIKE $5
+              )
+          AND process_cmdline NOT ILIKE $6
           AND time > $1::timestamptz - INTERVAL '1 hour' * $3
           AND time <= $1::timestamptz
     )
@@ -479,9 +502,9 @@ async def detect_persistence_activated(
     JOIN launchctl_loads l
         ON a.host_name = l.host_name
         AND l.load_time > a.creation_time
-        AND l.load_time < a.creation_time + INTERVAL '1 minute' * $5
+        AND l.load_time < a.creation_time + INTERVAL '1 minute' * $7
     ORDER BY a.creation_time DESC
-    LIMIT $6
+    LIMIT $8
     """
 
     rows = await conn.fetch(
@@ -489,9 +512,11 @@ async def detect_persistence_activated(
         as_of,  # $1
         "%LaunchAgents%",  # $2
         lookback_hours,  # $3
-        "%load%",  # $4
-        time_window_minutes,  # $5
-        max_matches,  # $6 -- per-detector result cap (AUD-004)
+        "launchctl load %",  # $4 -- SS-020 argv-position match
+        "% launchctl load %",  # $5 -- (also matches an absolute path prefix)
+        "%unload%",  # $6 -- explicit negative
+        time_window_minutes,  # $7
+        max_matches,  # $8 -- per-detector result cap (AUD-004)
     )
     _warn_if_result_capped(rows, "persistence_activated", max_matches)
     results = []
@@ -540,14 +565,12 @@ async def detect_data_exfiltration(
         WHERE event_category = 'network'
           AND event_type = 'connection'
           AND destination_ip IS NOT NULL
-          AND NOT destination_ip <<= $2::inet
-          AND NOT destination_ip <<= $3::inet
-          AND NOT destination_ip <<= $4::inet
+          AND NOT destination_ip <<= ANY($2::inet[])
           AND (enrichment->>'bytes_sent') IS NOT NULL
-          AND time > $1::timestamptz - INTERVAL '1 hour' * $5
+          AND time > $1::timestamptz - INTERVAL '1 hour' * $3
           AND time <= $1::timestamptz
         GROUP BY host_name, destination_ip
-        HAVING SUM(COALESCE((enrichment->>'bytes_sent')::bigint, 0)) > $6
+        HAVING SUM(COALESCE((enrichment->>'bytes_sent')::bigint, 0)) > $4
     ),
     connection_bursts AS (
         SELECT
@@ -561,31 +584,31 @@ async def detect_data_exfiltration(
         WHERE event_category = 'network'
           AND event_type = 'connection'
           AND destination_ip IS NOT NULL
-          AND NOT destination_ip <<= $2::inet
-          AND NOT destination_ip <<= $3::inet
-          AND NOT destination_ip <<= $4::inet
-          AND time > $1::timestamptz - INTERVAL '1 hour' * $5
+          AND NOT destination_ip <<= ANY($2::inet[])
+          AND time > $1::timestamptz - INTERVAL '1 hour' * $3
           AND time <= $1::timestamptz
         GROUP BY host_name, destination_ip
-        HAVING COUNT(*) >= $7
+        HAVING COUNT(*) >= $5
     )
     SELECT * FROM outbound_transfers
     UNION ALL
     SELECT * FROM connection_bursts
     ORDER BY total_bytes DESC, connection_count DESC
-    LIMIT $8
+    LIMIT $6
     """
 
     rows = await conn.fetch(
         sql,
         as_of,  # $1
-        "10.0.0.0/8",  # $2 -- RFC1918 range 1
-        "192.168.0.0/16",  # $3 -- RFC1918 range 2
-        "172.16.0.0/12",  # $4 -- RFC1918 range 3
-        lookback_hours,  # $5
-        threshold_bytes,  # $6
-        connection_threshold,  # $7
-        max_matches,  # $8 -- per-detector result cap (AUD-004)
+        list(LOCAL_NETWORKS),  # $2 -- SS-024 shared external-IP predicate
+        # SS-019: the AGGREGATION window is `time_window_hours` (1h), not the
+        # 24h scan lookback. Binding lookback here made the chain fire at
+        # "50 connections in 24h" and ">100 MB in 24h" instead of per hour,
+        # which is a materially different (noisier) detector.
+        time_window_hours,  # $3
+        threshold_bytes,  # $4
+        connection_threshold,  # $5
+        max_matches,  # $6 -- per-detector result cap (AUD-004)
     )
     _warn_if_result_capped(rows, "data_exfiltration", max_matches)
     results = []
@@ -790,9 +813,7 @@ async def detect_credential_theft_exfil(
         WHERE event_category = 'network'
           AND event_type = 'connection'
           AND destination_ip IS NOT NULL
-          AND NOT destination_ip <<= $3::inet
-          AND NOT destination_ip <<= $4::inet
-          AND NOT destination_ip <<= $5::inet
+          AND NOT destination_ip <<= ANY($3::inet[])
           AND time > $1::timestamptz - INTERVAL '1 hour' * $2
           AND time <= $1::timestamptz
     )
@@ -808,20 +829,18 @@ async def detect_credential_theft_exfil(
     JOIN outbound_connections o
         ON c.host_name = o.host_name
         AND o.conn_time > c.access_time
-        AND o.conn_time < c.access_time + INTERVAL '1 minute' * $6
+        AND o.conn_time < c.access_time + INTERVAL '1 minute' * $4
     ORDER BY c.access_time DESC
-    LIMIT $7
+    LIMIT $5
     """
 
     rows = await conn.fetch(
         sql,
         as_of,  # $1 -- point-in-time upper bound
         lookback_hours,  # $2
-        "10.0.0.0/8",  # $3
-        "192.168.0.0/16",  # $4
-        "172.16.0.0/12",  # $5
-        time_window_minutes,  # $6
-        max_matches,  # $7 -- per-detector result cap (AUD-004)
+        list(LOCAL_NETWORKS),  # $3 -- SS-024 shared external-IP predicate
+        time_window_minutes,  # $4
+        max_matches,  # $5 -- per-detector result cap (AUD-004)
     )
     _warn_if_result_capped(rows, "credential_theft_exfil", max_matches)
     results = []
@@ -1159,10 +1178,8 @@ async def detect_ai_process_egress(
         WHERE event_category = 'network'
           AND event_type = 'connection'
           AND destination_ip IS NOT NULL
-          AND NOT destination_ip <<= $4::inet
-          AND NOT destination_ip <<= $5::inet
-          AND NOT destination_ip <<= $6::inet
-          AND time > $1::timestamptz - INTERVAL '1 hour' * $7
+          AND NOT destination_ip <<= ANY($4::inet[])
+          AND time > $1::timestamptz - INTERVAL '1 hour' * $5
           AND time <= $1::timestamptz
     )
     SELECT
@@ -1177,9 +1194,9 @@ async def detect_ai_process_egress(
     JOIN outbound_connections o
         ON a.host_name = o.host_name
         AND o.conn_time > a.start_time
-        AND o.conn_time < a.start_time + INTERVAL '1 minute' * $8
+        AND o.conn_time < a.start_time + INTERVAL '1 minute' * $6
     ORDER BY a.start_time DESC
-    LIMIT $9
+    LIMIT $7
     """
 
     rows = await conn.fetch(
@@ -1187,12 +1204,10 @@ async def detect_ai_process_egress(
         as_of,  # $1
         list(AI_PROCESS_NAMES),  # $2
         lookback_hours,  # $3
-        "10.0.0.0/8",  # $4
-        "192.168.0.0/16",  # $5
-        "172.16.0.0/12",  # $6
-        lookback_hours,  # $7
-        time_window_minutes,  # $8 -- join window (conn within N min of start)
-        max_matches,  # $9 -- per-detector result cap (AUD-004)
+        list(LOCAL_NETWORKS),  # $4 -- SS-024 shared external-IP predicate
+        lookback_hours,  # $5
+        time_window_minutes,  # $6 -- join window (conn within N min of start)
+        max_matches,  # $7 -- per-detector result cap (AUD-004)
     )
     _warn_if_result_capped(rows, "ai_process_egress", max_matches)
     results = []
