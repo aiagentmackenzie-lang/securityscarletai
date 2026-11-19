@@ -719,3 +719,77 @@ class TestExecuteQuery:
 
         assert result["success"] is False
         assert "timed out" in result["error"].lower()
+
+
+# ───────────────────────────────────────────────────────────────
+# SS-030 — LIMIT ALL / LIMIT NULL must not escape the cap
+# ───────────────────────────────────────────────────────────────
+
+
+class TestLimitAllDoesNotEscapeTheCap:
+    def test_limit_all_is_rewritten_to_the_cap(self):
+        from src.ai.nl2sql import MAX_RESULT_ROWS, add_safety_limits
+
+        out = add_safety_limits("SELECT * FROM logs LIMIT ALL")
+        assert "LIMIT ALL" not in out.upper()
+        assert f"LIMIT {MAX_RESULT_ROWS}" in out.upper()
+
+    def test_limit_null_is_rewritten_to_the_cap(self):
+        from src.ai.nl2sql import MAX_RESULT_ROWS, add_safety_limits
+
+        out = add_safety_limits("SELECT * FROM logs LIMIT NULL")
+        assert "LIMIT NULL" not in out.upper()
+        assert f"LIMIT {MAX_RESULT_ROWS}" in out.upper()
+
+    def test_literal_limit_all_is_left_alone(self):
+        from src.ai.nl2sql import add_safety_limits
+
+        out = add_safety_limits("SELECT * FROM logs WHERE description = 'limit all' LIMIT 10")
+        assert "'limit all'" in out
+
+    def test_digit_limit_still_capped(self):
+        from src.ai.nl2sql import MAX_RESULT_ROWS, add_safety_limits
+
+        out = add_safety_limits("SELECT * FROM logs LIMIT 999999")
+        assert f"LIMIT {MAX_RESULT_ROWS}" in out
+
+    def test_missing_limit_defaults(self):
+        from src.ai.nl2sql import add_safety_limits
+
+        out = add_safety_limits("SELECT * FROM logs")
+        assert "LIMIT" in out.upper()
+
+
+# ───────────────────────────────────────────────────────────────
+# SS-032 — no raw DB error text to the client
+# ───────────────────────────────────────────────────────────────
+
+
+class TestNl2SqlErrorsAreGeneric:
+    @pytest.mark.asyncio
+    async def test_execution_error_does_not_echo_db_text(self):
+        from unittest.mock import MagicMock
+
+        import asyncpg
+
+        from src.ai.nl2sql import execute_query
+
+        class _Pool:
+            def acquire(self):
+                ctx = MagicMock()
+                conn = MagicMock()
+
+                async def _fetch(_sql):
+                    raise asyncpg.UndefinedColumnError('column "siem_users.secret" does not exist')
+
+                conn.fetch = _fetch
+                ctx.__aenter__ = AsyncMock(return_value=conn)
+                ctx.__aexit__ = AsyncMock(return_value=None)
+                return ctx
+
+        with patch("src.ai.nl2sql.get_pool", AsyncMock(return_value=_Pool())):
+            result = await execute_query("SELECT * FROM logs LIMIT 10")
+
+        assert result["success"] is False
+        assert "siem_users" not in result["error"]
+        assert "ref" in result["error"].lower()

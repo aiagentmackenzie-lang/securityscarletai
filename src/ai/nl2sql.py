@@ -766,10 +766,17 @@ def add_safety_limits(sql: str) -> str:
     def _cap(match: re.Match[str]) -> str:
         if _in_literal(match.start()):
             return match.group(0)
-        val = int(match.group(1))
-        return f"LIMIT {min(val, MAX_RESULT_ROWS)}"
+        raw = match.group(1)
+        # SS-030: `LIMIT ALL` and `LIMIT NULL` mean NO limit in PostgreSQL.
+        # The digit-only regex missed both, so a model (or prompt injection)
+        # emitting either form fetched the ENTIRE result set into memory
+        # before the 1000-row slice. Rewrite them to the cap.
+        if not raw.isdigit():
+            log.warning("nl2sql_limit_all_rewritten", form=raw.upper())
+            return f"LIMIT {MAX_RESULT_ROWS}"
+        return f"LIMIT {min(int(raw), MAX_RESULT_ROWS)}"
 
-    return re.sub(r"LIMIT\s+(\d+)", _cap, sql, flags=re.IGNORECASE)
+    return re.sub(r"LIMIT\s+(\d+|ALL|NULL)\b", _cap, sql, flags=re.IGNORECASE)
 
 
 async def estimate_query_cost(sql: str) -> tuple[int, str]:
@@ -978,10 +985,22 @@ async def execute_query(
         }
 
     except Exception as e:
-        log.error("nl2sql_query_error", error=str(e), sql_preview=sql[:100])
+        # SS-032: never return raw DB/planner text (column and table names,
+        # planner errors) to the analyst. A correlation id ties the generic
+        # message to the server log line.
+        error_ref = uuid.uuid4().hex[:12]
+        log.error(
+            "nl2sql_query_error",
+            error=str(e),
+            sql_preview=sql[:100],
+            error_ref=error_ref,
+        )
         return {
             "success": False,
-            "error": f"Query execution failed: {str(e)[:200]}",
+            "error": (
+                "Query execution failed (internal error, ref "
+                f"{error_ref}). Details are in the SIEM server log."
+            ),
         }
 
 
