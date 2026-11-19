@@ -14,8 +14,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import asyncpg
-
 from src.config.logging import get_logger
 from src.db.connection import get_pool
 from src.ingestion.schemas import NormalizedEvent
@@ -33,6 +31,69 @@ DEAD_LETTER_DIR = Path("data/dead_letter")
 DEAD_LETTER_MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB per daily file
 DEAD_LETTER_RETENTION_DAYS = 30
 DEAD_LETTER_PROCESSED_DIR = Path("data/dead_letter/processed")
+
+
+def build_rows(batch: list[NormalizedEvent]) -> list[tuple]:
+    """Build the INSERT parameter tuples for a batch of events.
+
+    Extracted (SS-040) so the dead-letter replay can persist ONE row at a time
+    through the same SQL/typing as the writer — the replay must be able to
+    isolate a poison row instead of re-dead-lettering a whole batch forever.
+    """
+    return [
+        (
+            e.timestamp,
+            e.host_name,
+            e.host_ip,
+            e.source,
+            e.event_category,
+            e.event_type,
+            e.event_action,
+            e.user_name,
+            e.process_name,
+            e.process_cmdline,
+            e.process_path,
+            e.process_pid,
+            e.source_ip,
+            e.destination_ip,
+            e.destination_port,
+            e.file_path,
+            e.file_hash,
+            json.dumps(e.raw_data),
+            json.dumps(
+                e.model_dump(
+                    exclude={"raw_data", "enrichment"},
+                    mode="json",
+                )
+            ),
+            json.dumps(e.enrichment),
+            e.severity,
+            datetime.now(tz=timezone.utc),
+        )
+        for e in batch
+    ]
+
+
+async def insert_rows(conn, rows: list[tuple]) -> None:
+    """Execute the logs INSERT for already-built rows."""
+    await conn.executemany(
+        """
+        INSERT INTO logs (
+            time, host_name, host_ip, source,
+            event_category, event_type, event_action,
+            user_name, process_name, process_cmdline, process_path,
+            process_pid,
+            source_ip, destination_ip, destination_port,
+            file_path, file_hash, raw_data, normalized,
+            enrichment, severity, ingested_at
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9,
+            $10, $11, $12, $13, $14, $15, $16, $17, $18,
+            $19, $20, $21, $22
+        )
+        """,
+        rows,
+    )
 
 
 class LogWriter:
@@ -156,57 +217,8 @@ class LogWriter:
         try:
             pool = await get_pool()
             async with pool.acquire() as conn:
-                # Use executemany for batch insert
-                rows = [
-                    (
-                        e.timestamp,
-                        e.host_name,
-                        e.host_ip,
-                        e.source,
-                        e.event_category,
-                        e.event_type,
-                        e.event_action,
-                        e.user_name,
-                        e.process_name,
-                        e.process_cmdline,
-                        e.process_path,
-                        e.process_pid,
-                        e.source_ip,
-                        e.destination_ip,
-                        e.destination_port,
-                        e.file_path,
-                        e.file_hash,
-                        json.dumps(e.raw_data),
-                        json.dumps(
-                            e.model_dump(
-                                exclude={"raw_data", "enrichment"},
-                                mode="json",
-                            )
-                        ),
-                        json.dumps(e.enrichment),
-                        e.severity,
-                        datetime.now(tz=timezone.utc),
-                    )
-                    for e in batch
-                ]
-                await conn.executemany(
-                    """
-                    INSERT INTO logs (
-                        time, host_name, host_ip, source,
-                        event_category, event_type, event_action,
-                        user_name, process_name, process_cmdline, process_path,
-                        process_pid,
-                        source_ip, destination_ip, destination_port,
-                        file_path, file_hash, raw_data, normalized,
-                        enrichment, severity, ingested_at
-                    ) VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8, $9,
-                        $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                        $19, $20, $21, $22
-                    )
-                    """,
-                    rows,
-                )
+                rows = build_rows(batch)
+                await insert_rows(conn, rows)
                 self._total_written += len(batch)
                 log.info("batch_flushed", count=len(batch), total=self._total_written)
 
@@ -220,9 +232,21 @@ class LogWriter:
             log.error("batch_flush_cancelled", count=len(batch))
             await self._write_to_dead_letter(batch, "cancelled mid-flush (writer stop)")
             raise
-        except (asyncpg.PostgresError, OSError) as e:
+        except Exception as e:
+            # SS-016: this used to catch only PostgresError/OSError. Anything
+            # else raised while BUILDING the rows or serialising them (a
+            # TypeError/ValueError from a non-serialisable enrichment value,
+            # for instance) escaped with the batch already copied off
+            # _buffer — the batch was simply GONE, no dead letter. Catch
+            # Exception (CancelledError is handled above, it is a
+            # BaseException) and dead-letter like any other write failure.
             self._total_errors += len(batch)
-            log.error("batch_insert_failed", count=len(batch), error=str(e))
+            log.error(
+                "batch_insert_failed",
+                count=len(batch),
+                error=str(e),
+                error_type=type(e).__name__,
+            )
             # Dead letter queue — write failed batches to disk for later retry
             await self._write_to_dead_letter(batch, str(e))
 
