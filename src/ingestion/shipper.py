@@ -26,6 +26,17 @@ log = get_logger("ingestion.shipper")
 
 CHECKPOINT_FILE = Path.home() / ".scarletai_shipper_checkpoint"
 
+# SS-011: bounded reads. `f.read()` slurped every byte appended since the
+# checkpoint; after a downtime that is gigabytes (2026-09-23: 1.03 GB) and the
+# read OOM-killed the API in a crash loop. The log is now streamed in fixed
+# chunks and complete lines are processed as they arrive, so peak memory is one
+# chunk plus a partial line. Checkpoint semantics are unchanged: the persisted
+# offset still advances only over bytes the writer CONFIRMED flushed.
+MAX_READ_CHUNK_BYTES = 8 * 1024 * 1024
+# A single "line" larger than this is not telemetry: drop it loudly instead of
+# buffering it forever (the read would otherwise grow without bound again).
+MAX_LINE_BYTES = 64 * 1024 * 1024
+
 
 class FileShipper:
     """Tail a log file and ship events to the database.
@@ -136,18 +147,65 @@ class FileShipper:
         text: one bad byte decodes to a 3-byte U+FFFD, so re-encoding would
         drift the checkpoint past unconsumed bytes (the trap the fleet
         shipper's len(text.encode()) shape carries).
+
+        SS-011: the file is streamed in MAX_READ_CHUNK_BYTES pieces. A chunk
+        boundary is a byte offset, not a line boundary, so the trailing partial
+        line is carried into the next chunk (``carry``) and never re-read from
+        disk. Peak memory is bounded by one chunk plus one line.
         """
         parser = parse_osquery_line if self.format == "osquery" else parse_normalized_line
+        consumed = 0
+        carry = b""
         with open(self.log_path, "rb") as f:
             f.seek(self._offset)
-            chunk = f.read()
-        if not chunk:
+            while True:
+                piece = f.read(MAX_READ_CHUNK_BYTES)
+                if not piece:
+                    break
+                consumed += len(piece)
+                buf = carry + piece
+                cut = buf.rfind(b"\n")  # consume COMPLETE lines only
+                if cut == -1:
+                    carry = buf
+                    if len(carry) > MAX_LINE_BYTES:
+                        # Not telemetry: no newline in 64 MB. Dropping the line
+                        # (loudly) keeps the pipe moving and memory bounded.
+                        log.error(
+                            "shipper_line_too_long",
+                            dropped_bytes=len(carry),
+                            limit=MAX_LINE_BYTES,
+                        )
+                        carry = b""
+                    continue
+                complete, carry = buf[: cut + 1], buf[cut + 1 :]
+                await self._ship_complete_lines(parser, complete)
+
+        # The trailing partial line stays unconsumed, waiting for its newline.
+        consumed -= len(carry)
+        if consumed <= 0:
             return
-        cut = chunk.rfind(b"\n")  # consume COMPLETE lines only
-        if cut == -1:
+        self._offset += consumed
+        # W1-B: the checkpoint persists only what the writer CONFIRMED flushed.
+        # Old code persisted the parse cursor immediately after buffering — a
+        # hard crash in the writer's batch/2s-flush window lost those events
+        # with the checkpoint already past them (at-most-once). Now: flush
+        # first, then persist. A crash before confirmation re-reads at most
+        # one flush window (bounded duplicates — at-least-once).
+        try:
+            await self.writer.flush()
+        except Exception as e:
+            # Unexpected flush failure (PostgresError/OSError are already
+            # dead-lettered inside LogWriter). Don't persist — the confirmed
+            # checkpoint lags, so a restart re-reads this window instead of
+            # trusting bytes the writer never landed.
+            log.error("shipper_flush_confirm_failed", error=str(e))
             return
-        consumed = chunk[: cut + 1]
-        text = consumed.decode("utf-8", errors="replace")
+        self._confirmed_offset = self._offset
+        self._save_checkpoint()
+
+    async def _ship_complete_lines(self, parser, chunk: bytes) -> None:
+        """Parse and ship the complete lines in one raw byte chunk."""
+        text = chunk.decode("utf-8", errors="replace")
         for line in text.split("\n"):
             line = line.strip()
             if not line:
@@ -169,24 +227,6 @@ class FileShipper:
             if event:
                 await self.writer.write(event)
                 self._events_shipped += 1
-        self._offset += len(consumed)
-        # W1-B: the checkpoint persists only what the writer CONFIRMED flushed.
-        # Old code persisted the parse cursor immediately after buffering — a
-        # hard crash in the writer's batch/2s-flush window lost those events
-        # with the checkpoint already past them (at-most-once). Now: flush
-        # first, then persist. A crash before confirmation re-reads at most
-        # one flush window (bounded duplicates — at-least-once).
-        try:
-            await self.writer.flush()
-        except Exception as e:
-            # Unexpected flush failure (PostgresError/OSError are already
-            # dead-lettered inside LogWriter). Don't persist — the confirmed
-            # checkpoint lags, so a restart re-reads this window instead of
-            # trusting bytes the writer never landed.
-            log.error("shipper_flush_confirm_failed", error=str(e))
-            return
-        self._confirmed_offset = self._offset
-        self._save_checkpoint()
 
     def _load_checkpoint(self) -> int:
         """Load the byte offset from the checkpoint file."""
