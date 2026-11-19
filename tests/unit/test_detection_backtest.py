@@ -483,3 +483,17 @@ class TestEndpoint:
                 await detection_backtest(BacktestRequest(sigma_yaml="title: x"), user={"sub": "a"})
         assert exc_info.value.status_code == 400
         assert "bad field" in exc_info.value.detail
+
+
+class TestEstimateHonesty:
+    """SS-054: the estimate models event time, but runtime dedup keys on the
+    INSERT time, so one scheduler tick over a dense burst yields ONE alert.
+    Dense bursts were over-counted while the text claimed "exact"."""
+
+    def test_estimate_method_states_a_global_upper_bound(self):
+        from pathlib import Path
+
+        src = Path("src/detection/backtest.py").read_text()
+        assert "exact for dense" not in src
+        assert "UPPER BOUND" in src
+        assert "insert time" in src

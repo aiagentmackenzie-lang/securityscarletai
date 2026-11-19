@@ -74,7 +74,13 @@ async def _fetch_fires_and_dispositions(
                 cv.v
             ) AS d
         FROM alerts a
-        LEFT JOIN alert_labels l ON l.alert_id = a.id
+        LEFT JOIN LATERAL (
+            SELECT label
+            FROM alert_labels
+            WHERE alert_id = a.id
+            ORDER BY labeled_at DESC
+            LIMIT 1
+        ) l ON TRUE
         LEFT JOIN LATERAL (
             SELECT ce.payload->>'verdict' AS v
             FROM case_events ce
@@ -109,6 +115,12 @@ def _row_to_metrics(row) -> dict:
     dispositions = d["dispositions"] or 0
     fp = d["false_positives"] or 0
     tp = d["true_positives"] or 0
+    # SS-053: the FP ratio's denominator is ADJUDICATED dispositions only
+    # (true_positive + false_positive). `needs_review` is in _VERDICT_TOKENS,
+    # so 100 undecided alerts and 0 FPs produced 0/100 = 0.0 — a "measured"
+    # zero that reads as perfect precision. `benign` is a deliberate
+    # non-adjudication for the ratio (neither TP nor FP) and stays out too.
+    adjudicated = tp + fp
     return {
         "lifetime_fires": d["lifetime_fires"] or 0,
         "window_fires": d["window_fires"] or 0,
@@ -118,7 +130,7 @@ def _row_to_metrics(row) -> dict:
         "false_positives": fp,
         "benign": d["benign"] or 0,
         "needs_review": d["needs_review"] or 0,
-        "fp_ratio": (fp / dispositions) if dispositions else None,
+        "fp_ratio": (fp / adjudicated) if adjudicated else None,
     }
 
 

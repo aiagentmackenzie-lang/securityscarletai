@@ -325,10 +325,16 @@ async def _backtest_simple(
         "total_rows": total_rows,
         "per_day": [{"day": r["day"].strftime("%Y-%m-%d"), "rows": r["n"]} for r in per_day_rows],
         "estimated_alerts": int(est["est_alerts"]) if total_rows else 0,
+        # SS-054: this is an UPPER BOUND for every pattern, not only for
+        # sparse ones. The estimate models alert times as EVENT times, but
+        # runtime create_alert dedups on the INSERT time (time = NOW()), so a
+        # single scheduler tick that matches a 30-minute burst creates ONE
+        # alert, not two. Dense bursts are therefore over-counted too.
         "estimate_method": (
             f"island replay of the {DEDUP_WINDOW_SECONDS}s (rule, host) dedup "
-            "window: exact for dense match streams, an upper bound for sparse "
-            "patterns; suppression and escalation not modeled"
+            "window: an UPPER BOUND (event-time model; runtime dedup keys on "
+            "insert time, so a tick matching a dense burst yields fewer "
+            "alerts); suppression and escalation not modeled"
         ),
         "hosts_affected": int(est["hosts"]) if total_rows else 0,
         "top_values": top_values,
@@ -513,7 +519,13 @@ async def _fp_projection(conn, rule_id: Optional[int], as_of: datetime) -> dict[
                        cv.v
                    ) AS d
             FROM alerts a
-            LEFT JOIN alert_labels l ON l.alert_id = a.id
+            LEFT JOIN LATERAL (
+                SELECT label
+                FROM alert_labels
+                WHERE alert_id = a.id
+                ORDER BY labeled_at DESC
+                LIMIT 1
+            ) l ON TRUE
             LEFT JOIN LATERAL (
                 SELECT ce.payload->>'verdict' AS v
                 FROM case_events ce

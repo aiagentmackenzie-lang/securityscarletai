@@ -78,7 +78,13 @@ async def fetch_adjudicated_exemplars(
                 ) AS disposition,
                 cv.rationale
             FROM alerts a
-            LEFT JOIN alert_labels l ON l.alert_id = a.id
+            LEFT JOIN LATERAL (
+                SELECT label
+                FROM alert_labels
+                WHERE alert_id = a.id
+                ORDER BY labeled_at DESC
+                LIMIT 1
+            ) l ON TRUE
             LEFT JOIN LATERAL (
                 SELECT ce.payload->>'verdict' AS v,
                        ce.payload->>'rationale' AS rationale
@@ -150,7 +156,13 @@ async def outcome_for_alert(alert_id: int) -> dict[str, Any] | None:
                     cv.v
                 ) AS disposition
             FROM alerts a
-            LEFT JOIN alert_labels l ON l.alert_id = a.id
+            LEFT JOIN LATERAL (
+                SELECT label
+                FROM alert_labels
+                WHERE alert_id = a.id
+                ORDER BY labeled_at DESC
+                LIMIT 1
+            ) l ON TRUE
             LEFT JOIN LATERAL (
                 SELECT ce.payload->>'verdict' AS v
                 FROM case_events ce
@@ -227,7 +239,13 @@ async def _dispositions_for_alerts(alert_ids: list[int]) -> dict[int, Any | None
                        cv.v
                    ) AS disposition
             FROM alerts a
-            LEFT JOIN alert_labels l ON l.alert_id = a.id
+            LEFT JOIN LATERAL (
+                SELECT label
+                FROM alert_labels
+                WHERE alert_id = a.id
+                ORDER BY labeled_at DESC
+                LIMIT 1
+            ) l ON TRUE
             LEFT JOIN LATERAL (
                 SELECT ce.payload->>'verdict' AS v
                 FROM case_events ce

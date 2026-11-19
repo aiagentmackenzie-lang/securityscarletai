@@ -324,3 +324,61 @@ class TestScorecardEndpoint:
         kwargs = mock_fn.await_args.kwargs
         assert kwargs["window_hours"] == 720
         assert "as_of" in kwargs
+
+
+# ───────────────────────────────────────────────────────────────
+# SS-053 — fp_ratio must not count undecided alerts
+# ───────────────────────────────────────────────────────────────
+
+
+class TestFpRatioDenominator:
+    """`needs_review` is in _VERDICT_TOKENS, so 100 undecided alerts and zero
+    FPs produced fp_ratio = 0/100 = 0.0 — a "measured" zero that reads as
+    perfect precision. The denominator is adjudicated dispositions only."""
+
+    def test_needs_review_does_not_dilute_the_ratio(self):
+        from src.detection.scorecard import _row_to_metrics
+
+        row = _metric_row("r1", 100, 100, AS_OF, disp=100, tp=0, fp=0, benign=0, nr=100)
+        m = _row_to_metrics(row)
+        assert m["fp_ratio"] is None, "an undecided set has no measurable FP ratio"
+        assert m["needs_review"] == 100
+
+    def test_ratio_uses_true_plus_false_positives(self):
+        from src.detection.scorecard import _row_to_metrics
+
+        # 10 adjudicated: 7 TP + 3 FP -> 30%, regardless of 50 undecided.
+        row = _metric_row("r2", 60, 60, AS_OF, disp=60, tp=7, fp=3, benign=0, nr=50)
+        m = _row_to_metrics(row)
+        assert m["fp_ratio"] == pytest.approx(0.3)
+
+    def test_benign_does_not_dilute_either(self):
+        from src.detection.scorecard import _row_to_metrics
+
+        row = _metric_row("r3", 20, 20, AS_OF, disp=20, tp=1, fp=1, benign=18)
+        m = _row_to_metrics(row)
+        assert m["fp_ratio"] == pytest.approx(0.5)
+
+    def test_no_dispositions_means_no_ratio(self):
+        from src.detection.scorecard import _row_to_metrics
+
+        m = _row_to_metrics(_metric_row("r4", 5, 5, AS_OF, disp=0, tp=0, fp=0))
+        assert m["fp_ratio"] is None
+
+
+class TestAlertLabelsJoinIsOnePerAlert:
+    """SS-052: alert_labels is UNIQUE(alert_id, label), so an alert can carry
+    two labels; a plain join duplicated the alert (inflating fires and
+    dispositions) and COALESCE picked a non-deterministic label."""
+
+    @pytest.mark.asyncio
+    async def test_scorecard_uses_a_lateral_latest_label(self):
+        conn = _mock_conn([], [], [])
+        with patch("src.detection.scorecard.get_pool", return_value=_pool_mock(conn)):
+            await compute_rule_scorecard(as_of=AS_OF)
+
+        for call in conn.fetch.call_args_list:
+            sql = call.args[0]
+            if "alert_labels" in sql:
+                assert "LEFT JOIN LATERAL" in sql and "ORDER BY labeled_at" in sql
+                assert "LEFT JOIN alert_labels l ON l.alert_id = a.id" not in sql
