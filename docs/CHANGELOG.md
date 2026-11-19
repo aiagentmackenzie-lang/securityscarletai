@@ -8,6 +8,43 @@ fix was re-verified against `4ad5f21` before any code changed, and every S2 fix
 carries a regression test that fails on the old code. Public behaviour changes
 an operator sees:**
 
+### Wave F — API / perf / hygiene
+
+- **NL→SQL cannot be made unbounded (SS-030):** `LIMIT ALL` / `LIMIT NULL` are
+  rewritten to the 1000-row cap instead of fetching the whole result set, and
+  execution errors return a generic message plus a ref id (SS-032).
+- **Metric labels are bounded by the route table (SS-033):** unmatched paths
+  become `{unmatched}`; a scanner generating arbitrary 404s can no longer grow
+  the Prometheus registry (unauthenticated memory-DoS).
+- **Forwarded headers are untrusted on a published port (SS-034):** the
+  dev/demo compose now sets `UVICORN_FORWARDED_ALLOW_IPS=""`, the prod and
+  local-prod overlays set the compose CIDR explicitly, and the entrypoint
+  honours an explicit empty value. The false "LAN peers are safe" comment is
+  gone. Prod Caddy is unchanged (it already overwrites X-Forwarded-For).
+- **Retention backlog is bounded and visible (SS-027):** each sweep honours a
+  wall-clock budget and reports `scarletai_retention_backlog_remaining` + a WARN
+  instead of silently falling behind forever.
+- **A disconnected body is refused, not truncated (SS-035).**
+- **WebSocket tokens are swept (SS-041)** on mint and lazily on validation.
+- **The first-boot admin password is not printed (SS-042):** stdout is
+  `docker logs`; the 0600 `data/admin_initial_password` file is the handoff.
+- **Server-side statement timeout (SS-028):** the pool sets
+  `statement_timeout` (`DB_STATEMENT_TIMEOUT_MS`, default 30 s).
+- **UTC timestamps (SS-031):** `calculation_time` in the risk response.
+- **A PROD boot asserts `DOCS_ENABLED=false` (SS-002)**, instead of leaving the
+  OpenAPI surface to a documented manual check.
+- **`database_url` uses RFC 3986 encoding (SS-001):** a password with a space no
+  longer becomes `+` and breaks every DSN consumer.
+- **Fleet enrollment is an atomic upsert (SS-059):** concurrent enrolls of a new
+  host return an idempotent rotate instead of 500.
+- **The reverse-DNS executor is shut down (SS-060)** in lifespan shutdown.
+- **Compliance objectives are validated (SS-061):** CSR tiers A–D and NIST CSF
+  functions; an unknown objective is dropped with a warning.
+- **Naive datetimes are refused (SS-063):** an ingested `@timestamp` and the
+  `audit`/`correlation` query bounds must carry an offset (422 / validation
+  error) instead of being interpreted in the host's local timezone.
+- **A duplicate rule name returns 409 (SS-064)** instead of 500.
+
 ### Wave E — DB scope / MCP / compliance
 
 - **Grant verification sees inherited privileges (SS-036/SS-037):** both
