@@ -8,6 +8,43 @@ fix was re-verified against `4ad5f21` before any code changed, and every S2 fix
 carries a regression test that fails on the old code. Public behaviour changes
 an operator sees:**
 
+### Wave C — auth / governance
+
+- **HITL can no longer be recorded against a nonexistent draft (SS-003):** a
+  run row is born `hitl_state='required'` while `status='running'`, and the
+  endpoint only checked the state. A decision now requires
+  `status='completed'` AND a non-null `verdict_draft`; the CAS in
+  `record_hitl_decision` repeats both conditions; and finalization CASes
+  `hitl_state` so a `confirmed`/`rejected` decision is never overwritten (the
+  old code silently reset it to `required` while the audit chain kept the
+  decision).
+- **Revocation is millisecond-precise (SS-004):** the marker was truncated to
+  whole seconds and compared with `<`, so a token issued in the same second as
+  a password change survived it. Markers are stored in milliseconds (legacy
+  second-resolution markers are normalised on read) and compared with
+  `iat_ms <= revoke_ms`. **Operator note:** a rolling deploy is safe in both
+  directions.
+- **No credential bytes in logs (SS-005):** the JWT verify-failure path logged
+  `credentials[:20]`, which leaked a static-bearer prefix when a client sent
+  the static token to a JWT-only route. It logs a length + sha256 fingerprint
+  now.
+- **Last-admin guard (SS-006):** a PATCH that would deactivate or demote the
+  only active admin is refused with 400. The count runs inside the same
+  transaction under an advisory lock, so two concurrent demotions cannot both
+  pass.
+- **Honest logout (SS-007):** logout reported "Logged out" even when the
+  blocklist write failed (Redis down), leaving the token live. The response now
+  carries `revoked: true/false`; a failed write returns 503 with
+  `revoked: false` and a retry message.
+- **Refresh rotation is atomic (SS-008):** `SET NX` claims the old refresh jti,
+  so two concurrent `/auth/refresh` calls can no longer mint two valid pairs
+  from one token; the loser gets 401.
+- **NL→SQL sessions are per-analyst (SS-009):** conversation context is keyed
+  by `(user, session_id)`. A session id presented by a different analyst is no
+  longer inherited (IDOR on analyst context / context poisoning).
+- **Fleet last-seen map is bounded (SS-010):** 10k hosts, oldest-first
+  eviction, instead of growing forever.
+
 ### Wave B — telemetry pipe
 
 - **The shipper streams the results log (SS-011):** the unbounded `f.read()`
