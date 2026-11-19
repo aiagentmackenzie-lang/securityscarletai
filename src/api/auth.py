@@ -107,7 +107,17 @@ async def verify_jwt(
             algorithms=[JWT_ALGORITHM],
         )
     except JWTError as e:
-        log.warning("jwt_verify_failed", error=str(e), token_preview=credentials.credentials[:20])
+        # SS-005: never log raw credential bytes. `[:20]` of a JWT is only the
+        # header, but this endpoint also accepts the STATIC bearer as a
+        # fallback — a client sending that token here had its first 20 secret
+        # characters written to the log. Log a fingerprint + length instead,
+        # which is enough to correlate a failing client without exposing it.
+        log.warning(
+            "jwt_verify_failed",
+            error=str(e),
+            token_len=len(credentials.credentials),
+            token_fingerprint=hashlib.sha256(credentials.credentials.encode()).hexdigest()[:12],
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",

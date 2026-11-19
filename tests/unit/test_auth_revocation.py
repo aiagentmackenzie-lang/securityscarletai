@@ -839,3 +839,30 @@ def create_access_token_with_iat(username: str, iat: int) -> str:
     return jose_jwt.encode(
         claims, settings.api_secret_key.get_secret_value(), algorithm=JWT_ALGORITHM
     )
+
+
+# ───────────────────────────────────────────────────────────────
+# SS-005 — no raw credential bytes in logs
+# ───────────────────────────────────────────────────────────────
+
+
+class TestNoCredentialBytesInLogs:
+    @pytest.mark.asyncio
+    async def test_failed_verify_logs_fingerprint_not_the_token(self):
+        """`token_preview=credentials[:20]` leaked a static bearer prefix when
+        a client sent the static token to a JWT-only route."""
+        from src.api.auth import verify_jwt
+
+        secret = "STATIC-BEARER-SECRET-VALUE-0123456789"
+        creds = MagicMock()
+        creds.credentials = secret
+        with patch("src.api.auth.log") as log:
+            with pytest.raises(HTTPException):
+                await verify_jwt(creds)  # type: ignore[arg-type]
+
+        logged = repr(log.warning.call_args)
+        assert "STATIC-BEARER" not in logged
+        assert "token_preview" not in logged
+        kwargs = log.warning.call_args.kwargs
+        assert kwargs.get("token_len") == len(secret)
+        assert len(kwargs.get("token_fingerprint", "")) == 12
