@@ -48,6 +48,13 @@ async def get_pool() -> asyncpg.Pool:
                             min_size=settings.db_pool_min,
                             max_size=settings.db_pool_max,
                             command_timeout=30,
+                            # SS-028: authoritative server-side bound (see
+                            # settings.db_statement_timeout_ms). Applies to
+                            # every statement on every pooled connection, so a
+                            # runaway query cannot outlive its client.
+                            server_settings={
+                                "statement_timeout": str(settings.db_statement_timeout_ms)
+                            },
                         )
                         log.info("pool_created", host=settings.db_host, db=settings.db_name)
                         break

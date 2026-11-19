@@ -5,7 +5,7 @@ with a clear error message -- not a silent None that blows up later.
 """
 
 from typing import Annotated, Optional
-from urllib.parse import quote_plus
+from urllib.parse import quote
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     db_password: str = Field(..., description="Database password -- required, no default")
     db_pool_min: int = 2
     db_pool_max: int = 10
+    # SS-028: server-side statement timeout. NL→SQL relied on
+    # asyncio.wait_for for cancellation; asyncpg asks the server to cancel, but
+    # the server query can outlive the client and a pool connection can be left
+    # unusable. A server-side bound makes the limit authoritative.
+    db_statement_timeout_ms: int = 30_000
 
     @property
     def database_url(self) -> str:
@@ -36,9 +41,14 @@ class Settings(BaseSettings):
         # strip the "+asyncpg" driver suffix; raw asyncpg DSNs accept the
         # percent-encoded form. get_pool() uses keyword args instead, but any
         # DSN consumer (seeders, scripts) needs this to be safe.
+        # SS-001: `quote` (RFC 3986 path/userinfo encoding), NOT `quote_plus`.
+        # quote_plus is query-string encoding: a space becomes '+', which
+        # asyncpg reads literally, so every DSN consumer (seeders, scripts,
+        # DATABASE_URL tooling) failed auth on a password containing a space.
+        user = quote(self.db_user, safe="")
+        password = quote(self.db_password, safe="")
         return (
-            f"postgresql+asyncpg://{quote_plus(self.db_user)}:{quote_plus(self.db_password)}"
-            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+            f"postgresql+asyncpg://{user}:{password}@{self.db_host}:{self.db_port}/{self.db_name}"
         )
 
     # --- Redis ---

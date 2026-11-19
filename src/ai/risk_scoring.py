@@ -8,7 +8,7 @@ Combines multiple signals into unified risk scores for:
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from src.config.logging import get_logger
@@ -205,7 +205,7 @@ class RiskScorer:
                 "exposure_score": round(factors.exposure_score, 2),
             },
             "open_high_critical_alerts": open_alerts or 0,
-            "calculation_time": datetime.now().isoformat(),
+            "calculation_time": datetime.now(timezone.utc).isoformat(),
         }
 
     @staticmethod

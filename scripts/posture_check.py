@@ -133,11 +133,34 @@ def check_shipper_in_demo(env: dict) -> Optional[Problem]:
     return None
 
 
+def _docs_disabled_problem(env: dict) -> Problem | None:
+    """SS-002: a PROD boot must not serve the OpenAPI surface.
+
+    `docs_enabled` defaults True; the prod overlay sets it false, but nothing
+    ASSERTED it — a prod boot without the overlay served the full endpoint map
+    to anyone. The manual check in the docs is now a boot assertion.
+    """
+    if not any(env.get(marker) for marker in PROD_MARKERS):
+        return None  # dev/demo posture: docs are fine
+    if _truthy(env.get("DOCS_ENABLED")):
+        return Problem(
+            "docs_enabled",
+            "DOCS_ENABLED is true on a PROD boot (PASSWORD_PEPPER/"
+            "DATABASE_SUPERUSER_URL set): /api/docs would expose the endpoint "
+            "map. Set DOCS_ENABLED=false (the prod overlays do).",
+        )
+    return None
+
+
 async def run_checks(env: dict, conn=None) -> list[Problem]:
     """Run the environment-level checks; volume check only when a conn is given."""
     problems: list[Problem] = []
     posture = detect_posture(env)
     log.info("posture_detected", posture=posture)
+    docs_problem = _docs_disabled_problem(env)
+    if docs_problem is not None:
+        problems.append(docs_problem)
+
     # The conflict checks run REGARDLESS of the classified posture: an
     # ambiguous environment (demo flag + prod markers, or demo flag +
     # real-telemetry shipper) must fail loudly rather than pick a mode.
