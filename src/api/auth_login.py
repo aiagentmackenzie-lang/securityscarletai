@@ -70,6 +70,9 @@ class LogoutRequest(BaseModel):
 
 class LogoutResponse(BaseModel):
     message: str = "Logged out"
+    # SS-007: the honest bit. False means the blocklist write failed and the
+    # token is still live — the client must not tell the user "logged out".
+    revoked: bool = True
 
 
 class ChangePasswordRequest(BaseModel):
@@ -512,11 +515,20 @@ async def refresh_token(request: RefreshRequest):
             },
         )
 
-    # Rotate: block old refresh, issue new pair.
-    from src.api.redis_client import blocklist_jti
+    # Rotate: claim the old refresh jti ATOMICALLY, then issue the new pair.
+    # SS-008: `setex` always succeeds, so two concurrent refreshes could both
+    # pass the decode and both mint a pair from one token. SET NX lets exactly
+    # one caller win; the loser's token is already used.
+    from src.api.redis_client import blocklist_jti_once
 
     if jti:
-        await blocklist_jti(jti, _settings.refresh_token_ttl_days * 24 * 3600)
+        claimed = await blocklist_jti_once(jti, _settings.refresh_token_ttl_days * 24 * 3600)
+        if not claimed:
+            log.warning("refresh_token_reuse_refused", username=sub)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token already used (rotation claim lost)",
+            )
 
     new_access = create_jwt(row["username"], row["role"])
     new_refresh = create_refresh_token(row["username"], row["role"])
@@ -557,7 +569,24 @@ async def logout(payload: dict = Depends(verify_jwt), body: LogoutRequest | None
     from src.config.settings import settings as _settings
 
     ttl = _settings.access_token_ttl_minutes * 60
-    await blocklist_jti(jti, ttl)
+    revoked = await blocklist_jti(jti, ttl)
+    if not revoked:
+        # SS-007: never claim a revocation that did not happen. Redis being
+        # down means the token stays valid; say so and let the client retry
+        # (or clear local state and warn the user).
+        log.error("logout_revocation_failed", username=payload.get("sub"))
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "revoked": False,
+                "message": (
+                    "Token could not be revoked (revocation store unavailable). "
+                    "The session may still be valid — retry logout."
+                ),
+            },
+        )
 
     # W1-D: optional refresh-token revocation. Same verification /auth/refresh
     # uses (decode + type=refresh), plus a sub-match against the presented
@@ -592,4 +621,4 @@ async def logout(payload: dict = Depends(verify_jwt), body: LogoutRequest | None
             )
 
     log.info("user_logout", username=payload.get("sub"))
-    return LogoutResponse()
+    return LogoutResponse(revoked=True)

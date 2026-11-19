@@ -148,6 +148,29 @@ async def blocklist_jti(jti: str, ttl_seconds: int) -> bool:
         return False
 
 
+async def blocklist_jti_once(jti: str, ttl_seconds: int) -> bool:
+    """Atomically claim a jti for the blocklist (SET NX). Returns True if THIS
+    caller made the claim.
+
+    SS-008: refresh rotation used `setex`, which always succeeds, so two
+    concurrent /auth/refresh calls both decoded the old token before either
+    wrote the blocklist entry and both minted a new access+refresh pair from
+    one refresh token. SET NX makes the check-and-claim atomic: exactly one
+    caller wins, the loser treats the token as already used.
+    """
+    client = await _get_client()
+    if client is None:
+        return False
+    try:
+        claimed = await client.set(
+            f"{_KEY_PREFIX}jwt_blocklist:{jti}", "1", ex=ttl_seconds, nx=True
+        )
+        return bool(claimed)
+    except Exception as e:
+        log.warning("redis_blocklist_nx_failed", error=str(e))
+        return False
+
+
 async def is_jti_blocked(jti: str) -> bool:
     """Check if a jti is in the blocklist. Returns False on Redis error (fail-open)."""
     client = await _get_client()

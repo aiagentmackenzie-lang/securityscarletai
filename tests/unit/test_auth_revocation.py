@@ -14,6 +14,7 @@ Tests use fakeredis to avoid requiring a live Redis server.
 
 from __future__ import annotations
 
+import json
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -43,6 +44,15 @@ class _FakeRedis:
     async def setex(self, key: str, ttl: int, value: str) -> None:
         self._kv[key] = value
         self._ttls[key] = ttl
+
+    async def set(self, key: str, value: str, ex: int | None = None, nx: bool = False):
+        """SS-008: SET NX is the atomic rotation claim."""
+        if nx and key in self._kv:
+            return None
+        self._kv[key] = value
+        if ex is not None:
+            self._ttls[key] = ex
+        return True
 
     async def get(self, key: str) -> str | None:
         # F-09: single-key revoke reads via GET
@@ -866,3 +876,74 @@ class TestNoCredentialBytesInLogs:
         kwargs = log.warning.call_args.kwargs
         assert kwargs.get("token_len") == len(secret)
         assert len(kwargs.get("token_fingerprint", "")) == 12
+
+
+# ───────────────────────────────────────────────────────────────
+# SS-007 — logout must not claim a revocation that did not happen
+# ───────────────────────────────────────────────────────────────
+
+
+class TestLogoutHonesty:
+    @pytest.mark.asyncio
+    async def test_logout_reports_revoked_true_on_success(self):
+        from src.api import auth_login
+
+        with patch.object(auth_login, "blocklist_jti", AsyncMock(return_value=True), create=True):
+            with patch("src.api.redis_client.blocklist_jti", AsyncMock(return_value=True)):
+                resp = await auth_login.logout({"sub": "alice", "jti": "j1"})
+        assert resp.revoked is True
+        assert resp.message == "Logged out"
+
+    @pytest.mark.asyncio
+    async def test_logout_does_not_claim_success_when_redis_failed(self):
+        """With Redis down the token stays valid — the old code still said
+        'Logged out' and the UI told the user the session was dead."""
+        from src.api import auth_login
+
+        with patch("src.api.redis_client.blocklist_jti", AsyncMock(return_value=False)):
+            result = await auth_login.logout({"sub": "alice", "jti": "j1"})
+
+        body = json.loads(result.body)
+        assert result.status_code == 503
+        assert body["revoked"] is False
+        assert body["message"] != "Logged out"
+
+
+# ───────────────────────────────────────────────────────────────
+# SS-008 — refresh rotation reuse race
+# ───────────────────────────────────────────────────────────────
+
+
+class TestRefreshRotationIsAtomic:
+    @pytest.mark.asyncio
+    async def test_second_use_of_the_same_refresh_token_is_refused(self):
+        """Two concurrent /auth/refresh calls both decoded before either
+        blocklisted the old jti, minting two valid pairs from one token."""
+        from src.api import auth_login
+        from src.api.auth import create_refresh_token
+
+        refresh = create_refresh_token("ivy", "analyst")
+        row = {"username": "ivy", "role": "analyst", "is_active": True,
+               "must_change_password": False}  # fmt: skip
+
+        class _Pool:
+            def acquire(self):
+                ctx = MagicMock()
+                conn = AsyncMock()
+                conn.fetchrow = AsyncMock(return_value=row)
+                ctx.__aenter__ = AsyncMock(return_value=conn)
+                ctx.__aexit__ = AsyncMock(return_value=None)
+                return ctx
+
+        # First claim wins, the second loses the SET NX.
+        claims = AsyncMock(side_effect=[True, False])
+        with (
+            patch.object(auth_login, "get_pool", AsyncMock(return_value=_Pool()), create=True),
+            patch("src.api.redis_client.is_jti_blocked", AsyncMock(return_value=False)),
+            patch("src.api.redis_client.blocklist_jti_once", claims, create=True),
+        ):
+            first = await auth_login.refresh_token(auth_login.RefreshRequest(refresh_token=refresh))
+            assert first.access_token
+            with pytest.raises(HTTPException) as exc:
+                await auth_login.refresh_token(auth_login.RefreshRequest(refresh_token=refresh))
+        assert exc.value.status_code == 401
