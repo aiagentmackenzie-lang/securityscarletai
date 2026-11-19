@@ -251,14 +251,116 @@ _UUID_RE = re.compile(
 )
 
 
+# SS-033: metric-label cardinality control.
+#
+# `path_class` used to keep every non-numeric, non-UUID segment literally, so
+# each unique `GET /<random letters>` (a 404) created PERMANENT keys in both
+# the request Counter and the latency Histogram. With many source IPs (or a
+# spoofable posture) that is an unauthenticated memory-DoS.
+#
+# The fix classifies against the app's OWN route table: a path that matches a
+# real route template becomes that template with its parameters collapsed
+# ({id} / {user}); anything else becomes {unmatched}. Cardinality is therefore
+# bounded by the number of routes, not by the number of paths an attacker can
+# invent. A last-resort allowlist covers the window before the app is built
+# (and any import failure).
+UNMATCHED_PATH_LABEL = "/{unmatched}"
+_ALLOWLIST_ROOTS = frozenset({"api", "health", "metrics", "docs", "openapi.json", "redoc", "ws"})
+_PARAM_RE = re.compile(r"\{([^}]+)\}")
+_route_templates: list[tuple[re.Pattern[str], str]] | None = None
+
+
+def _label_for_param(name: str) -> str:
+    """{user} for identity-shaped params, {id} for everything else."""
+    lowered = name.lower()
+    if lowered in {"username", "user", "email", "name"} or lowered.endswith("_name"):
+        return "{user}"
+    return "{id}"
+
+
+def _template_label(path_template: str) -> str:
+    def repl(match: re.Match[str]) -> str:
+        return _label_for_param(match.group(1))
+
+    return _PARAM_RE.sub(repl, path_template)
+
+
+def _iter_routes(routes, prefix: str = ""):
+    """Yield the full path template for every route, resolving included routers.
+
+    fastapi >= 0.141 wraps include_router() results in _IncludedRouter
+    objects: the mount prefix lives in include_context.prefix and the UNPREFIXED
+    routes live in original_router.routes. Both their ``.path`` and their
+    ``path_regex`` are unprefixed, so the prefix is applied here.
+    """
+    for route in routes:
+        if type(route).__name__ == "_IncludedRouter":
+            sub_prefix = prefix + (getattr(route.include_context, "prefix", "") or "")
+            yield from _iter_routes(route.original_router.routes, sub_prefix)
+            continue
+        path = getattr(route, "path", None)
+        if path is None:
+            continue
+        yield prefix + path
+
+
+def _compile_template(template: str) -> "re.Pattern[str]":
+    """Compile a route template ('/api/v1/alerts/{alert_id}') into a matcher."""
+    pattern = ""
+    for part in re.split(r"(\{[^}]+\})", template):
+        if part.startswith("{") and part.endswith("}"):
+            pattern += "[^/]+"
+        else:
+            pattern += re.escape(part)
+    return re.compile("^" + pattern + "$")
+
+
+def _route_table() -> list[tuple["re.Pattern[str]", str]]:
+    """Compile (regex, label) once from the live app route table."""
+    global _route_templates
+    if _route_templates is not None:
+        return _route_templates
+    table: list[tuple[re.Pattern[str], str]] = []
+    try:
+        from src.api.main import app
+
+        for template in _iter_routes(app.routes):
+            table.append((_compile_template(template), _template_label(template)))
+    except Exception as e:  # pragma: no cover — metrics must never break
+        log.debug("metrics_route_table_unavailable", error=str(e))
+    _route_templates = table
+    return table
+
+
+def reset_route_table_cache() -> None:
+    """Test seam: force a recompile (the app's routes can be swapped per test)."""
+    global _route_templates
+    _route_templates = None
+
+
 def path_class(path: str) -> str:
     """Normalize a URL path to a low-cardinality label value.
 
-    Numeric and UUID segments become {id}; segments containing '@' or '.'
-    (usernames, emails) become {user}. Everything else is kept literally.
+    Matches the request against the app's route table; a real route yields its
+    template with parameters collapsed, everything else yields {unmatched}.
     """
+    query = path.split("?", 1)[0]
+    table = _route_table()
+    for regex, label in table:
+        if regex.match(query):
+            return label
+    if table:
+        # The app knows its routes and this is not one of them: a 404 (or a
+        # scanner) must not mint a label.
+        return UNMATCHED_PATH_LABEL
+
+    # Fallback (no route table available): keep the historical per-segment
+    # normalization, but only for paths that at least start with a known root.
+    non_empty = [seg for seg in query.split("/") if seg]
+    if non_empty and non_empty[0] not in _ALLOWLIST_ROOTS:
+        return UNMATCHED_PATH_LABEL
     parts: list[str] = []
-    for seg in path.split("/"):
+    for seg in query.split("/"):
         if seg.isdigit() or _UUID_RE.match(seg):
             parts.append("{id}")
         elif "@" in seg or "." in seg:

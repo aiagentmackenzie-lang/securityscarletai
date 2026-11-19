@@ -120,8 +120,8 @@ class TestPathClass:
 
     def test_uuid_segment(self):
         assert (
-            path_class("/api/v1/correlation/matches/550e8400-e29b-41d4-a716-446655440000")
-            == "/api/v1/correlation/matches/{id}"
+            path_class("/api/v1/correlation/matches/550e8400-e29b-41d4-a716-446655440000/seen")
+            == "/api/v1/correlation/matches/{id}/seen"
         )
 
     def test_user_segment(self):
@@ -376,3 +376,28 @@ class TestWriterProperties:
             assert w.buffer_depth == 2
             await w.flush()
             assert w.buffer_depth == 0
+
+
+class TestPathClassCardinality:
+    """SS-033: an unauthenticated 404 must not mint a permanent metric label."""
+
+    def test_arbitrary_path_is_unmatched(self):
+        assert path_class("/randomAAAA") == "/{unmatched}"
+
+    def test_unknown_route_under_a_known_prefix_is_unmatched(self):
+        assert path_class("/api/v1/totally-not-a-route") == "/{unmatched}"
+
+    def test_deep_garbage_is_unmatched(self):
+        assert path_class("/api/v1/alerts/../etc/passwd") == "/{unmatched}"
+
+    def test_label_set_does_not_grow_with_random_paths(self):
+        from src.api.metrics import METRICS
+
+        counter = METRICS.counter("scarletai_test_cardinality_total", "test only")
+        for i in range(50):
+            counter.inc(method="GET", path_class=path_class(f"/garbage{i}"), status="404")
+        assert len(counter.values) == 1
+
+    def test_known_routes_keep_their_shape(self):
+        assert path_class("/api/v1/alerts/42") == "/api/v1/alerts/{id}"
+        assert path_class("/api/v1/ingest") == "/api/v1/ingest"
