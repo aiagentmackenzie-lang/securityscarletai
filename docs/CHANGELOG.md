@@ -8,6 +8,46 @@ fix was re-verified against `4ad5f21` before any code changed, and every S2 fix
 carries a regression test that fails on the old code. Public behaviour changes
 an operator sees:**
 
+### Wave B — telemetry pipe
+
+- **The shipper streams the results log (SS-011):** the unbounded `f.read()`
+  that OOM-killed the API after a downtime (2026-09-23: 1.03 GB) is replaced by
+  8 MB chunks with a line-boundary carry. Peak memory is one chunk plus one
+  line; a single line over 64 MB is dropped loudly. Checkpoint/at-least-once
+  semantics unchanged.
+- **No more 1970 events (SS-012):** a missing `unixTime` now resolves
+  `calendarTime`, and zero/negative is treated as absent. With no clock at all
+  the event is kept and stamped now(UTC) with a warning instead of being
+  written at the epoch (invisible to every windowed detector, deleted by
+  retention).
+- **The parser's never-raise contract covers construction (SS-013):** a
+  non-string column (`user: {}`) used to raise out of the parser, 500 the
+  `/ingest/osquery` request and drop the whole batch. The poison line is logged
+  and skipped, the rest of the batch is ingested. No coercion.
+- **IPs are validated before the INET columns (SS-014):** one junk address
+  (`not-an-ip`, a hostname, `10.1.1.999`) made asyncpg reject the entire batch,
+  which then re-failed on every dead-letter replay. Invalid addresses now ship
+  as NULL with a warning and the event is kept.
+- **SSF answers 202 only after a confirmed flush (SS-015):** the endpoint
+  promised durability before the response but returned 202 with the event still
+  in the writer buffer. On a flush failure the `(issuer, jti)` replay claim is
+  released and the SET is refused with 503 so the IdP retry is not mistaken for
+  a replay.
+- **Every flush failure is dead-lettered (SS-016):** a serialisation error used
+  to escape with the batch already removed from the buffer — silent loss.
+- **Dead-letter replay is per row (SS-040):** a poison row no longer
+  re-dead-letters the whole batch forever. Rejected rows go to
+  `data/dead_letter/quarantine/<date>.jsonl` with an `attempts` counter; good
+  rows in the same file still land; a connection outage leaves the file for the
+  next boot.
+- **The durable-stream loss bound is stated and measured (SS-050):** the docs
+  no longer claim "never lost" while approximate MAXLEN can trim un-persisted
+  entries. Trimmed entries are exported as
+  `scarletai_durable_stream_evicted_total` (upper bound) with a WARN per
+  increase. Default `max_stream_length` unchanged.
+- **`/ingest/osquery` enforces a JSON Content-Type (SS-017):** 415 on anything
+  else, matching the documented ingestion contract.
+
 ### Wave A — audit / ops truth
 
 - **Watchdog alerts survive the degraded state (SS-043):** the Slack payload is
