@@ -65,6 +65,14 @@ GRANT USAGE, SELECT ON
 -- ROLE clause: the role executing this script IS the owner in the two-role
 -- posture, so the default privileges attach to it (matches the standing
 -- volume's existing pg_default_acl).
+--
+-- SS-056 (OPEN OWNER DECISION): this blanket grant means any table the owner
+-- creates later — a credential store, a token table, a future tenant table —
+-- is readable by the MCP role WITHOUT REVIEW. The verifier now fails closed on
+-- any SELECT outside the tool contract, so such a table is at least detected;
+-- removing the default privilege and granting new tables explicitly is the
+-- recommended end state and is deliberately NOT applied here (a provisioning
+-- change needs owner approval — see the bug-sweep ledger).
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT SELECT ON TABLES TO :"role";
 
