@@ -151,7 +151,9 @@ async def query_request_audit(
     # validation instead of 500ing on the ::timestamptz cast in the query.
     since: Optional[datetime] = Query(None, description="ISO timestamp lower bound"),
     until: Optional[datetime] = Query(None, description="ISO timestamp upper bound"),
-    limit: int = Query(100, le=1000, description="Max results to return"),
+    # SS-047: ge=1 — PostgreSQL reads a negative LIMIT as LIMIT ALL, so
+    # `?limit=-1` dumped the entire append-only audit table in one response.
+    limit: int = Query(100, ge=1, le=1000, description="Max results to return"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     _user: dict = Depends(require_role("analyst")),
 ):
@@ -201,7 +203,9 @@ async def query_audit_log(
     action: Optional[str] = Query(None, description="Filter by action type"),
     actor: Optional[str] = Query(None, description="Filter by actor username"),
     target_type: Optional[str] = Query(None, description="Filter by target type"),
-    limit: int = Query(100, le=1000, description="Max results to return"),
+    # SS-047: ge=1 — PostgreSQL reads a negative LIMIT as LIMIT ALL, so
+    # `?limit=-1` dumped the entire append-only audit table in one response.
+    limit: int = Query(100, ge=1, le=1000, description="Max results to return"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     user: dict = Depends(require_role("analyst")),
 ):

@@ -397,3 +397,52 @@ class TestAuditLogMiddleware:
         kwargs = mock_audit.call_args.kwargs
         assert kwargs["user"] is None
         assert kwargs["status_code"] == 401
+
+
+class TestAuditLimitBounds:
+    """SS-047: `limit=-1` must not mean "no limit".
+
+    PostgreSQL treats a negative LIMIT as LIMIT ALL, so `GET /audit?limit=-1`
+    dumped the entire append-only audit table to any analyst in one response.
+    The bound is enforced at the API boundary (ge=1).
+    """
+
+    @staticmethod
+    def _client():
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from src.api.audit import router as audit_router
+
+        app = FastAPI()
+        app.include_router(audit_router, prefix="/api/v1")
+        app.dependency_overrides = {}
+        return app, TestClient(app, raise_server_exceptions=False)
+
+    @staticmethod
+    def _get(path: str, params: dict) -> int:
+        from unittest.mock import AsyncMock
+
+        app, client = TestAuditLimitBounds._client()
+        with patch(
+            "src.api.auth.get_current_user",
+            AsyncMock(return_value={"sub": "tester", "role": "analyst"}),
+        ):
+            r = client.get(
+                path,
+                params=params,
+                headers={"Authorization": "Bearer rbac-bypass-token"},
+            )
+        return int(r.status_code)
+
+    def test_audit_log_rejects_negative_limit(self):
+        assert self._get("/api/v1/audit", {"limit": -1}) == 422
+
+    def test_audit_requests_rejects_negative_limit(self):
+        assert self._get("/api/v1/audit/requests", {"limit": -1}) == 422
+
+    def test_zero_limit_rejected(self):
+        assert self._get("/api/v1/audit", {"limit": 0}) == 422
+
+    def test_upper_bound_still_enforced(self):
+        assert self._get("/api/v1/audit", {"limit": 1001}) == 422
