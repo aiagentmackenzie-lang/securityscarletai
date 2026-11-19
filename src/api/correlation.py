@@ -128,7 +128,11 @@ def _parse_as_of(as_of) -> datetime:
         return datetime.now(tz=timezone.utc)
     s = as_of.replace("Z", "+00:00")
     try:
-        return datetime.fromisoformat(s)
+        parsed = datetime.fromisoformat(s)
+        # SS-063: a naive as_of was interpreted in the host's local timezone.
+        from src.api._datetime import require_aware
+
+        return require_aware(parsed, field="as_of")
     except ValueError as e:
         raise HTTPException(
             status_code=400,

@@ -10,8 +10,9 @@ import json
 from datetime import datetime
 from typing import Optional, cast
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from src.api._datetime import require_aware
 from src.api.auth import require_role
 from src.config.logging import get_logger
 from src.db.connection import get_pool
@@ -163,6 +164,12 @@ async def query_request_audit(
     /api/v1/audit). This endpoint exposes the request-level audit added
     in Epic 6.
     """
+    try:
+        since = require_aware(since, field="since") if since else None
+        until = require_aware(until, field="until") if until else None
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
     pool = await get_pool()
     async with pool.acquire() as conn:
         conditions = ["1=1"]
@@ -177,11 +184,12 @@ async def query_request_audit(
         if path:
             params.append(path)
             conditions.append(f"path = ${len(params)}")
+        # SS-063: a naive bound would be bound in the server's local timezone.
         if since:
-            params.append(since)
+            params.append(require_aware(since, field="since"))
             conditions.append(f"timestamp >= ${len(params)}::timestamptz")
         if until:
-            params.append(until)
+            params.append(require_aware(until, field="until"))
             conditions.append(f"timestamp < ${len(params)}::timestamptz")
 
         params.extend([limit, offset])
