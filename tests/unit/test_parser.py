@@ -727,3 +727,51 @@ class TestParserNeverRaisesOnConstruction:
         poison = _base_line(columns={"pid": "1", "user": {"a": 1}})
         assert parse_osquery_line(poison) is None
         assert parse_osquery_line(_base_line()) is not None
+
+
+class TestSafeIpValidation:
+    """SS-014: `_safe_ip` only mapped '' -> None. Any other junk flowed into
+    the INET columns; asyncpg raised DataError and the WHOLE batch was
+    dead-lettered, then re-dead-lettered on every replay."""
+
+    def test_junk_address_becomes_none(self):
+        event = parse_osquery_line(
+            _base_line(name="open_sockets", columns={"local_address": "not-an-ip"})
+        )
+        assert event is not None
+        assert event.source_ip is None
+
+    def test_hostname_is_not_an_ip(self):
+        event = parse_osquery_line(
+            _base_line(name="open_sockets", columns={"local_address": "example.com"})
+        )
+        assert event is not None
+        assert event.source_ip is None
+
+    def test_out_of_range_octet_rejected(self):
+        event = parse_osquery_line(
+            _base_line(name="open_sockets", columns={"local_address": "10.1.1.999"})
+        )
+        assert event is not None
+        assert event.source_ip is None
+
+    def test_valid_ipv4_kept(self):
+        event = parse_osquery_line(
+            _base_line(name="open_sockets", columns={"local_address": "10.1.1.5"})
+        )
+        assert event is not None
+        assert event.source_ip == "10.1.1.5"
+
+    def test_valid_ipv6_kept(self):
+        event = parse_osquery_line(
+            _base_line(name="open_sockets", columns={"local_address": "::1"})
+        )
+        assert event is not None
+        assert event.source_ip == "::1"
+
+    def test_destination_ip_is_validated_too(self):
+        event = parse_osquery_line(
+            _base_line(name="open_sockets", columns={"remote_address": "1.2.3"})
+        )
+        assert event is not None
+        assert event.destination_ip is None

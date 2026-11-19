@@ -15,6 +15,7 @@ osquery result log format (one JSON object per line):
 }
 """
 
+import ipaddress
 import json
 import re
 from datetime import datetime, timezone
@@ -338,7 +339,7 @@ def _parse_event_timestamp(data: dict) -> datetime:
     return datetime.now(tz=timezone.utc)
 
 
-def _safe_ip(val: Optional[str]) -> Optional[str]:
+def _safe_ip(val: object) -> Optional[str]:
     """Normalize an osquery address string for the logs INET columns.
 
     The database rejects empty strings for INET parameters
@@ -347,10 +348,28 @@ def _safe_ip(val: Optional[str]) -> Optional[str]:
     address) must ship as NULL, not ''. Without this, one empty-address
     event fails its whole executemany batch and strands up to 99 good
     events in the dead-letter queue (observed live 2026-09-07).
+
+    SS-014: empty strings were the ONLY rejected shape. Any other junk
+    ("not-an-ip", a hostname, 10.1.1.999) flowed into the INET columns,
+    asyncpg raised DataError on executemany and the WHOLE batch was
+    dead-lettered — then re-dead-lettered on every replay (SS-040), so the
+    poison row never cleared. Validate with the stdlib parser: a value that
+    is not an IPv4/IPv6 address ships as NULL (the event is still kept).
     """
     if val is None or val == "":
         return None
-    return val
+    if not isinstance(val, str):
+        log.warning("ip_value_not_a_string", value_type=type(val).__name__)
+        return None
+    candidate = val.strip()
+    if not candidate:
+        return None
+    try:
+        ipaddress.ip_address(candidate)
+    except ValueError:
+        log.warning("ip_value_invalid", value=candidate[:64])
+        return None
+    return candidate
 
 
 def _safe_int(val: Optional[str]) -> Optional[int]:
