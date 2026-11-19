@@ -1,5 +1,47 @@
 # CHANGELOG
 
+## Unreleased — bug sweep fix campaign (2026-11-18)
+
+**Two independent audit passes (SS-001..SS-064) produced 62 open findings; this
+campaign fixes them test-first, one commit per finding, on wave branches. Every
+fix was re-verified against `4ad5f21` before any code changed, and every S2 fix
+carries a regression test that fails on the old code. Public behaviour changes
+an operator sees:**
+
+### Wave A — audit / ops truth
+
+- **Watchdog alerts survive the degraded state (SS-043):** the Slack payload is
+  built with a JSON encoder (`jq`, python3 fallback) instead of string
+  interpolation. A degraded health body (which contains quotes) used to produce
+  invalid JSON, Slack answered 400 and the alert existed only in the local log.
+  `scripts/watchdog_payload.sh` is the builder; if no encoder exists the
+  watchdog records "slack skipped" locally instead of emitting a broken body.
+- **Watchdog asserts the dashboard APP, not the port (SS-045):** a 200 from
+  `/_stcore/health` no longer reads as `ok`. The rendered page and the container
+  log are checked for a traceback; the state becomes `app_error` / `app_empty`,
+  which alerts. This catches the dead-Streamlit-script class.
+- **`log_audit_action` really never raises (SS-046):** `get_pool()` and
+  `pool.acquire()` moved inside the guard. A DB outage or pool exhaustion raised
+  *before* the try, so a mutation that had already committed returned 500 and
+  the client retry duplicated it.
+- **Audit endpoints reject a negative limit (SS-047):** `GET /audit?limit=-1`
+  meant PostgreSQL `LIMIT ALL` — the whole append-only table in one response.
+  Both endpoints now require `1 <= limit <= 1000`.
+- **Bulk dispositions keep their rationale (SS-048):** bulk resolve /
+  false-positive now persist `alerts.resolution_note`, append a timeline entry
+  per alert, and write an `alert.bulk_resolve` / `alert.bulk_false_positive`
+  audit row naming the affected ids, the note and the actor. Previously the note
+  survived only in a log line and the disposition was unauditable.
+- **Reopening an alert clears `resolved_at` (SS-049):** a non-terminal
+  transition used to keep the old timestamp, so MTTR/reporting counted a
+  reopened alert as resolved.
+- **Backups are verified by rows, not TOC entries (SS-044):** each dump now
+  records per-table source row counts (`<dump>.counts.json`) and
+  `--restore-test` compares them against the restored database, failing on any
+  table that restored zero or fewer rows. Table presence alone is no longer
+  accepted. Verified set: `logs, alerts, cases, audit_log, audit_logs`
+  (override with `BACKUP_VERIFY_TABLES`).
+
 ## Unreleased — deep review fix campaign (2026-09-22 → 2026-09-23)
 
 **A five-wave cover-to-cover review (~34,000 of ~35,000 lines read) produced a
