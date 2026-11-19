@@ -36,6 +36,22 @@ SEVERITY_ORDER = ["info", "low", "medium", "high", "critical"]
 SEVERITY_INDEX = {s: i for i, s in enumerate(SEVERITY_ORDER)}
 
 
+def _evidence_payload(evidence: Optional[dict | list]) -> str:
+    """Serialize alert evidence to the column's ONE shape.
+
+    SS-026: the column is documented and defaulted as a JSON ARRAY of evidence
+    objects (`'[]'`), but the rule path passed an array and the correlation
+    path passed a bare object, so every reader had to branch on the shape.
+    An object is wrapped into a single-element array on write; a list is
+    stored as-is. Readers can rely on "list of objects".
+    """
+    if not evidence:
+        return "[]"
+    if isinstance(evidence, list):
+        return json.dumps(evidence, default=str)
+    return json.dumps([evidence], default=str)
+
+
 def _alert_lock_key(rule_id: Optional[int], rule_name: str, host_name: str) -> int:
     """Stable advisory-lock key for the (rule, host) dedup pair (AUD-009).
 
@@ -59,7 +75,7 @@ async def create_alert(
     description: str = "",
     mitre_tactics: Optional[list] = None,
     mitre_techniques: Optional[list] = None,
-    evidence: Optional[dict] = None,
+    evidence: Optional[dict | list] = None,
     risk_score: Optional[float] = None,
     dedup_window_seconds: int = DEDUP_WINDOW_SECONDS,
 ) -> int:
@@ -169,7 +185,7 @@ async def create_alert(
                 description,
                 mitre_tactics or [],
                 mitre_techniques or [],
-                json.dumps(evidence, default=str) if evidence else "[]",
+                _evidence_payload(evidence),
                 risk_score,
             )
 

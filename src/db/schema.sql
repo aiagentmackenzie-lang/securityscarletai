@@ -109,7 +109,9 @@ CREATE TABLE IF NOT EXISTS alerts (
     description    TEXT,
     mitre_tactics  TEXT[],
     mitre_techniques TEXT[],
-    evidence       JSONB NOT NULL DEFAULT '[]'::jsonb,  -- array of matching log excerpts
+    evidence       JSONB NOT NULL DEFAULT '[]'::jsonb,  -- ALWAYS an array of evidence
+                                                        -- objects (a dict writer input is
+                                                        -- wrapped on write, SS-026)
     ai_summary     TEXT,                    -- LLM-generated explanation (filled async)
     ai_verdict     TEXT,                    -- AUD-030: LLM verdict (threat/suspicious/benign/false_positive)
     ai_reasoning   TEXT,                    -- AUD-030: why the verdict was chosen

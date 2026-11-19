@@ -113,6 +113,12 @@ CORRELATION_MAX_CONCURRENT = 2
 _correlation_semaphore = asyncio.Semaphore(CORRELATION_MAX_CONCURRENT)
 _correlation_inflight = False
 _correlation_inflight_lock = asyncio.Lock()
+# SS-025: monotonic count of completed sweeps. A caller that queued on the
+# lock while a sweep ran used to find `_correlation_inflight` false again when
+# it finally got the lock, and ran a FULL duplicate sweep. The generation
+# counter makes "a run completed while I was queued" observable, so a caller
+# coalesced behind a run that has already covered its window skips.
+_correlation_runs_completed = 0
 
 
 async def trigger_correlation_coalesced() -> None:
@@ -121,19 +127,28 @@ async def trigger_correlation_coalesced() -> None:
     Used by both ingest entrypoints and the scheduler's periodic sweep. The
     15-min INSERT dedup makes repeat sweeps cheap and idempotent.
     """
-    global _correlation_inflight
+    global _correlation_inflight, _correlation_runs_completed
     async with _correlation_semaphore:
         if _correlation_inflight:
             log.debug("correlation_run_coalesced_skip")
             return
+        requested_after_generation = _correlation_runs_completed
         async with _correlation_inflight_lock:
             if _correlation_inflight:
                 return
+            if _correlation_runs_completed != requested_after_generation:
+                # A sweep finished while we waited for the lock. It already
+                # covered this caller's window (the sweep is time-based, not
+                # event-based and every run reads the full lookback), so a
+                # second identical sweep would only add DB load.
+                log.debug("correlation_run_coalesced_skip")
+                return
             _correlation_inflight = True
-            try:
-                await run_all_correlations(persist=True)
-            finally:
-                _correlation_inflight = False
+        try:
+            await run_all_correlations(persist=True)
+        finally:
+            _correlation_inflight = False
+            _correlation_runs_completed += 1
 
 
 # ───────────────────────────────────────────────────────────────

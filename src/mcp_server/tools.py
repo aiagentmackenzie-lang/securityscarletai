@@ -251,7 +251,13 @@ async def _tool_explain(args: dict, actor: str, audit: Any) -> dict:
         severity=alert.get("severity", "unknown"),
         host_name=alert.get("host_name", "unknown"),
         mitre_techniques=alert.get("mitre_techniques") or [],
-        evidence=evidence if isinstance(evidence, dict) else None,
+        # SS-026: evidence is a list of evidence objects; a legacy bare object
+        # is still accepted.
+        evidence=(
+            (evidence[0] if evidence and isinstance(evidence[0], dict) else None)
+            if isinstance(evidence, list)
+            else (evidence if isinstance(evidence, dict) else None)
+        ),
         user=actor,
     )
     return {

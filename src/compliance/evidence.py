@@ -158,10 +158,17 @@ async def _correlation_matches(conn, alert) -> list[dict]:
     """
     evidence = _safe_evidence(alert["evidence"])
     correlation_id = None
-    if isinstance(evidence, dict):
-        match = evidence.get("match")
-        if isinstance(match, dict):
-            correlation_id = match.get("correlation_id")
+    # SS-026: `alerts.evidence` is ALWAYS a list of evidence objects now (the
+    # writer wraps a bare dict). Accept a legacy bare object too, so packs for
+    # pre-fix rows still resolve their correlation id.
+    candidates = evidence if isinstance(evidence, list) else [evidence]
+    for entry in candidates:
+        if isinstance(entry, dict):
+            match = entry.get("match")
+            if isinstance(match, dict):
+                correlation_id = match.get("correlation_id")
+                if correlation_id:
+                    break
     if not correlation_id:
         return []
     rows = await conn.fetch(

@@ -10,8 +10,9 @@ SS-019 the exfil detector aggregates over the 24 h lookback, not its window
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -243,3 +244,154 @@ class TestPersistenceUnload:
             "not" in sql.lower() and "unload" in sql.lower()
         )
         assert "%load%" not in binds, "bare %load% still matches launchctl unload"
+
+
+# ───────────────────────────────────────────────────────────────
+# SS-025 — coalescing must not run the same sweep twice
+# ───────────────────────────────────────────────────────────────
+
+
+class TestCorrelationCoalescing:
+    @pytest.mark.asyncio
+    async def test_a_caller_queued_behind_a_finished_run_skips(self):
+        """A caller that passed the outer flag check before the first run set
+        it then waited on the inner lock; when it got the lock the flag was
+        false again, so it ran a FULL duplicate sweep. The generation counter
+        makes "a run completed while I was queued" observable."""
+        from src.detection import correlation as corr
+
+        real_lock = corr._correlation_inflight_lock
+
+        class _CompletingLock:
+            """Simulates a run that finishes while this caller waits on the lock."""
+
+            async def __aenter__(self):
+                await real_lock.__aenter__()
+                corr._correlation_runs_completed += 1
+                return None
+
+            async def __aexit__(self, *exc):
+                return await real_lock.__aexit__(*exc)
+
+        run_all = AsyncMock()
+        with (
+            patch.object(corr, "run_all_correlations", run_all),
+            patch.object(corr, "_correlation_inflight", False),
+            patch.object(corr, "_correlation_runs_completed", 0, create=True),
+            patch.object(corr, "_correlation_inflight_lock", _CompletingLock()),
+        ):
+            await corr.trigger_correlation_coalesced()
+
+        run_all.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_sequential_calls_each_run(self):
+        """Coalescing is about concurrency, not a permanent rate limit."""
+        from src.detection import correlation as corr
+
+        run_all = AsyncMock()
+        with (
+            patch.object(corr, "run_all_correlations", run_all),
+            patch.object(corr, "_correlation_inflight", False),
+            patch.object(corr, "_correlation_runs_completed", 0, create=True),
+        ):
+            await corr.trigger_correlation_coalesced()
+            await corr.trigger_correlation_coalesced()
+
+        assert run_all.await_count == 2
+
+
+# ───────────────────────────────────────────────────────────────
+# SS-026 — alerts.evidence has one shape on the wire
+# ───────────────────────────────────────────────────────────────
+
+
+class TestEvidenceShapeIsNormalized:
+    @pytest.mark.asyncio
+    async def test_dict_evidence_is_stored_as_an_array(self):
+        from src.detection.alerts import create_alert
+        from tests.unit._fake_tx import with_tx
+
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(return_value=None)
+        conn.fetchval = AsyncMock(return_value=11)
+        conn.execute = AsyncMock(return_value="UPDATE 1")
+        with_tx(conn)
+        acquirer = __import__("unittest.mock", fromlist=["MagicMock"]).MagicMock()
+        acquirer.__aenter__ = AsyncMock(return_value=conn)
+        acquirer.__aexit__ = AsyncMock(return_value=None)
+        pool = AsyncMock()
+        pool.acquire = __import__("unittest.mock", fromlist=["MagicMock"]).MagicMock(
+            return_value=acquirer
+        )
+
+        with (
+            patch("src.detection.alerts.get_pool", AsyncMock(return_value=pool)),
+            patch("src.detection.alerts._is_suppressed", AsyncMock(return_value=False)),
+            patch(
+                "src.detection.alerts._check_severity_escalation",
+                AsyncMock(return_value="high"),
+            ),
+            patch("src.detection.alerts._send_alert_notification", AsyncMock()),
+        ):
+            await create_alert(
+                rule_id=None,
+                rule_name="Correlation thing",
+                severity="high",
+                host_name="h1",
+                description="d",
+                evidence={"match": {"correlation_id": "abc"}},
+            )
+
+        insert_args = [
+            c for c in conn.fetchval.call_args_list if "INSERT INTO alerts" in str(c.args[0])
+        ]
+        assert insert_args, "no alert insert"
+        payload = insert_args[0].args[8]
+        assert json.loads(payload) == [{"match": {"correlation_id": "abc"}}]
+
+    @pytest.mark.asyncio
+    async def test_list_evidence_is_preserved(self):
+        from src.detection.alerts import create_alert
+        from tests.unit._fake_tx import with_tx
+
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(return_value=None)
+        conn.fetchval = AsyncMock(return_value=12)
+        conn.execute = AsyncMock(return_value="UPDATE 1")
+        with_tx(conn)
+        acq = AsyncMock()
+        acq.__aenter__ = AsyncMock(return_value=conn)
+        acq.__aexit__ = AsyncMock(return_value=None)
+        pool = AsyncMock()
+        pool.acquire = __import__("unittest.mock", fromlist=["MagicMock"]).MagicMock(
+            return_value=acq
+        )
+
+        with (
+            patch("src.detection.alerts.get_pool", AsyncMock(return_value=pool)),
+            patch("src.detection.alerts._is_suppressed", AsyncMock(return_value=False)),
+            patch(
+                "src.detection.alerts._check_severity_escalation",
+                AsyncMock(return_value="high"),
+            ),
+            patch("src.detection.alerts._send_alert_notification", AsyncMock()),
+        ):
+            await create_alert(
+                rule_id=1,
+                rule_name="Rule",
+                severity="high",
+                host_name="h1",
+                description="d",
+                evidence=[{"excerpt": "a"}, {"excerpt": "b"}],
+            )
+
+        payload = conn.fetchval.call_args_list[0].args[8]
+        assert json.loads(payload) == [{"excerpt": "a"}, {"excerpt": "b"}]
+
+    def test_schema_documents_the_array_contract(self):
+        from pathlib import Path
+
+        schema = Path("src/db/schema.sql").read_text()
+        line = next(ln for ln in schema.splitlines() if "evidence       JSONB" in ln)
+        assert "array" in line.lower()
