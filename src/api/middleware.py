@@ -149,8 +149,12 @@ class RequestValidationMiddleware(BaseHTTPMiddleware):
 
                 request._receive = receive  # noqa: SLF001
 
-            # Content-Type enforcement for ingest endpoint
-            if request.url.path.endswith("/ingest"):
+            # Content-Type enforcement for ingest endpoints (SS-017: the
+            # check only covered paths ending exactly "/ingest", so
+            # /ingest/osquery — the fleet shipper — accepted any content type
+            # while the docs claimed ingestion endpoints were enforced).
+            ingest_path = request.url.path.rstrip("/")
+            if ingest_path.endswith(("/ingest", "/ingest/osquery")):
                 content_type = request.headers.get("content-type", "")
                 if "application/json" not in content_type:
                     return JSONResponse(
