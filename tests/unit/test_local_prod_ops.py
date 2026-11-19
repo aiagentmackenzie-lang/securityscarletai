@@ -93,6 +93,19 @@ class TestBackupScript:
         # throwaway restore must skip ACLs (they are re-applied at boot).
         assert "--no-privileges" in s
 
+    def test_row_counts_recorded_and_compared_on_restore(self):
+        """SS-044: "verified" must mean rows, not TOC entries."""
+        s = _BACKUP.read_text()
+        # Source snapshot at dump time...
+        assert ".dump.counts.json" in s
+        assert "VERIFY_TABLES=" in s
+        # ...and the restore test compares it, failing on mismatch.
+        assert "verify_backup_rows.py" in s
+        assert "--expected" in s and "--actual" in s
+        assert "NOT a verified backup" in s
+        # The old pass condition (>= 10 tables alone) must not stand on its own.
+        assert "RESTORE TEST PASS: $N public tables restored" not in s
+
     def test_audit_prune_uses_correct_timestamp_columns(self):
         s = _BACKUP.read_text()
         # audit_logs."timestamp" and audit_log.created_at — different columns.
