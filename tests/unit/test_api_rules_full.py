@@ -296,6 +296,17 @@ class TestGetRuleById:
         assert result is None
 
 
+# SS-051: a minimal rule that compiles to a real WHERE clause.
+_COMPILABLE_RULE = """
+title: Compilable Rule
+detection:
+    selection:
+        process_name: evil
+    condition: selection
+timeframe: 5m
+level: high
+"""
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # create_rule
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -396,7 +407,9 @@ class TestPoolAcquireDepth:
             patch.object(rules_module, "get_rule_by_id", get_by_id),
         ):
             result = await rules_module.create_rule(
-                rule=RuleCreate(name="R", sigma_yaml="valid: true"),
+                # SS-051: the API now compiles the rule before arming it, so
+                # the fixture must be a rule that actually compiles.
+                rule=RuleCreate(name="R", sigma_yaml=_COMPILABLE_RULE),
                 user={"sub": "admin", "role": "admin"},
             )
         assert result["id"] == 42
@@ -415,7 +428,7 @@ class TestPoolAcquireDepth:
 
         await rules_module.update_rule(
             rule_id=7,
-            updates=RuleCreate(name="R2", sigma_yaml="valid: true"),
+            updates=RuleCreate(name="R2", sigma_yaml=_COMPILABLE_RULE),
             user={"sub": "admin", "role": "admin"},
         )
         assert pool.max_depth == 1, f"hold-one-need-two: max_depth={pool.max_depth}"

@@ -15,7 +15,7 @@ from src.api.auth import get_current_user, require_role
 from src.config.logging import get_logger
 from src.db.connection import get_pool
 from src.detection.scheduler import reload_rules
-from src.detection.sigma import parse_sigma_rule
+from src.detection.sigma import SigmaParser, parse_sigma_rule
 
 router = APIRouter(tags=["detection"], prefix="/rules")
 log = get_logger("api.rules")
@@ -108,6 +108,34 @@ class RuleResponse(BaseModel):
         return cls(**filtered)
 
 
+def _sigma_compile_problems(sigma_yaml: str) -> list[str]:
+    """Compile the rule through the PRODUCTION compiler and return its
+    fail-safe warnings (SS-051).
+
+    `parse_sigma_rule` validates YAML + structure only. A rule with
+    `condition: selection_typo` parsed fine, was stored enabled, and scheduled —
+    but the compiler failed safe to FALSE, so it was silently dead forever
+    (`sigma_to_sql` created its own parser and threw the warnings away).
+
+    Returns [] for a rule that compiles to a real WHERE clause.
+    """
+    parser = SigmaParser()
+    rule = parser.parse(sigma_yaml)
+    parser.compile_where(rule)
+    return list(parser.warnings)
+
+
+def _refuse_fail_safe_rule(sigma_yaml: str) -> None:
+    problems = _sigma_compile_problems(sigma_yaml)
+    if problems:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Rule compiles fail-safe to FALSE (it would never fire): " + "; ".join(problems)
+            ),
+        )
+
+
 @router.post("", response_model=RuleResponse, status_code=status.HTTP_201_CREATED)
 async def create_rule(
     rule: RuleCreate,
@@ -119,6 +147,9 @@ async def create_rule(
         parsed = parse_sigma_rule(rule.sigma_yaml)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid Sigma rule: {str(e)}") from None
+
+    # SS-051: a rule that cannot compile is never armed.
+    _refuse_fail_safe_rule(rule.sigma_yaml)
 
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -203,6 +234,7 @@ async def update_rule(
         parsed = parse_sigma_rule(updates.sigma_yaml)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid Sigma rule: {str(e)}") from None
+    _refuse_fail_safe_rule(updates.sigma_yaml)
 
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -308,6 +340,8 @@ async def patch_rule(
             parsed = parse_sigma_rule(patch.sigma_yaml)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid Sigma rule: {str(e)}") from None
+        # SS-051: an update must not arm a rule that compiles to FALSE either.
+        _refuse_fail_safe_rule(patch.sigma_yaml)
         set_parts.append(f"mitre_tactics = ${idx}")
         params.append(parsed.mitre_tactics)
         idx += 1

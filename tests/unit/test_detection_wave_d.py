@@ -395,3 +395,79 @@ class TestEvidenceShapeIsNormalized:
         schema = Path("src/db/schema.sql").read_text()
         line = next(ln for ln in schema.splitlines() if "evidence       JSONB" in ln)
         assert "array" in line.lower()
+
+
+# ───────────────────────────────────────────────────────────────
+# SS-051 — the rules API must not arm a rule that compiles to FALSE
+# ───────────────────────────────────────────────────────────────
+
+
+class TestRulesApiCompileValidation:
+    TYPO_RULE = """
+title: Typo Rule
+detection:
+    selection:
+        process_name: evil
+    condition: selection_typo
+timeframe: 5m
+level: high
+"""
+
+    @pytest.mark.asyncio
+    async def test_create_rejects_a_rule_that_compiles_to_false(self):
+        from fastapi import HTTPException
+
+        from src.api.rules import RuleCreate, create_rule
+
+        rule = RuleCreate(name="Typo", sigma_yaml=self.TYPO_RULE, severity="high")
+        with pytest.raises(HTTPException) as exc:
+            await create_rule(rule=rule, user={"sub": "admin1", "role": "admin"})
+        assert exc.value.status_code == 400
+        assert "selection_typo" in str(exc.value.detail)
+
+    @pytest.mark.asyncio
+    async def test_create_accepts_a_compilable_rule(self):
+        from src.api.rules import RuleCreate, create_rule
+
+        good = self.TYPO_RULE.replace("selection_typo", "selection")
+        rule = RuleCreate(name="Good", sigma_yaml=good, severity="high")
+        row = {
+            "id": 5,
+            "name": "Good",
+            "description": None,
+            "sigma_yaml": good,
+            "severity": "high",
+            "enabled": True,
+            "created_at": None,
+        }
+        conn = AsyncMock()
+        conn.fetchval = AsyncMock(return_value=5)
+        conn.fetchrow = AsyncMock(return_value=row)
+        acq = AsyncMock()
+        acq.__aenter__ = AsyncMock(return_value=conn)
+        acq.__aexit__ = AsyncMock(return_value=None)
+        pool = AsyncMock()
+        pool.acquire = __import__("unittest.mock", fromlist=["MagicMock"]).MagicMock(
+            return_value=acq
+        )
+        with (
+            patch("src.api.rules.get_pool", AsyncMock(return_value=pool)),
+            patch("src.api.rules.log_audit_action", AsyncMock()),
+            patch("src.api.rules.reload_rules", AsyncMock()),
+        ):
+            result = await create_rule(rule=rule, user={"sub": "admin1", "role": "admin"})
+        assert result["id"] == 5
+
+    def test_validator_flags_an_unknown_selection(self):
+        from src.api.rules import _sigma_compile_problems
+
+        problems = _sigma_compile_problems(self.TYPO_RULE)
+        assert problems and "selection_typo" in problems[0]
+
+    def test_validator_clean_for_the_shipped_corpus(self):
+        from pathlib import Path
+
+        from src.api.rules import _sigma_compile_problems
+
+        for f in sorted(Path("rules").rglob("*.yml"))[:20]:
+            assert _sigma_compile_problems(f.read_text()) == [], f
