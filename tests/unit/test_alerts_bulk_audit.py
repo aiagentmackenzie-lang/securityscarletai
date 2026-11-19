@@ -131,3 +131,35 @@ class TestBulkRoutesWriteActionAudit:
         assert kwargs["action"] == "alert.bulk_false_positive"
         assert kwargs["new_values"]["alert_ids"] == [3]
         assert kwargs["new_values"]["note"] == "Known scanner"
+
+
+class TestReopenClearsResolvedAt:
+    """SS-049: reopening an alert must not keep the old `resolved_at`.
+
+    The CASE only ever set NOW() on a terminal status and kept the previous
+    value otherwise, so `resolved -> investigating` left a non-NULL
+    resolved_at and MTTR/reporting counted a reopened alert as resolved at the
+    old timestamp.
+    """
+
+    @pytest.mark.asyncio
+    async def test_non_terminal_status_clears_resolved_at(self):
+        from src.detection.alerts import update_alert_status
+
+        conn = AsyncMock()
+        conn.execute = AsyncMock(return_value="UPDATE 1")
+        acquirer = MagicMock()
+        acquirer.__aenter__ = AsyncMock(return_value=conn)
+        acquirer.__aexit__ = AsyncMock(return_value=None)
+        pool = AsyncMock()
+        pool.acquire = MagicMock(return_value=acquirer)
+
+        with patch("src.detection.alerts.get_pool", AsyncMock(return_value=pool)):
+            await update_alert_status(5, "investigating", updated_by="analyst1")
+
+        # First statement is the UPDATE (the second is the timeline note).
+        sql = conn.execute.call_args_list[0].args[0]
+        # Terminal statuses stamp NOW(); everything else clears the column.
+        assert "THEN NOW()" in sql
+        assert "ELSE NULL" in sql, "reopening leaves a stale resolved_at (SS-049)"
+        assert "ELSE resolved_at" not in sql

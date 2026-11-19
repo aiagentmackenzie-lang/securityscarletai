@@ -398,9 +398,12 @@ async def update_alert_status(
             UPDATE alerts
             SET status = $1,
                 assigned_to = COALESCE($2, assigned_to),
+                -- SS-049: a non-terminal transition (reopen) CLEARS the
+                -- column. Keeping the old value made a reopened alert look
+                -- resolved at the previous timestamp to MTTR/reporting.
                 resolved_at = CASE
                     WHEN $1 IN ('resolved', 'closed', 'false_positive')
-                    THEN NOW() ELSE resolved_at
+                    THEN NOW() ELSE NULL
                 END,
                 updated_at = NOW()
             WHERE id = $3
