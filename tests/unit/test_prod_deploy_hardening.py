@@ -77,21 +77,24 @@ class TestEntrypointProxyHeaders:
         assert "--forwarded-allow-ips" in s
 
     def test_forwarded_allow_ips_defaults_to_docker_network_only(self):
-        # W5-D: the default trust list is the Docker compose network space
-        # ONLY. The other RFC1918 ranges (10/8, 192.168/16) are LAN space:
-        # with dev/demo publishing 0.0.0.0:8000, a LAN peer inside them
-        # could spoof X-Forwarded-For (rate-limit bypass, /metrics localhost
-        # check, audit ip poisoning). LAN peers are never trusted proxies.
+        # W5-D + SS-034: the entrypoint's fallback trust list is the compose
+        # network space only, and the base compose (dev/demo, which PUBLISHES
+        # the port) sets an explicit EMPTY value so no forwarded header is
+        # trusted there. A port-forwarded request arrives from 172.17.0.1 —
+        # inside 172.16/12 — so trusting the CIDR on a published port is what
+        # made X-Forwarded-For spoofable.
         import re
 
         s = _ENTRY.read_text()
-        m = re.search(r"UVICORN_FORWARDED_ALLOW_IPS:-(.*)\}", s)
+        m = re.search(r"UVICORN_FORWARDED_ALLOW_IPS-(.*)\}", s)
         assert m, "expected a defaulted allowance"
         default = m.group(1)
         assert "172.16.0.0/12" in default
         assert "192.168.0.0/16" not in default
         assert "10.0.0.0/8" not in default
         assert "0.0.0.0/0" not in default and "::/0" not in default
+        # `${VAR-default}` (no colon) so an explicitly empty value is honoured.
+        assert "${UVICORN_FORWARDED_ALLOW_IPS-172.16.0.0/12}" in s
 
     def test_entrypoint_syntax_still_valid(self):
         result = subprocess.run(  # noqa: S603 — pinned binary, repo-owned path

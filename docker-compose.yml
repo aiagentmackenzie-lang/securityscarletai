@@ -67,6 +67,12 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # SS-034: the dev/demo posture PUBLISHES 8000, so a client's connection
+      # arrives from the Docker host gateway (172.17.0.1) and would look like a
+      # trusted proxy. An empty value means "trust no X-Forwarded-For" —
+      # the prod overlays set the compose CIDR explicitly because Caddy is the
+      # only thing in front of the API there.
+      UVICORN_FORWARDED_ALLOW_IPS: ""
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: scarletai
@@ -183,6 +189,8 @@ services:
     ports:
       - "8002:8002"
     environment:
+      # MCP server: uvicorn.run without --proxy-headers, so it trusts no
+      # forwarded headers at all (SS-034 posture is inherent here).
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: scarletai

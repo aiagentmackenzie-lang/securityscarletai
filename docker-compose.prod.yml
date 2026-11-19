@@ -41,6 +41,11 @@ services:
     environment:
       LOG_FORMAT: json
       LOG_LEVEL: ${LOG_LEVEL:-WARNING}
+      # SS-034: only Caddy fronts the API in this posture (the API port is not
+      # published), so the compose network range is the trusted proxy space.
+      # Caddy OVERWRITES inbound X-Forwarded-For (verified), so a spoofed value
+      # never reaches uvicorn.
+      UVICORN_FORWARDED_ALLOW_IPS: "172.16.0.0/12"
       # Redis auth (F-04): the API talks to a requirepass'd redis in prod.
       REDIS_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}@redis:6379/0
       # Prod: do not serve OpenAPI/Swagger/ReDoc. The schema + interactive

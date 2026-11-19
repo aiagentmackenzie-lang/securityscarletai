@@ -44,6 +44,9 @@ services:
     cap_drop:
       - ALL
     environment:
+      # SS-034: loopback-only publish, but a request still arrives via the
+      # Docker gateway. Trusted proxy space = the compose network (Caddy).
+      UVICORN_FORWARDED_ALLOW_IPS: "172.16.0.0/12"
       # Redis auth (F-04): the API talks to a requirepass'd redis.
       REDIS_URL: "redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}@redis:6379/0"
       # Local production: serve no OpenAPI/Swagger/ReDoc — the schema is an

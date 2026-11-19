@@ -249,9 +249,10 @@ fi
 # 6. Create admin user if no users exist
 #
 # The random password is written to data/admin_initial_password (chmod 600,
-# owned by the container user) and printed to stdout ONCE on first boot.
-# It is NOT left in `docker logs` indefinitely — the file is the durable
-# copy; rotate the password after first login and remove the file. (P2-4)
+# owned by the container user). SS-042: it is NOT echoed to stdout — stdout IS
+# `docker logs`, which persists in the container log driver long after the
+# "printed once" first boot. The 0600 file is the handoff; the log line names
+# the path only.
 # ───────────────────────────────────────────────────────────────
 # AUD-021: same loud-failure contract as the alerts count probe above —
 # an admin-creation decision must never be made from empty/garbage output.
@@ -306,13 +307,12 @@ asyncio.run(main())
     mkdir -p data
     printf 'admin:%s\n' "${ADMIN_PW}" > data/admin_initial_password
     chmod 600 data/admin_initial_password
-    # Surface the password ONCE to stdout so the operator sees it on first boot,
-    # then unset the env var so it does not linger in the process environment.
+    # SS-042: never echo the password — stdout persists in `docker logs`.
+    # The 0600 file is the handoff; the log records where to find it.
     echo "================================================================"
-    echo "  ADMIN USER CREATED"
-    echo "  username: admin"
-    echo "  password: ${ADMIN_PW}"
-    echo "  Written to data/admin_initial_password (chmod 600)."
+    echo "  ADMIN USER CREATED (username: admin)"
+    echo "  Password: see data/admin_initial_password (chmod 600) on the volume."
+    echo "  It is NOT printed to stdout or docker logs."
     echo "  CHANGE THIS PASSWORD IMMEDIATELY on first login, then remove the file."
     echo "================================================================"
     unset ADMIN_PW
@@ -324,19 +324,21 @@ fi
 # 7. Hand off to uvicorn
 # ───────────────────────────────────────────────────────────────
 echo "[entrypoint] Starting uvicorn on 0.0.0.0:8000"
-# F-07: trust proxy headers ONLY from the Docker compose network range.
-# Behind Caddy (prod overlay) this makes slowapi rate-limit keys and
-# audit_logs.ip reflect the REAL client (X-Forwarded-For) instead of the
-# proxy IP — without it, all clients share one rate-limit bucket and
-# audit_rows.ip is useless. W5-D: the default is 172.16.0.0/12 — the
-# Docker compose network space (Caddy lives there in every shipped
-# posture). 10.0.0.0/8 and 192.168.0.0/16 were DROPPED: those RFC1918
-# ranges are LAN space, and the dev/demo compose publishes 0.0.0.0:8000 —
-# a 192.168.x or 10.x LAN peer IS in those ranges, so trusting them let
-# any LAN client spoof X-Forwarded-For (per-IP rate-limit bypass, the
-# unauthenticated /metrics localhost check, audit_logs.ip poisoning).
-# LAN peers must never be trusted proxies. Operators whose ingress sits
-# on another subnet override UVICORN_FORWARDED_ALLOW_IPS.
+# F-07 / SS-034: WHO gets trusted to set X-Forwarded-For.
+#
+# The old comment claimed the 10/8 + 192.168/16 drop made LAN peers safe.
+# That is false for the posture this container actually runs in the dev/demo
+# compose: the API port is PUBLISHED (0.0.0.0:8000), and a port-forwarded
+# request arrives from the Docker host gateway (172.17.0.1) — INSIDE
+# 172.16.0.0/12. Every client therefore looked like a trusted proxy and could
+# set X-Forwarded-For to anything (per-IP rate-limit bypass, the
+# unauthenticated /metrics localhost gate, audit_logs.ip poisoning).
+#
+# Rule: a PUBLISHED port means forwarded headers are untrusted.
+#   * base compose (dev/demo): UVICORN_FORWARDED_ALLOW_IPS="" -> trust nobody.
+#   * prod overlays (Caddy in front, API not published): the compose CIDR.
+# `${VAR-default}` (no colon) so an explicitly EMPTY value is honoured instead
+# of falling back to the CIDR.
 exec uvicorn src.api.main:app --host 0.0.0.0 --port 8000 \
   --proxy-headers \
-  --forwarded-allow-ips "${UVICORN_FORWARDED_ALLOW_IPS:-172.16.0.0/12}"
+  --forwarded-allow-ips "${UVICORN_FORWARDED_ALLOW_IPS-172.16.0.0/12}"
