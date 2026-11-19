@@ -89,11 +89,12 @@ def parse_osquery_line(raw_line: str) -> Optional[NormalizedEvent]:
         return None
     osquery_action = data.get("action", "info")
 
-    # Parse timestamp -- osquery provides both calendarTime and unixTime
-    try:
-        ts = datetime.fromtimestamp(int(data.get("unixTime", 0)), tz=timezone.utc)
-    except (ValueError, TypeError, OSError):
-        ts = datetime.now(tz=timezone.utc)
+    # Parse timestamp (SS-012) -- osquery provides both unixTime and
+    # calendarTime. `int(data.get("unixTime", 0))` silently produced
+    # 1970-01-01 when the field was absent: the event landed in `logs`
+    # invisible to every `time > NOW() - interval` detector and was deleted by
+    # the next retention sweep. unixTime -> calendarTime -> now(UTC), never 0.
+    ts = _parse_event_timestamp(data)
 
     # event_action: closed vocabulary token (see derive_event_action).
     # Fail-closed -- non-differential shapes (snapshot dumps, unknown actions)
@@ -273,6 +274,53 @@ def _basename_any_platform(path: Optional[str]) -> Optional[str]:
     if not path:
         return None
     return (PureWindowsPath(path).name or PurePosixPath(path).name or None) or None
+
+
+_CALENDAR_TIME_FORMATS = ("%a %b %d %H:%M:%S %Y %Z", "%a %b %d %H:%M:%S %Y")
+
+
+def _parse_event_timestamp(data: dict) -> datetime:
+    """Resolve an event timestamp: unixTime -> calendarTime -> now(UTC).
+
+    SS-012. The old shape read `int(data.get("unixTime", 0))`, so a line
+    without `unixTime` became 1970-01-01T00:00:00Z — present in `logs`,
+    invisible to every windowed detector, and deleted by the next retention
+    sweep. 1970 is never a legitimate osquery timestamp, so zero/negative is
+    treated as absent.
+
+    With neither field the event is KEPT (dropping telemetry because its
+    clock is missing would lose the evidence) and stamped now(UTC) with a
+    loud warning — the raw payload survives in raw_data either way.
+    """
+    raw_unix = data.get("unixTime")
+    if raw_unix is not None:
+        try:
+            unix = int(raw_unix)
+        except (TypeError, ValueError):
+            unix = 0
+        if unix > 0:
+            try:
+                return datetime.fromtimestamp(unix, tz=timezone.utc)
+            except (OSError, OverflowError, ValueError) as e:
+                log.warning("unix_time_unusable", value=str(raw_unix), error=str(e))
+
+    calendar = data.get("calendarTime")
+    if isinstance(calendar, str) and calendar.strip():
+        text = calendar.strip()
+        for fmt in _CALENDAR_TIME_FORMATS:
+            try:
+                return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+        log.warning("calendar_time_unparseable", value=text[:64])
+
+    log.warning(
+        "event_timestamp_missing",
+        unix_time=str(raw_unix),
+        calendar_time=str(calendar)[:64],
+        fallback="now(UTC)",
+    )
+    return datetime.now(tz=timezone.utc)
 
 
 def _safe_ip(val: Optional[str]) -> Optional[str]:

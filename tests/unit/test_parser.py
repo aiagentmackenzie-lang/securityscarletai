@@ -636,3 +636,67 @@ class TestHostAttributionSentinel:
         event = parse_osquery_line(self._line(hostIdentifier=" agent-01 "))
         assert event is not None
         assert event.host_name == "agent-01"
+
+
+# ------------------------------------------------------------------------
+# SS-012 / SS-013 / SS-014 — the parser's data-integrity contract
+# ------------------------------------------------------------------------
+
+
+def _base_line(**overrides):
+    data = {
+        "name": "processes",
+        "hostIdentifier": "h",
+        "unixTime": 1795003200,
+        "action": "added",
+        "columns": {"pid": "1", "name": "x", "user": "u"},
+    }
+    data.update(overrides)
+    return json.dumps(data)
+
+
+class TestMissingUnixTime:
+    """SS-012: a missing `unixTime` used to timestamp the event as 1970.
+
+    Such an event exists in `logs`, is invisible to every `time > NOW() -
+    interval` detector and is deleted by the next retention sweep.
+    """
+
+    def test_missing_unix_time_falls_back_to_calendar_time(self):
+        line = _base_line(unixTime=None)
+        del_keys = json.loads(line)
+        del_keys.pop("unixTime")
+        del_keys["calendarTime"] = "Wed Nov 18 12:00:00 2026 UTC"
+        event = parse_osquery_line(json.dumps(del_keys))
+        assert event is not None
+        assert event.timestamp.year == 2026
+        assert event.timestamp.month == 11
+        assert event.timestamp.day == 18
+        assert event.timestamp.hour == 12
+
+    def test_never_timestamps_1970(self):
+        data = json.loads(_base_line())
+        data.pop("unixTime")
+        data["calendarTime"] = "Wed Nov 18 12:00:00 2026 UTC"
+        event = parse_osquery_line(json.dumps(data))
+        assert event is not None
+        assert event.timestamp.year != 1970
+
+    def test_zero_unix_time_is_not_accepted(self):
+        event = parse_osquery_line(_base_line(unixTime=0))
+        assert event is not None
+        assert event.timestamp.year != 1970
+
+    def test_unix_time_wins_when_present(self):
+        event = parse_osquery_line(_base_line(unixTime=1795003200))
+        assert event is not None
+        assert event.timestamp.year == 2026
+
+    def test_no_timestamp_at_all_still_keeps_the_event(self):
+        """Fail-open on attribution would be wrong; dropping the event is worse.
+        Neither unixTime nor calendarTime -> keep it, stamp now(UTC), log."""
+        data = json.loads(_base_line())
+        data.pop("unixTime")
+        event = parse_osquery_line(json.dumps(data))
+        assert event is not None
+        assert event.timestamp.year >= 2026
