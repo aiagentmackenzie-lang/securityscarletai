@@ -40,6 +40,15 @@ class _FakeRedis:
         self._ttls[key] = ttl
         self.counters["setex"] += 1
 
+    async def set(self, key: str, value: str, ex: int | None = None, nx: bool = False):
+        """SS-008: SET NX is the atomic refresh-rotation claim."""
+        if nx and key in self._kv:
+            return None
+        self._kv[key] = value
+        if ex is not None:
+            self._ttls[key] = ex
+        return True
+
     async def get(self, key: str) -> str | None:
         self.counters["get"] += 1
         return self._kv.get(key)
