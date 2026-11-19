@@ -92,11 +92,14 @@ async def query_nl(
         session_id=query_request.session_id,
     )
 
+    # SS-009: conversation sessions are keyed by (user, session_id) — a
+    # client-supplied id must never inherit another analyst's context.
+    owner = str(_user.get("sub", "unknown"))
     if query_request.execute:
-        result = await nl_query(query_request.question, query_request.session_id)
+        result = await nl_query(query_request.question, query_request.session_id, owner=owner)
     else:
         # Dry run — generate SQL but don't execute
-        result = await nl_to_sql(query_request.question, query_request.session_id)
+        result = await nl_to_sql(query_request.question, query_request.session_id, owner=owner)
 
     return NLQueryResponse(**{k: v for k, v in result.items() if k in NLQueryResponse.model_fields})
 

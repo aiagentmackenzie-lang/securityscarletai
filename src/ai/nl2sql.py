@@ -548,28 +548,49 @@ class ConversationContext:
 
 
 class ConversationManager:
-    """Manage multiple conversation sessions."""
+    """Manage multiple conversation sessions, scoped to their OWNER.
+
+    SS-009: the dict used to be keyed by the client-supplied session id alone,
+    so analyst A could pass analyst B's id and inherit B's earlier questions and
+    SQL into the follow-up prompt (an IDOR on analyst context, and a
+    context-poisoning vector: the model echoes the other analyst's questions
+    back). Every session is now keyed by ``(owner, session_id)``; a session id
+    presented by a DIFFERENT owner is not adopted — that caller gets a fresh
+    session.
+    """
 
     def __init__(self):
         self._sessions: Dict[str, ConversationContext] = {}
 
-    def get_or_create(self, session_id: Optional[str] = None) -> ConversationContext:
-        # Clean up expired sessions
-        expired = [sid for sid, ctx in self._sessions.items() if ctx.is_expired()]
-        for sid in expired:
-            del self._sessions[sid]
+    @staticmethod
+    def _key(owner: Optional[str], session_id: str) -> str:
+        # 'anonymous' is a real namespace, not a wildcard: unauthenticated /
+        # internal callers must not collide with each other by accident either.
+        return f"{owner or 'anonymous'}::{session_id}"
 
-        if session_id and session_id in self._sessions:
-            ctx = self._sessions[session_id]
-            ctx.last_used = time.time()
-            return ctx
-
+    def _new_session(self, owner: Optional[str]) -> ConversationContext:
         ctx = ConversationContext()
-        self._sessions[ctx.session_id] = ctx
+        self._sessions[self._key(owner, ctx.session_id)] = ctx
         return ctx
 
-    def get(self, session_id: str) -> Optional[ConversationContext]:
-        ctx = self._sessions.get(session_id)
+    def get_or_create(
+        self, session_id: Optional[str] = None, owner: Optional[str] = None
+    ) -> ConversationContext:
+        # Clean up expired sessions
+        expired = [key for key, ctx in self._sessions.items() if ctx.is_expired()]
+        for key in expired:
+            del self._sessions[key]
+
+        if session_id:
+            ctx = self._sessions.get(self._key(owner, session_id))
+            if ctx is not None:
+                ctx.last_used = time.time()
+                return ctx
+
+        return self._new_session(owner)
+
+    def get(self, session_id: str, owner: Optional[str] = None) -> Optional[ConversationContext]:
+        ctx = self._sessions.get(self._key(owner, session_id))
         if ctx and not ctx.is_expired():
             return ctx
         return None
@@ -798,6 +819,7 @@ async def estimate_query_cost(sql: str) -> tuple[int, str]:
 async def nl_to_sql(
     natural_language: str,
     session_id: Optional[str] = None,
+    owner: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Convert natural language to validated, executed SQL.
@@ -827,7 +849,7 @@ async def nl_to_sql(
         }
 
     # Get or create conversation context
-    ctx = conversation_manager.get_or_create(session_id)
+    ctx = conversation_manager.get_or_create(session_id, owner=owner)
     session_id = ctx.session_id
 
     # 2. Try template match first (fast path, no LLM needed)
@@ -895,7 +917,9 @@ async def nl_to_sql(
     }
 
 
-async def execute_query(sql: str, session_id: Optional[str] = None) -> Dict[str, Any]:
+async def execute_query(
+    sql: str, session_id: Optional[str] = None, owner: Optional[str] = None
+) -> Dict[str, Any]:
     """
     Execute a validated SQL query with timeout and result limits.
 
@@ -939,7 +963,7 @@ async def execute_query(sql: str, session_id: Optional[str] = None) -> Dict[str,
 
         # Update conversation context with result count
         if session_id:
-            ctx = conversation_manager.get(session_id)
+            ctx = conversation_manager.get(session_id, owner=owner)
             if ctx and ctx.queries:
                 ctx.queries[-1]["row_count"] = len(results)
 
@@ -964,6 +988,7 @@ async def execute_query(sql: str, session_id: Optional[str] = None) -> Dict[str,
 async def nl_query(
     natural_language: str,
     session_id: Optional[str] = None,
+    owner: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Full NL→SQL→Execution pipeline.
@@ -971,13 +996,13 @@ async def nl_query(
     Convenience function that combines nl_to_sql() + execute_query().
     """
     # Step 1: Generate and validate SQL
-    gen_result = await nl_to_sql(natural_language, session_id)
+    gen_result = await nl_to_sql(natural_language, session_id, owner=owner)
 
     if not gen_result["success"]:
         return gen_result
 
     # Step 2: Execute the query
-    exec_result = await execute_query(gen_result["sql"], gen_result.get("session_id"))
+    exec_result = await execute_query(gen_result["sql"], gen_result.get("session_id"), owner=owner)
 
     # Merge results
     return {
