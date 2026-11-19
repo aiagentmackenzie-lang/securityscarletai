@@ -74,12 +74,13 @@ def _run_watchdog(
     *,
     health: str = '{"status":"healthy"}',
     dash_code: str = "200",
+    dash_body: str = "<html><body>SecurityScarletAI</body></html>",
     prev_state: str = "api=ok,dashboard=ok",
 ) -> tuple[subprocess.CompletedProcess, dict | None, str]:
     state_dir = tmp_path / "state"
     state_dir.mkdir()
     (state_dir / "watchdog_state").write_text(prev_state)
-    bindir = _stub_curl(tmp_path, health=health, dash_code=dash_code, dash_body="")
+    bindir = _stub_curl(tmp_path, health=health, dash_code=dash_code, dash_body=dash_body)
 
     env = {
         **os.environ,
@@ -137,3 +138,19 @@ class TestWatchdogSlackPayload:
         proc, _, log = _run_watchdog(tmp_path, health=_DEGRADED_HEALTH)
         assert proc.returncode == 0
         assert "API degraded" in log
+
+
+class TestWatchdogDashboardAppCheck:
+    def test_dead_streamlit_app_is_not_ok(self, tmp_path):
+        """SS-045: 200 from _stcore/health + a traceback page ≠ healthy."""
+        body = "<html><pre>Traceback (most recent call last):\n  File ...</pre></html>"
+        proc, payload, log = _run_watchdog(tmp_path, dash_body=body)
+        assert proc.returncode == 0
+        assert payload is not None
+        assert "dashboard app_error" in payload["text"]
+        assert "app_error" in log
+
+    def test_healthy_dashboard_stays_quiet(self, tmp_path):
+        proc, payload, _ = _run_watchdog(tmp_path)
+        assert proc.returncode == 0
+        assert payload is None  # no state change, no alert

@@ -58,6 +58,20 @@ fi
 dash_status="down"
 if [ "$(curl -s -m 8 -o /dev/null -w '%{http_code}' "$DASHBOARD_URL" 2>/dev/null)" = "200" ]; then
     dash_status="ok"
+    # SS-045: Streamlit answers 200 on /_stcore/health even when the script
+    # raised at import (the 2026-09-23 dead-app class: "healthy" container,
+    # exception page in the browser). A 200 from the server is not evidence
+    # the APP works — inspect the rendered page and the container log too.
+    body="$(curl -s -m 8 "$DASHBOARD_PAGE_URL" 2>/dev/null || true)"
+    if printf '%s' "$body" | grep -qE 'Traceback \(most recent call last\)|StreamlitAPIException|ModuleNotFoundError'; then
+        dash_status="app_error"
+    elif [ -z "$body" ]; then
+        dash_status="app_empty"
+    elif [ -z "${WATCHDOG_SKIP_DOCKER:-}" ] && command -v docker >/dev/null 2>&1; then
+        if docker logs --since 15m "$DASHBOARD_CONTAINER" 2>&1 | grep -q 'Traceback (most recent call last)'; then
+            dash_status="app_error"
+        fi
+    fi
 fi
 
 prev=""; [ -f "$STATE" ] && prev="$(cat "$STATE")"
@@ -80,6 +94,6 @@ if [ "$api_status" != "ok" ]; then
     notify "API $api_status" "$detail"
 fi
 if [ "$dash_status" != "ok" ]; then
-    notify "dashboard $dash_status" "($DASHBOARD_URL)"
+    notify "dashboard $dash_status" "($DASHBOARD_PAGE_URL — server $DASHBOARD_URL; app_error means the page rendered a traceback)"
 fi
 exit 0
