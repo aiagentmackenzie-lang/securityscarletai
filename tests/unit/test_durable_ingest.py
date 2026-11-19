@@ -505,3 +505,84 @@ class TestApiFailClosed:
         ):
             resp = client.post("/api/v1/ingest", json=[self._payload()])
         assert resp.status_code == 202
+
+
+# ───────────────────────────────────────────────────────────────
+# SS-050 — the MAXLEN eviction bound must be measured, and the docs must
+# not claim "never lost" while the cap can drop un-persisted entries.
+# ───────────────────────────────────────────────────────────────
+
+
+class TestEvictionBoundIsObservable:
+    def test_compute_evicted_from_xinfo(self):
+        from src.ingestion.durable import compute_evicted
+
+        assert compute_evicted({"entries-added": 1000, "length": 900}) == 100
+        assert compute_evicted({"entries-added": 1000, "length": 1000}) == 0
+        # Approximate MAXLEN / ACK-deleted entries never make this negative.
+        assert compute_evicted({"entries-added": 10, "length": 50}) == 0
+
+    def test_compute_evicted_tolerates_junk(self):
+        from src.ingestion.durable import compute_evicted
+
+        assert compute_evicted({}) == 0
+        assert compute_evicted({"entries-added": "n/a", "length": 3}) == 0
+
+    @pytest.mark.asyncio
+    async def test_observe_publishes_the_bound_and_warns(self, monkeypatch):
+        from src.ingestion import durable as d
+
+        monkeypatch.setattr(d, "EVICTED_TOTAL", 0)
+
+        class FakeClient:
+            async def xinfo_stream(self, stream):
+                return {"entries-added": 500, "length": 400}
+
+        cfg = d.DurableIngestConfig(enabled=True, max_stream_length=400)
+        with patch.object(d.log, "warning") as warn:
+            evicted = await d.observe_stream_evictions(FakeClient(), cfg)
+
+        assert evicted == 100
+        assert d.EVICTED_TOTAL == 100
+        assert any(c.args[0] == "durable_stream_events_evicted" for c in warn.call_args_list)
+
+    @pytest.mark.asyncio
+    async def test_observe_does_not_warn_twice_for_the_same_bound(self, monkeypatch):
+        from src.ingestion import durable as d
+
+        monkeypatch.setattr(d, "EVICTED_TOTAL", 100)
+
+        class FakeClient:
+            async def xinfo_stream(self, stream):
+                return {"entries-added": 500, "length": 400}
+
+        cfg = d.DurableIngestConfig(enabled=True, max_stream_length=400)
+        with patch.object(d.log, "warning") as warn:
+            await d.observe_stream_evictions(FakeClient(), cfg)
+        warn.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_observe_never_raises_on_redis_failure(self):
+        from src.ingestion import durable as d
+
+        class BrokenClient:
+            async def xinfo_stream(self, stream):
+                raise ConnectionError("redis gone")
+
+        cfg = d.DurableIngestConfig(enabled=True)
+        await d.observe_stream_evictions(BrokenClient(), cfg)  # must not raise
+
+    def test_docs_state_the_loss_bound_instead_of_never_lost(self):
+        """The claim and the cap must be in the same breath."""
+        from pathlib import Path
+
+        production = Path("docs/PRODUCTION.md").read_text()
+        section = production[production.index("## 8") :]
+        assert "MAXLEN" in section
+        assert "evicted" in section.lower()
+        assert "Nothing is ever silently dropped" not in section
+
+    def test_metric_is_exported(self):
+        from src.api.metrics import durable_stream_evicted
+
+        assert durable_stream_evicted.name.startswith("scarletai_durable_stream_evicted")

@@ -233,6 +233,13 @@ retention_rows_deleted = METRICS.counter(
 retention_errors = METRICS.counter(
     "scarletai_retention_errors_total", "Retention sweep errors, per table."
 )
+# SS-050: the durable stream's MAXLEN bound is a documented tradeoff, so it must
+# be a MEASURED one: entries trimmed out of the stream (upper bound, derived
+# from XINFO STREAM entries-added - length).
+durable_stream_evicted = METRICS.gauge(
+    "scarletai_durable_stream_evicted_total",
+    "Upper-bound count of durable-ingest stream entries trimmed by MAXLEN.",
+)
 
 
 # ───────────────────────────────────────────────────────────────
@@ -284,6 +291,13 @@ def _sync_live_sources() -> None:
             writer_backpressure_total.inc(writer.backpressure_events - synced)
     except Exception as e:  # pragma: no cover — defensive
         log.debug("metrics_writer_source_failed", error=str(e))
+
+    try:
+        from src.ingestion import durable as _durable
+
+        durable_stream_evicted.set(_durable.EVICTED_TOTAL)
+    except Exception as e:  # pragma: no cover — defensive
+        log.debug("metrics_durable_source_failed", error=str(e))
 
     try:
         pool = get_pool_nowait()

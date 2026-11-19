@@ -677,22 +677,31 @@ fails the boot (fail-closed). The consumer starts in the API lifespan.
 - **Delivery becomes at-least-once**: the consumer persists through the
   standard LogWriter and ACKs ONLY after the DB persist (write + flush). A
   crash between enqueue and ACK leaves the entry PENDING — the next
-  consumer pass reclaims it (XAUTOCLAIM after `claim_idle_seconds`), so
-  events are never lost, but a redelivery after a partial persist can
-  duplicate an event (labeled tradeoff vs the old silent loss).
+  consumer pass reclaims it (XAUTOCLAIM after `claim_idle_seconds`), so an
+  entry still present in the stream is not lost; a redelivery after a partial
+  persist can duplicate an event (labeled tradeoff vs the old silent loss).
+  This guarantee does NOT extend to entries evicted at the MAXLEN cap — see
+  the bounded-backlog bullet below.
 - **Fail-closed on Redis outage**: the ingest endpoints refuse with 503
   (the quarantine doctrine shape) while Redis is unavailable — the SIEM
   does not silently degrade to at-most-once while promising durability.
   The consumer itself survives outages (retry/backoff) and recovers
   without a restart.
-- **Bounded backlog**: XADD runs with approximate MAXLEN — at the
-  configured cap the OLDEST un-persisted events are trimmed by Redis. This
-  is a deliberate bound-vs-loss choice; size `max_stream_length` for your
-  worst plausible outage window.
+- **Bounded backlog (a stated loss bound, not "never lost")**: XADD runs with
+  approximate MAXLEN — at the configured cap Redis trims the OLDEST entries,
+  and a trimmed entry that was never persisted is **gone**. This is a
+  deliberate bound-vs-loss choice; size `max_stream_length` for your worst
+  plausible outage window. The bound is observable: the consumer derives
+  trimmed entries from `XINFO STREAM` (`entries-added - length`) and publishes
+  them as `scarletai_durable_stream_evicted_total` plus a
+  `durable_stream_events_evicted` WARN per increase. Treat it as an upper
+  bound (ACKed-and-deleted entries also leave `length`).
 - **Dead-letter preserved**: a payload that cannot parse is moved to
   `dead_letter_stream` (with reason) and ACKed; an entry that exhausts
   `max_deliveries` (Redis's own delivery counter) is dead-lettered the same
-  way. Nothing is ever silently dropped. Inspect with:
+  way. Nothing is silently dropped *by the dead-letter path* — the MAXLEN
+  bound above can still evict un-persisted entries, which is why it is
+  measured. Inspect with:
   `redis-cli XPENDING <stream> <group> - + 10` / `XRANGE <dead_letter> - +`.
 - **Enrichment + correlation**: the enrichment write-back is the SHARED
   builder (`src/enrichment/pipeline.py::write_back_enrichment`) used by

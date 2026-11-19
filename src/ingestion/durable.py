@@ -8,7 +8,18 @@ enabled, an event is XADD'd to a Redis Stream BEFORE the API responds; a
 consumer persists it through the EXISTING LogWriter (same batching, same
 file dead-letter machinery) and ACKs only after the DB persist. A crash
 between enqueue and ACK leaves the entry PENDING in Redis — reclaimed on
-the next consumer pass (XAUTOCLAIM), never lost.
+the next consumer pass (XAUTOCLAIM).
+
+SS-050 — the honest bound: the stream is capped by approximate MAXLEN
+(`max_stream_length`, default 100_000). At the cap Redis TRIMS the oldest
+entries, and a trimmed entry that was never persisted is LOST — the
+crash-recovery guarantee above holds for entries that still exist in the
+stream, not for entries evicted by the cap. "Never lost" was an absolute
+claim this design cannot keep. The bound is observable:
+`observe_stream_evictions` reads XINFO STREAM's `entries-added` vs `length`
+and publishes the difference (`EVICTED_TOTAL` -> the
+`scarletai_durable_stream_evicted_total` metric) plus a WARN log per
+increase, so eviction is a measured event, not a silent one.
 
 Delivery semantics: AT-LEAST-ONCE (the flip side of at-most-once). A crash
 or writer failure after a flush attempt can redeliver an already-persisted
@@ -127,6 +138,61 @@ def load_durable_config(path: Path) -> DurableIngestConfig:
 
 
 # ───────────────────────────────────────────────────────────────
+# SS-050: observable eviction bound (MAXLEN trimming)
+# ───────────────────────────────────────────────────────────────
+
+# Monotonic count of stream entries Redis has trimmed away (entries-added
+# minus current length). The metrics layer mirrors it into
+# scarletai_durable_stream_evicted_total.
+EVICTED_TOTAL = 0
+EVICTION_CHECK_INTERVAL_S = 30.0
+
+
+def compute_evicted(xinfo: dict[str, Any]) -> int:
+    """Entries trimmed by MAXLEN, derived from one XINFO STREAM reply.
+
+    ``entries-added`` counts every XADD ever accepted; ``length`` is what is
+    still in the stream. The difference is an UPPER BOUND on evicted events
+    (approximate MAXLEN trims in whole macro-nodes, and entries ACKed+deleted
+    also leave the length) — reported as a bound, never as an exact loss count.
+    """
+    try:
+        added = int(xinfo.get("entries-added", 0) or 0)
+        length = int(xinfo.get("length", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(added - length, 0)
+
+
+async def observe_stream_evictions(client: Any, cfg: DurableIngestConfig) -> int:
+    """Read XINFO STREAM and publish the eviction bound. Never raises.
+
+    Called periodically by the consumer loop; a Redis hiccup must not affect
+    ingestion, so every failure is logged and swallowed.
+    """
+    global EVICTED_TOTAL
+    try:
+        xinfo = await client.xinfo_stream(cfg.stream)
+    except Exception as e:  # noqa: BLE001 — observability must not break ingest
+        log.debug("durable_eviction_observe_failed", error=str(e))
+        return EVICTED_TOTAL
+    evicted = compute_evicted(xinfo if isinstance(xinfo, dict) else {})
+    if evicted > EVICTED_TOTAL:
+        log.warning(
+            "durable_stream_events_evicted",
+            evicted_total=evicted,
+            delta=evicted - EVICTED_TOTAL,
+            max_stream_length=cfg.max_stream_length,
+            stream=cfg.stream,
+            note=(
+                "MAXLEN trimmed un-persisted events — size max_stream_length for the outage window"
+            ),
+        )
+        EVICTED_TOTAL = evicted
+    return evicted
+
+
+# ───────────────────────────────────────────────────────────────
 # The process-level seam: the ingest path's single persist call
 # ───────────────────────────────────────────────────────────────
 
@@ -229,6 +295,7 @@ class DurableIngest:
             max_stream_length=self.cfg.max_stream_length,
         )
         idle_backoff = 1.0
+        last_eviction_check = 0.0
         while not stop.is_set():
             try:
                 client = await self._client()
@@ -256,6 +323,11 @@ class DurableIngest:
                 for _stream, messages in batch or []:
                     await self._process(client, messages)
                 idle_backoff = 1.0
+                # SS-050: keep the MAXLEN eviction bound observable.
+                now = asyncio.get_running_loop().time()
+                if now - last_eviction_check >= EVICTION_CHECK_INTERVAL_S:
+                    last_eviction_check = now
+                    await observe_stream_evictions(client, self.cfg)
             except Exception as e:  # noqa: BLE001 — the consumer survives Redis outages
                 log.warning("durable_consumer_loop_error", error=str(e))
                 await self._wait(stop, idle_backoff)
@@ -306,7 +378,9 @@ class DurableIngest:
         """Persist a batch THROUGH THE EXISTING WRITER, then ACK — the ACK
         happens only after the DB persist (write + flush). A failure leaves
         the entries pending (redelivered later); after max_deliveries they
-        are dead-lettered (never silently dropped)."""
+        are dead-lettered (nothing is dropped silently by THIS path — the
+        MAXLEN cap can still evict, which `observe_stream_evictions` measures).
+        """
         writer = self._writer_inst()
         to_ack: list = []
         events: list = []
@@ -337,7 +411,8 @@ class DurableIngest:
 
     async def _deadletter(self, client: Any, entry_id: Any, payload: str, reason: str) -> None:
         """Move ONE poisoned entry to the dead-letter stream, then ACK the
-        original (dead-letter PRESERVED, never silently dropped)."""
+        original (the dead-letter copy is preserved; nothing is dropped
+        silently by this path)."""
         try:
             await client.xadd(
                 self.cfg.dead_letter_stream,
