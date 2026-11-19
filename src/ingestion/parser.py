@@ -167,31 +167,46 @@ def parse_osquery_line(raw_line: str) -> Optional[NormalizedEvent]:
     else:
         host_name = "unknown"
 
-    return NormalizedEvent(
-        **{
-            "@timestamp": ts,
-            "host_name": host_name,
-            "event_category": ecs_mapping["event_category"],
-            "event_type": event_type,
-            "event_action": event_action,
-            "source": f"osquery:{table_name}",
-            "user_name": user_name,
-            "process_name": process_name,
-            "process_pid": _safe_int(columns.get("pid")),
-            "process_cmdline": columns.get("cmdline") or columns.get("script_text"),
-            # powershell_events carries the script location as `script_path`
-            # (no `path` column) -- it IS the executing-file path shape.
-            "process_path": columns.get("path") or columns.get("script_path"),
-            "source_ip": source_ip,
-            "destination_ip": _safe_ip(columns.get("remote_address")),
-            "destination_port": _safe_int(columns.get("remote_port") or columns.get("port")),
-            "file_path": (columns.get("path") or columns.get("target_path"))
-            if ecs_mapping["event_category"] == "file"
-            else None,
-            "file_hash": columns.get("sha256") or columns.get("md5"),
-            "raw_data": data,
-        }
-    )
+    try:
+        return NormalizedEvent(
+            **{
+                "@timestamp": ts,
+                "host_name": host_name,
+                "event_category": ecs_mapping["event_category"],
+                "event_type": event_type,
+                "event_action": event_action,
+                "source": f"osquery:{table_name}",
+                "user_name": user_name,
+                "process_name": process_name,
+                "process_pid": _safe_int(columns.get("pid")),
+                "process_cmdline": columns.get("cmdline") or columns.get("script_text"),
+                # powershell_events carries the script location as `script_path`
+                # (no `path` column) -- it IS the executing-file path shape.
+                "process_path": columns.get("path") or columns.get("script_path"),
+                "source_ip": source_ip,
+                "destination_ip": _safe_ip(columns.get("remote_address")),
+                "destination_port": _safe_int(columns.get("remote_port") or columns.get("port")),
+                "file_path": (columns.get("path") or columns.get("target_path"))
+                if ecs_mapping["event_category"] == "file"
+                else None,
+                "file_hash": columns.get("sha256") or columns.get("md5"),
+                "raw_data": data,
+            }
+        )
+    except Exception as e:
+        # SS-013: the "never raises" contract was false at construction. A
+        # non-string column (dict/list/int `user`, `name`, ...) raised pydantic
+        # ValidationError out of this function; /ingest/osquery's bare loop
+        # then 500ed and DROPPED THE WHOLE BATCH (a compromised or buggy fleet
+        # agent could do it on demand). Reject the poison line loudly, keep the
+        # rest of the batch. No coercion: a dict is not a username.
+        log.warning(
+            "parser_event_construction_failed",
+            error=str(e)[:300],
+            table=table_name,
+            line_preview=raw_line[:200],
+        )
+        return None
 
 
 def _windows_event_context(data_raw: Optional[str]) -> tuple[Optional[str], Optional[str]]:

@@ -700,3 +700,30 @@ class TestMissingUnixTime:
         event = parse_osquery_line(json.dumps(data))
         assert event is not None
         assert event.timestamp.year >= 2026
+
+
+class TestParserNeverRaisesOnConstruction:
+    """SS-013: `NormalizedEvent(...)` sat outside any try, so a non-string
+    `user` raised pydantic ValidationError out of the "never raises" parser —
+    `/ingest/osquery` returned 500 and the whole batch was dropped."""
+
+    def test_dict_user_returns_none_not_raise(self):
+        event = parse_osquery_line(_base_line(columns={"pid": "1", "user": {"a": 1}}))
+        assert event is None
+
+    def test_list_user_returns_none_not_raise(self):
+        event = parse_osquery_line(_base_line(columns={"pid": "1", "user": ["a", "b"]}))
+        assert event is None
+
+    def test_numeric_user_returns_none_not_raise(self):
+        event = parse_osquery_line(_base_line(columns={"pid": "1", "user": 1000}))
+        assert event is None
+
+    def test_dict_process_name_returns_none_not_raise(self):
+        event = parse_osquery_line(_base_line(columns={"pid": "1", "name": {"x": 1}}))
+        assert event is None
+
+    def test_good_line_after_poison_line_still_parses(self):
+        poison = _base_line(columns={"pid": "1", "user": {"a": 1}})
+        assert parse_osquery_line(poison) is None
+        assert parse_osquery_line(_base_line()) is not None
