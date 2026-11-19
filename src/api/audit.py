@@ -48,10 +48,16 @@ async def log_audit_action(
     M-22 "raise RuntimeError" fix was wrong — a successful case/rule mutation
     would 500 (and a client retry would duplicate it) whenever audit_log was
     unavailable. Failures are logged and swallowed.
+
+    SS-046: the pool acquisition sits INSIDE the guard. `get_pool()` raises
+    during a DB outage and `pool.acquire()` raises on pool exhaustion; both
+    happen before any INSERT, so leaving them outside the `try` made the
+    "never raises" contract false exactly when the DB was unhealthy — the
+    worst possible moment to 500 a mutation that had already committed.
     """
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        try:
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
             audit_id = await conn.fetchval(
                 """
                 INSERT INTO audit_log
@@ -67,23 +73,26 @@ async def log_audit_action(
                 json.dumps(new_values, default=str) if new_values else None,
                 ip_address,
             )
-            log.info(
-                "audit_action",
-                actor=actor,
-                action=action,
-                target_type=target_type,
-                target_id=target_id,
-            )
-            return cast(Optional[int], audit_id)
-        except Exception as e:
-            log.error(
-                "audit_log_failed",
-                actor=actor,
-                action=action,
-                error=str(e),
-            )
-            # P2-23: do NOT raise — audit must never break a successful mutation.
-            return None
+    except Exception as e:
+        log.error(
+            "audit_log_failed",
+            actor=actor,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
+            error=str(e),
+        )
+        # P2-23/SS-046: do NOT raise — audit must never break a successful mutation.
+        return None
+
+    log.info(
+        "audit_action",
+        actor=actor,
+        action=action,
+        target_type=target_type,
+        target_id=target_id,
+    )
+    return cast(Optional[int], audit_id)
 
 
 # ───────────────────────────────────────────────────────────────
