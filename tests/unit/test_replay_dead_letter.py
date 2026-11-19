@@ -3,7 +3,7 @@
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -47,18 +47,17 @@ class TestReplayFile:
             + "\n"
         )
 
-        # Stub the writer so no DB is needed.
-        writer = MagicMock()
-        writer.write = AsyncMock()
-        writer.flush = AsyncMock()
-        monkeypatch.setattr(mod, "writer", writer)
+        # Stub the per-row persist so no DB is needed (SS-040: replay writes
+        # row-by-row through build_rows/insert_rows, not the buffered writer).
+        persist = AsyncMock()
+        monkeypatch.setattr(mod, "_persist_event", persist)
 
-        replayed, skipped = await mod.replay_file(f)
+        replayed, skipped, quarantined = await mod.replay_file(f)
 
         assert replayed == 3
         assert skipped == 1
-        assert writer.write.await_count == 3
-        writer.flush.assert_awaited()
+        assert quarantined == 0
+        assert persist.await_count == 3
 
     @pytest.mark.asyncio
     async def test_replay_all_moves_processed_files(self, tmp_path: Path, monkeypatch):
@@ -69,12 +68,7 @@ class TestReplayFile:
         f = dl_dir / "2026-08-26.jsonl"
         f.write_text(_dead_letter_line(10) + "\n" + _dead_letter_line(11) + "\n")
 
-        writer = MagicMock()
-        writer.write = AsyncMock()
-        writer.flush = AsyncMock()
-        writer.start = AsyncMock()
-        writer.stop = AsyncMock()
-        monkeypatch.setattr(mod, "writer", writer)
+        monkeypatch.setattr(mod, "_persist_event", AsyncMock())
         monkeypatch.setattr(mod, "get_pool", AsyncMock())
         monkeypatch.setattr(mod, "close_pool", AsyncMock())
         # Point the module's dirs at the temp dir.
@@ -96,7 +90,13 @@ class TestReplayFile:
 
         monkeypatch.setattr(mod, "get_pool", AsyncMock())
         summary = await mod.replay_all(tmp_path / "does_not_exist")
-        assert summary == {"found": 0, "files": 0, "replayed": 0, "skipped": 0}
+        assert summary == {
+            "found": 0,
+            "files": 0,
+            "replayed": 0,
+            "skipped": 0,
+            "quarantined": 0,
+        }
 
     def test_main_exits_1_when_files_existed_but_nothing_replayed(self, monkeypatch):
         """W5-I: dead-letter files present but nothing re-ingested (all
@@ -107,7 +107,15 @@ class TestReplayFile:
         monkeypatch.setattr(
             mod,
             "replay_all",
-            AsyncMock(return_value={"found": 2, "files": 1, "replayed": 0, "skipped": 3}),
+            AsyncMock(
+                return_value={
+                    "found": 2,
+                    "files": 1,
+                    "replayed": 0,
+                    "skipped": 3,
+                    "quarantined": 0,
+                }
+            ),
         )
         with pytest.raises(SystemExit) as exc:
             mod.main()
@@ -119,7 +127,15 @@ class TestReplayFile:
         monkeypatch.setattr(
             mod,
             "replay_all",
-            AsyncMock(return_value={"found": 0, "files": 0, "replayed": 0, "skipped": 0}),
+            AsyncMock(
+                return_value={
+                    "found": 0,
+                    "files": 0,
+                    "replayed": 0,
+                    "skipped": 0,
+                    "quarantined": 0,
+                }
+            ),
         )
         with pytest.raises(SystemExit) as exc:
             mod.main()
@@ -131,7 +147,15 @@ class TestReplayFile:
         monkeypatch.setattr(
             mod,
             "replay_all",
-            AsyncMock(return_value={"found": 1, "files": 1, "replayed": 5, "skipped": 0}),
+            AsyncMock(
+                return_value={
+                    "found": 1,
+                    "files": 1,
+                    "replayed": 5,
+                    "skipped": 0,
+                    "quarantined": 0,
+                }
+            ),
         )
         with pytest.raises(SystemExit) as exc:
             mod.main()
