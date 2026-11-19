@@ -8,6 +8,41 @@ fix was re-verified against `4ad5f21` before any code changed, and every S2 fix
 carries a regression test that fails on the old code. Public behaviour changes
 an operator sees:**
 
+### Wave E — DB scope / MCP / compliance
+
+- **Grant verification sees inherited privileges (SS-036/SS-037):** both
+  `check_audit_grants --strict` and the MCP `verify_scoped_role` now use
+  `has_table_privilege` + `pg_auth_members` instead of a `grantee =` filter on
+  `information_schema`. A role with direct INSERT/SELECT plus an inherited
+  UPDATE/DELETE passed the old checks while the UPDATE really succeeded —
+  the append-only audit claim was unverified in exactly the misconfiguration
+  it exists to catch. Ownership by the app role and a missing audit table also
+  fail closed.
+- **The MCP role's read scope is closed (SS-056 verifier half):** any SELECT
+  outside the tool contract is a violation, so a table the owner creates later
+  is detected instead of silently readable. **The provisioning half (dropping
+  the blanket `ALTER DEFAULT PRIVILEGES`) is deliberately not applied — it
+  needs owner approval; see the note in `scripts/provision_readonly.sql`.**
+- **MCP rejects non-object params (SS-055):** positional array params (valid
+  JSON-RPC) returned 500; they now return `INVALID_PARAMS`.
+- **MCP tool errors stop leaking internals (SS-039):** a generic message plus a
+  correlation id replaces DB/planner error text.
+- **Approval requires a rollback note (SS-038/SS-058):** `POST
+  /response/actions/{id}/approve` refuses with 400 when the action has no
+  rollback note (audited), and the approval audit row records the note. The
+  documented "no way back, no approval" invariant is now enforced.
+- **Webhooks require HTTPS (SS-057):** `http://` destinations are dropped at
+  parse time and refused at send time; loopback and an explicit
+  `allow_insecure_http: true` opt-in are the only exceptions.
+- **Evidence packs include request-level receipts (SS-062):** the second audit
+  chain (`audit_logs`) is represented with an explicit, stated scope, and the
+  docstring no longer promises a correlation fallback the code never had.
+- **`PATCH /alerts/{id}` works again (SS-065, found by this campaign's
+  real-Postgres test):** `update_alert_status` used `$1` as both an
+  `alert_status` value and inside a text `IN` list; PostgreSQL refused the
+  statement with "inconsistent types deduced for parameter $1", so every
+  status update 500ed. Explicit casts fix it.
+
 ### Wave D — detection correctness
 
 - **Alert dedup is actually serialized (SS-018):** `create_alert` ran
