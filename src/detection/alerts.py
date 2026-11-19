@@ -302,6 +302,26 @@ async def _is_suppressed(conn, rule_name: str, host_name: str, severity: str) ->
     return row is not None
 
 
+def _timeline_note_param(author: str, text: str, detail: str | None = None) -> str:
+    """JSON array of one timeline entry, for use in a bulk UPDATE.
+
+    SS-048: bulk dispositions write the same timeline entry shape as
+    `_add_note`, but in a single statement over an id array (and therefore in
+    the same transaction as the status change) instead of one round-trip per
+    alert.
+    """
+    full = f"{text} — {detail}" if detail else text
+    return json.dumps(
+        [
+            {
+                "author": author,
+                "text": full,
+                "time": datetime.now(timezone.utc).isoformat(),
+            }
+        ]
+    )
+
+
 async def _add_note(conn, alert_id: int, author: str, text: str) -> None:
     """Add a note/timeline entry to an alert."""
     await conn.execute(
@@ -428,27 +448,47 @@ async def bulk_acknowledge(alert_ids: list[int], assigned_to: str) -> int:
 
 
 async def bulk_mark_false_positive(
-    alert_ids: list[int], note: str = "Marked as false positive"
-) -> int:
-    """Mark multiple alerts as false positive."""
+    alert_ids: list[int],
+    note: str = "Marked as false positive",
+    updated_by: str = "system",
+) -> list[int]:
+    """Mark multiple alerts as false positive.
+
+    SS-048: the operator's note is persisted (`resolution_note`) and appended
+    to each alert's timeline, and the affected ids are returned so the caller
+    can write one action-level audit row naming the alerts and the rationale.
+    Before this, the note survived only in an INFO log line and the disposition
+    was unauditable.
+    """
     if not alert_ids:
-        return 0
+        return []
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        result = await conn.execute(
+        rows = await conn.fetch(
             """
             UPDATE alerts
             SET status = 'false_positive',
                 resolved_at = NOW(),
+                resolution_note = $2,
+                notes = COALESCE(notes, '[]'::jsonb) || $3::jsonb,
                 updated_at = NOW()
             WHERE id = ANY($1::int[]) AND status NOT IN ('resolved', 'closed')
+            RETURNING id
             """,
             alert_ids,
+            note,
+            _timeline_note_param(updated_by, "Status changed to: false_positive", note),
         )
-        count = int(result.split()[-1])
-        log.info("bulk_false_positive", count=count, note=note)
-        return count
+        affected = [int(r["id"]) for r in rows]
+        log.info(
+            "bulk_false_positive",
+            count=len(affected),
+            note=note,
+            alert_ids=affected,
+            by=updated_by,
+        )
+        return affected
 
 
 async def bulk_assign(alert_ids: list[int], assigned_to: str) -> int:
@@ -472,26 +512,47 @@ async def bulk_assign(alert_ids: list[int], assigned_to: str) -> int:
         return count
 
 
-async def bulk_resolve(alert_ids: list[int], resolution_note: str = "Bulk resolved") -> int:
-    """Resolve multiple alerts at once."""
+async def bulk_resolve(
+    alert_ids: list[int],
+    resolution_note: str = "Bulk resolved",
+    updated_by: str = "system",
+) -> list[int]:
+    """Resolve multiple alerts at once.
+
+    SS-048: persists `resolution_note`, appends a timeline entry per alert and
+    returns the affected ids for the action-level audit row. The note used to
+    be discarded (log line only), so a 1000-alert bulk resolve had no recorded
+    rationale anywhere in the database.
+    """
     if not alert_ids:
-        return 0
+        return []
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        result = await conn.execute(
+        rows = await conn.fetch(
             """
             UPDATE alerts
             SET status = 'resolved',
                 resolved_at = NOW(),
+                resolution_note = $2,
+                notes = COALESCE(notes, '[]'::jsonb) || $3::jsonb,
                 updated_at = NOW()
             WHERE id = ANY($1::int[]) AND status NOT IN ('resolved', 'closed')
+            RETURNING id
             """,
             alert_ids,
+            resolution_note,
+            _timeline_note_param(updated_by, "Status changed to: resolved", resolution_note),
         )
-        count = int(result.split()[-1])
-        log.info("bulk_resolve", count=count, note=resolution_note)
-        return count
+        affected = [int(r["id"]) for r in rows]
+        log.info(
+            "bulk_resolve",
+            count=len(affected),
+            note=resolution_note,
+            alert_ids=affected,
+            by=updated_by,
+        )
+        return affected
 
 
 # ───────────────────────────────────────────────────────────────

@@ -315,7 +315,9 @@ class TestBulkMarkFalsePositive:
     @pytest.mark.asyncio
     async def test_bulk_false_positive(self):
         mock_conn = AsyncMock()
-        mock_conn.execute = AsyncMock(return_value="UPDATE 2")
+        # SS-048: the UPDATE returns the affected ids so the note/audit trail
+        # can name them.
+        mock_conn.fetch = AsyncMock(return_value=[{"id": 4}, {"id": 5}])
 
         class AsyncCtx:
             async def __aenter__(self):
@@ -329,12 +331,12 @@ class TestBulkMarkFalsePositive:
 
         with patch("src.detection.alerts.get_pool", AsyncMock(return_value=mock_pool)):
             result = await bulk_mark_false_positive([4, 5])
-            assert result == 2
+            assert result == [4, 5]
 
     @pytest.mark.asyncio
     async def test_bulk_false_positive_empty(self):
         result = await bulk_mark_false_positive([])
-        assert result == 0
+        assert result == []
 
 
 class TestBulkAssign:
@@ -362,7 +364,7 @@ class TestBulkResolve:
     @pytest.mark.asyncio
     async def test_bulk_resolve(self):
         mock_conn = AsyncMock()
-        mock_conn.execute = AsyncMock(return_value="UPDATE 4")
+        mock_conn.fetch = AsyncMock(return_value=[{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}])
 
         class AsyncCtx:
             async def __aenter__(self):
@@ -376,7 +378,7 @@ class TestBulkResolve:
 
         with patch("src.detection.alerts.get_pool", AsyncMock(return_value=mock_pool)):
             result = await bulk_resolve([1, 2, 3, 4], "Resolved by bulk operation")
-            assert result == 4
+            assert result == [1, 2, 3, 4]
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

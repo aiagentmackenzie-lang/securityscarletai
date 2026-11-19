@@ -507,8 +507,20 @@ async def bulk_false_positive_alerts(
     user: str = Depends(require_role("analyst")),
 ):
     """Mark multiple alerts as false positive."""
-    count = await bulk_mark_false_positive(op.alert_ids, op.note or "Bulk marked as FP")
-    return {"marked_false_positive": count, "alert_ids": op.alert_ids}
+    from src.api.audit import log_audit_action
+
+    note = op.note or "Bulk marked as FP"
+    affected = await bulk_mark_false_positive(op.alert_ids, note, updated_by=user)
+    # SS-048: the disposition is a governance action — record who decided what,
+    # for which alerts, with the rationale. The HTTP request audit row only
+    # stores the path and a body hash.
+    await log_audit_action(
+        actor=user,
+        action="alert.bulk_false_positive",
+        target_type="alert",
+        new_values={"alert_ids": affected, "note": note},
+    )
+    return {"marked_false_positive": len(affected), "alert_ids": op.alert_ids}
 
 
 @router.post("/bulk/assign")
@@ -529,8 +541,17 @@ async def bulk_resolve_alerts(
     user: str = Depends(require_role("analyst")),
 ):
     """Resolve multiple alerts at once."""
-    count = await bulk_resolve(op.alert_ids, op.note or "Bulk resolved")
-    return {"resolved": count, "alert_ids": op.alert_ids}
+    from src.api.audit import log_audit_action
+
+    note = op.note or "Bulk resolved"
+    affected = await bulk_resolve(op.alert_ids, note, updated_by=user)
+    await log_audit_action(
+        actor=user,
+        action="alert.bulk_resolve",
+        target_type="alert",
+        new_values={"alert_ids": affected, "note": note},
+    )
+    return {"resolved": len(affected), "alert_ids": op.alert_ids}
 
 
 # ───────────────────────────────────────────────────────────────

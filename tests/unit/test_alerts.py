@@ -122,15 +122,15 @@ class TestBulkOperations:
 
     @pytest.mark.asyncio
     async def test_bulk_mark_fp_empty(self):
-        """Bulk false positive with empty list should return 0."""
+        """Bulk false positive with empty list touches nothing (SS-048: returns ids)."""
         result = await bulk_mark_false_positive([])
-        assert result == 0
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_bulk_resolve_empty(self):
-        """Bulk resolve with empty list should return 0."""
+        """Bulk resolve with empty list touches nothing (SS-048: returns ids)."""
         result = await bulk_resolve([])
-        assert result == 0
+        assert result == []
 
 
 class TestAlertExport:

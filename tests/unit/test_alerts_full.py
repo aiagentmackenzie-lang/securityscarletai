@@ -376,7 +376,7 @@ class TestBulkOperations:
     async def test_bulk_false_positive(self):
         from src.api.alerts import bulk_false_positive_alerts
 
-        with patch("src.api.alerts.bulk_mark_false_positive", AsyncMock(return_value=3)):
+        with patch("src.api.alerts.bulk_mark_false_positive", AsyncMock(return_value=[1, 2, 3])):
             op = BulkOperation(alert_ids=[1, 2, 3])
             result = await bulk_false_positive_alerts(op=op, user="analyst1")
 
@@ -386,7 +386,7 @@ class TestBulkOperations:
     async def test_bulk_resolve(self):
         from src.api.alerts import bulk_resolve_alerts
 
-        with patch("src.api.alerts.bulk_resolve", AsyncMock(return_value=4)):
+        with patch("src.api.alerts.bulk_resolve", AsyncMock(return_value=[1, 2, 3, 4])):
             op = BulkOperation(alert_ids=[1, 2, 3, 4])
             result = await bulk_resolve_alerts(op=op, user="analyst1")
 
