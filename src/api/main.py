@@ -409,9 +409,11 @@ async def lifespan(app: FastAPI):
     await stop_retention_scheduler()
 
     # P2-12: close the MaxMind GeoIP reader handle on shutdown.
-    from src.enrichment.pipeline import close_geoip_reader
+    from src.enrichment.pipeline import close_geoip_reader, shutdown_dns_executor
 
     close_geoip_reader()
+    # SS-060: release the reverse-DNS thread pool too — it was never shut down.
+    shutdown_dns_executor()
 
     # W2.2: stop the durable consumer (if it was started) BEFORE the writer —
     # AUD-019: the code had drifted (writer stopped first); the comment's

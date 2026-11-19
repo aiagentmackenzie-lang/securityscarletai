@@ -95,7 +95,8 @@ class TestFleetEnrollment:
         from src.api.fleet import EnrollRequest, enroll_host
 
         pool, conn = _mock_pool()
-        conn.fetchval.return_value = None  # fresh host, not a rotation
+        # SS-059: one atomic upsert; xmax=0 means "inserted" (fresh host).
+        conn.fetchval.return_value = False
         with (
             patch("src.api.fleet.get_pool", AsyncMock(return_value=pool)),
             patch("src.api.fleet.log_audit_action", AsyncMock(return_value=1)),
@@ -108,26 +109,28 @@ class TestFleetEnrollment:
         assert token
         # stored value = sha256(token) hex; plaintext NEVER persisted
         expected = hashlib.sha256(token.encode()).hexdigest()
-        args, kwargs = conn.execute.call_args
+        args, kwargs = conn.fetchval.call_args
         flat = " ".join([str(a) for a in args] + [str(v) for v in kwargs.values()])
         assert expected in flat
         assert token not in flat
-        assert conn.execute.await_count == 1  # INSERT path
+        assert "ON CONFLICT (host_name) DO UPDATE" in str(args[0])
+        conn.execute.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_reenroll_rotates(self):
         from src.api.fleet import EnrollRequest, enroll_host
 
         pool, conn = _mock_pool()
-        conn.fetchval.return_value = 1  # existing enrollment -> rotation
+        conn.fetchval.return_value = True  # existing enrollment -> rotation
         with (
             patch("src.api.fleet.get_pool", AsyncMock(return_value=pool)),
             patch("src.api.fleet.log_audit_action", AsyncMock(return_value=1)),
         ):
             resp = await enroll_host(EnrollRequest(host_name="s1"), ADMIN)
         assert resp.rotated is True
-        # the UPDATE path fired, not the INSERT
-        assert "UPDATE fleet_enrollments" in conn.execute.call_args.args[0]
+        # SS-059: one upsert carries both paths; the rotation branch is
+        # ON CONFLICT DO UPDATE.
+        assert "ON CONFLICT (host_name) DO UPDATE" in str(conn.fetchval.call_args.args[0])
 
 
 class TestFleetPlatform:
@@ -152,7 +155,7 @@ class TestFleetPlatform:
                 EnrollRequest(host_name="win-fleet-01", platform="windows"), ADMIN
             )
         assert resp.platform == "windows"
-        flat = " ".join(str(a) for a in conn.execute.call_args.args)
+        flat = " ".join(str(a) for a in conn.fetchval.call_args.args)
         assert "windows" in flat
 
     @pytest.mark.asyncio

@@ -21,7 +21,17 @@ log = get_logger("compliance.frameworks")
 
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "compliance_mappings.yaml"
 
-VALID_OBJECTIVES = {"A", "B", "C", "D"}
+# SS-061: the accepted objective vocabulary. The constant existed but was never
+# consulted; it also under-described the shipped data (the NIST CSF controls use
+# GOVERN/IDENTIFY/... with a "(GV)" suffix). An objective outside this set is
+# dropped with a warning rather than displayed as if the framework said it.
+VALID_OBJECTIVES = frozenset({"A", "B", "C", "D"})
+_NIST_CSF_OBJECTIVES = frozenset({"GOVERN", "IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"})
+
+
+def _objective_token(value: str) -> str:
+    """Normalize an objective for validation ('GOVERN (GV)' -> 'GOVERN')."""
+    return value.strip().split(" (")[0].strip().upper()
 
 
 def parse_frameworks_document(document: Any) -> dict:
@@ -69,8 +79,22 @@ def parse_frameworks_document(document: Any) -> dict:
                 "requirement": str(requirement),
                 "surface": str(surface),
             }
-            if entry.get("objective"):
-                control["objective"] = str(entry["objective"])
+            objective = entry.get("objective")
+            if objective:
+                # SS-061: VALID_OBJECTIVES existed but was never consulted, so
+                # a typo'd objective appeared in the compliance view as if
+                # valid. Unknown objectives are dropped (and logged) rather
+                # than displayed as a claim the framework does not make.
+                token = _objective_token(str(objective))
+                if token in VALID_OBJECTIVES or token in _NIST_CSF_OBJECTIVES:
+                    control["objective"] = str(objective).strip()
+                else:
+                    log.warning(
+                        "compliance_mapping_unknown_objective_dropped",
+                        framework=str(fw_id),
+                        control=str(cid),
+                        objective=str(objective)[:16],
+                    )
             if entry.get("principle"):
                 control["principle"] = str(entry["principle"])
             if entry.get("evidence"):

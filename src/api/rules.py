@@ -7,6 +7,7 @@ CRUD operations for Sigma detection rules.
 from datetime import timedelta
 from typing import List, Optional
 
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
@@ -152,28 +153,36 @@ async def create_rule(
     _refuse_fail_safe_rule(rule.sigma_yaml)
 
     pool = await get_pool()
-    async with pool.acquire() as conn:
-        rule_id = await conn.fetchval(
-            """
-            INSERT INTO rules (
-                name, description, sigma_yaml, severity, enabled,
-                run_interval, lookback, threshold, mitre_tactics, mitre_techniques
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            RETURNING id
-            """,
-            rule.name,
-            rule.description,
-            rule.sigma_yaml,
-            rule.severity,
-            rule.enabled,
-            timedelta(seconds=rule.run_interval),
-            timedelta(seconds=rule.lookback),
-            rule.threshold,
-            parsed.mitre_tactics,
-            parsed.mitre_techniques,
-        )
+    try:
+        async with pool.acquire() as conn:
+            rule_id = await conn.fetchval(
+                """
+                INSERT INTO rules (
+                    name, description, sigma_yaml, severity, enabled,
+                    run_interval, lookback, threshold, mitre_tactics, mitre_techniques
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                RETURNING id
+                """,
+                rule.name,
+                rule.description,
+                rule.sigma_yaml,
+                rule.severity,
+                rule.enabled,
+                timedelta(seconds=rule.run_interval),
+                timedelta(seconds=rule.lookback),
+                rule.threshold,
+                parsed.mitre_tactics,
+                parsed.mitre_techniques,
+            )
+    except asyncpg.UniqueViolationError:
+        # SS-064: rules.name is UNIQUE; the violation escaped as a 500 while
+        # the users/fleet endpoints already translated uniqueness to 409.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"a rule named '{rule.name}' already exists",
+        ) from None
 
-        log.info("rule_created", rule_id=rule_id, name=rule.name, user=user.get("sub"))
+    log.info("rule_created", rule_id=rule_id, name=rule.name, user=user.get("sub"))
 
     # W4-E: audit + scheduler reload + the re-fetch each acquire their own
     # pool connection — they run OUTSIDE the acquire block (hold-one-need-two

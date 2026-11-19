@@ -58,6 +58,25 @@ class NormalizedEvent(BaseModel):
     # Severity for alerting
     severity: Optional[str] = None  # info, low, medium, high, critical
 
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _timestamp_must_be_aware(cls, v: Any) -> Any:
+        """SS-063: refuse a naive `@timestamp`.
+
+        asyncpg binds a naive datetime to timestamptz through the process-local
+        timezone, so an ingested `"@timestamp": "2026-11-18T12:00:00"` was
+        interpreted in HOST local time (Europe/London) instead of UTC — a
+        silent offset that shifted every windowed detection. The API boundary
+        refuses it; a producer must state its offset (or use ...Z). The
+        osquery parser always produces aware datetimes.
+        """
+        if isinstance(v, datetime) and (v.tzinfo is None or v.utcoffset() is None):
+            raise ValueError(
+                "@timestamp must include a timezone offset (e.g. 2026-11-18T12:00:00Z); "
+                "a naive value would be interpreted in the server's local timezone"
+            )
+        return v
+
     @field_validator("host_ip", "source_ip", "destination_ip", mode="before")
     @classmethod
     def _empty_ip_to_none(cls, v: Any) -> Any:

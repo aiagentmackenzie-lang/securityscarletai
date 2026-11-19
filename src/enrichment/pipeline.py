@@ -87,6 +87,24 @@ def close_geoip_reader():
     _geoip_last_attempt = 0.0
 
 
+def shutdown_dns_executor() -> None:
+    """Shut down the module-level reverse-DNS executor (SS-060).
+
+    The executor was created lazily and never shut down, so pending lookups
+    could hold threads after lifespan teardown and delay process exit. Idempotent.
+    """
+    global _dns_executor
+    executor = _dns_executor
+    _dns_executor = None
+    if executor is None:
+        return
+    try:
+        executor.shutdown(wait=False, cancel_futures=True)
+        log.info("dns_executor_shutdown")
+    except Exception as e:  # pragma: no cover — best effort on shutdown
+        log.debug("dns_executor_shutdown_failed", error=str(e))
+
+
 def is_public_ip(ip_str: str | None) -> bool:
     """Check if an IP is routable (not private, loopback, or link-local)."""
     if not ip_str:

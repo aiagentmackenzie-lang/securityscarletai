@@ -132,36 +132,32 @@ async def enroll_host(
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        existing = await conn.fetchval("SELECT 1 FROM fleet_enrollments WHERE host_name = $1", host)
-        if existing:
-            await conn.execute(
-                """
-                UPDATE fleet_enrollments
-                   SET token_hash = $2, enrolled_by = $3,
-                       enrolled_at = NOW(), revoked_at = NULL,
-                       platform = $4, notes = $5
-                 WHERE host_name = $1
-                """,
-                host,
-                token_hash,
-                actor,
-                platform,
-                body.notes,
-            )
-        else:
-            await conn.execute(
-                """
-                INSERT INTO fleet_enrollments (host_name, token_hash, enrolled_by, notes, platform)
-                VALUES ($1, $2, $3, $4, $5)
-                """,
-                host,
-                token_hash,
-                actor,
-                body.notes,
-                platform,
-            )
+        # SS-059: this used to be SELECT-then-INSERT/UPDATE. Two concurrent
+        # enrollments for the same NEW host both saw "no row" and one raised
+        # UniqueViolationError -> 500 instead of an idempotent rotate. One
+        # upsert is atomic; `rotated` tells the operator which path ran.
+        was_update = await conn.fetchval(
+            """
+            INSERT INTO fleet_enrollments
+                (host_name, token_hash, enrolled_by, notes, platform)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (host_name) DO UPDATE
+               SET token_hash = EXCLUDED.token_hash,
+                   enrolled_by = EXCLUDED.enrolled_by,
+                   enrolled_at = NOW(),
+                   revoked_at = NULL,
+                   platform = EXCLUDED.platform,
+                   notes = EXCLUDED.notes
+            RETURNING (xmax <> 0) AS was_update
+            """,
+            host,
+            token_hash,
+            actor,
+            body.notes,
+            platform,
+        )
 
-    rotated = bool(existing)
+    rotated = bool(was_update)
     await log_audit_action(
         actor=actor,
         action="fleet.rotate" if rotated else "fleet.enroll",
